@@ -137,7 +137,7 @@ export class GooglePlacesProvider implements PlacesProvider {
           googleMapsUri:
             place.googleMapsUri ??
             `https://www.google.com/maps/search/?api=1&query_place_id=${encodeURIComponent(placeId)}`,
-          seedCategory,
+          seedCategories: [seedCategory],
         },
       ]
     })

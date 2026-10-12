@@ -36,7 +36,7 @@ export const MOMENTS = {
   lunch: tag('Almuerzo', 'Lunch', ['almorzar', 'almuerzo', 'mediodía'], ['lunch', 'midday']),
   afternoon_snack: tag('Merienda', 'Afternoon snack', ['merendar', 'merienda'], ['afternoon tea', 'afternoon snack', 'tea time'], 'Late-afternoon coffee and pastries, a Uruguayan ritual'),
   dinner: tag('Cena', 'Dinner', ['cenar', 'cena', 'comer de noche'], ['dinner', 'supper']),
-  drinks: tag('Tomar algo', 'Drinks', ['tomar algo', 'salir a tomar', 'copas'], ['drinks', 'grab a drink', 'happy hour']),
+  drinks: tag('Tomar algo', 'Drinks', ['tomar algo', 'salir a tomar', 'copas'], ['drinks', 'grab a drink']),
   late_night: tag('Trasnoche', 'Late night', ['trasnoche', 'abierto hasta tarde', 'madrugada'], ['late night', 'open late', 'after midnight']),
 } satisfies TagGroup
 
@@ -76,7 +76,8 @@ export const FOODS = {
   tarts: tag('Tartas', 'Savory tarts', ['tarta', 'tartas', 'pascualina'], ['savory tart', 'quiche']),
   tortilla: tag('Tortillas', 'Spanish omelette', ['tortilla', 'tortilla de papas'], ['tortilla', 'spanish omelette', 'potato omelette']),
   salads: tag('Ensaladas', 'Salads', ['ensalada', 'ensaladas', 'comida liviana', 'saludable'], ['salad', 'salads', 'healthy', 'light food']),
-  picada: tag('Picada', 'Picada', ['picada', 'picadita', 'tabla', 'tablas', 'platitos', 'para compartir', 'fiambres y quesos', 'quesos'], ['charcuterie', 'sharing board', 'cheese board', 'tapas', 'small plates', 'to share'], 'Sharing board of cold cuts, cheeses and snacks'),
+  picada: tag('Picada', 'Picada', ['picada', 'picadita', 'tabla', 'tablas', 'para compartir', 'fiambres y quesos', 'quesos'], ['charcuterie', 'sharing board', 'cheese board', 'to share'], 'Sharing board of cold cuts, cheeses and snacks'),
+  tapas: tag('Tapas y platitos', 'Tapas and small plates', ['tapas', 'platitos', 'platos pequeños', 'para picar'], ['tapas', 'small plates']),
   desserts: tag('Postres', 'Desserts', ['postre', 'postres', 'torta', 'tortas', 'chajá', 'martín fierro', 'mousse'], ['dessert', 'desserts', 'cake', 'sweets', 'mousse']),
   ice_cream: tag('Helados', 'Ice cream', ['helado', 'helados', 'gelato'], ['ice cream', 'gelato']),
   pastries: tag('Panificados', 'Pastries', ['medialunas', 'bizcochos', 'croissant', 'facturas', 'masas'], ['pastries', 'croissants', 'baked goods'], 'Bizcochos are Uruguayan breakfast pastries'),
@@ -101,15 +102,20 @@ export const DRINKS = {
 
 export const FEATURES = {
   terrace: tag('Terraza', 'Terrace', ['terraza', 'azotea'], ['terrace', 'rooftop']),
-  sidewalk: tag('Mesas en la vereda', 'Sidewalk tables', ['mesas afuera', 'mesas en la vereda', 'vereda', 'afuera', 'al aire libre'], ['sidewalk', 'outdoor seating', 'outside tables', 'street-side tables']),
+  sidewalk: tag('Mesas en la vereda', 'Sidewalk tables', ['mesas en la vereda', 'vereda'], ['sidewalk', 'outside tables', 'street-side tables']),
+  outdoor: tag('Al aire libre', 'Outdoor seating', ['mesas afuera', 'al aire libre', 'exterior'], ['outdoor seating']),
   patio: tag('Patio', 'Patio', ['patio', 'jardín', 'patio interno'], ['patio', 'garden', 'courtyard']),
   sea_view: tag('Vista al mar', 'Sea view', ['vista al mar', 'frente a la rambla', 'sobre la rambla', 'vista al río'], ['sea view', 'ocean view', 'waterfront', 'rambla']),
   live_music: tag('Música en vivo', 'Live music', ['música en vivo', 'bandas', 'bandas en vivo', 'shows', 'toques', 'jazz en vivo'], ['live music', 'live band', 'gigs', 'live jazz']),
   dj: tag('DJ', 'DJ', ['dj', 'djs', 'dj set', 'con dj'], ['dj', 'djs', 'dj set']),
   vinyl: tag('Vinilos', 'Vinyl', ['vinilos', 'discos', 'listening bar'], ['vinyl', 'records', 'listening bar', 'hi-fi bar']),
   karaoke: tag('Karaoke', 'Karaoke', ['karaoke'], ['karaoke']),
+  shop: tag('Tienda', 'Shop', ['bazar', 'tienda', 'boutique', 'venta de productos'], ['shop', 'store', 'boutique']),
+  events: tag('Eventos', 'Events', ['eventos', 'talleres', 'charlas', 'actividades culturales', 'ciclos'], ['workshops', 'events']),
+  books: tag('Libros', 'Books', ['libros', 'librería', 'biblioteca', 'para leer'], ['books']),
+  dancing: tag('Para bailar', 'Dancing', ['para bailar', 'funciona como boliche', 'pista de baile'], ['dancing']),
   board_games: tag('Juegos de mesa', 'Board games', ['juegos de mesa', 'juegos'], ['board games', 'games']),
-  sports_screens: tag('Pantallas para fútbol', 'Sports on TV', ['ver fútbol', 'ver el partido', 'pantallas', 'pantalla gigante'], ['sports bar', 'watch football', 'watch the game', 'big screen']),
+  watch_football: tag('Pantallas para fútbol', 'Sports on TV', ['ver fútbol', 'ver el partido', 'pantallas', 'pantalla gigante'], ['sports bar', 'watch football', 'watch the game', 'big screen']),
   pool_table: tag('Pool y metegol', 'Pool and foosball', ['pool', 'metegol', 'billar'], ['pool table', 'billiards', 'foosball']),
   kids_area: tag('Espacio para niños', 'Kids area', ['espacio para niños', 'juegos para niños'], ['kids area', 'kid friendly', 'playground']),
   wifi: tag('Wifi', 'Wifi', ['wifi', 'internet'], ['wifi', 'wi-fi', 'internet']),
@@ -118,16 +124,28 @@ export const FEATURES = {
   accessible: tag('Accesible', 'Accessible', ['accesible', 'silla de ruedas', 'rampa'], ['wheelchair accessible', 'accessible']),
   open_kitchen: tag('Cocina a la vista', 'Open kitchen', ['cocina a la vista', 'cocina abierta'], ['open kitchen', 'visible kitchen']),
   bar_seating: tag('Para comer en la barra', 'Bar seating', ['barra central', 'barra larga', 'comer en la barra'], ['bar seating', 'long bar', 'counter']),
+  accepts_meal_vouchers: tag('Acepta tickets alimentación', 'Accepts meal vouchers', ['acepta tickets', 'tickets alimentación', 'edenred', 'sodexo', 'pluxee'], ['meal vouchers', 'meal tickets', 'edenred', 'sodexo', 'pluxee']),
+  cash_only: tag('Solo efectivo', 'Cash only', ['solo efectivo', 'no acepta tarjetas', 'únicamente efectivo'], ['cash only']),
+  delivery: tag('Delivery', 'Delivery', ['delivery', 'envíos', 'envío a domicilio'], ['delivery', 'home delivery']),
+  takeaway: tag('Para llevar', 'Takeaway', ['para llevar', 'take away'], ['takeaway', 'take away', 'to go']),
 } satisfies TagGroup
 
 export const GOOD_FOR = {
   first_date: tag('Primera cita', 'First date', ['primera cita', 'cita', 'romántico', 'ir en pareja'], ['first date', 'date night', 'romantic', 'couples']),
-  work: tag('Para trabajar', 'Remote work', ['trabajar', 'laburar', 'con la compu', 'notebook', 'home office', 'estudiar'], ['work', 'laptop friendly', 'remote work', 'study', 'work from cafe']),
+  work: tag('Para trabajar', 'Remote work', ['trabajar', 'para trabajar', 'laburar', 'con la compu', 'notebook', 'home office', 'estudiar'], ['work', 'laptop', 'laptop friendly', 'remote work', 'remote workers', 'work from', 'study', 'work from cafe']),
+  lgbtq_friendly: tag('LGBTQ+ friendly', 'LGBTQ+ friendly', ['lgbt', 'lgbtq', 'lgbtq+', 'diversidad'], ['gay friendly', 'lgbtq']),
   after_office: tag('After office', 'After work', ['after office', 'after', 'salida del trabajo'], ['after work', 'after office']),
   groups: tag('Grupos', 'Groups', ['grupos', 'con amigos', 'mesa larga', 'cumpleaños'], ['groups', 'friends', 'big table', 'birthday']),
-  family: tag('En familia', 'Family', ['con niños', 'en familia', 'con chicos'], ['family', 'with kids', 'family friendly']),
+  kids_friendly: tag('Apto niños', 'Kids friendly', ['apto niños', 'para ir con niños', 'con niños', 'en familia', 'con chicos'], ['kids friendly', 'family friendly', 'family', 'with kids']),
   solo: tag('Ir solo', 'Solo', ['ir solo', 'sola', 'barra'], ['solo', 'alone', 'eat at the bar']),
   celebration: tag('Celebración', 'Celebration', ['celebrar', 'festejar', 'ocasión especial', 'aniversario'], ['celebration', 'special occasion', 'anniversary']),
+} satisfies TagGroup
+
+export const OFFERS = {
+  merienda_for_two: tag('Merienda para dos', 'Afternoon tea for two', ['merienda para dos', 'merienda para 2'], ['afternoon tea for two']),
+  menu_of_the_day: tag('Menú del día', 'Set lunch', ['menú ejecutivo', 'menú del día', 'plato del día'], ['set lunch', 'lunch special', 'menu of the day']),
+  all_you_can_eat: tag('Tenedor libre', 'All you can eat', ['tenedor libre', 'buffet libre'], ['all you can eat', 'buffet']),
+  happy_hour: tag('Happy hour', 'Happy hour', ['happy hour', '2x1 en tragos'], ['happy hour', 'drink specials']),
 } satisfies TagGroup
 
 export const DIETARY = {
@@ -136,8 +154,29 @@ export const DIETARY = {
   gluten_free: tag('Sin TACC', 'Gluten free', ['sin tacc', 'sin gluten', 'celíaco', 'celíacos', 'apto celíacos'], ['gluten free', 'celiac', 'celiac friendly', 'no gluten']),
 } satisfies TagGroup
 
-export const ALL_GROUPS = { categories: CATEGORIES, moments: MOMENTS, cuisines: CUISINES, foods: FOODS, drinks: DRINKS, features: FEATURES, goodFor: GOOD_FOR, dietary: DIETARY } as const
+export const ALL_GROUPS = { categories: CATEGORIES, moments: MOMENTS, cuisines: CUISINES, foods: FOODS, drinks: DRINKS, features: FEATURES, goodFor: GOOD_FOR, offers: OFFERS, dietary: DIETARY } as const
 export type GroupName = keyof typeof ALL_GROUPS
+
+/** Filtros de búsqueda que agrupan varios tags. */
+export const TAG_FILTERS = {
+  outdoor: { label: { es: 'Al aire libre', en: 'Outdoor' }, tags: ['outdoor', 'patio', 'terrace', 'sidewalk'] },
+} as const
+
+export function tagsForFilter(filter: keyof typeof TAG_FILTERS) { return TAG_FILTERS[filter].tags }
+
+// Grupos que forman el array tags del borrador. categories y dietary quedan aparte.
+export const TAG_GROUPS = { moments: MOMENTS, cuisines: CUISINES, foods: FOODS, drinks: DRINKS, features: FEATURES, goodFor: GOOD_FOR, offers: OFFERS } as const
+export type TagGroupName = keyof typeof TAG_GROUPS
+export type TagId = { [G in TagGroupName]: keyof typeof TAG_GROUPS[G] & string }[TagGroupName]
+export const TAG_IDS = Object.values(TAG_GROUPS).flatMap((group) => Object.keys(group)) as [TagId, ...TagId[]]
+
+const GROUP_BY_ID = new Map<string, GroupName>()
+for (const [group, definitions] of Object.entries(ALL_GROUPS) as [GroupName, TagGroup][]) {
+  for (const id of Object.keys(definitions)) if (!GROUP_BY_ID.has(id)) GROUP_BY_ID.set(id, group)
+}
+
+/** Grupo de tags.ts al que pertenece un id, para agrupar tags en la UI. */
+export function groupOf(tagId: string): GroupName | null { return GROUP_BY_ID.get(tagId) ?? null }
 
 export function ids<G extends TagGroup>(group: G) {
   return Object.keys(group) as [keyof G & string, ...(keyof G & string)[]]
@@ -184,6 +223,7 @@ export type SearchTextInput = {
   name: string
   neighborhood: string
   description?: { es?: string | null; en?: string | null }
+  locatedIn?: string | null
   tags: string[]
   highlights?: { es: string; en: string }[]
 }
@@ -202,6 +242,7 @@ function searchParts(place: SearchTextInput, options: { includeEnglish: boolean;
   return uniqueText([
     place.name,
     `${place.neighborhood}, Montevideo`,
+    place.locatedIn ? `Dentro de ${place.locatedIn}` : '',
     place.description?.es ?? '',
     ...(options.includeEnglish ? [place.description?.en ?? ''] : []),
     ...tagText,

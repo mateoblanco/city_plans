@@ -1,8 +1,11 @@
 import type {
   ApiErrorResponse,
   ExaPlaceResponse,
+  ExtractionReportRequest,
   GooglePlaceDetailsResponse,
   MatchSource,
+  NeighborhoodSweepEvent,
+  NeighborhoodSweepMode,
   PlaceAnchor,
   PlaceEnrichmentResponse,
   PlaceMatchResponse,
@@ -109,14 +112,66 @@ export async function matchPlaceSource(
   return parseApiResponse<PlaceMatchResponse>(response)
 }
 
+export type ExtractRequest = {
+  googlePlaceId: string
+  seedCategories: PlaceSummary['seedCategories']
+  /** Opcional: si falta, el servidor lo calcula con las coordenadas. */
+  neighborhoodId?: string
+}
+
+/** Corre el pipeline completo para un lugar. Cada llamada es independiente y sin estado. */
 export async function extractPlace(
-  placeId: string,
-  request: { name: string; seedCategory: PlaceSummary['seedCategory']; refresh?: boolean },
+  request: ExtractRequest,
   signal?: AbortSignal,
 ): Promise<PlaceEnrichmentResponse> {
-  const response = await fetch(
-    `/api/places/${encodeURIComponent(placeId)}/extract`,
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request), signal },
-  )
+  const response = await fetch('/api/extract', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+    signal,
+  })
   return parseApiResponse<PlaceEnrichmentResponse>(response)
+}
+
+/** Al terminar un lote, el servidor escribe el reporte de lo que el pipeline no resolvió. */
+export async function saveExtractionReport(report: ExtractionReportRequest): Promise<{ path: string }> {
+  const response = await fetch('/api/extraction-reports', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(report),
+  })
+  return parseApiResponse<{ path: string }>(response)
+}
+
+/** Recorre un barrio completo y entrega cada evento NDJSON a medida que llega. */
+export async function sweepNeighborhood(
+  neighborhoodId: string,
+  mode: NeighborhoodSweepMode,
+  onEvent: (event: NeighborhoodSweepEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch(`/api/neighborhoods/${encodeURIComponent(neighborhoodId)}/sweep`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode }),
+    signal,
+  })
+  if (!response.ok || !response.body) {
+    await parseApiResponse<never>(response)
+    throw new PlacesApiError('UNKNOWN_ERROR', 'No se pudo recorrer el barrio.')
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  for (;;) {
+    const { value, done } = await reader.read()
+    buffer += decoder.decode(value, { stream: !done })
+    const lines = buffer.split('\n')
+    buffer = done ? '' : lines.pop() ?? ''
+    for (const line of lines) {
+      if (line.trim()) onEvent(JSON.parse(line) as NeighborhoodSweepEvent)
+    }
+    if (done) return
+  }
 }

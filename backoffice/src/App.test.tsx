@@ -1,4 +1,4 @@
-import { cleanup, screen, waitFor } from '@testing-library/react'
+import { cleanup, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render } from '@testing-library/react'
@@ -125,7 +125,7 @@ describe('City Plans Backoffice', () => {
 
     expect(await screen.findByText('3 lugares')).toBeInTheDocument()
     expect(screen.getByText('2 páginas consultadas')).toBeInTheDocument()
-    expect(screen.getAllByRole('link')).toHaveLength(3)
+    expect(within(screen.getByRole('table')).getAllByRole('link')).toHaveLength(3)
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject({ pageToken: 'next' })
   })
@@ -195,7 +195,7 @@ describe('City Plans Backoffice', () => {
             name: 'Café Brasilero',
             type: 'Café',
             googleMapsUri: 'https://maps/1',
-            seedCategory: 'cafe',
+            seedCategories: ['cafe'],
           }],
           nextPageToken: null,
         })
@@ -238,18 +238,18 @@ describe('City Plans Backoffice', () => {
       }
       if (url.includes('/extract')) {
         return jsonResponse({
-          source: 'openai',
+          source: 'llm',
           status: 'ok',
           model: 'gpt-5-mini',
           place: {
             name: 'Café Brasilero', address: 'Ituzaingó 1447', coordinates: { lat: -34.906, lng: -56.202, source: 'google', fetchedAt: '2026-10-01T00:00:00.000Z' },
             neighborhoodId: 'CIUDAD VIEJA', city: 'Montevideo', googlePlaceId: 'place-1',
             transit: { status: 'success', lines: [{ line: '121', stopId: '1234', meters: 80 }] },
-            categories: ['cafe'], moments: [], cuisines: [], foods: [], drinks: [], features: [], goodFor: [],
+            categories: ['cafe'], tags: [],
             dietary: { vegan: 'unknown', vegetarian: 'unknown', glutenFree: 'unknown' },
-            price: 'unknown', reservations: 'unknown', outdoorSeating: 'unknown', hours: { raw: null, display: null, slots: [], status: 'none', source: null },
+            price: 'unknown', reservations: 'unknown', hours: { raw: null, display: null, slots: [], status: 'none', source: null },
             contact: { phone: null, whatsapp: null, instagram: null, website: null, menuUrl: null, reservationUrl: null },
-            highlights: [], description: { es: 'Un café histórico.', en: 'A historic café.' }, searchText: 'Café Brasilero.',
+            highlights: [], description: { es: 'Un café histórico.', en: 'A historic café.' }, placeFacts: [], searchText: 'Café Brasilero.',
           },
           sourceAudit: { google: true, exa: true, instagram: true, instagramCandidates: ['cafebrasilero'] },
           attribution: 'Exa · Instagram vía Apify',
@@ -289,18 +289,17 @@ describe('City Plans Backoffice', () => {
     const startedUrls = fetchMock.mock.calls.slice(1).map(([input]) => String(input))
     expect(startedUrls).toEqual(expect.arrayContaining([
       '/api/places/exa',
-      '/api/places/place-1/extract',
+      '/api/extract',
       '/api/places/place-1/google-details',
     ]))
     const extractionCall = fetchMock.mock.calls.find(([input]) => String(input).endsWith('/extract'))
     expect(JSON.parse(String(extractionCall?.[1]?.body))).toEqual({
-      name: 'Café Brasilero',
-      seedCategory: 'cafe',
-      refresh: false,
+      googlePlaceId: 'place-1',
+      seedCategories: ['cafe'],
     })
   })
 
-  it('reintenta la extracción con refresh y conserva el nombre seleccionado', async () => {
+  it('reintenta la extracción llamando de nuevo a /api/extract con el mismo lugar', async () => {
     let extractionRuns = 0
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
@@ -311,7 +310,7 @@ describe('City Plans Backoffice', () => {
             name: 'Café Central',
             type: 'Café',
             googleMapsUri: 'https://maps/1',
-            seedCategory: 'cafe',
+            seedCategories: ['cafe'],
           }],
           nextPageToken: null,
         })
@@ -348,14 +347,13 @@ describe('City Plans Backoffice', () => {
       if (url.includes('/extract')) {
         extractionRuns += 1
         const request = JSON.parse(String(init?.body))
-        expect(request.name).toBe('Café Central')
+        expect(url).toBe('/api/extract')
+        expect(request).toEqual({ googlePlaceId: 'place-1', seedCategories: ['cafe'] })
         if (extractionRuns === 1) {
-          expect(request.refresh).toBe(false)
           return jsonResponse({ error: { code: 'UPSTREAM_ERROR', message: 'Falló la extracción.' } }, 502)
         }
-        expect(request.refresh).toBe(true)
         return jsonResponse({
-          source: 'openai', status: 'no_sources', model: 'gpt-5-mini',
+          source: 'llm', status: 'no_sources', model: 'gpt-5-mini',
           sourceAudit: { google: true, exa: false, instagram: false, instagramCandidates: [] },
           attribution: 'Sin fuentes textuales',
         })
@@ -390,7 +388,7 @@ describe('City Plans Backoffice', () => {
             name: 'Café Central',
             type: 'Café',
             googleMapsUri: 'https://maps/1',
-            seedCategory: 'cafe',
+            seedCategories: ['cafe'],
           }],
           nextPageToken: null,
         })
@@ -435,7 +433,7 @@ describe('City Plans Backoffice', () => {
       }
       if (url.includes('/extract')) {
         return jsonResponse({
-          source: 'openai', status: 'no_sources', model: 'gpt-5-mini',
+          source: 'llm', status: 'no_sources', model: 'gpt-5-mini',
           sourceAudit: { google: true, exa: false, instagram: false, instagramCandidates: [] },
           attribution: 'Sin fuentes textuales',
         })

@@ -1,15 +1,23 @@
 import { describe, expect, it, vi } from 'vitest'
+import { getNeighborhood } from '../../src/lib/getNeighborhood.ts'
 import {
   PlaceExtractionService,
   filterSources,
   classifyContact,
   classifySource,
-  daysFromRange,
   deduplicateSourceText,
-  parseExplicitHours,
+  extractionModelConfig,
   postProcess,
+  providerOptionsFor,
+  reviewExtraction,
+  slotsFromBlocks,
   resolveDeterministicContact,
   SYSTEM_PROMPT,
+  HOURS_RETRY_PROMPT,
+  hoursModelConfig,
+  llmUsageCost,
+  mainExtractionRequest,
+  mentionsAddress,
   type PlaceExtraction,
   type Source,
 } from './place-extraction-service.ts'
@@ -25,14 +33,27 @@ const target = {
 }
 
 const extraction: PlaceExtraction = {
-  categories: ['cafe'], moments: ['breakfast'], cuisines: [], foods: ['pastries'], drinks: ['specialty_coffee'], features: ['wifi'], goodFor: ['work'],
+  facts: [{ id: 'F1', text: 'sirve desayunos', sourceId: 'S1', kind: 'food', proposedTag: null }],
+  tags: [
+    { group: 'categories', id: 'cafe', facts: ['F1'] }, { group: 'moments', id: 'breakfast', facts: ['F1'] }, { group: 'foods', id: 'pastries', facts: ['F1'] },
+    { group: 'drinks', id: 'specialty_coffee', facts: ['F1'] }, { group: 'features', id: 'wifi', facts: ['F1'] }, { group: 'goodFor', id: 'work', facts: ['F1'] },
+  ],
   dietary: { vegan: 'unknown', vegetarian: 'has_options', glutenFree: 'unknown' },
-  price: 'moderate', reservations: 'unknown', outdoorSeating: 'yes',
-  hours: { raw: 'Lunes 08:00 a 19:00', display: { es: 'Lunes, 08:00 a 19:00', en: 'Monday, 8 AM–7 PM' }, ranges: [{ days: 'Mon', opens: '08:00', closes: '19:00' }] },
+  price: 'moderate', reservations: 'unknown',
+  hours: { raw: 'Lunes 08:00 a 19:00', display: null, blocks: [{ days: [1], opens: '08:00', closes: '19:00' }] },
   contact: { phone: '2915 0000', whatsapp: null, instagram: 'cafebrasilero', website: 'https://cafe.example/', menuUrl: null, reservationUrl: null },
-  highlights: [{ es: 'flat white', en: 'flat white' }],
+  highlights: [{ es: 'flat white', en: 'flat white', facts: ['F1'] }],
   description: { es: 'Un café histórico para hacer una pausa.', en: 'A historic café for a relaxed break.' },
-  evidence: [{ field: 'moments.breakfast', sourceId: 'S1', quote: null }],
+  locatedIn: null,
+  support: [],
+  doubts: [],
+}
+
+// Extracción vacía del modelo: cada test agrega sólo lo que necesita.
+const emptyExtraction: PlaceExtraction = {
+  ...extraction,
+  facts: [], tags: [], highlights: [],
+  hours: { raw: null, display: null, blocks: [] }, support: [],
 }
 
 function deferred<T>() {
@@ -81,25 +102,6 @@ const googleDetails = {
 }
 
 describe('PlaceExtractionService', () => {
-  it('incluye formatos de horarios y regla de espacios al aire libre en el prompt', () => {
-    expect(SYSTEM_PROMPT).toContain('Every day, 12:00 PM - 01:00 AM')
-    expect(SYSTEM_PROMPT).toContain('Mon-Fri 9:00-18:00')
-    expect(SYSTEM_PROMPT).toContain('"Cerrado" o "Closed"')
-    expect(SYSTEM_PROMPT).toContain('open_hours')
-    expect(SYSTEM_PROMPT).toContain('hours.display')
-    expect(SYSTEM_PROMPT).toContain('shared patio')
-    expect(SYSTEM_PROMPT).toContain('outdoorSeating')
-    expect(SYSTEM_PROMPT).toContain('highlights.es siempre en español')
-    expect(SYSTEM_PROMPT).toContain('Galician pie” → “Pastel gallego')
-    expect(SYSTEM_PROMPT).toContain('Feira octopus” → “Pulpo a la feira')
-    expect(SYSTEM_PROMPT).toContain('Padrón peppers” → “Pimientos de Padrón')
-    expect(SYSTEM_PROMPT).toContain('Ignorá contenido de tienda online: productos envasados, bolsas de café, suscripciones, insumos, merch, gift cards y sus precios. Solo te interesa lo que se consume en el local.')
-    for (const example of ['Oriundo', 'Culto', 'polenta', 'vino de canilla', 'martín fierro']) {
-      expect(SYSTEM_PROMPT.toLowerCase()).not.toContain(example.toLowerCase())
-    }
-    expect(SYSTEM_PROMPT).not.toContain(['can', 'elones'].join(''))
-  })
-
   it('filtra fuentes bloqueadas y produce el borrador', () => {
     expect(filterSources([
       { id: 'S1', kind: 'web', url: 'https://cafe.example/', text: 'Café de especialidad' },
@@ -108,7 +110,8 @@ describe('PlaceExtractionService', () => {
 
     const place = postProcess(target, {
       ...extraction,
-      evidence: [{ field: 'categories.cafe', sourceId: 'S1', quote: 'Café de especialidad' }],
+      facts: [{ id: 'F1', text: 'es un café de especialidad', sourceId: 'S1', kind: 'other', proposedTag: null }],
+      tags: [{ group: 'categories', id: 'cafe', facts: ['F1'] }],
     }, { sources: [{ id: 'S1', kind: 'web', trust: 'official', url: 'https://cafe.example/', text: 'Café de especialidad' }] })
 
     expect(place.neighborhoodId).toBe('CIUDAD VIEJA')
@@ -129,7 +132,7 @@ describe('PlaceExtractionService', () => {
       generate: async (_target, sources) => { generated = true; sourceKinds = sources.map((source) => source.kind); return extraction },
     })
 
-    const result = await service.extract('place-1', { name: target.name, seedCategory: 'cafe' })
+    const result = await service.extract('place-1', { seedCategories: ['cafe'] })
     expect(result.status).toBe('ok')
     expect(generated).toBe(true)
     expect(sourceKinds).toEqual(['exa', 'exa'])
@@ -139,7 +142,7 @@ describe('PlaceExtractionService', () => {
     })
   })
 
-  it('devuelve el costo estimado por proveedor y el total', async () => {
+  it('devuelve el costo por proveedor con el uso real de tokens del LLM', async () => {
     const service = new PlaceExtractionService({
       apiKey: 'test-key',
       details: { getDetails: async () => ({ ...googleDetails, websiteUri: 'https://cafe.example/' }) },
@@ -147,7 +150,8 @@ describe('PlaceExtractionService', () => {
       instagram: { configured: true, scrapeMany: async () => [{ url: 'https://www.instagram.com/cafebrasilero/', name: target.name, bio: 'Montevideo, Uruguay', links: [] }] },
       website: { configured: true, scrape: async () => ({ url: 'https://cafe.example/', title: target.name, description: '', content: 'Café de especialidad', instagramUrls: [] }) },
       transit: { findNearbyLines: async () => ({ status: 'success', lines: [] }) },
-      generate: async () => ({ data: extraction, inputTokens: 10, outputTokens: 20 }),
+      generate: async () => ({ data: extraction, inputTokens: 1_000_000, cachedInputTokens: 200_000, outputTokens: 100_000, gatewayCostUsd: 0.4 }),
+      model: { model: 'openai/gpt-5-mini', reasoning: 'low' },
       costRates: {
         googleDetailsRequestUsd: 1,
         exaSearchRequestUsd: 2,
@@ -155,28 +159,31 @@ describe('PlaceExtractionService', () => {
         instagramRunUsd: 4,
         scrapingRequestUsd: 5,
         transitRequestUsd: 6,
-        llmInputTokenUsd: 0.01,
-        llmOutputTokenUsd: 0.02,
       },
     })
 
-    const result = await service.extract('place-1', { name: target.name, seedCategory: 'cafe' })
+    const result = await service.extract('place-1', { seedCategories: ['cafe'] })
+    // 800k tokens a 0,25 + 200k cacheados a 0,025 + 100k de salida a 2 (USD por millón).
+    expect(result.model).toBe('openai/gpt-5-mini')
     expect(result.performance.costUsd).toEqual({
       currency: 'USD',
-      estimated: true,
-      totalUsd: 21.5,
+      estimated: false,
+      totalUsd: 21.405,
       providers: {
         google: { requests: 1, costUsd: 1 },
-        exa: { requests: 1, contentPages: 1, costUsd: 5 },
+        exa: { requests: 1, contentPages: 1, highlightPages: 0, costUsd: 5 },
         instagram: { requests: 1, costUsd: 4 },
         scraping: { requests: 1, costUsd: 5 },
         transit: { requests: 1, costUsd: 6 },
-        llm: { inputTokens: 10, outputTokens: 20, inputCostUsd: 0.1, outputCostUsd: 0.4, costUsd: 0.5 },
+        llm: {
+          model: 'openai/gpt-5-mini', inputTokens: 1_000_000, cachedInputTokens: 200_000, cacheWriteTokens: null, outputTokens: 100_000, gatewayCostUsd: 0.4,
+          inputCostUsd: 0.205, outputCostUsd: 0.2, costUsd: 0.405,
+        },
       },
     })
   })
 
-  it('solapa Google con Exa, luego buses con Apify y finalmente el LLM con buses', async () => {
+  it('consulta Google primero, luego Exa con su nombre y buses, Apify y finalmente el LLM con buses', async () => {
     const detailsRun = deferred<typeof googleDetails>()
     const exaRun = deferred<ReturnType<typeof exaResponse>>()
     const transitRun = deferred<{ status: 'success'; lines: [] }>()
@@ -198,11 +205,11 @@ describe('PlaceExtractionService', () => {
       generate: vi.fn(() => { events.push('llm'); return llmRun.promise }),
     })
 
-    const resultPromise = service.extract('place-1', { name: target.name, seedCategory: 'cafe' })
-    expect(events).toEqual(['google', 'exa'])
+    const resultPromise = service.extract('place-1', { seedCategories: ['cafe'] })
+    expect(events).toEqual(['google'])
 
     detailsRun.resolve(googleDetails)
-    await vi.waitFor(() => expect(events).toContain('buses'))
+    await vi.waitFor(() => expect(events).toEqual(expect.arrayContaining(['exa', 'buses'])))
     expect(events).not.toContain('instagram')
 
     exaRun.resolve(exaResponse('@cafebrasilero'))
@@ -216,11 +223,14 @@ describe('PlaceExtractionService', () => {
       links: [],
       posts: ['Café todos los días'],
     }])
+    // Las fuentes incluyen los buses: el LLM arranca cuando terminan.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(events).not.toContain('llm')
+    transitRun.resolve({ status: 'success', lines: [] })
     await vi.waitFor(() => expect(events).toContain('llm'))
     expect(events.at(-1)).toBe('llm')
 
     llmRun.resolve(extraction)
-    transitRun.resolve({ status: 'success', lines: [] })
     await expect(resultPromise).resolves.toMatchObject({
       status: 'ok',
       sourceAudit: { google: true, exa: true, instagram: true, instagramCandidates: ['cafebrasilero'] },
@@ -242,7 +252,7 @@ describe('PlaceExtractionService', () => {
       generate: async () => extraction,
     })
 
-    const result = await service.extract('place-1', { name: target.name, seedCategory: 'cafe' })
+    const result = await service.extract('place-1', { seedCategories: ['cafe'] })
     expect(scrapeMany).toHaveBeenCalledOnce()
     expect(scrapeMany).toHaveBeenCalledWith(['https://www.instagram.com/cafebrasilero/'])
     expect(result.sourceAudit.instagramCandidates).toEqual(['cafebrasilero'])
@@ -273,7 +283,7 @@ describe('PlaceExtractionService', () => {
       generate: async (_place, sources) => { sourceKinds = sources.map((source) => source.kind); return extraction },
     })
 
-    const result = await service.extract('place-1', { name: target.name, seedCategory: 'cafe' })
+    const result = await service.extract('place-1', { seedCategories: ['cafe'] })
     expect(result.sourceAudit).toMatchObject({
       exa: true,
       instagram: false,
@@ -295,7 +305,7 @@ describe('PlaceExtractionService', () => {
       generate: async () => extraction,
     })
 
-    const result = await service.extract('place-1', { name: target.name, seedCategory: 'cafe' })
+    const result = await service.extract('place-1', { seedCategories: ['cafe'] })
     expect(result).toMatchObject({
       status: 'ok',
       sourceAudit: { google: true, exa: true, instagram: false, instagramCandidates: ['cafebrasilero'] },
@@ -314,7 +324,7 @@ describe('PlaceExtractionService', () => {
       generate: async () => extraction,
     })
 
-    const result = await service.extract('place-1', { name: target.name, seedCategory: 'cafe' })
+    const result = await service.extract('place-1', { seedCategories: ['cafe'] })
     expect(result.sourceAudit).toEqual({
       google: true,
       exa: false,
@@ -327,27 +337,64 @@ describe('PlaceExtractionService', () => {
     })
   })
 
-  it('rechaza un nombre que no coincide con Google', async () => {
+  it('limita Exa, el LLM y Apify entre extracciones concurrentes', async () => {
+    const tracker = () => {
+      const state = { active: 0, max: 0 }
+      const run = async <T>(value: T) => {
+        state.active += 1
+        state.max = Math.max(state.max, state.active)
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        state.active -= 1
+        return value
+      }
+      return { state, run }
+    }
+    const exa = tracker()
+    const llm = tracker()
+    const apify = tracker()
     const service = new PlaceExtractionService({
       apiKey: 'test-key',
       details: { getDetails: async () => googleDetails },
-      exa: { configured: false, searchPlace: async () => exaResponse() },
+      exa: { configured: true, searchPlace: () => exa.run(exaResponse('@cafebrasilero')) },
+      instagram: { configured: true, scrapeMany: () => apify.run([]) },
+      generate: () => llm.run(extraction),
+    })
+
+    await Promise.all(Array.from({ length: 8 }, (_, index) => service.extract(`place-${index}`, { seedCategories: ['cafe'] })))
+
+    expect(exa.state.max).toBe(3)
+    expect(llm.state.max).toBe(3)
+    expect(apify.state.max).toBe(2)
+  })
+
+  it('busca en Exa con el nombre que devuelve Google', async () => {
+    const searchPlace = vi.fn(async () => exaResponse())
+    const service = new PlaceExtractionService({
+      apiKey: 'test-key',
+      details: { getDetails: async () => googleDetails },
+      exa: { configured: true, searchPlace },
       generate: async () => extraction,
     })
 
-    await expect(service.extract('place-1', { name: 'Otro restaurante', seedCategory: 'restaurant' })).rejects.toMatchObject({ kind: 'validation' })
+    await service.extract('place-1', { seedCategories: ['cafe'] })
+    expect(searchPlace).toHaveBeenCalledWith(googleDetails.anchor.name)
   })
 
-  it('reclasifica plataformas de reserva y remueve momentos sin evidencia', () => {
-    expect(classifyContact({ ...extraction.contact, website: 'https://meitre.com/cafe', reservationUrl: null })).toMatchObject({
-      website: null, reservationUrl: 'https://meitre.com/cafe',
+  it('usa el neighborhoodId recibido y, si no llega, lo calcula con las coordenadas', async () => {
+    const service = new PlaceExtractionService({
+      apiKey: 'test-key',
+      details: { getDetails: async () => googleDetails },
+      exa: { configured: true, searchPlace: async () => exaResponse() },
+      generate: async () => extraction,
     })
-    const place = postProcess(target, {
-      ...extraction,
-      moments: ['breakfast', 'late_night'],
-      evidence: [{ field: 'moments.breakfast', sourceId: 'S1', quote: null }],
-    }, { sources: [{ id: 'S1', kind: 'directory', trust: 'third_party', url: 'https://directory.example/', text: 'Desayuno' }] })
-    expect(place.moments).toEqual(expect.arrayContaining(['breakfast', 'afternoon_snack']))
+
+    const given = await service.extract('place-1', { seedCategories: ['cafe'], neighborhoodId: 'POCITOS' })
+    const computed = await service.extract('place-1', { seedCategories: ['cafe'] })
+    expect(given).toMatchObject({ status: 'ok', place: { neighborhoodId: 'POCITOS' } })
+    expect(computed).toMatchObject({
+      status: 'ok',
+      place: { neighborhoodId: getNeighborhood(googleDetails.anchor.latitude, googleDetails.anchor.longitude).neighborhoodId },
+    })
   })
 
   it('clasifica fuentes propias, directorios, reservas y bloqueados', () => {
@@ -374,825 +421,25 @@ describe('PlaceExtractionService', () => {
       ], requestId: 'exa-1', attribution: 'Exa' }) },
       generate: async (_target, sources) => {
         generatedSources = sources
-        return { ...extraction, categories: [], moments: [], foods: [], drinks: [], features: [], goodFor: [], highlights: [], hours: { raw: null, display: null, ranges: [] }, evidence: [] }
+        return emptyExtraction
       },
     })
-    await service.extract('place-1', { name: 'Café Brasilero', seedCategory: 'cafe' })
+    await service.extract('place-1', { seedCategories: ['cafe'] })
     expect(generatedSources).toEqual([
-      expect.objectContaining({ id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://exa.ai/', exaDescription: 'SUMMARY_MUST_NOT_BE_A_SOURCE', exaKnowsBeforeYouGo: 'KNOWS_MUST_BE_PRESERVED' }),
+      expect.objectContaining({ id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://exa.ai/' }),
       expect.objectContaining({ id: 'S2', kind: 'exa', trust: 'third_party', url: 'https://cafebrasilero.uy/', text: 'Café histórico de Montevideo' }),
     ])
     expect(generatedSources[0].text).toContain('SUMMARY_MUST_NOT_BE_A_SOURCE')
+    expect(generatedSources[0].text).toContain('KNOWS_MUST_BE_PRESERVED')
     expect(log).toHaveBeenCalledWith(expect.stringContaining('"blockedDomains":["exa.ai"]'))
     log.mockRestore()
-  })
-
-  it('valida citas y elimina datos sin respaldo', () => {
-    const place = postProcess(target, {
-      ...extraction,
-      categories: ['cafe'],
-      features: ['wifi'],
-      price: 'moderate',
-      hours: { raw: 'Usually open 08:00 to 18:00', display: { es: 'Lunes, 08:00 a 18:00', en: 'Monday, 8 AM–6 PM' }, ranges: [{ days: 'Mon', opens: '08:00', closes: '18:00' }] },
-      contact: { ...extraction.contact, phone: '2915 0000', instagram: null },
-      evidence: [
-        { field: 'categories.cafe', sourceId: 'S1', quote: 'cafe de especialidad' },
-        { field: 'features.wifi', sourceId: 'S2', quote: 'WiFi disponible' },
-        { field: 'price', sourceId: 'S1', quote: 'precio inexistente' },
-        { field: 'hours.ranges.0', sourceId: 'S1', quote: 'Usually open 08:00' },
-      ],
-    }, { sources: [
-      { id: 'S1', kind: 'web', trust: 'official', url: 'https://cafe.example/', text: 'Café   de especialidad. Usually open 08:00 to 18:00.' },
-      { id: 'S2', kind: 'directory', trust: 'third_party', url: 'https://opina.example/', text: 'WiFi disponible' },
-    ] })
-    expect(place.categories).toEqual(['cafe'])
-    expect(place.features).toEqual(['wifi'])
-    expect(place.price).toBe('unknown')
-    expect(place.hours).toEqual({ raw: null, display: null, slots: [], status: 'none', source: null })
-    expect(place.contact.phone).toBeNull()
-  })
-
-  it('permite que reservas verifique sólo contact.reservationUrl e infiere el handle validado', () => {
-    const place = postProcess(target, {
-      ...extraction,
-      categories: [], moments: [], foods: [], drinks: [], features: [], goodFor: [], highlights: [], hours: { raw: null, display: null, ranges: [] },
-      reservations: 'accepts',
-      contact: { phone: null, whatsapp: null, instagram: null, website: null, menuUrl: null, reservationUrl: 'https://meitre.com/cafe' },
-      evidence: [
-        { field: 'reservations', sourceId: 'S1', quote: 'Reservas disponibles' },
-        { field: 'contact.reservationUrl', sourceId: 'S1', quote: 'Reservas disponibles' },
-      ],
-    }, { sources: [
-      { id: 'S1', kind: 'reservations', trust: 'third_party', url: 'https://meitre.com/cafe', text: 'Reservas disponibles' },
-      { id: 'S2', kind: 'instagram', trust: 'official', url: 'https://www.instagram.com/cafebrasilero/', text: 'Handle: cafebrasilero\nMontevideo, Uruguay' },
-    ] })
-    expect(place.contact.reservationUrl).toBe('https://meitre.com/cafe')
-    expect(place.contact.instagram).toBe('cafebrasilero')
-  })
-
-  it('aplica consistencia, prioriza horarios oficiales y normaliza el contacto', () => {
-    const place = postProcess({ ...target, neighborhoodId: 'PARQUE RODO' }, {
-      ...extraction,
-      categories: ['wine_bar', 'cafe'], moments: [], foods: ['pastries'], drinks: [], features: ['terrace'], goodFor: [],
-      outdoorSeating: 'unknown',
-      hours: { raw: 'lunes 08:00 a 23:00', display: { es: 'Lunes, 08:00 a 23:00', en: 'Monday, 8 AM–11 PM' }, ranges: [
-        { days: 'Mon', opens: '08:00', closes: '23:00' },
-        { days: 'Tue', opens: '12:00', closes: '01:00' },
-      ] },
-      contact: {
-        phone: '2418 5404', whatsapp: '094 679 778', instagram: '@CafeBrasilero',
-        website: 'http://cafe.example/', menuUrl: null, reservationUrl: null,
-      },
-      description: {
-        es: 'Un wine bar con vino de canilla, terraza y cocina a la vista.',
-        en: 'A warm wine bar with a terrace.',
-      },
-      evidence: [
-        { field: 'categories.wine_bar', sourceId: 'S1', quote: 'wine bar' },
-        { field: 'categories.cafe', sourceId: 'S1', quote: 'café' },
-        { field: 'features.terrace', sourceId: 'S1', quote: 'terraza' },
-        { field: 'foods.pastries', sourceId: 'S1', quote: 'pastelería' },
-        { field: 'hours.raw', sourceId: 'S1', quote: 'lunes 08:00 a 23:00' },
-        { field: 'hours.ranges.0', sourceId: 'S1', quote: 'lunes 08:00 a 23:00' },
-        { field: 'hours.ranges.1', sourceId: 'S2', quote: 'martes 12:00 a 01:00' },
-        { field: 'contact.phone', sourceId: 'S1', quote: '2418 5404' },
-        { field: 'contact.whatsapp', sourceId: 'S1', quote: '094 679 778' },
-        { field: 'contact.instagram', sourceId: 'S1', quote: 'CafeBrasilero' },
-        { field: 'contact.website', sourceId: 'S1', quote: 'cafe.example' },
-      ],
-    }, { sources: [
-      { id: 'S1', kind: 'web', trust: 'official', url: 'https://cafe.example/', text: 'wine bar. café. terraza. pastelería. lunes 08:00 a 23:00. 2418 5404. 094 679 778. CafeBrasilero. cafe.example' },
-      { id: 'S2', kind: 'exa', trust: 'third_party', url: 'https://exa.ai/', text: 'martes 12:00 a 01:00' },
-    ] })
-
-    expect(place.coordinates).toEqual(target.coordinates)
-    expect(place.hours).toEqual({
-      raw: 'lunes 08:00 a 23:00',
-      display: { es: 'Lunes, 08:00 a 23:00', en: 'Monday, 8 AM–11 PM' },
-      slots: [{ day: 1, opens: '08:00', closes: '23:00' }],
-      status: 'exact', source: 'official',
-    })
-    expect(place.outdoorSeating).toBe('yes')
-    expect(place.drinks).toContain('wine')
-    expect(place.moments).toEqual(expect.arrayContaining(['drinks', 'breakfast', 'afternoon_snack']))
-    expect(place.moments).not.toContain('late_night')
-    expect(place.features).not.toContain('open_kitchen')
-    expect(place.contact).toMatchObject({
-      phone: '+598 2418 5404', whatsapp: '+598 94 679 778', instagram: 'cafebrasilero', website: 'https://cafe.example/',
-    })
-    expect(place.embeddingText).toContain('Parque Rodó')
-    expect(place.embeddingText).not.toContain('PARQUE RODO')
-  })
-
-  it('normaliza el horario explícito de Exa y no conserva late_night a la 01:00', () => {
-    const sources = [{
-      id: 'S1', kind: 'exa' as const, trust: 'third_party' as const, url: 'https://exa.ai/',
-      text: 'Wine bar\nHorarios: Every day, 12:00 PM - 01:00 AM\nshared patio\nTarta de estación\nSpritz cítrico',
-    }]
-    const parsedHours = parseExplicitHours(sources)
-    expect(parsedHours).toEqual([{
-      raw: 'Horarios: Every day, 12:00 PM - 01:00 AM',
-      sourceId: 'S1', trust: 'third_party',
-      slots: expect.arrayContaining([{ day: 0, opens: '12:00', closes: '01:00' }]),
-    }])
-
-    const place = postProcess(target, {
-      ...extraction,
-      categories: ['wine_bar'], moments: ['late_night'], cuisines: [], foods: [], drinks: ['wine'], features: [], goodFor: [], hours: { raw: null, display: null, ranges: [] },
-      outdoorSeating: 'unknown', highlights: [{ es: 'tarta de estación', en: 'seasonal tart' }, { es: 'spritz cítrico', en: 'citrus spritz' }],
-      evidence: [
-        { field: 'categories.wine_bar', sourceId: 'S1', quote: 'Wine bar' },
-        { field: 'drinks.wine', sourceId: 'S1', quote: 'Wine bar' },
-      ],
-    }, { sources, parsedHours })
-
-    expect(place.hours.slots).toHaveLength(7)
-    expect(place.hours.source).toBe('third_party')
-    expect(place.moments).not.toContain('late_night')
-    expect(place.features).toContain('patio')
-    expect(place.outdoorSeating).toBe('yes')
-    expect(place.highlights).toEqual([{ es: 'tarta de estación', en: 'seasonal tart' }, { es: 'spritz cítrico', en: 'citrus spritz' }])
-  })
-
-  it('procesa El Palenque sin perder grill, normaliza horarios y conserva highlights en español', () => {
-    const palenque = { ...target, name: 'El Palenque', address: '18 de Julio 1234' }
-    const source = {
-      id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://elpalenque.example/',
-      text: 'Montevideo: Todos los días de 11.30 a 18.00hrs\nGalician pie',
-    }
-    const parsedHours = parseExplicitHours([source], { city: palenque.city, address: palenque.address })
-    const place = postProcess(palenque, {
-      ...extraction,
-      categories: ['grill'], moments: [], cuisines: [], foods: [], drinks: [], features: [], goodFor: [],
-      highlights: [{ es: 'Pastel gallego', en: 'Galician pie' }],
-      hours: { raw: null, display: null, ranges: [] }, evidence: [],
-    }, { sources: [source], seedCategory: 'restaurant', parsedHours })
-
-    expect(place.categories).toEqual(['grill', 'restaurant'])
-    expect(place.hours).toMatchObject({ status: 'exact', slots: expect.arrayContaining([{ day: 0, opens: '11:30', closes: '18:00' }]) })
-    expect(place.hours.slots).toHaveLength(7)
-    expect(place.highlights).toEqual([{ es: 'Pastel gallego', en: 'Galician pie' }])
-  })
-
-  it.each(['hs', 'hrs', 'h', 'horas'])('acepta puntos y el sufijo %s en horarios', (suffix) => {
-    const source = {
-      id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://local.example/',
-      text: `Montevideo: Todos los días de 11.30${suffix} a 18.00${suffix}`,
-    }
-    const parsed = parseExplicitHours([source], { city: 'Montevideo', address: target.address })
-
-    expect(parsed).toEqual([expect.objectContaining({
-      slots: expect.arrayContaining([{ day: 0, opens: '11:30', closes: '18:00' }]),
-    })])
-  })
-
-  it('selecciona la sucursal que coincide con el lugar y usa open_hours de Exa como respaldo', () => {
-    const text = 'Montevideo: Todos los días de 11.30 a 18.00hrs. Punta del Este: Todos los días de 10.00 a 22.00hrs.'
-    const source = { id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://local.example/', text }
-    const parsed = parseExplicitHours([source], { city: 'Montevideo', address: target.address })
-    expect(parsed).toEqual([expect.objectContaining({
-      slots: expect.arrayContaining([{ day: 0, opens: '11:30', closes: '18:00' }]),
-    })])
-
-    const unmatched = { ...source, text: 'Punta del Este: Todos los días de 10.00 a 22.00hrs. Colonia: Todos los días de 09.00 a 17.00hrs.' }
-    expect(parseExplicitHours([unmatched], { city: 'Montevideo', address: target.address })).toEqual([])
-
-    const exaFallback = {
-      ...unmatched, kind: 'exa' as const, trust: 'third_party' as const, hoursRaw: unmatched.text,
-      hoursSlots: [{ days: 'Mon-Sun', opens: '11:30', closes: '18:00' }],
-    }
-    expect(parseExplicitHours([exaFallback], { city: 'Montevideo', address: target.address })[0].slots).toHaveLength(7)
-  })
-
-  it('expande rangos de Exa, conserva dos turnos y calcula estados', () => {
-    expect(daysFromRange('Mon-Sun')).toEqual([1, 2, 3, 4, 5, 6, 0])
-    expect(daysFromRange('Mon-Fri')).toEqual([1, 2, 3, 4, 5])
-    expect(daysFromRange('Fri-Sat')).toEqual([5, 6])
-    expect(daysFromRange('Tue-Sun')).toEqual([2, 3, 4, 5, 6, 0])
-    expect(daysFromRange('todos los días')).toEqual([0, 1, 2, 3, 4, 5, 6])
-
-    const sources = [{
-      id: 'S1', kind: 'exa' as const, trust: 'third_party' as const, url: 'https://exa.ai/',
-      text: 'Horarios (texto original): Tue-Sun 12:00-15:30 y 19:00-00:30',
-      hoursRaw: 'Tue-Sun 12:00-15:30 y 19:00-00:30',
-      hoursSlots: [
-        { days: 'Tue-Sun', opens: '12:00', closes: '15:30' },
-        { days: 'Tue-Sun', opens: '19:00', closes: '00:30' },
-      ],
-    }]
-    expect(parseExplicitHours(sources)[0].slots).toHaveLength(12)
-    const place = postProcess(target, { ...extraction, hours: { raw: null, display: null, ranges: [] }, evidence: [] }, {
-      sources,
-      parsedHours: parseExplicitHours(sources),
-    })
-    expect(place.hours).toEqual({
-      raw: 'Tue-Sun 12:00-15:30 y 19:00-00:30',
-      display: { es: 'Martes a domingo: 12:00–15:30 y 19:00–00:30', en: 'Tuesday to Sunday: 12:00–15:30 and 19:00–00:30' },
-      slots: expect.arrayContaining([
-        { day: 2, opens: '12:00', closes: '15:30' },
-        { day: 2, opens: '19:00', closes: '00:30' },
-        { day: 0, opens: '12:00', closes: '15:30' },
-        { day: 0, opens: '19:00', closes: '00:30' },
-      ]),
-      status: 'exact', source: 'third_party',
-    })
-    expect(place.hours.slots).toHaveLength(12)
-    expect(place.moments).not.toContain('late_night')
-  })
-
-  it('genera display de horarios desde slots para Baker’s Bar y grupos discontinuos', () => {
-    const bakerSlots = [2, 3, 4, 5, 6].map((day) => ({ day, opens: '20:00', closes: '02:00' }))
-    const baker = postProcess(target, {
-      ...extraction,
-      hours: { raw: null, display: null, ranges: [] }, evidence: [],
-    }, { parsedHours: [{ raw: null, slots: bakerSlots, sourceId: 'S1', trust: 'third_party' }] })
-    const discontinuous = postProcess(target, {
-      ...extraction,
-      hours: { raw: null, display: null, ranges: [] }, evidence: [],
-    }, { parsedHours: [{ raw: null, slots: [
-      { day: 1, opens: '12:00', closes: null },
-      { day: 3, opens: '12:00', closes: null },
-    ], sourceId: 'S1', trust: 'third_party' }] })
-
-    expect(baker.hours.display).toEqual({ es: 'Martes a sábado: 20:00–02:00', en: 'Tuesday to Saturday: 20:00–02:00' })
-    expect(discontinuous.hours.display).toEqual({ es: 'Lunes: Desde las 12:00; Miércoles: Desde las 12:00', en: 'Monday: From 12:00; Wednesday: From 12:00' })
-  })
-
-  it('genera display para todos los días y conserva el display válido del modelo', () => {
-    const allDays = postProcess(target, {
-      ...extraction,
-      hours: { raw: null, display: null, ranges: [] }, evidence: [],
-    }, { parsedHours: [{ raw: null, slots: [0, 1, 2, 3, 4, 5, 6].map((day) => ({ day, opens: '11:30', closes: '18:00' })), sourceId: 'S1', trust: 'third_party' }] })
-    const source = { id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://local.example/', text: 'Lunes 08:00 a 19:00' }
-    const preserved = postProcess(target, {
-      ...extraction,
-      hours: { raw: 'Lunes 08:00 a 19:00', display: { es: 'Lunes, 08:00 a 19:00', en: 'Monday, 8 AM–7 PM' }, ranges: [{ days: 'Mon', opens: '08:00', closes: '19:00' }] },
-      evidence: [
-        { field: 'hours.raw', sourceId: 'S1', quote: 'Lunes 08:00 a 19:00' },
-        { field: 'hours.ranges.0', sourceId: 'S1', quote: 'Lunes 08:00 a 19:00' },
-      ],
-    }, { sources: [source] })
-
-    expect(allDays.hours.display).toEqual({ es: 'Todos los días: 11:30–18:00', en: 'Every day: 11:30–18:00' })
-    expect(preserved.hours.display).toEqual({ es: 'Lunes, 08:00 a 19:00', en: 'Monday, 8 AM–7 PM' })
-  })
-
-  it('expande rangos oficiales devueltos por el LLM con la misma función que Exa', () => {
-    const source = {
-      id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://namaste.example/',
-      text: 'Tue-Sun 12:00-15:30 y 19:00-00:30',
-    }
-    const place = postProcess(target, {
-      ...extraction,
-      hours: {
-        raw: 'Tue-Sun 12:00-15:30 y 19:00-00:30', display: null,
-        ranges: [
-          { days: 'Tue-Sun', opens: '12:00', closes: '15:30' },
-          { days: 'Tue-Sun', opens: '19:00', closes: '00:30' },
-        ],
-      },
-      evidence: [
-        { field: 'hours.raw', sourceId: 'S1', quote: 'Tue-Sun 12:00-15:30 y 19:00-00:30' },
-        { field: 'hours.ranges.0', sourceId: 'S1', quote: 'Tue-Sun 12:00-15:30' },
-        { field: 'hours.ranges.1', sourceId: 'S1', quote: '19:00-00:30' },
-      ],
-    }, { sources: [source] })
-
-    expect(place.hours.source).toBe('official')
-    expect(place.hours.slots).toEqual([
-      { day: 0, opens: '12:00', closes: '15:30' },
-      { day: 0, opens: '19:00', closes: '00:30' },
-      { day: 2, opens: '12:00', closes: '15:30' },
-      { day: 2, opens: '19:00', closes: '00:30' },
-      { day: 3, opens: '12:00', closes: '15:30' },
-      { day: 3, opens: '19:00', closes: '00:30' },
-      { day: 4, opens: '12:00', closes: '15:30' },
-      { day: 4, opens: '19:00', closes: '00:30' },
-      { day: 5, opens: '12:00', closes: '15:30' },
-      { day: 5, opens: '19:00', closes: '00:30' },
-      { day: 6, opens: '12:00', closes: '15:30' },
-      { day: 6, opens: '19:00', closes: '00:30' },
-    ])
-  })
-
-  it('conserva highlights presentes en fuentes aunque su evidencia esté ausente o mal indexada', () => {
-    const source = {
-      id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://namaste.example/',
-      text: 'Sorrentinos caseros. Chivitos veganos. Wok de verduras. Crepes dulces.',
-    }
-    const place = postProcess(target, {
-      ...extraction,
-      highlights: [
-        { es: 'sorrentinos', en: 'sorrentinos' },
-        { es: 'chivitos veganos', en: 'vegan chivitos' },
-        { es: 'wok de verduras', en: 'vegetable wok' },
-        { es: 'crepes dulces', en: 'sweet crepes' },
-        { es: 'plato inexistente', en: 'missing dish' },
-      ],
-      evidence: [{ field: 'highlights.9', sourceId: 'S1', quote: 'Sorrentinos caseros' }],
-    }, { sources: [source] })
-
-    expect(place.highlights).toEqual([
-      { es: 'sorrentinos', en: 'sorrentinos' },
-      { es: 'chivitos veganos', en: 'vegan chivitos' },
-      { es: 'wok de verduras', en: 'vegetable wok' },
-      { es: 'crepes dulces', en: 'sweet crepes' },
-    ])
-  })
-
-  it('calcula partial, vague y none sin inferir late_night con cierres faltantes', () => {
-    const source = { id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://cafe.example/', text: 'Abierto desde las 12. Hasta tarde.' }
-    const partial = postProcess(target, {
-      ...extraction,
-      moments: ['late_night'],
-      hours: { raw: 'Abierto desde las 12', display: { es: 'Desde las 12:00', en: 'From noon' }, ranges: [{ days: 'Mon', opens: '12:00', closes: null }] },
-      evidence: [
-        { field: 'hours.raw', sourceId: 'S1', quote: 'Abierto desde las 12' },
-        { field: 'hours.ranges.0', sourceId: 'S1', quote: 'Abierto desde las 12' },
-      ],
-    }, { sources: [source] })
-    expect(partial.hours).toEqual({ raw: 'Abierto desde las 12', display: { es: 'Desde las 12:00', en: 'From noon' }, slots: [{ day: 1, opens: '12:00', closes: null }], status: 'partial', source: 'official' })
-    expect(partial.moments).not.toContain('late_night')
-
-    const vague = postProcess(target, {
-      ...extraction, hours: { raw: 'Hasta tarde', display: { es: 'Hasta tarde', en: 'Until late' }, ranges: [] }, evidence: [{ field: 'hours.raw', sourceId: 'S1', quote: 'Hasta tarde' }],
-    }, { sources: [source] })
-    expect(vague.hours).toEqual({ raw: 'Hasta tarde', display: { es: 'Hasta tarde', en: 'Until late' }, slots: [], status: 'vague', source: 'official' })
-
-    const none = postProcess(target, { ...extraction, hours: { raw: null, display: null, ranges: [] }, evidence: [] }, { sources: [source] })
-    expect(none.hours).toEqual({ raw: null, display: null, slots: [], status: 'none', source: null })
-  })
-
-  it.each(['Not available', 'N/A', 'No disponible'])('normaliza %s como horarios no disponibles', (hoursRaw) => {
-    const source = {
-      id: 'S1', kind: 'exa' as const, trust: 'third_party' as const, url: 'https://exa.ai/',
-      text: `Horarios: ${hoursRaw}`, hoursRaw, hoursSlots: [],
-    }
-    expect(parseExplicitHours([source])).toEqual([])
-
-    const place = postProcess(target, {
-      ...extraction,
-      hours: { raw: null, display: null, ranges: [] },
-      evidence: [],
-    }, { sources: [source], parsedHours: parseExplicitHours([source]) })
-
-    expect(place.hours).toEqual({ raw: null, display: null, slots: [], status: 'none', source: null })
-  })
-
-  it('agrega foods exclusivamente desde los ítems de menú de Exa', () => {
-    const menuSource = {
-      id: 'S1', kind: 'exa' as const, trust: 'third_party' as const, url: 'https://exa.ai/', text: 'Resumen de Exa',
-      menu: ['Veggie or vegan chivitos', 'Wok de fideos de arroz', 'Mousse de maracuyá', 'Hamburguesa de lentejas'],
-    }
-    const fromMenu = postProcess(target, {
-      ...extraction,
-      categories: [], moments: [], cuisines: [], foods: [], drinks: [], features: [], goodFor: [], highlights: [],
-      hours: { raw: null, display: null, ranges: [] }, evidence: [],
-    }, { sources: [menuSource] })
-    expect(fromMenu.foods).toEqual(expect.arrayContaining(['chivito', 'wok', 'desserts', 'burgers']))
-
-    const textOnlySource = { ...menuSource, text: 'Hamburguesa de lentejas', menu: [] }
-    const fromTextOnly = postProcess(target, {
-      ...extraction,
-      categories: [], moments: [], cuisines: [], foods: [], drinks: [], features: [], goodFor: [], highlights: [],
-      hours: { raw: null, display: null, ranges: [] }, evidence: [],
-    }, { sources: [textOnlySource] })
-    expect(fromTextOnly.foods).not.toContain('burgers')
-  })
-
-  it('agrega features desde campos estructurados de Exa y activa outdoorSeating', () => {
-    const source = {
-      id: 'S1', kind: 'exa' as const, trust: 'third_party' as const, url: 'https://exa.ai/', text: 'Resumen de Exa',
-      exaDescription: 'Street-side tables, DJs y open kitchen.',
-      exaKnowsBeforeYouGo: 'Terraza rooftop con patio compartido y música en vivo.',
-      menu: ['Bandas en vivo'],
-    }
-    const place = postProcess(target, {
-      ...extraction,
-      categories: [], moments: [], cuisines: [], foods: [], drinks: [], features: [], goodFor: [], highlights: [], outdoorSeating: 'unknown',
-      hours: { raw: null, display: null, ranges: [] }, evidence: [],
-    }, { sources: [source] })
-
-    expect(place.features).toEqual(expect.arrayContaining(['sidewalk', 'dj', 'open_kitchen', 'terrace', 'patio', 'live_music']))
-    expect(place.outdoorSeating).toBe('yes')
-  })
-
-  it('no detecta features desde la descripción del LLM ni desde barra aislada', () => {
-    const source = {
-      id: 'S1', kind: 'exa' as const, trust: 'third_party' as const, url: 'https://exa.ai/', text: 'Resumen de Exa',
-      exaDescription: 'Barra amplia.', exaKnowsBeforeYouGo: '', menu: [],
-    }
-    const place = postProcess(target, {
-      ...extraction,
-      categories: [], moments: [], cuisines: [], foods: [], drinks: [], features: [], goodFor: [], highlights: [], outdoorSeating: 'unknown',
-      description: { es: 'Tiene una terraza y patio luminoso.', en: 'It has a bright terrace and patio.' },
-      hours: { raw: null, display: null, ranges: [] }, evidence: [],
-    }, { sources: [source] })
-
-    expect(place.features).toEqual([])
-    expect(place.outdoorSeating).toBe('unknown')
-  })
-
-  it('agrega lunch y dinner desde foods y horarios sin categoría restaurant', () => {
-    const source = {
-      id: 'S1', kind: 'exa' as const, trust: 'third_party' as const, url: 'https://exa.ai/', text: 'Resumen de Exa', menu: ['Pizza napolitana'],
-      hoursRaw: 'Todos los días de 12:00 a 22:00', hoursSlots: [{ days: 'Mon-Sun', opens: '12:00', closes: '22:00' }],
-    }
-    const place = postProcess(target, {
-      ...extraction,
-      categories: [], moments: [], cuisines: [], foods: [], drinks: [], features: [], goodFor: [], highlights: [],
-      hours: { raw: null, display: null, ranges: [] }, evidence: [],
-    }, { sources: [source], parsedHours: parseExplicitHours([source]) })
-
-    expect(place.categories).toEqual([])
-    expect(place.foods).toContain('pizza')
-    expect(place.moments).toEqual(expect.arrayContaining(['lunch', 'dinner']))
-  })
-
-  it('agrega dinner desde hours.raw y excluye picada y desserts de los nuevos moments', () => {
-    const dinnerSource = {
-      id: 'S1', kind: 'exa' as const, trust: 'third_party' as const, url: 'https://exa.ai/', text: 'Resumen de Exa', menu: ['Pizza napolitana'],
-      hoursRaw: 'Cena desde las 18:00', hoursSlots: [{ days: 'Mon-Sun', opens: '18:00', closes: '20:00' }],
-    }
-    const dinner = postProcess(target, {
-      ...extraction,
-      categories: [], moments: [], cuisines: [], foods: [], drinks: [], features: [], goodFor: [], highlights: [],
-      hours: { raw: null, display: null, ranges: [] }, evidence: [],
-    }, { sources: [dinnerSource], parsedHours: parseExplicitHours([dinnerSource]) })
-    const snacks = postProcess(target, {
-      ...extraction,
-      categories: [], moments: [], cuisines: [], foods: [], drinks: [], features: [], goodFor: [], highlights: [],
-      hours: { raw: null, display: null, ranges: [] }, evidence: [],
-    }, { sources: [{ ...dinnerSource, menu: ['Picada para compartir', 'Postres'] }], parsedHours: parseExplicitHours([{ ...dinnerSource, menu: ['Picada para compartir', 'Postres'] }]) })
-
-    expect(dinner.moments).toContain('dinner')
-    expect(snacks.moments).not.toContain('lunch')
-    expect(snacks.moments).not.toContain('dinner')
-  })
-
-  it('agrega signature y classic cocktails para Baker’s Bar', () => {
-    const source = {
-      id: 'S1', kind: 'exa' as const, trust: 'third_party' as const, url: 'https://exa.ai/',
-      text: 'Baker’s Bar es un cocktail bar.', exaDescription: 'Cocktail bar de Montevideo.',
-    }
-    const place = postProcess(target, {
-      ...extraction,
-      categories: ['bar'], moments: [], cuisines: [], foods: [], drinks: [], features: [], goodFor: [], highlights: [],
-      hours: { raw: null, display: null, ranges: [] }, evidence: [],
-    }, { sources: [source] })
-
-    expect(place.drinks).toEqual(['signature_cocktails', 'classic_cocktails'])
-  })
-
-  it('detecta drinks de Exa y highlights sin usar sinónimos ambiguos', () => {
-    const source = {
-      id: 'S1', kind: 'exa' as const, trust: 'third_party' as const, url: 'https://exa.ai/', text: 'Pisco sour',
-      exaDescription: 'Bar de cócteles con gintonic.',
-      exaKnowsBeforeYouGo: 'Probá el Moscow mule.',
-      menu: ['Negroni'],
-    }
-    const place = postProcess(target, {
-      ...extraction,
-      categories: [], moments: [], cuisines: [], foods: [], drinks: [], features: [], goodFor: [],
-      highlights: [{ es: 'Pisco sour', en: 'Pisco sour' }],
-      hours: { raw: null, display: null, ranges: [] }, evidence: [],
-    }, { sources: [source] })
-    const ambiguous = postProcess(target, {
-      ...extraction,
-      categories: [], moments: [], cuisines: [], foods: [], drinks: [], features: [], goodFor: [], highlights: [],
-      hours: { raw: null, display: null, ranges: [] }, evidence: [],
-    }, { sources: [{ ...source, text: 'Resumen', exaDescription: 'Cerveza en canilla, copas en la barra y tragos after.', exaKnowsBeforeYouGo: '', menu: [] }] })
-
-    expect(place.drinks).toEqual(expect.arrayContaining(['signature_cocktails', 'classic_cocktails', 'gin']))
-    expect(ambiguous.drinks).toEqual([])
-  })
-
-  it('mantiene Oriundo limitado a wine, vermouth, signature y non_alcoholic', () => {
-    const source = {
-      id: 'S1', kind: 'exa' as const, trust: 'third_party' as const, url: 'https://exa.ai/', text: 'Wine bar.',
-      exaDescription: 'Coctelería de autor.', exaKnowsBeforeYouGo: 'Vermut y mocktails.', menu: [],
-    }
-    const place = postProcess(target, {
-      ...extraction,
-      categories: ['wine_bar'], moments: [], cuisines: [], foods: [], drinks: [], features: [], goodFor: [], highlights: [],
-      hours: { raw: null, display: null, ranges: [] }, evidence: [],
-    }, { sources: [source] })
-
-    expect(place.drinks).toEqual(expect.arrayContaining(['wine', 'vermouth', 'signature_cocktails', 'non_alcoholic']))
-    expect(place.drinks).toHaveLength(4)
-    expect(place.drinks).not.toContain('classic_cocktails')
-  })
-
-  it('marca reservas como accepts por una fuente aunque no haya URL de reserva', () => {
-    const source = {
-      id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://local.example/',
-      text: 'Reservas por WhatsApp al 099 123 456.',
-    }
-    const place = postProcess(target, {
-      ...extraction,
-      reservations: 'unknown',
-      contact: { ...extraction.contact, reservationUrl: null },
-      hours: { raw: null, display: null, ranges: [] },
-      evidence: [],
-    }, { sources: [source] })
-
-    expect(place.reservations).toBe('accepts')
-    expect(place.contact.reservationUrl).toBeNull()
-  })
-
-  it('respeta una negación explícita de reservas', () => {
-    const source = {
-      id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://local.example/',
-      text: 'No se aceptan reservas.',
-    }
-    const place = postProcess(target, {
-      ...extraction,
-      reservations: 'no_reservations',
-      hours: { raw: null, display: null, ranges: [] },
-      evidence: [{ field: 'reservations', sourceId: 'S1', quote: 'No se aceptan reservas' }],
-    }, { sources: [source] })
-
-    expect(place.reservations).toBe('no_reservations')
-  })
-
-  it('agrega foods desde highlights en español sin usar el texto inglés', () => {
-    const source = {
-      id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://local.example/',
-      text: 'Medialunas recién horneadas. Hamburguesas de lentejas. Burger special.',
-    }
-    const place = postProcess(target, {
-      ...extraction,
-      foods: ['pastries'],
-      highlights: [
-        { es: 'Hamburguesas de lentejas', en: 'Lentil burgers' },
-        { es: 'Burger special', en: 'Hamburguesa especial' },
-      ],
-      hours: { raw: null, display: null, ranges: [] },
-      evidence: [{ field: 'foods.pastries', sourceId: 'S1', quote: 'Medialunas recién horneadas' }],
-    }, { sources: [source] })
-
-    expect(place.foods).toEqual(expect.arrayContaining(['pastries', 'burgers']))
-    expect(place.foods).not.toContain('chivito')
-  })
-
-  it('ignora carne y carnes para FOODS en menús y highlights de un restaurante vegetariano', () => {
-    const source = {
-      id: 'S1', kind: 'exa' as const, trust: 'third_party' as const, url: 'https://exa.ai/',
-      text: 'Restaurante vegetariano. Pastel de carne vegetal.',
-      menu: ['Pastel de carne vegetal'],
-    }
-    const place = postProcess(target, {
-      ...extraction,
-      dietary: { vegan: 'unknown', vegetarian: 'unknown', glutenFree: 'unknown' },
-      foods: ['grilled_meat'],
-      highlights: [{ es: 'Pastel de carne vegetal', en: 'Plant-based meat pie' }],
-      hours: { raw: null, display: null, ranges: [] },
-      evidence: [{ field: 'foods.grilled_meat', sourceId: 'S1', quote: 'Pastel de carne vegetal' }],
-    }, { sources: [source] })
-
-    expect(place.dietary.vegetarian).toBe('fully')
-    expect(place.foods).not.toContain('grilled_meat')
-  })
-
-  it('no usa carne ni carnes como sinónimos de grilled_meat, pero conserva los nuevos sinónimos específicos', () => {
-    const noMeat = postProcess(target, {
-      ...extraction,
-      foods: ['grilled_meat'],
-      hours: { raw: null, display: null, ranges: [] },
-      evidence: [{ field: 'foods.grilled_meat', sourceId: 'S1', quote: 'Carne al plato' }],
-    }, { sources: [{ id: 'S1', kind: 'web', trust: 'official', url: 'https://local.example/', text: 'Carne al plato' }] })
-    const lamb = postProcess(target, {
-      ...extraction,
-      foods: ['grilled_meat'],
-      hours: { raw: null, display: null, ranges: [] },
-      evidence: [{ field: 'foods.grilled_meat', sourceId: 'S1', quote: 'Lamb chops' }],
-    }, { sources: [{ id: 'S1', kind: 'web', trust: 'official', url: 'https://local.example/', text: 'Lamb chops' }] })
-
-    expect(noMeat.foods).not.toContain('grilled_meat')
-    expect(lamb.foods).toContain('grilled_meat')
-  })
-
-  it('marca restaurante vegetariano con opciones veganas como vegetariano fully y vegano has_options', () => {
-    const source = {
-      id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://local.example/',
-      text: 'Restaurante vegetariano con opciones veganas.',
-    }
-    const place = postProcess(target, {
-      ...extraction,
-      dietary: { vegan: 'unknown', vegetarian: 'unknown', glutenFree: 'unknown' },
-      hours: { raw: null, display: null, ranges: [] },
-      evidence: [],
-    }, { sources: [source] })
-
-    expect(place.dietary).toMatchObject({ vegan: 'has_options', vegetarian: 'fully' })
-  })
-
-  it('interpreta restaurante vegano y vegetariano como vegetariano con opciones veganas', () => {
-    const source = {
-      id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://local.example/',
-      text: 'Restaurante vegano y vegetariano.',
-    }
-    const place = postProcess(target, {
-      ...extraction,
-      dietary: { vegan: 'unknown', vegetarian: 'unknown', glutenFree: 'unknown' },
-      hours: { raw: null, display: null, ranges: [] },
-      evidence: [],
-    }, { sources: [source] })
-
-    expect(place.dietary).toMatchObject({ vegan: 'has_options', vegetarian: 'fully' })
-  })
-
-  it.each([
-    '100% vegano',
-    '100% vegan',
-    'Todo vegano',
-    'Totalmente vegano',
-    'Plant-based restaurant',
-    'Restaurante vegano',
-  ])('marca %s como vegan fully', (signal) => {
-    const source = {
-      id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://local.example/', text: signal,
-    }
-    const place = postProcess(target, {
-      ...extraction,
-      dietary: { vegan: 'unknown', vegetarian: 'unknown', glutenFree: 'unknown' },
-      hours: { raw: null, display: null, ranges: [] },
-      evidence: [],
-    }, { sources: [source] })
-
-    expect(place.dietary).toMatchObject({ vegan: 'fully', vegetarian: 'fully' })
-  })
-
-  it('reduce vegan fully ante queso no vegano del menú estructurado de Exa', () => {
-    const source = {
-      id: 'S1', kind: 'exa' as const, trust: 'third_party' as const, url: 'https://exa.ai/',
-      text: '100% vegano.', menu: ['Tostada con queso'],
-    }
-    const place = postProcess(target, {
-      ...extraction,
-      dietary: { vegan: 'unknown', vegetarian: 'unknown', glutenFree: 'unknown' },
-      hours: { raw: null, display: null, ranges: [] },
-      evidence: [],
-    }, { sources: [source] })
-
-    expect(place.dietary).toMatchObject({ vegan: 'has_options', vegetarian: 'fully' })
-  })
-
-  it('reduce vegan fully ante queso no vegano en highlights validados', () => {
-    const source = {
-      id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://local.example/',
-      text: '100% vegan. Tarta de queso con huevo.',
-    }
-    const place = postProcess(target, {
-      ...extraction,
-      dietary: { vegan: 'unknown', vegetarian: 'unknown', glutenFree: 'unknown' },
-      highlights: [{ es: 'Tarta de queso con huevo', en: 'Cheese and egg tart' }],
-      hours: { raw: null, display: null, ranges: [] },
-      evidence: [],
-    }, { sources: [source] })
-
-    expect(place.dietary).toMatchObject({ vegan: 'has_options', vegetarian: 'fully' })
-  })
-
-  it('no reduce vegan fully por queso vegano', () => {
-    const source = {
-      id: 'S1', kind: 'exa' as const, trust: 'third_party' as const, url: 'https://exa.ai/',
-      text: '100% vegano.', menu: ['Pizza con queso vegano'],
-    }
-    const place = postProcess(target, {
-      ...extraction,
-      dietary: { vegan: 'unknown', vegetarian: 'unknown', glutenFree: 'unknown' },
-      hours: { raw: null, display: null, ranges: [] },
-      evidence: [],
-    }, { sources: [source] })
-
-    expect(place.dietary).toMatchObject({ vegan: 'fully', vegetarian: 'fully' })
-  })
-
-  it('agrega breakfast y afternoon_snack a cafés y panaderías, y brunch desde fuentes', () => {
-    const source = {
-      id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://cafe.example/',
-      text: 'Café y panadería con brunch los fines de semana.',
-    }
-    const place = postProcess(target, {
-      ...extraction,
-      categories: ['cafe', 'bakery'], moments: [], cuisines: [], foods: [], drinks: [], features: [], goodFor: [], highlights: [],
-      hours: { raw: null, display: null, ranges: [] },
-      evidence: [
-        { field: 'categories.cafe', sourceId: 'S1', quote: 'Café' },
-        { field: 'categories.bakery', sourceId: 'S1', quote: 'panadería' },
-      ],
-    }, { sources: [source] })
-
-    expect(place.moments).toEqual(expect.arrayContaining(['breakfast', 'afternoon_snack', 'brunch']))
-  })
-
-  it('agrega categorías inequívocas y momentos con horarios parciales sin reemplazar la semilla', () => {
-    const source = {
-      id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://local.example/',
-      text: 'Restaurant bar. Wine bar, vinoteca, cervecería, brewpub, taproom, coffee shop y cafetería. Cena hasta tarde. Lunes desde las 12.',
-    }
-    const place = postProcess(target, {
-      ...extraction,
-      categories: ['restaurant', 'bar'], moments: [], foods: [], drinks: [], features: [], goodFor: [], highlights: [],
-      hours: { raw: 'Lunes desde las 12', display: null, ranges: [{ days: 'Mon', opens: '12:00', closes: null }] },
-      evidence: [
-        { field: 'categories.restaurant', sourceId: 'S1', quote: 'Restaurant' },
-        { field: 'categories.bar', sourceId: 'S1', quote: 'bar' },
-        { field: 'hours.raw', sourceId: 'S1', quote: 'Lunes desde las 12' },
-        { field: 'hours.ranges.0', sourceId: 'S1', quote: 'Lunes desde las 12' },
-      ],
-    }, { sources: [source], seedCategory: 'bakery' })
-
-    expect(place.categories).toEqual(expect.arrayContaining(['restaurant', 'bar', 'bakery', 'wine_bar', 'brewery', 'cafe']))
-    expect(place.moments).toEqual(expect.arrayContaining(['drinks', 'lunch', 'dinner']))
-    expect(place.hours.status).toBe('partial')
-  })
-
-  it('deriva restaurant, foods y cuisine desde categorías antes de calcular moments', () => {
-    const source = {
-      id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://local.example/', text: 'Categorías y horarios publicados. Medialunas recién horneadas.',
-    }
-    const place = postProcess(target, {
-      ...extraction,
-      categories: ['grill', 'pizzeria', 'chiviteria', 'ice_cream_shop'], moments: [], cuisines: [], foods: ['pastries'], drinks: [], features: [], goodFor: [], highlights: [],
-      hours: { raw: 'Todos los días 12:00 a 23:00', display: null, ranges: [{ days: 'Mon-Sun', opens: '12:00', closes: '23:00' }] },
-      evidence: [
-        { field: 'categories.grill', sourceId: 'S1', quote: 'Categorías y horarios publicados' },
-        { field: 'categories.pizzeria', sourceId: 'S1', quote: 'Categorías y horarios publicados' },
-        { field: 'categories.chiviteria', sourceId: 'S1', quote: 'Categorías y horarios publicados' },
-        { field: 'categories.ice_cream_shop', sourceId: 'S1', quote: 'Categorías y horarios publicados' },
-        { field: 'foods.pastries', sourceId: 'S1', quote: 'Medialunas recién horneadas' },
-        { field: 'hours.ranges.0', sourceId: 'S1', quote: 'Categorías y horarios publicados' },
-      ],
-    }, { sources: [source], seedCategory: 'grill', parsedHours: [{ raw: 'Todos los días 12:00 a 23:00', slots: [0, 1, 2, 3, 4, 5, 6].map((day) => ({ day, opens: '12:00', closes: '23:00' })), sourceId: 'S1', trust: 'official' }] })
-
-    expect(place.categories).toEqual(expect.arrayContaining(['grill', 'restaurant']))
-    expect(place.foods).toEqual(expect.arrayContaining(['pastries', 'grilled_meat', 'pizza', 'chivito', 'ice_cream']))
-    expect(place.cuisines).toContain('uruguayan')
-    expect(place.moments).toEqual(expect.arrayContaining(['lunch', 'dinner']))
-  })
-
-  it.each([
-    ['grill', 'grilled_meat'],
-    ['pizzeria', 'pizza'],
-    ['chiviteria', 'chivito'],
-    ['ice_cream_shop', 'ice_cream'],
-  ] as const)('agrega %s desde la categoría %s', (category, food) => {
-    const place = postProcess(target, {
-      ...extraction,
-      categories: [], cuisines: [], foods: [],
-      hours: { raw: null, display: null, ranges: [] },
-      evidence: [],
-    }, { seedCategory: category })
-
-    expect(place.foods).toContain(food)
-    if (category === 'ice_cream_shop') expect(place.categories).not.toContain('restaurant')
-    else expect(place.categories).toContain('restaurant')
-    if (category === 'grill') expect(place.cuisines).toContain('uruguayan')
-  })
-
-  it('mantiene la protección dietaria frente a grilled_meat inferido por categoría', () => {
-    const source = {
-      id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://local.example/', text: 'Restaurante vegetariano.',
-    }
-    const place = postProcess(target, {
-      ...extraction,
-      categories: ['grill'], foods: [],
-      dietary: { vegan: 'unknown', vegetarian: 'unknown', glutenFree: 'unknown' },
-      hours: { raw: null, display: null, ranges: [] },
-      evidence: [],
-    }, { sources: [source], seedCategory: 'grill' })
-
-    expect(place.dietary.vegetarian).toBe('fully')
-    expect(place.foods).not.toContain('grilled_meat')
-  })
-
-  it('agrega cuisines desde menú y descripción estructurada de Exa, con prioridad y límite de tres', () => {
-    const source = {
-      id: 'S1', kind: 'exa' as const, trust: 'third_party' as const, url: 'https://exa.ai/', text: 'Menú de referencia.',
-      exaDescription: 'Cocina española gallega y comida italiana.',
-      menu: ['Curry de la casa', 'Plato japonés'],
-    }
-    const place = postProcess(target, {
-      ...extraction,
-      cuisines: ['uruguayan', 'italian', 'mexican'],
-      hours: { raw: null, display: null, ranges: [] },
-      evidence: [
-        { field: 'cuisines.uruguayan', sourceId: 'S1', quote: 'Menú de referencia' },
-        { field: 'cuisines.italian', sourceId: 'S1', quote: 'Menú de referencia' },
-        { field: 'cuisines.mexican', sourceId: 'S1', quote: 'Menú de referencia' },
-      ],
-    }, { sources: [source] })
-
-    expect(place.cuisines).toEqual(['italian', 'spanish', 'indian'])
   })
 
   it('prioriza precios determinísticos por persona y respeta sus límites', () => {
     const priceFrom = (sources: { id: string; kind: 'web'; trust: 'official' | 'third_party'; url: string; text: string }[]) => postProcess(target, {
       ...extraction,
       price: 'very_high',
-      evidence: [],
+      support: [],
     }, { sources })
 
     expect(priceFrom([{
@@ -1221,7 +468,7 @@ describe('PlaceExtractionService', () => {
     const place = postProcess(target, {
       ...extraction,
       price: 'very_high',
-      evidence: [],
+      support: [],
     }, { sources: [
       {
         id: 'S1', kind: 'web', trust: 'official', url: 'https://local.example/',
@@ -1234,22 +481,11 @@ describe('PlaceExtractionService', () => {
     ] })
     expect(place.price).toBe('moderate')
 
-    const noPrice = postProcess(target, { ...extraction, price: 'high', evidence: [] }, { sources: [{
+    const noPrice = postProcess(target, { ...extraction, price: 'high', support: [] }, { sources: [{
       id: 'S1', kind: 'web', trust: 'official', url: 'https://local.example/',
       text: 'Precio promedio US$ 25 por persona. Copa $500.',
     }] })
     expect(noPrice.price).toBe('unknown')
-  })
-
-  it('no agrega draft_beer por sinónimos presentes sólo en la descripción', () => {
-    const place = postProcess(target, {
-      ...extraction,
-      categories: [], moments: [], cuisines: [], foods: [], drinks: [], features: [], goodFor: [], highlights: [],
-      description: { es: 'Un wine bar de vinos de canilla.', en: 'A wine bar with wine on tap.' },
-      hours: { raw: null, display: null, ranges: [] }, evidence: [],
-    })
-    expect(place.drinks).not.toContain('draft_beer')
-    expect(place.categories).toEqual([])
   })
 
   it('deduplica líneas repetidas y reporta el ahorro estimado de entrada', () => {
@@ -1281,14 +517,14 @@ describe('PlaceExtractionService', () => {
         },
       },
       generate: async () => ({
-        ...extraction,
-        categories: [], moments: [], foods: [], drinks: [], features: [], goodFor: [], highlights: [], hours: { raw: null, display: null, ranges: [] },
+        ...emptyExtraction,
+        facts: [{ id: 'F1', text: 'su Instagram es @oriundo.uy', sourceId: 'S1', kind: 'contact', proposedTag: null }],
         contact: { ...extraction.contact, instagram: 'oriundo.uy' },
-        evidence: [{ field: 'contact.instagram', sourceId: 'S1', quote: '@oriundo.uy' }],
+        support: [{ field: 'contact.instagram', facts: ['F1'] }],
       }),
     })
 
-    const result = await service.extract('place-1', { name: target.name, seedCategory: 'cafe' })
+    const result = await service.extract('place-1', { seedCategories: ['cafe'] })
     expect(result).toMatchObject({
       status: 'ok',
       sourceAudit: {
@@ -1364,12 +600,13 @@ describe('PlaceExtractionService', () => {
   it('preserva la semilla y aplica el contacto determinístico sobre el LLM', () => {
     const place = postProcess(target, {
       ...extraction,
-      categories: ['wine_bar'],
+      tags: [{ group: 'categories', id: 'wine_bar', facts: ['F1'] }],
       reservations: 'no_reservations',
       contact: { ...extraction.contact, phone: '000', instagram: 'marca-ajena', website: 'https://incorrecta.example/', reservationUrl: null },
-      evidence: [{ field: 'categories.wine_bar', sourceId: 'S1', quote: 'wine bar' }],
+      facts: [{ id: 'F1', text: 'es un wine bar', sourceId: 'S1', kind: 'other', proposedTag: null }],
+      support: [],
     }, {
-      seedCategory: 'bar',
+      seedCategories: ['bar'],
       sources: [{ id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://example.com/', text: 'wine bar' }],
       deterministicContact: {
         phone: '+598 2418 5404', instagram: 'oriundo.uy', website: null, reservationUrl: 'https://oriundo.meitre.com/',
@@ -1385,20 +622,20 @@ describe('PlaceExtractionService', () => {
       'Namasté': {
         highlights: [{ es: 'sorrentinos', en: 'sorrentinos' }],
         hoursRaw: 'Tue-Sun 12:00-15:30 y 19:00-00:30',
-        ranges: [
-          { days: 'Tue-Sun', opens: '12:00', closes: '15:30' },
-          { days: 'Tue-Sun', opens: '19:00', closes: '00:30' },
+        blocks: [
+          { days: [0, 2, 3, 4, 5, 6], opens: '12:00', closes: '15:30' },
+          { days: [0, 2, 3, 4, 5, 6], opens: '19:00', closes: '00:30' },
         ],
       },
       'Culto Café': {
         highlights: [{ es: 'crepe de cacao', en: 'cocoa crepe' }],
         hoursRaw: 'Mon 09:00-18:00',
-        ranges: [{ days: 'Mon', opens: '09:00', closes: '18:00' }],
+        blocks: [{ days: [1], opens: '09:00', closes: '18:00' }],
       },
       Oriundo: {
         highlights: [{ es: 'tartín de temporada', en: 'seasonal tartin' }],
         hoursRaw: 'Fri-Sat 19:00-01:00',
-        ranges: [{ days: 'Fri-Sat', opens: '19:00', closes: '01:00' }],
+        blocks: [{ days: [5, 6], opens: '19:00', closes: '01:00' }],
       },
     } as const
     const service = new PlaceExtractionService({
@@ -1430,26 +667,23 @@ describe('PlaceExtractionService', () => {
       generate: async (generatedTarget) => {
         const fixture = fixtures[generatedTarget.name as keyof typeof fixtures]
         return {
-          ...extraction,
-          categories: [], moments: [], foods: [], drinks: [], features: [], goodFor: [],
-          highlights: fixture.highlights.map((highlight) => ({ ...highlight })),
-          hours: { raw: fixture.hoursRaw, display: null, ranges: fixture.ranges.map((range) => ({ ...range })) },
-          evidence: [
-            { field: 'hours.raw', sourceId: 'S1', quote: fixture.hoursRaw },
-            ...fixture.ranges.map((range, index) => ({ field: `hours.ranges.${index}`, sourceId: 'S1', quote: `${range.opens}-${range.closes}` })),
-          ],
+          ...emptyExtraction,
+          facts: [{ id: 'F1', text: `abre ${fixture.hoursRaw}`, sourceId: 'S1', kind: 'hours' as const, proposedTag: null }],
+          highlights: fixture.highlights.map((highlight) => ({ ...highlight, facts: ['F1'] })),
+          hours: { raw: fixture.hoursRaw, display: null, blocks: fixture.blocks.map((block) => ({ ...block, days: [...block.days] })) },
+          support: [{ field: 'hours', facts: ['F1'] }],
         }
       },
     })
 
     for (const name of ['Namasté', 'Culto Café', 'Oriundo'] as const) {
-      const response = await service.extract(`${name}-place`, { name, seedCategory: 'restaurant' })
+      const response = await service.extract(`${name}-place`, { seedCategories: ['restaurant'] })
       expect(response).toMatchObject({ status: 'ok', place: { highlights: fixtures[name].highlights } })
       expect(response.place?.hours.slots).toHaveLength(name === 'Namasté' ? 12 : name === 'Culto Café' ? 1 : 2)
     }
   })
 
-  it('mantiene Oriundo estable en tres extracciones refrescadas', async () => {
+  it('mantiene Oriundo estable en tres extracciones seguidas, sin cache', async () => {
     let runs = 0
     const service = new PlaceExtractionService({
       apiKey: 'test-key',
@@ -1467,19 +701,18 @@ describe('PlaceExtractionService', () => {
       generate: async () => {
         runs += 1
         return {
-          ...extraction,
-          categories: runs % 2 ? ['wine_bar'] : [],
-          moments: [], foods: [], drinks: [], features: [], goodFor: [], highlights: [],
-          hours: { raw: null, display: null, ranges: [] },
+          ...emptyExtraction,
+          facts: [{ id: 'F1', text: 'es un wine bar', sourceId: 'S1', kind: 'other' as const, proposedTag: null }],
+          tags: runs % 2 ? [{ group: 'categories' as const, id: 'wine_bar', facts: ['F1'] }] : [],
           contact: { ...extraction.contact, instagram: 'magnolio.uy', reservationUrl: null },
-          evidence: runs % 2 ? [{ field: 'categories.wine_bar', sourceId: 'S1', quote: 'wine bar' }] : [],
+          support: [],
         }
       },
     })
 
     const responses = []
     for (let index = 0; index < 3; index += 1) {
-      responses.push(await service.extract('oriundo-place', { name: 'Oriundo', seedCategory: 'bar', refresh: true }))
+      responses.push(await service.extract('oriundo-place', { seedCategories: ['bar'] }))
     }
     for (const response of responses) {
       expect(response).toMatchObject({
@@ -1488,5 +721,525 @@ describe('PlaceExtractionService', () => {
       })
     }
     expect(runs).toBe(3)
+  })
+
+  it('pide facts primero y no trae ejemplos de lugares ni platos reales en el prompt', () => {
+    expect(SYSTEM_PROMPT.indexOf('PASO 1 — facts')).toBeLessThan(SYSTEM_PROMPT.indexOf('PASO 2'))
+    expect(SYSTEM_PROMPT).toContain('Cada tag tiene que corresponder a al menos un fact. No pongas tags sin un fact que los respalde.')
+    expect(SYSTEM_PROMPT).toContain('Máximo 40 facts')
+    expect(SYSTEM_PROMPT).toContain('no tomes una hora de cierre de un directorio')
+    expect(SYSTEM_PROMPT).toContain('Cada fact tiene id (F1, F2, F3… en orden, sin repetir)')
+    expect(SYSTEM_PROMPT).not.toContain('índices')
+    expect(SYSTEM_PROMPT).toContain('Una mención genérica de tragos o cócteles → classic_cocktails. Tragos propios de la casa, de autor, o cócteles con una base especial (ej. a base de vino) → signature_cocktails.')
+    expect(SYSTEM_PROMPT).toContain('Si solo dice al aire libre o mesas afuera sin detalle, usá outdoor.')
+    expect(SYSTEM_PROMPT).toContain('- features: terrace, sidewalk, outdoor, patio')
+    expect(SYSTEM_PROMPT).toContain('Distinguí espacios al aire libre: patio = espacio interno o trasero; terrace = terraza o azotea elevada; sidewalk = mesas en la vereda. No los uses como sinónimos.')
+    expect(SYSTEM_PROMPT).toContain('Nunca estimes ni inventes horas que no estén en las fuentes.')
+    expect(SYSTEM_PROMPT).toContain('no agregues ningún dato que no esté en raw')
+    expect(SYSTEM_PROMPT).toContain('vegan no puede ser fully')
+    expect(SYSTEM_PROMPT).toContain('Ignorá el contenido de tienda online')
+    expect(SYSTEM_PROMPT).toContain('ignorá otras sucursales, otras ciudades y otros países')
+    expect(SYSTEM_PROMPT).toContain('es siempre en español')
+    expect(SYSTEM_PROMPT).toContain('- Jams, toques o bandas → live_music además de events. Libros o actividades para chicos → kids_friendly.')
+    expect(SYSTEM_PROMPT).toContain('- Una versión vegetal explícita de un plato (de soja, de seitán, veggie, de lentejas) cuenta como vegetarian has_options.')
+    expect(SYSTEM_PROMPT).toContain('proposedTag es null solo para anécdotas, historia de la marca, datos de contacto, medios de pago o información de otras sucursales. Si el fact describe comida, bebida, actividades o características del lugar, proponé un tag existente o uno nuevo.')
+    expect(SYSTEM_PROMPT).toContain('- Sesiones de discos o escucha de vinilos → vinyl.')
+    expect(SYSTEM_PROMPT).toContain('- Si el horario aparece en una sola fuente de terceros y ninguna otra lo contradice, usalo (source third_party).')
+    expect(SYSTEM_PROMPT).not.toContain('Solo descartá horarios de terceros')
+    expect(SYSTEM_PROMPT).toContain('- Si las fuentes de horarios se contradicen: gana la oficial; si la web oficial y el Instagram oficial difieren, gana Instagram. Si no hay oficial, gana el horario en el que coinciden más fuentes; si hay empate, gana el que trae días y horas de cierre completos. Dejá los horarios vacíos si no podés aplicar ninguno de estos criterios.')
+    expect(SYSTEM_PROMPT).toContain('- Cuando apliques un desempate, anotá en doubts cuál criterio usaste')
+    expect(SYSTEM_PROMPT).toContain('- Los facts de fuentes de terceros son válidos para tags de comida, bebida, características y momentos. Solo dietary necesita una mención explícita, y si una fuente oficial contradice a un tercero, gana la oficial.')
+    expect(SYSTEM_PROMPT).toContain('- Platos concretos siempre se mapean a un tag: cortes de carne o achuras → grilled_meat;')
+    expect(SYSTEM_PROMPT).toContain('Transmisiones deportivas → el tag de pantallas para fútbol (watch_football).')
+    expect(SYSTEM_PROMPT).toContain('- Platos y bebidas concretos nunca van con proposedTag null: mapealos al tag más cercano (tapas o platos pequeños → tapas, y además picada si mencionan tablas, fiambres o quesos para compartir; postres dulces → desserts; jugos o licuados → smoothies; yogur, tostadas o similares → breakfast).')
+    expect(SYSTEM_PROMPT).toMatch(/- foods: .*picada, tapas/)
+    expect(SYSTEM_PROMPT).toMatch(/- goodFor: .*lgbtq_friendly/)
+    expect(SYSTEM_PROMPT).toMatch(/- features: .*shop/)
+    expect(SYSTEM_PROMPT).toMatch(/- features: .*events, books, dancing/)
+    expect(HOURS_RETRY_PROMPT).toContain('Solo usá horarios que correspondan a la sucursal de esta dirección. Si la fuente lista varias sucursales, elegí la que coincide con la dirección. Si no podés confirmar la sucursal, devolvé vacío.')
+    expect(SYSTEM_PROMPT).toContain('- doubts: anotá en doubts lo que no supiste resolver (máx. 5). No inventes dudas.')
+    expect(SYSTEM_PROMPT).toContain('- Si las fuentes dicen que el local está dentro de otro lugar (shopping, mercado, galería, hotel, museo, polo gastronómico), completá locatedIn con el nombre de ese lugar. Si no lo dicen claramente, null. No lo deduzcas solo de la dirección.')
+    expect(SYSTEM_PROMPT).toContain('- Si completás locatedIn, citá en support los facts que lo dicen, con field locatedIn.')
+    expect(SYSTEM_PROMPT).toContain('- Si una fuente dice que solo se paga en efectivo, usá cash_only.')
+    expect(SYSTEM_PROMPT).toContain('- Sillas altas, menú infantil, juegos o espacio para chicos → kids_friendly.')
+    for (const example of ['Oriundo', 'Culto', 'Namasté', 'Palenque', 'Berracos', 'Oviedo', 'Galician', 'Feira', 'Padrón', 'polenta', 'canilla', ['can', 'elones'].join('')]) {
+      expect(SYSTEM_PROMPT.toLowerCase()).not.toContain(example.toLowerCase())
+    }
+  })
+
+  it('valida los bloques de horario y descarta los inválidos', () => {
+    expect(slotsFromBlocks([
+      { days: [2, 3], opens: '12:00', closes: '15:30' },
+      { days: [2], opens: '12:00', closes: '15:30' },
+      { days: [6], opens: '9:00', closes: '24:00' },
+      { days: [0, 7], opens: '10:00', closes: '14:00' },
+      { days: [], opens: '10:00', closes: '14:00' },
+      { days: [1], opens: '', closes: '14:00' },
+      { days: [1], opens: '10:00', closes: '2 AM' },
+      { days: [5], opens: '18:00', closes: null },
+    ])).toEqual([
+      { day: 2, opens: '12:00', closes: '15:30' },
+      { day: 3, opens: '12:00', closes: '15:30' },
+      { day: 5, opens: '18:00', closes: null },
+      { day: 6, opens: '09:00', closes: '00:00' },
+    ])
+  })
+
+  it('calcula status, display y source de los horarios desde los bloques del modelo', () => {
+    const official = { id: 'S1', kind: 'instagram' as const, trust: 'official' as const, url: 'https://www.instagram.com/local/', text: 'Abrimos todos los días a partir de 18hs' }
+    const exa = { id: 'S2', kind: 'exa' as const, trust: 'third_party' as const, url: 'https://exa.ai/', text: 'Abre de martes a domingo' }
+    const withHours = (hours: PlaceExtraction['hours'], sourceId: string, cite = true) => postProcess(target, {
+      ...emptyExtraction,
+      facts: [{ id: 'F1', text: 'abre todos los días desde las 18', sourceId, kind: 'hours', proposedTag: null }],
+      hours,
+      support: cite ? [{ field: 'hours.blocks.0', facts: ['F1'] }] : [],
+    }, { sources: [official, exa] })
+
+    const openEnded = withHours({
+      raw: 'todos los días a partir de 18hs',
+      display: { es: 'Todos los días de 18:00 a 02:00', en: 'Every day 6 PM–2 AM' },
+      blocks: [{ days: [0, 1, 2, 3, 4, 5, 6], opens: '18:00', closes: null }],
+    }, 'S1')
+    expect(openEnded.hours).toEqual({
+      raw: 'todos los días a partir de 18hs',
+      slots: [0, 1, 2, 3, 4, 5, 6].map((day) => ({ day, opens: '18:00', closes: null })),
+      display: { es: 'Todos los días desde las 18:00', en: 'Every day from 18:00' },
+      status: 'partial',
+      source: 'official',
+      missingReason: null,
+    })
+
+    const exact = withHours({ raw: 'Mar a dom 12 a 15:30', display: null, blocks: [{ days: [2, 3, 4, 5, 6, 0], opens: '12:00', closes: '15:30' }] }, 'S2')
+    expect(exact.hours).toMatchObject({ status: 'exact', source: 'third_party', display: { es: 'Martes a domingo: 12:00–15:30', en: 'Tuesday to Sunday: 12:00–15:30' } })
+
+    const vague = withHours({ raw: 'Abrimos de noche', display: { es: 'De noche', en: 'At night' }, blocks: [] }, 'S1')
+    expect(vague.hours).toEqual({ raw: 'Abrimos de noche', slots: [], display: { es: 'De noche', en: 'At night' }, status: 'vague', source: 'official', missingReason: 'no_data' })
+
+    const unsupported = withHours({ raw: 'Lunes 9 a 18', display: null, blocks: [{ days: [1], opens: '09:00', closes: '18:00' }] }, 'S1', false)
+    expect(unsupported.hours).toEqual({ raw: null, slots: [], display: null, status: 'none', source: null, missingReason: 'no_data' })
+  })
+
+  it('conserva sólo los datos que citan un fact válido', () => {
+    const source = { id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://local.example/', text: 'Pizzas a la leña y DJ los viernes' }
+    const place = postProcess(target, {
+      ...emptyExtraction,
+      facts: [
+        { id: 'F1', text: 'hace pizzas a la leña', sourceId: 'S1', kind: 'food', proposedTag: null },
+        { id: 'F2', text: 'pone DJ los viernes', sourceId: 'S1', kind: 'feature', proposedTag: null },
+        { id: 'F3', text: 'acepta reservas', sourceId: 'S9', kind: 'reservations', proposedTag: null },
+      ],
+      tags: [
+        { group: 'categories', id: 'pizzeria', facts: ['F1'] }, { group: 'categories', id: 'bar', facts: [] },
+        { group: 'foods', id: 'pizza', facts: ['F1'] }, { group: 'foods', id: 'pasta', facts: [] }, { group: 'foods', id: 'id_inventado', facts: ['F1'] },
+        { group: 'foods', id: 'constructor', facts: ['F1'] },
+        { group: 'features', id: 'dj', facts: ['F2', 'F100'] }, { group: 'features', id: 'pizza', facts: ['F1'] },
+        { group: 'goodFor', id: 'work', facts: [] },
+      ],
+      dietary: { vegan: 'has_options', vegetarian: 'unknown', glutenFree: 'unknown' },
+      price: 'high',
+      reservations: 'accepts',
+      contact: { phone: '2915 0000', whatsapp: null, instagram: null, website: 'https://local.example/', menuUrl: null, reservationUrl: null },
+      support: [
+        { field: 'reservations', facts: ['F3'] },
+        { field: 'contact.website', facts: ['F1'] },
+      ],
+    }, { sources: [source] })
+
+    expect(place.categories).toEqual(['pizzeria', 'restaurant'])
+    expect(place.tags).toEqual(expect.arrayContaining(['pizza', 'dj']))
+    expect(place.tags).not.toContain('pasta')
+    expect(place.tags).not.toContain('work')
+    expect(place.dietary.vegan).toBe('unknown')
+    expect(place.price).toBe('unknown')
+    expect(place.reservations).toBe('unknown')
+    expect(place.contact).toMatchObject({ phone: null, website: 'https://local.example/' })
+  })
+
+  it('mueve la evidencia de un website de reservas a reservationUrl', () => {
+    expect(classifyContact({ phone: null, whatsapp: null, instagram: null, website: 'https://local.meitre.com/', menuUrl: null, reservationUrl: null }))
+      .toMatchObject({ website: null, reservationUrl: 'https://local.meitre.com/' })
+    const place = postProcess(target, {
+      ...emptyExtraction,
+      facts: [{ id: 'F1', text: 'reserva por Meitre', sourceId: 'S1', kind: 'reservations', proposedTag: null }],
+      contact: { phone: null, whatsapp: null, instagram: null, website: 'https://local.meitre.com/', menuUrl: null, reservationUrl: null },
+      support: [{ field: 'contact.website', facts: ['F1'] }],
+    }, { sources: [{ id: 'S1', kind: 'web', trust: 'official', url: 'https://local.example/', text: 'Reservas por Meitre' }] })
+    expect(place.contact).toMatchObject({ website: null, reservationUrl: 'https://local.meitre.com/' })
+    expect(place.reservations).toBe('accepts')
+  })
+
+  it('devuelve placeFacts con id y lo que respalda cada uno, hasta 40, y sin usarlos para la búsqueda', () => {
+    const sources = [
+      { id: 'S1', kind: 'instagram' as const, trust: 'official' as const, url: 'https://www.instagram.com/local/', text: 'DJ los viernes' },
+      { id: 'S2', kind: 'exa' as const, trust: 'third_party' as const, url: 'https://exa.ai/', text: 'Resumen' },
+    ]
+    const facts = Array.from({ length: 45 }, (_, index) => ({ id: `F${index + 1}`, text: `fact ${index} FACT_NO_EN_BUSQUEDA`, sourceId: index === 1 ? 'S2' : 'S1', kind: 'other' as const, proposedTag: null }))
+    facts[2] = { id: 'F3', text: 'fact inválido', sourceId: 'S7', kind: 'other', proposedTag: null }
+    facts[3] = { id: 'F1', text: 'fact con id repetido', sourceId: 'S1', kind: 'other', proposedTag: null }
+    const place = postProcess(target, {
+      ...emptyExtraction,
+      facts,
+      tags: [{ group: 'features', id: 'dj', facts: ['F1', 'F2', 'F99'] }, { group: 'categories', id: 'bar', facts: ['F2'] }],
+    }, { sources })
+
+    // 40 facts como máximo, menos el de fuente inexistente y el de id repetido.
+    expect(place.placeFacts).toHaveLength(38)
+    expect(place.placeFacts[0]).toEqual({
+      id: 'F1', text: 'fact 0 FACT_NO_EN_BUSQUEDA', kind: 'other', sourceId: 'S1', sourceUrl: 'https://www.instagram.com/local/', trust: 'official', supports: ['features.dj'],
+    })
+    expect(place.placeFacts[1]).toMatchObject({ id: 'F2', sourceId: 'S2', trust: 'third_party', supports: ['features.dj', 'categories.bar'] })
+    expect(place.placeFacts.some((fact) => fact.text === 'fact inválido' || fact.text === 'fact con id repetido')).toBe(false)
+    expect(place.embeddingText).not.toContain('FACT_NO_EN_BUSQUEDA')
+    expect(place.keywordText).not.toContain('FACT_NO_EN_BUSQUEDA')
+  })
+
+  it('guarda locatedIn citando su fact y lo suma a los textos de búsqueda', () => {
+    const source = { id: 'S1', kind: 'web' as const, trust: 'third_party' as const, url: 'https://guia.example/', text: 'Parrilla en el Mercado del Puerto.' }
+    const data: PlaceExtraction = {
+      ...emptyExtraction,
+      facts: [{ id: 'F1', text: 'Está en el Mercado del Puerto', sourceId: 'S1', kind: 'other', proposedTag: null }],
+      locatedIn: '  Mercado del Puerto ',
+      support: [{ field: 'locatedIn', facts: ['F1'] }],
+    }
+    const inside = postProcess(target, data, { sources: [source] })
+    expect(inside.locatedIn).toBe('Mercado del Puerto')
+    expect(inside.embeddingText).toContain('Dentro de Mercado del Puerto')
+    expect(inside.keywordText).toContain('Dentro de Mercado del Puerto')
+    expect(inside.placeFacts[0].supports).toEqual(['locatedIn'])
+    expect(reviewExtraction(inside, data).unmappedFacts).toEqual([])
+
+    // Sin un fact válido que lo respalde, o con nombre vacío, se descarta.
+    const uncited = postProcess(target, { ...data, support: [{ field: 'locatedIn', facts: ['F9'] }] }, { sources: [source] })
+    expect(uncited.locatedIn).toBeNull()
+    expect(uncited.embeddingText).not.toContain('Dentro de')
+    expect(reviewExtraction(uncited, data).unmappedFacts.map((item) => item.id)).toEqual(['F1'])
+    const blank = postProcess(target, { ...data, locatedIn: '   ' }, { sources: [source] })
+    expect(blank.locatedIn).toBeNull()
+  })
+
+  it('aplica las reglas que no dependen de palabras: categorías, horarios y dietary', () => {
+    const source = { id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://local.example/', text: 'Fuente' }
+    const grill = postProcess(target, {
+      ...emptyExtraction,
+      facts: [{ id: 'F1', text: 'abre de 12 a 03', sourceId: 'S1', kind: 'hours', proposedTag: null }],
+      tags: [{ group: 'moments', id: 'late_night', facts: ['F1'] }],
+      hours: { raw: 'Viernes de 12 a 03', display: null, blocks: [{ days: [5], opens: '12:00', closes: '03:00' }] },
+      support: [{ field: 'hours', facts: ['F1'] }],
+    }, { sources: [source], seedCategories: ['grill'] })
+    expect(grill.categories).toEqual(['grill', 'restaurant'])
+    expect(grill.tags).toEqual(expect.arrayContaining(['grilled_meat', 'uruguayan', 'lunch', 'dinner', 'late_night']))
+
+    const modelLateNight = postProcess(target, {
+      ...emptyExtraction,
+      facts: [{ id: 'F1', text: 'abre hasta tarde', sourceId: 'S1', kind: 'hours', proposedTag: null }],
+      tags: [{ group: 'moments', id: 'late_night', facts: ['F1'] }],
+      hours: { raw: 'Viernes de 19 a 01', display: null, blocks: [{ days: [5], opens: '19:00', closes: '01:00' }] },
+      support: [{ field: 'hours', facts: ['F1'] }],
+    }, { sources: [source], seedCategories: ['bar'] })
+    expect(modelLateNight.tags).not.toContain('late_night')
+    expect(modelLateNight.tags).toContain('drinks')
+
+    const cafe = postProcess(target, emptyExtraction, { sources: [source], seedCategories: ['cafe'] })
+    expect(cafe.tags).toEqual(expect.arrayContaining(['breakfast', 'afternoon_snack']))
+
+    const vegetarianGrill = postProcess(target, {
+      ...emptyExtraction,
+      facts: [{ id: 'F1', text: 'todo el menú es vegano', sourceId: 'S1', kind: 'dietary', proposedTag: null }],
+      dietary: { vegan: 'fully', vegetarian: 'unknown', glutenFree: 'unknown' },
+      support: [{ field: 'dietary.vegan', facts: ['F1'] }],
+    }, { sources: [source], seedCategories: ['grill'] })
+    expect(vegetarianGrill.dietary).toMatchObject({ vegan: 'fully', vegetarian: 'fully' })
+    expect(vegetarianGrill.tags).not.toContain('grilled_meat')
+  })
+
+  it('descarta highlights sin fact válido o que no aparecen en las fuentes, y deja como máximo ocho', () => {
+    const source = { id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://local.example/', text: Array.from({ length: 10 }, (_, index) => `plato ${index}`).join('. ') }
+    const place = postProcess(target, {
+      ...emptyExtraction,
+      facts: [{ id: 'F1', text: 'la carta tiene platos', sourceId: 'S1', kind: 'food', proposedTag: null }],
+      highlights: [
+        { es: 'plato inventado', en: 'made up dish', facts: ['F1'] },
+        { es: 'plato 9', en: 'dish 9', facts: [] },
+        { es: 'plato 8', en: 'dish 8', facts: ['F7'] },
+        ...Array.from({ length: 10 }, (_, index) => ({ es: `plato ${index}`, en: `dish ${index}`, facts: ['F1'] })),
+      ],
+    }, { sources: [source] })
+    expect(place.highlights).toHaveLength(8)
+    expect(place.highlights[0]).toEqual({ es: 'plato 0', en: 'dish 0' })
+  })
+
+  it('revisa facts sin mapear, dudas del modelo y anomalías de horarios, bebidas y contacto', () => {
+    const source = { id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://bar.example/', text: 'Abrimos todos los días desde las 18. Probá el flat white. Mesa de ping pong.' }
+    const data: PlaceExtraction = {
+      ...emptyExtraction,
+      facts: [
+        { id: 'F1', text: 'Abre todos los días desde las 18:00', sourceId: 'S1', kind: 'hours', proposedTag: null },
+        { id: 'F2', text: 'Sirve flat white', sourceId: 'S1', kind: 'drink', proposedTag: null },
+        // proposedTag: un id nuevo en snake_case se conserva; uno inválido cuenta como null.
+        { id: 'F3', text: 'Mesa de ping pong', sourceId: 'S1', kind: 'feature', proposedTag: 'ping_pong' },
+        { id: 'F4', text: 'Tiene un Lemon con la receta de la abuela', sourceId: 'S1', kind: 'drink', proposedTag: 'Receta Abuela!' },
+      ],
+      // Un id que no existe en tags.ts no cuenta como mapeo: F3 tiene que aparecer en el reporte.
+      tags: [{ group: 'features', id: 'ping_pong', facts: ['F3'] }],
+      highlights: [{ es: 'flat white', en: 'flat white', facts: ['F2'] }],
+      hours: { raw: 'Todos los días desde las 18', display: null, blocks: [{ days: [0, 1, 2, 3, 4, 5, 6], opens: '18:00', closes: null }] },
+      support: [{ field: 'hours', facts: ['F1'] }],
+      doubts: ['¿Es bar o boliche?', '  ', '¿Es bar o boliche?', 'd2', 'd3', 'd4', 'd5', 'd6'],
+    }
+    const place = postProcess(target, data, { sources: [source], seedCategories: ['bar'] })
+    const review = reviewExtraction(place, data)
+
+    expect(review.unmappedFacts).toEqual([
+      { id: 'F3', text: 'Mesa de ping pong', proposedTag: 'ping_pong' },
+      { id: 'F4', text: 'Tiene un Lemon con la receta de la abuela', proposedTag: null },
+    ])
+    expect(review.doubts).toEqual(['¿Es bar o boliche?', 'd2', 'd3', 'd4', 'd5'])
+    expect(review.anomalies.map((anomaly) => anomaly.type)).toEqual(['hours_no_close', 'bar_without_drinks', 'no_contact'])
+    expect(review.anomalies[0].detail).toBe('dom desde 18:00, lun desde 18:00, mar desde 18:00, mié desde 18:00, jue desde 18:00, vie desde 18:00, sáb desde 18:00')
+  })
+
+  it('aplica los proposedTag que existen en tags.ts, también categorías, salvo horarios y dietary', () => {
+    const source = { id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://bar.example/', text: 'Chivito vegano. Talleres. Abrimos de noche.' }
+    const fact = (id: string, text: string, proposedTag: string | null) => ({ id, text, sourceId: 'S1', kind: 'other' as const, proposedTag })
+    const data: PlaceExtraction = {
+      ...emptyExtraction,
+      facts: [
+        fact('F1', 'Tiene chivito vegano', 'chivito'),
+        fact('F2', 'Cursos y talleres de barismo', 'events'),
+        fact('F3', 'Hacen talleres de cerámica', 'events'),
+        fact('F4', 'Abre pasada la medianoche', 'late_night'),
+        fact('F5', 'Sirve almuerzos', 'lunch'),
+        fact('F6', 'Todo es vegano', 'vegan'),
+        fact('F7', 'Es un bar', 'bar'),
+        fact('F8', 'Alfajores helados', 'alfajores'),
+        fact('F9', 'Tiene wifi', 'wifi'),
+      ],
+      tags: [{ group: 'features', id: 'wifi', facts: ['F9'] }],
+    }
+    const place = postProcess(target, data, { sources: [source], seedCategories: ['cafe'] })
+
+    expect(place.tags).toEqual(expect.arrayContaining(['chivito', 'events', 'wifi']))
+    expect(place.tags).not.toContain('late_night')
+    expect(place.tags).not.toContain('lunch')
+    expect(place.categories).toEqual(expect.arrayContaining(['cafe', 'bar']))
+    expect(place.dietary.vegan).toBe('unknown')
+    // Cada fact que propone el tag queda citado por él; el tag aparece una sola vez.
+    expect(place.tags.filter((id) => id === 'events')).toHaveLength(1)
+    expect(place.placeFacts.find((item) => item.id === 'F1')?.supports).toEqual(['foods.chivito'])
+    expect(place.placeFacts.find((item) => item.id === 'F2')?.supports).toEqual(['features.events'])
+    expect(place.placeFacts.find((item) => item.id === 'F3')?.supports).toEqual(['features.events'])
+    expect(place.placeFacts.find((item) => item.id === 'F9')?.supports).toEqual(['features.wifi'])
+    expect(place.placeFacts.find((item) => item.id === 'F7')?.supports).toEqual(['categories.bar'])
+    expect(reviewExtraction(place, data).unmappedFacts.map((item) => [item.id, item.proposedTag])).toEqual([
+      ['F4', 'late_night'], ['F5', 'lunch'], ['F6', 'vegan'], ['F8', 'alfajores'],
+    ])
+  })
+
+  it('suma a un tag que ya existe el fact que lo propone, y ese fact deja de ser unmapped', () => {
+    const source = { id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://cafe.example/', text: 'Café de especialidad. Blend Black Magic.' }
+    const data: PlaceExtraction = {
+      ...emptyExtraction,
+      facts: [
+        { id: 'F1', text: 'Sirve café de especialidad', sourceId: 'S1', kind: 'drink', proposedTag: null },
+        { id: 'F2', text: 'Hay un blend Black Magic y cafés de origen', sourceId: 'S1', kind: 'drink', proposedTag: 'specialty_coffee' },
+      ],
+      tags: [{ group: 'drinks', id: 'specialty_coffee', facts: ['F1'] }],
+    }
+    const place = postProcess(target, data, { sources: [source], seedCategories: ['cafe'] })
+
+    expect(place.tags.filter((id) => id === 'specialty_coffee')).toHaveLength(1)
+    expect(place.placeFacts.find((item) => item.id === 'F2')?.supports).toEqual(['drinks.specialty_coffee'])
+    expect(reviewExtraction(place, data).unmappedFacts).toEqual([])
+  })
+
+  it('suma a una categoría que ya está el fact que la propone', () => {
+    const source = { id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://parrilla.example/', text: 'Parrilla. Asado a leña.' }
+    const data: PlaceExtraction = {
+      ...emptyExtraction,
+      facts: [
+        { id: 'F1', text: 'Es una parrilla', sourceId: 'S1', kind: 'other', proposedTag: null },
+        { id: 'F2', text: 'Asan a leña en el salón', sourceId: 'S1', kind: 'food', proposedTag: 'grill' },
+      ],
+      tags: [{ group: 'categories', id: 'grill', facts: ['F1'] }],
+    }
+    const place = postProcess(target, data, { sources: [source] })
+
+    expect(place.categories.filter((id) => id === 'grill')).toHaveLength(1)
+    expect(place.placeFacts.find((item) => item.id === 'F2')?.supports).toEqual(['categories.grill'])
+    expect(reviewExtraction(place, data).unmappedFacts).toEqual([])
+  })
+
+  it('marca horario vago, restaurante sin comidas y dietary fully', () => {
+    const source = { id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://resto.example/', text: 'Restaurante 100% vegano. instagram.com/resto' }
+    const data: PlaceExtraction = {
+      ...emptyExtraction,
+      facts: [
+        { id: 'F1', text: 'Es 100% vegano', sourceId: 'S1', kind: 'dietary', proposedTag: null },
+        { id: 'F2', text: 'Instagram @resto', sourceId: 'S1', kind: 'contact', proposedTag: null },
+      ],
+      dietary: { vegan: 'fully', vegetarian: 'unknown', glutenFree: 'unknown' },
+      contact: { ...emptyExtraction.contact, instagram: 'resto', website: null, phone: null },
+      support: [{ field: 'dietary.vegan', facts: ['F1'] }, { field: 'contact.instagram', facts: ['F2'] }],
+    }
+    const place = postProcess(target, data, { sources: [source], seedCategories: ['restaurant'] })
+    const types = reviewExtraction(place, data).anomalies.map((anomaly) => anomaly.type)
+
+    expect(types).toEqual(['hours_vague', 'restaurant_without_food', 'dietary_fully'])
+    expect(reviewExtraction(place, data).anomalies[0].detail).toBe('none')
+    expect(reviewExtraction(place, data).unmappedFacts).toEqual([])
+  })
+
+  it('lee el modelo y el razonamiento del entorno y arma las opciones de cada proveedor', () => {
+    expect(extractionModelConfig({})).toEqual({ model: 'anthropic/claude-sonnet-5.5', reasoning: 'medium' })
+    expect(extractionModelConfig({ EXTRACTION_MODEL: 'openai/gpt-5-mini', EXTRACTION_REASONING: 'low' }))
+      .toEqual({ model: 'openai/gpt-5-mini', reasoning: 'low' })
+    expect(extractionModelConfig({ EXTRACTION_MODEL: 'anthropic/claude-sonnet-5.5', EXTRACTION_REASONING: 'medium' }))
+      .toEqual({ model: 'anthropic/claude-sonnet-5.5', reasoning: 'medium' })
+    expect(extractionModelConfig({ EXTRACTION_REASONING: 'extremo' }).reasoning).toBe('medium')
+    expect(providerOptionsFor({ model: 'openai/gpt-5-mini', reasoning: 'low' })).toEqual({ openai: { reasoningEffort: 'low' } })
+    expect(providerOptionsFor({ model: 'anthropic/claude-sonnet-5.5', reasoning: 'medium' })).toEqual({ anthropic: { effort: 'medium', structuredOutputMode: 'outputFormat' } })
+    expect(providerOptionsFor({ model: 'otro/modelo', reasoning: 'high' })).toEqual({})
+  })
+
+  describe('segunda búsqueda de horarios', () => {
+    const sonnet = { model: 'anthropic/claude-sonnet-5.5', reasoning: 'medium' as const }
+    const branchPage = { title: 'Sucursales', url: 'https://cadena.example/sucursales', highlights: ['Ituzaingó 1447: todos los días de 12 a 23'], text: 'Ituzaingó 1447: todos los días de 12 a 23. Pocitos: 10 a 22.' }
+    type ServiceConfig = ConstructorParameters<typeof PlaceExtractionService>[0]
+    const serviceWith = (searchText: NonNullable<ServiceConfig['exa']>['searchText'], generateHours: ServiceConfig['generateHours'], extracted = emptyExtraction) =>
+      new PlaceExtractionService({
+        apiKey: 'test-key',
+        details: { getDetails: async () => googleDetails },
+        exa: { configured: true, searchPlace: async () => exaResponse(), searchText },
+        generate: async () => extracted,
+        generateHours,
+        model: sonnet,
+        hoursModel: hoursModelConfig({}),
+      })
+
+    it('recupera el horario de la sucursal con una búsqueda de highlights y un llamado corto con HOURS_MODEL, y suma su costo', async () => {
+      const searchText = vi.fn(async (query: string) => ({ query, results: [branchPage], requestId: 'r' }))
+      const hoursCalls: { sources: Source[]; model: string; reasoning: string; address: string }[] = []
+      const service = serviceWith(searchText, async (hoursTarget, sources, config) => {
+        hoursCalls.push({ sources, model: config.model, reasoning: config.reasoning, address: hoursTarget.address })
+        return {
+          data: {
+            facts: [{ id: 'F9', text: 'La sucursal de Ituzaingó abre todos los días de 12 a 23', sourceId: sources[0].id }],
+            raw: 'todos los días de 12 a 23',
+            blocks: [{ days: [0, 1, 2, 3, 4, 5, 6], opens: '12:00', closes: '23:00' }],
+            otherBranchHours: true,
+          },
+          inputTokens: 1000, cachedInputTokens: 0, outputTokens: 100, gatewayCostUsd: null,
+        }
+      })
+
+      const response = await service.extract('place-1', { seedCategories: ['restaurant'] })
+      if (response.status !== 'ok') throw new Error('sin fuentes')
+
+      expect(searchText.mock.calls.map(([query]) => query)).toEqual([`${googleDetails.anchor.name} ${googleDetails.anchor.address} horario`])
+      // Las fuentes nuevas se numeran después de las del lugar.
+      expect(hoursCalls).toHaveLength(1)
+      expect(hoursCalls[0].sources.map((source) => source.url)).toEqual(['https://cadena.example/sucursales'])
+      expect(hoursCalls[0].sources[0].id).not.toBe('S1')
+      expect(hoursCalls[0]).toMatchObject({ model: 'openai/gpt-5-mini', reasoning: 'low' })
+      expect(hoursCalls[0].address).toBe(googleDetails.anchor.address)
+      expect(response.place.hours).toMatchObject({ status: 'exact', source: 'third_party', missingReason: null })
+      expect(response.place.hours.slots).toHaveLength(7)
+      // Las reglas que dependen de los horarios se vuelven a aplicar con el horario recuperado.
+      expect(response.place.tags).toEqual(expect.arrayContaining(['lunch', 'dinner']))
+      expect(response.place.placeFacts[0]).toMatchObject({ id: 'H1', kind: 'hours', supports: ['hours'], sourceUrl: 'https://cadena.example/sucursales' })
+      // Exa: 1 búsqueda (0,007) + 1 página de highlights (0,001); gpt-5-mini: 1000 in (0,00025) + 100 out (0,0002).
+      expect(response.review.hoursRetry).toEqual({ attempted: true, recovered: true, costUsd: 0.00845 })
+      expect(response.performance.costUsd.providers.hoursRetry).toEqual({ model: 'openai/gpt-5-mini', inputTokens: 1000, outputTokens: 100, costUsd: 0.00045 })
+      expect(response.performance.costUsd.providers.exa).toMatchObject({ requests: 2, highlightPages: 1 })
+      expect(response.performance.costUsd.providers.llm.model).toBe(sonnet.model)
+    })
+
+    it('marca chain_branch_not_found si sólo hay horarios de otras sucursales, y no_data si no hay nada', async () => {
+      const otherBranch = serviceWith(async (query) => ({ query, results: [branchPage], requestId: 'r' }), async () => ({
+        facts: [], raw: null, blocks: [], otherBranchHours: true,
+      }))
+      const chain = await otherBranch.extract('place-1', { seedCategories: ['cafe'] })
+      if (chain.status !== 'ok') throw new Error('sin fuentes')
+      expect(chain.place.hours).toMatchObject({ status: 'none', missingReason: 'chain_branch_not_found' })
+      expect(chain.review.hoursRetry).toMatchObject({ attempted: true, recovered: false })
+
+      const generateHours = vi.fn()
+      const empty = serviceWith(async (query) => ({ query, results: [], requestId: 'r' }), generateHours)
+      const none = await empty.extract('place-1', { seedCategories: ['cafe'] })
+      if (none.status !== 'ok') throw new Error('sin fuentes')
+      expect(generateHours).not.toHaveBeenCalled()
+      expect(none.place.hours.missingReason).toBe('no_data')
+      expect(none.review.hoursRetry).toEqual({ attempted: true, recovered: false, costUsd: 0.007 })
+    })
+
+    it('descarta un horario recuperado cuya fuente no nombra la dirección del local', async () => {
+      const otherMall = { title: 'Freddo Tres Cruces', url: 'https://shopping.example/freddo', highlights: ['Freddo Tres Cruces: D. a J. de 09:00 a 24:00'] }
+      const service = serviceWith(async (query) => ({ query, results: [otherMall], requestId: 'r' }), async (_target, sources) => ({
+        facts: [{ id: 'H1', text: 'Abre de 09:00 a 24:00', sourceId: sources[0].id }],
+        raw: 'D. a J. de 09:00 a 24:00',
+        blocks: [{ days: [0, 1, 2, 3, 4], opens: '09:00', closes: '00:00' }],
+        otherBranchHours: false,
+      }))
+      const response = await service.extract('place-1', { seedCategories: ['cafe'] })
+      if (response.status !== 'ok') throw new Error('sin fuentes')
+      expect(response.place.hours).toMatchObject({ status: 'none', missingReason: 'no_data' })
+      expect(response.review.hoursRetry).toMatchObject({ attempted: true, recovered: false })
+
+      expect(mentionsAddress('Sucursal Gonzalo Ramírez 2051: 12 a 24', 'Av. Gonzalo Ramírez 2051, 11200 Montevideo')).toBe(true)
+      expect(mentionsAddress('Freddo Tres Cruces, local 2051B', 'Av. Gonzalo Ramírez 2051, 11200 Montevideo')).toBe(false)
+      expect(mentionsAddress('Rambla Rep. de México esquina', 'Rambla República de México, Montevideo')).toBe(false)
+      expect(mentionsAddress('Rambla República de México, abre 10 a 20', 'Rambla República de México, Montevideo')).toBe(true)
+    })
+
+    it('no busca de nuevo si la extracción ya trae horario', async () => {
+      const searchText = vi.fn()
+      const service = serviceWith(searchText, vi.fn(), { ...extraction, support: [{ field: 'hours', facts: ['F1'] }] })
+      const response = await service.extract('place-1', { seedCategories: ['cafe'] })
+      if (response.status !== 'ok') throw new Error('sin fuentes')
+      expect(searchText).not.toHaveBeenCalled()
+      expect(response.place.hours.missingReason).toBeNull()
+      expect(response.review.hoursRetry).toEqual({ attempted: false, recovered: false, costUsd: 0 })
+      expect(response.performance.costUsd.providers.hoursRetry).toBeUndefined()
+    })
+  })
+
+  it('lee HOURS_MODEL, marca el prompt de sistema para el cache y cobra la lectura y escritura del cache', () => {
+    expect(hoursModelConfig({})).toEqual({ model: 'openai/gpt-5-mini', reasoning: 'low' })
+    expect(hoursModelConfig({ HOURS_MODEL: 'anthropic/claude-sonnet-5.5' })).toEqual({ model: 'anthropic/claude-sonnet-5.5', reasoning: 'low' })
+
+    const request = mainExtractionRequest(target, [], { model: 'anthropic/claude-sonnet-5.5', reasoning: 'medium' })
+    expect(request.system).toEqual({ role: 'system', content: SYSTEM_PROMPT, providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } } })
+    expect(request.providerOptions).toEqual({ anthropic: { effort: 'medium', structuredOutputMode: 'outputFormat' } })
+
+    // 10.000 de entrada: 2.000 sin cache (2/M), 5.000 leídos (0,1/M) y 3.000 escritos (2,5/M).
+    const cost = llmUsageCost('anthropic/claude-sonnet-5.5', { inputTokens: 10_000, cachedInputTokens: 5_000, cacheWriteTokens: 3_000, outputTokens: 0, gatewayCostUsd: null })
+    expect(cost.inputCost).toBeCloseTo(0.004 + 0.0005 + 0.0075, 10)
+  })
+
+  it('busca las fuentes una vez y las pasa iguales a dos configuraciones de modelo', async () => {
+    const getDetails = vi.fn(async () => googleDetails)
+    const searchPlace = vi.fn(async () => exaResponse('', [{ title: target.name, url: 'https://cafe.example/', highlights: ['Café de especialidad'] }]))
+    const calls: { sources: Source[]; model: string; reasoning: string }[] = []
+    const service = new PlaceExtractionService({
+      apiKey: 'test-key',
+      details: { getDetails },
+      exa: { configured: true, searchPlace },
+      generate: async (_target, sources, config) => {
+        calls.push({ sources, ...config })
+        return { data: emptyExtraction, inputTokens: 1000, cachedInputTokens: 0, outputTokens: 500, gatewayCostUsd: null }
+      },
+    })
+
+    const collected = await service.collectSources('place-1', { seedCategories: ['cafe'] })
+    const mini = await service.extractFrom(collected, { model: 'openai/gpt-5-mini', reasoning: 'low' })
+    const sonnet = await service.extractFrom(collected, { model: 'anthropic/claude-sonnet-5.5', reasoning: 'medium' })
+
+    expect(getDetails).toHaveBeenCalledOnce()
+    expect(searchPlace).toHaveBeenCalledOnce()
+    expect(calls.map((call) => [call.model, call.reasoning])).toEqual([['openai/gpt-5-mini', 'low'], ['anthropic/claude-sonnet-5.5', 'medium']])
+    expect(calls[1].sources).toBe(calls[0].sources)
+    expect(mini.model).toBe('openai/gpt-5-mini')
+    expect(sonnet.performance.costUsd.providers.llm).toMatchObject({ model: 'anthropic/claude-sonnet-5.5', inputCostUsd: 0.002, outputCostUsd: 0.005 })
+    expect(mini.performance.costUsd.providers.llm).toMatchObject({ inputCostUsd: 0.00025, outputCostUsd: 0.001 })
   })
 })

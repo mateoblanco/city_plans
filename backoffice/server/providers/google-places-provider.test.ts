@@ -45,7 +45,7 @@ describe('GooglePlacesProvider', () => {
           name: 'Bar Uno',
           type: 'Bar',
           googleMapsUri: 'https://maps.google.com/one',
-          seedCategory: 'bar',
+          seedCategories: ['bar'],
         },
         {
           placeId: 'two',
@@ -53,7 +53,7 @@ describe('GooglePlacesProvider', () => {
           type: 'Bar',
           googleMapsUri:
             'https://www.google.com/maps/search/?api=1&query_place_id=two',
-          seedCategory: 'bar',
+          seedCategories: ['bar'],
         },
       ],
       nextPageToken: 'next',

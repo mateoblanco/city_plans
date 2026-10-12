@@ -11,6 +11,9 @@ Backoffice local para buscar lugares de Montevideo mediante Google Places API (N
 - `src/data/`: barrios permitidos y snapshot tipado de categorías Food and Drink.
 - `PlacesProvider`: límite entre el dominio y cada fuente externa. Mantener Google encapsulado en su provider.
 - `POST /api/places/search`: acepta el modo controlado de barrio/categoría o texto libre acotado a Montevideo, más un token opaco de paginación.
+- `POST /api/neighborhoods/:neighborhoodId/sweep`: recorrido adaptativo (quadtree) de un barrio de `barrios.json`, en NDJSON. Configuración en `server/providers/neighborhood-sweep-config.ts`; resultados sólo en memoria, con tope `NEIGHBORHOOD_SWEEP_MAX_CALLS`.
+- La UI tiene menú lateral: **Buscar lugares** (`#/`) y **Buscar por barrio** (`#/barrio`).
+- `POST /api/extract`: único endpoint de extracción, un lugar por request (`{ googlePlaceId, seedCategories, neighborhoodId? }`), sin cache ni estado. Todas las `seedCategories` quedan en `categories`. Apify, Exa y el LLM tienen límites `p-limit` compartidos (`server/providers/service-limits.ts`); el lote del frontend usa `p-map` con `EXTRACT_CONCURRENCY`.
 - Los detalles Google se consultan una sola vez por `placeId`; las otras fuentes hacen matching espacial y textual desde ese ancla.
 
 ## Comandos
@@ -33,4 +36,4 @@ Backoffice local para buscar lugares de Montevideo mediante Google Places API (N
 
 ## Fuera del MVP
 
-Autenticación, base de datos, edición, mapas, exportación, búsquedas masivas, cuadrícula geográfica y catálogo multi-fuente persistente.
+Autenticación, base de datos, edición, mapas, exportación, búsquedas masivas fuera de un único barrio y catálogo multi-fuente persistente. La cuadrícula geográfica existe sólo para el recorrido de un barrio, con confirmación de costo y sin persistencia.
