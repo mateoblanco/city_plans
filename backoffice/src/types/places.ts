@@ -49,6 +49,8 @@ export type GooglePlaceDetailsResponse = {
   anchor: PlaceAnchor
   websiteUri: string | null
   phoneNumber?: string | null
+  /** primaryTypeDisplayName en español; sólo para armar consultas, no se guarda. */
+  placeType?: string | null
   data: JsonValue
   attribution: string
 }

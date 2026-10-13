@@ -1728,3 +1728,21 @@ describe('señales de prominencia', () => {
     expect(postProcess(target, emptyExtraction, { sources: [] }).signals).toEqual({ editorialMentions: 0, listedOrAwarded: false, igFollowers: null })
   })
 })
+
+describe('consultas con el tipo de lugar', () => {
+  it('Exa y la búsqueda de Instagram usan la marca con el primaryType de Google', async () => {
+    const searchPlace = vi.fn(async () => exaResponse())
+    const searchText = vi.fn(async () => ({ query: '', results: [], requestId: 'r' }))
+    const service = new PlaceExtractionService({
+      apiKey: 'test-key',
+      details: { getDetails: async () => ({ ...googleDetails, anchor: { ...googleDetails.anchor, name: 'Musse' }, placeType: 'Restaurante' }) },
+      exa: { configured: true, searchPlace, searchText },
+      generate: async () => extraction,
+    })
+
+    await service.collectSources('place-1', { seedCategories: ['restaurant'] })
+
+    expect(searchPlace).toHaveBeenCalledWith('Musse restaurante')
+    expect(searchText).toHaveBeenCalledWith('Musse restaurante Montevideo instagram')
+  })
+})

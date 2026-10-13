@@ -3,7 +3,7 @@ import type { ExaPlaceResponse, ExaPlaceResult } from '../../src/types/places.ts
 import { refreshSignals, type RefreshDeps, type SignalsRow } from './refresh-signals.ts'
 
 const row = (overrides: Partial<SignalsRow> = {}): SignalsRow => ({
-  id: 'uuid-1', name: 'El Palenque', instagram: 'elpalenque', website: 'https://elpalenque.com.uy/',
+  id: 'uuid-1', googlePlaceId: 'g-1', name: 'El Palenque', instagram: 'elpalenque', website: 'https://elpalenque.com.uy/',
   editorialMentions: 0, listedOrAwarded: false, igFollowers: null, prominence: 0.125, ...overrides,
 })
 
@@ -86,5 +86,34 @@ describe('refreshSignals', () => {
     const d = deps({ write: vi.fn().mockRejectedValueOnce(new Error('boom')).mockResolvedValue(undefined) })
     const results = await refreshSignals([row(), row({ id: 'uuid-2', name: 'Otro Lugar' })], d)
     expect(results.map((result) => result.status).sort()).toEqual(['changed', 'error'])
+  })
+
+  it('no baja editorialMentions ni apaga listedOrAwarded aunque Exa traiga menos fuentes', async () => {
+    const d = deps({ searchPlace: vi.fn(async () => exa([])) })
+    const [result] = await refreshSignals([row({ editorialMentions: 2, listedOrAwarded: true, igFollowers: 5, prominence: 0 })], d)
+    expect(result.after).toMatchObject({ editorialMentions: 2, listedOrAwarded: true, igFollowers: 999 })
+  })
+
+  it('busca en Exa con la marca y el tipo de lugar de Google; si Google falla, sólo con la marca', async () => {
+    const d = deps({ placeType: vi.fn(async (id: string) => {
+      if (id === 'g-2') throw new Error('quota')
+      return 'Restaurante'
+    }) })
+    const [first, second] = await refreshSignals([row(), row({ id: 'uuid-2', googlePlaceId: 'g-2', name: 'Musse' })], d)
+    expect(d.searchPlace).toHaveBeenCalledWith('El Palenque restaurante')
+    expect(d.searchPlace).toHaveBeenCalledWith('Musse')
+    expect(first.warnings).toEqual([])
+    expect(second.warnings[0]).toContain('Google: quota')
+  })
+
+  it('con onlyIds procesa sólo esos, pero cuenta marcas repetidas sobre todos', async () => {
+    const d = deps()
+    const results = await refreshSignals([
+      row({ id: 'a', name: 'La Nueva Roma' }),
+      row({ id: 'b', name: 'La Nueva Roma' }),
+      row({ id: 'c', name: 'Otro' }),
+    ], d, { onlyIds: new Set(['a']) })
+    expect(results.map((result) => [result.id, result.chain])).toEqual([['a', true]])
+    expect(d.searchPlace).toHaveBeenCalledOnce()
   })
 })

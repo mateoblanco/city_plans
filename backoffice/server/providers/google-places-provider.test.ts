@@ -105,6 +105,7 @@ describe('GooglePlacesProvider', () => {
         formattedAddress: 'Ituzaingó 1447, Montevideo',
         location: { latitude: -34.906, longitude: -56.202 },
         websiteUri: 'https://cafebrasilero.com.uy/',
+        primaryTypeDisplayName: { text: 'Cafetería' },
         rating: 4.7,
       }), { status: 200 }),
     )
@@ -119,11 +120,25 @@ describe('GooglePlacesProvider', () => {
       longitude: -56.202,
     })
     expect(result.websiteUri).toBe('https://cafebrasilero.com.uy/')
+    expect(result.placeType).toBe('Cafetería')
     await provider.getDetails('place-1')
     expect(fetcher).toHaveBeenCalledTimes(1)
     const [url, init] = fetcher.mock.calls[0]
     expect(String(url)).toContain('/v1/places/place-1')
     expect(init.headers['X-Goog-FieldMask']).toBe('*')
+  })
+
+  it('getPlaceType pide sólo el tipo de lugar en español', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ primaryTypeDisplayName: { text: 'Restaurante' } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }))
+    const provider = new GooglePlacesProvider('private-key', fetcher)
+
+    expect(await provider.getPlaceType('place-1')).toBe('Restaurante')
+    expect(await provider.getPlaceType('place-2')).toBeNull()
+    const [url, init] = fetcher.mock.calls[0]
+    expect(String(url)).toContain('/v1/places/place-1?languageCode=es')
+    expect(init.headers['X-Goog-FieldMask']).toBe('primaryTypeDisplayName')
   })
 
   it.each([

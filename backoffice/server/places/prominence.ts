@@ -31,3 +31,18 @@ export function computeProminence({ editorialMentions, listedOrAwarded, igFollow
     PROMINENCE_WEIGHTS.listed * (listedOrAwarded ? 1 : 0),
   )
 }
+
+/**
+ * Señales estables: editorialMentions no baja y listedOrAwarded no vuelve a false.
+ * igFollowers se actualiza siempre. Lo usan el guardado del pipeline y signals:refresh.
+ */
+export function stableSignals(
+  current: { editorialMentions: number; listedOrAwarded: boolean },
+  next: { editorialMentions?: number; listedOrAwarded?: boolean; igFollowers?: number | null },
+): ProminenceSignals {
+  return {
+    editorialMentions: Math.max(current.editorialMentions, next.editorialMentions ?? 0),
+    listedOrAwarded: current.listedOrAwarded || Boolean(next.listedOrAwarded),
+    igFollowers: next.igFollowers ?? null,
+  }
+}

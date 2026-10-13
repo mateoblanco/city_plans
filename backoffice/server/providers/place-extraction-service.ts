@@ -34,7 +34,7 @@ import type {
   PlaceReview,
   PlaceReviewAnomaly,
 } from '../../src/types/places.ts'
-import { brandFromGoogleName } from './brand-name.ts'
+import { brandFromGoogleName, brandSearchTerm } from './brand-name.ts'
 import { editorialSignals } from './editorial-sources.ts'
 import {
   BLOCKED_HOSTS,
@@ -1893,16 +1893,18 @@ export class PlaceExtractionService implements PlaceExtractor {
     }
     try {
       const detailsPromise = timed('google', () => this.details.getDetails(placeId))
-      // El request no trae nombre: Exa busca con la marca (nombre de Google sin sucursal); el provider agrega Montevideo.
+      // El request no trae nombre: Exa busca con la marca (nombre de Google sin sucursal) y el tipo de
+      // lugar de Google, para no mezclar homónimos; el provider agrega Montevideo.
+      const searchTerm = (details: GooglePlaceDetailsResponse) => brandSearchTerm(brandFromGoogleName(details.anchor.name), details.placeType)
       const exaPromise = this.exa?.configured
         ? detailsPromise
-          .then((details) => timed('exa', () => withServiceLimit('exa', () => this.exa!.searchPlace(brandFromGoogleName(details.anchor.name)))))
+          .then((details) => timed('exa', () => withServiceLimit('exa', () => this.exa!.searchPlace(searchTerm(details)))))
           .catch(() => null)
         : Promise.resolve(null)
       // Búsqueda dirigida a Instagram con la marca: sólo propone handles, que después valida Apify.
       const instagramSearchPromise = this.exa?.configured && this.exa.searchText
         ? detailsPromise
-          .then((details) => timed('exaInstagram', () => withServiceLimit('exa', () => this.exa!.searchText!(`${brandFromGoogleName(details.anchor.name)} Montevideo instagram`))))
+          .then((details) => timed('exaInstagram', () => withServiceLimit('exa', () => this.exa!.searchText!(`${searchTerm(details)} Montevideo instagram`))))
           .catch(() => null)
         : Promise.resolve(null)
       const transitPromise = timed('transit', () => detailsPromise

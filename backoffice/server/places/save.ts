@@ -6,6 +6,7 @@ import { PlaceDraft } from '../../src/data/place-schema.ts'
 import type { NeonHttpDatabase } from 'drizzle-orm/neon-http'
 import type * as schema from '../db/schema.ts'
 import { places, type NewPlace } from '../db/schema.ts'
+import { computeProminence, stableSignals } from './prominence.ts'
 import { MISSING_NAME, toRow } from './to-row.ts'
 
 export const EMBEDDING_MODEL = 'openai/text-embedding-3-small'
@@ -19,7 +20,14 @@ export type SavePlaceResult = {
   error?: string
 }
 
-export type ExistingPlace = { id: string; googlePlaceId: string; embeddingTextHash: string | null; manualOverrides: string[] }
+export type ExistingPlace = {
+  id: string
+  googlePlaceId: string
+  embeddingTextHash: string | null
+  manualOverrides: string[]
+  editorialMentions: number
+  listedOrAwarded: boolean
+}
 
 /** Lo único que savePlaces necesita de la base; los tests usan un fake en memoria. */
 export type PlacesStore = {
@@ -136,6 +144,9 @@ export async function savePlaces(results: unknown[], deps: { store: PlacesStore;
         ...(embedding ? { embedding, embeddingModel: EMBEDDING_MODEL, embeddingTextHash: hashes.get(googlePlaceId)!, embeddedAt } : {}),
       }
       if (current) {
+        // Exa no devuelve siempre las mismas fuentes: una mención o un ranking ya visto no se pierde.
+        const signals = stableSignals(current, row)
+        Object.assign(row, signals, { prominence: computeProminence(signals) })
         const locked = new Set(current.manualOverrides.map((column) => KEY_BY_COLUMN.get(column)).filter(Boolean))
         const values = Object.fromEntries(Object.entries(row).filter(([key]) => !locked.has(key) && !NEVER_UPDATED.has(key)))
         await store.update(current.id, values)
@@ -159,7 +170,10 @@ export function drizzlePlacesStore(db: Database): PlacesStore {
     async findByGooglePlaceIds(ids) {
       if (ids.length === 0) return []
       const rows = await db
-        .select({ id: places.id, googlePlaceId: places.googlePlaceId, embeddingTextHash: places.embeddingTextHash, manualOverrides: places.manualOverrides })
+        .select({
+          id: places.id, googlePlaceId: places.googlePlaceId, embeddingTextHash: places.embeddingTextHash, manualOverrides: places.manualOverrides,
+          editorialMentions: places.editorialMentions, listedOrAwarded: places.listedOrAwarded,
+        })
         .from(places)
         .where(inArray(places.googlePlaceId, ids))
       return rows.flatMap((row) => row.googlePlaceId ? [{ ...row, googlePlaceId: row.googlePlaceId }] : [])

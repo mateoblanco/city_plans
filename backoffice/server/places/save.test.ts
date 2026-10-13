@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import type { NewPlace } from '../db/schema.ts'
+import { computeProminence } from './prominence.ts'
 import { EMBEDDING_MODEL, savePlaces, slugify, type ExistingPlace, type PlacesStore } from './save.ts'
 import { draft } from './test-fixtures.ts'
 
@@ -58,7 +59,7 @@ describe('savePlaces', () => {
   })
 
   it('actualiza un existente sin pisar manualOverrides ni la identidad, y no re-embebe si el texto no cambió', async () => {
-    const existing = { id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(draft().embeddingText), manualOverrides: ['instagram', 'diet_vegan'] }
+    const existing = { id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(draft().embeddingText), manualOverrides: ['instagram', 'diet_vegan'], editorialMentions: 0, listedOrAwarded: false }
     const { store, inserted, updated } = fakeStore([existing])
     const embed = vi.fn(vectors)
 
@@ -75,7 +76,7 @@ describe('savePlaces', () => {
   })
 
   it('actualiza las señales y prominence, y nunca escribe featured', async () => {
-    const { store, inserted, updated } = fakeStore([{ id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(draft().embeddingText), manualOverrides: [] }])
+    const { store, inserted, updated } = fakeStore([{ id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(draft().embeddingText), manualOverrides: [], editorialMentions: 0, listedOrAwarded: false }])
 
     await savePlaces([ok(), ok({ googlePlaceId: 'place-2' })], { store, embed: vectors })
 
@@ -83,6 +84,16 @@ describe('savePlaces', () => {
     expect(updated[0].values.prominence).toBeCloseTo(0.9)
     expect(updated[0].values).not.toHaveProperty('featured')
     expect(inserted[0]).not.toHaveProperty('featured')
+  })
+
+  it('no baja editorialMentions ni apaga listedOrAwarded al actualizar; igFollowers sí cambia', async () => {
+    const existing = { id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(draft().embeddingText), manualOverrides: [], editorialMentions: 3, listedOrAwarded: true }
+    const { store, updated } = fakeStore([existing])
+
+    await savePlaces([ok({ signals: { editorialMentions: 1, listedOrAwarded: false, igFollowers: 50 } })], { store, embed: vectors })
+
+    expect(updated[0].values).toMatchObject({ editorialMentions: 3, listedOrAwarded: true, igFollowers: 50 })
+    expect(updated[0].values.prominence).toBeCloseTo(computeProminence({ editorialMentions: 3, listedOrAwarded: true, igFollowers: 50 }))
   })
 
   it('acepta un resultado sin signals (anterior a la prominencia) con señales vacías', async () => {
@@ -97,7 +108,7 @@ describe('savePlaces', () => {
   })
 
   it('re-embebe un existente cuyo texto cambió', async () => {
-    const { store, updated } = fakeStore([{ id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: 'viejo', manualOverrides: [] }])
+    const { store, updated } = fakeStore([{ id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: 'viejo', manualOverrides: [], editorialMentions: 0, listedOrAwarded: false }])
 
     const results = await savePlaces([ok()], { store, embed: vectors })
 

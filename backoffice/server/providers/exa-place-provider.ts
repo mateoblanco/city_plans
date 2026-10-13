@@ -121,6 +121,8 @@ export const EXA_TEXT_SEARCH_OPTIONS: RegularSearchOptions = {
   },
 }
 
+export const EXA_INVALID_OUTPUT_RETRIES = 2
+
 const textSearchResponseSchema = z.object({
   requestId: z.string(),
   results: z.array(exaResultSchema),
@@ -197,19 +199,23 @@ export class ExaPlaceSearchProvider implements ExaPlaceProvider {
     }
 
     const query = `${name}, Montevideo, Uruguay`
-    let result: unknown
-    try {
-      result = await this.client.search(query, EXA_PLACE_SEARCH_OPTIONS)
-    } catch (error) {
-      throw new PlacesProviderError(
-        errorKind(error),
-        'Exa no pudo completar la consulta.',
-        { cause: error },
-      )
+    // La salida estructurada de Exa cambia entre llamadas y a veces no valida (un horario mal
+    // formado, por ejemplo): se reintenta hasta EXA_INVALID_OUTPUT_RETRIES veces antes de fallar.
+    let parsed: ReturnType<typeof searchResponseSchema.safeParse> | null = null
+    for (let attempt = 0; attempt <= EXA_INVALID_OUTPUT_RETRIES && !parsed?.success; attempt += 1) {
+      let result: unknown
+      try {
+        result = await this.client.search(query, EXA_PLACE_SEARCH_OPTIONS)
+      } catch (error) {
+        throw new PlacesProviderError(
+          errorKind(error),
+          'Exa no pudo completar la consulta.',
+          { cause: error },
+        )
+      }
+      parsed = searchResponseSchema.safeParse(result)
     }
-
-    const parsed = searchResponseSchema.safeParse(result)
-    if (!parsed.success) {
+    if (!parsed?.success) {
       throw new PlacesProviderError(
         'upstream',
         'Exa devolvió una respuesta estructurada inválida.',

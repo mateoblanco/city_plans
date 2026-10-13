@@ -63,3 +63,19 @@ export function brandFromGoogleName(name: string): string {
   }
   return brand
 }
+
+// Tipos de Google que no ayudan a desambiguar una búsqueda.
+const GENERIC_PLACE_TYPES = new Set(['establecimiento', 'punto de interes', 'lugar'])
+
+/**
+ * Término de búsqueda para Exa e Instagram: la marca más el tipo de lugar de Google
+ * (primaryTypeDisplayName), para no mezclar homónimos ("Musse restaurante", no el artista).
+ * Sólo arma la consulta: el tipo no se guarda. No se agrega si la marca ya lo dice.
+ */
+export function brandSearchTerm(brand: string, placeType: string | null | undefined): string {
+  const type = placeType?.trim()
+  if (!type || GENERIC_PLACE_TYPES.has(words(type).join(' '))) return brand
+  const brandWords = new Set(words(brand))
+  if (words(type).every((word) => brandWords.has(word))) return brand
+  return `${brand} ${type.toLocaleLowerCase('es')}`
+}

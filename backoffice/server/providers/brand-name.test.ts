@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { brandFromGoogleName } from './brand-name.ts'
+import { brandFromGoogleName, brandSearchTerm } from './brand-name.ts'
 
 describe('brandFromGoogleName', () => {
   it.each([
@@ -27,5 +27,16 @@ describe('brandFromGoogleName', () => {
     'El Palenque',
   ])('deja %s igual', (name) => {
     expect(brandFromGoogleName(name)).toBe(name)
+  })
+})
+
+describe('brandSearchTerm', () => {
+  it('suma el tipo de lugar de Google a la marca, salvo que ya lo diga o sea genérico', () => {
+    expect(brandSearchTerm('Musse', 'Restaurante')).toBe('Musse restaurante')
+    expect(brandSearchTerm('Pizzeria Quinta', 'Pizzería')).toBe('Pizzeria Quinta')
+    expect(brandSearchTerm('Café Nómade', 'Cafetería')).toBe('Café Nómade cafetería')
+    expect(brandSearchTerm('Gaboto bar', 'Bar')).toBe('Gaboto bar')
+    expect(brandSearchTerm('Oriundo', 'Establecimiento')).toBe('Oriundo')
+    expect(brandSearchTerm('Oriundo', null)).toBe('Oriundo')
   })
 })
