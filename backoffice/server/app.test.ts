@@ -213,10 +213,11 @@ describe('exploración multi-fuente', () => {
     const list = [{
       id: 'uuid-1', name: 'El Palenque', neighborhoodId: 'CIUDAD VIEJA', categories: ['restaurant'], tags: ['cash_only'],
       status: 'published', hoursStatus: 'exact', updatedAt: '2026-10-12T15:00:00.000Z', hasEmbedding: true,
+      prominence: 0.54, editorialMentions: 2, listedOrAwarded: true, igFollowers: 999, featured: false,
     }]
-    const response = await createApp({ placesReader: { list: vi.fn().mockResolvedValue(list) } }).request('/api/places')
+    const response = await createApp({ placesReader: { list: vi.fn().mockResolvedValue(list), setFeatured: vi.fn() } }).request('/api/places')
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const failed = await createApp({ placesReader: { list: vi.fn().mockRejectedValue(new Error('boom')) } }).request('/api/places')
+    const failed = await createApp({ placesReader: { list: vi.fn().mockRejectedValue(new Error('boom')), setFeatured: vi.fn() } }).request('/api/places')
 
     expect(response.status).toBe(200)
     expect(response.headers.get('Cache-Control')).toBe('no-store')
@@ -224,6 +225,36 @@ describe('exploración multi-fuente', () => {
     expect(failed.status).toBe(500)
     expect(await failed.json()).toEqual({ error: { code: 'UNKNOWN_ERROR', message: 'No se pudieron cargar los lugares.' } })
     error.mockRestore()
+  })
+
+  it('PATCH /api/places/:id/featured valida el pedido y cambia sólo featured', async () => {
+    const id = '0b9f6a3c-1d2e-4f5a-8b7c-9d0e1f2a3b4c'
+    const setFeatured = vi.fn(async (placeId: string) => placeId === id)
+    const app = createApp({ placesReader: { list: vi.fn(), setFeatured } })
+    const patch = (placeId: string, body: unknown) => app.request(`/api/places/${placeId}/featured`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+
+    const ok = await patch(id, { featured: true })
+    expect(ok.status).toBe(200)
+    expect(await ok.json()).toEqual({ id, featured: true })
+    expect(setFeatured).toHaveBeenCalledWith(id, true)
+
+    expect((await patch('no-es-uuid', { featured: true })).status).toBe(400)
+    expect((await patch(id, { featured: 'sí' })).status).toBe(400)
+    expect((await patch(id, null)).status).toBe(400)
+    const missing = await patch('1b9f6a3c-1d2e-4f5a-8b7c-9d0e1f2a3b4c', { featured: false })
+    expect(missing.status).toBe(404)
+    expect(await missing.json()).toEqual({ error: { code: 'NOT_FOUND_ERROR', message: 'El lugar no existe.' } })
+
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const failing = createApp({ placesReader: { list: vi.fn(), setFeatured: vi.fn().mockRejectedValue(new Error('boom')) } })
+    const failed = await failing.request(`/api/places/${id}/featured`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ featured: true }) })
+    expect(failed.status).toBe(500)
+    error.mockRestore()
+    expect((await createApp().request(`/api/places/${id}/featured`, { method: 'PATCH', body: '{"featured":true}' })).status).toBe(503)
   })
 
   it('/api/places responde 503 si no hay base configurada', async () => {

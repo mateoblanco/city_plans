@@ -35,6 +35,20 @@ import type {
   PlaceReviewAnomaly,
 } from '../../src/types/places.ts'
 import { brandFromGoogleName } from './brand-name.ts'
+import { editorialSignals } from './editorial-sources.ts'
+import {
+  BLOCKED_HOSTS,
+  DEFAULT_RESERVATION_HOSTS,
+  DELIVERY_HOSTS,
+  DIRECTORY_HOSTS,
+  EXA_SUMMARY_URL,
+  LINK_AGGREGATOR_HOSTS,
+  canonical,
+  hasPhrase,
+  hostedBy,
+  hostname,
+  matchesPlaceDomain,
+} from './source-hosts.ts'
 import { PlacesProviderError } from './places-provider.ts'
 import { withServiceLimit } from './service-limits.ts'
 import type { TransitInfo } from './montevideo-bus-provider.ts'
@@ -52,8 +66,7 @@ const MAX_SIGNATURE = 3
 const SIGNATURE_EXCLUDED = new Set(['delivery', 'takeaway', 'wifi', 'outlets', 'accessible', 'pet_friendly', 'menu_of_the_day'])
 // Momentos: sólo si el lugar se define por ese momento (un lugar de brunch).
 const SIGNATURE_MOMENTS = new Set(['lunch', 'dinner', 'breakfast', 'brunch', 'afternoon_snack'])
-const BLOCKED_HOSTS = ['google.com', 'goo.gl', 'maps.app.goo.gl', 'corner.inc', 'exa.ai', 'facebook.com', 'foursquare.com']
-const DIRECTORY_HOSTS = ['opina.com.uy', 'linkedin.com', 'tripadvisor', 'restaurantguru', 'yelp.com', 'wanderlog.com', 'saliracomer.com', 'laguiadelociouruguay.com']
+export { DEFAULT_RESERVATION_HOSTS }
 
 export type SourceKind = 'web' | 'instagram' | 'reservations' | 'directory' | 'exa'
 export type SourceTrust = 'official' | 'third_party'
@@ -65,11 +78,13 @@ export type Source = {
   url: string
   text: string
   links?: string[]
+  /** Título de la página (resultados de Exa): sólo para clasificar fuentes editoriales. */
+  title?: string
 }
 type SourceCandidate = Omit<Source, 'kind' | 'trust'> & { kind: SourceKind | 'blocked'; trust?: SourceTrust }
 type SourceContext = { name: string; websiteUrl?: string | null; instagramUrls?: string[] }
 // Nombre y dirección de Google: sólo para buscar e identificar el local, nunca para guardar.
-type Target = Omit<PlaceEnrichmentDraft, 'name' | 'address' | 'categories' | 'tags' | 'dietary' | 'price' | 'reservations' | 'hours' | 'contact' | 'highlights' | 'description' | 'locatedIn' | 'placeFacts' | 'dishes' | 'signature' | 'embeddingText' | 'keywordText'> & { name: string; address: string }
+type Target = Omit<PlaceEnrichmentDraft, 'name' | 'address' | 'categories' | 'tags' | 'dietary' | 'price' | 'reservations' | 'hours' | 'contact' | 'highlights' | 'description' | 'locatedIn' | 'placeFacts' | 'signals' | 'dishes' | 'signature' | 'embeddingText' | 'keywordText'> & { name: string; address: string }
 
 const DietLevel = z.enum(['unknown', 'no', 'has_options', 'fully'])
 const FactKind = z.enum(['food', 'drink', 'feature', 'hours', 'dietary', 'price', 'reservations', 'contact', 'other'])
@@ -356,20 +371,6 @@ HIGHLIGHTS Y DESCRIPCIÓN
 IDS PERMITIDOS
 ${(Object.entries(ALLOWED_TAG_GROUPS) as [string, Record<string, unknown>][]).map(([group, definitions]) => `- ${group}: ${Object.keys(definitions).join(', ')}`).join('\n')}`
 
-export const DEFAULT_RESERVATION_HOSTS = ['meitre.com', 'dinnerin', 'tablesapp', 'covermanager', 'resy', 'opentable'] as const
-const LINK_AGGREGATOR_HOSTS = ['linktr.ee', 'beacons.ai', 'solo.to', 'campsite.bio']
-// Resumen que arma Exa a partir de la búsqueda (que lleva el nombre): no confirma el nombre.
-const EXA_SUMMARY_URL = 'https://exa.ai/'
-
-function hostname(value: string | null) {
-  try { return value ? new URL(value).hostname.toLowerCase().replace(/^www\./, '') : null } catch { return null }
-}
-
-function hostedBy(value: string | null, hosts: readonly string[]) {
-  const host = hostname(value)
-  return Boolean(host && hosts.some((item) => host === item || host.endsWith(`.${item}`)))
-}
-
 function normalizedUrl(value: string): string | null {
   try {
     const url = new URL(value)
@@ -405,10 +406,6 @@ function instagramHandle(value: string): string | null {
   return instagramProfileUrl(value)?.split('/').filter(Boolean).at(-1) ?? null
 }
 
-function canonical(value: string): string {
-  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-}
-
 function samePlaceName(expected: string, actual: string): boolean {
   const left = canonical(expected).replace(/[^a-z0-9]+/g, ' ').trim()
   const right = canonical(actual).replace(/[^a-z0-9]+/g, ' ').trim()
@@ -441,14 +438,6 @@ function instagramProfileMatches(details: GooglePlaceDetailsResponse, profile: I
   const hasPhone = Boolean(googlePhone && phonesInText(bio).map(normalizeUruguayPhone).includes(googlePhone))
   return sharesBrandWord(brandFromGoogleName(details.anchor.name), `${profile.name} ${profile.url}`) &&
     (mentionsAddress(bio, details.anchor.address) || hasPhone)
-}
-
-function matchesPlaceDomain(host: string, name: string): boolean {
-  const hostValue = canonical(host).replace(/[^a-z0-9]/g, '')
-  const nameValue = canonical(name).replace(/[^a-z0-9]/g, '')
-  if (nameValue.length >= 5 && hostValue.includes(nameValue)) return true
-  const words = canonical(name).split(/[^a-z0-9]+/).filter((word) => word.length >= 4)
-  return words.length > 0 && words.every((word) => hostValue.includes(word))
 }
 
 export function classifyContact(contact: Contact) {
@@ -653,6 +642,7 @@ function sourceFromExa(exa: Pick<ExaPlaceResponse, 'results'>): SourceCandidate[
     kind: isBlockedSource(result.url) ? 'blocked' : 'exa',
     trust: 'third_party',
     url: result.url,
+    title: result.title,
     text: result.text?.trim() || result.highlights.join('\n'),
     links: result.extras?.links,
   }))
@@ -729,6 +719,8 @@ function instagramCandidates(details: GooglePlaceDetailsResponse, exa: ExaPlaceR
 }
 
 type InstagramValidation = { profile: InstagramProfileData | null; candidates: InstagramAuditCandidate[] }
+export type ProminenceSourceSignals = { editorialMentions: number; listedOrAwarded: boolean; instagramFollowers: number | null }
+const NO_PROMINENCE_SIGNALS: ProminenceSourceSignals = { editorialMentions: 0, listedOrAwarded: false, instagramFollowers: null }
 
 async function validatedInstagram(
   provider: InstagramProvider | undefined,
@@ -858,13 +850,6 @@ function addUnique<T extends string>(values: T[], value: T) {
   if (!values.includes(value)) values.push(value)
 }
 
-function hasPhrase(text: string, phrase: string) {
-  const words = (value: string) => canonical(value).replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim()
-  const haystack = ` ${words(text)} `
-  const needle = words(phrase)
-  return needle.length > 1 && haystack.includes(` ${needle} `)
-}
-
 /** Una cocina se acepta sólo si algún texto la nombra: su label o un sinónimo de tags.ts, sin acentos. */
 /**
  * Un tag puede ir en signature salvo servicios y logística. Un momento sólo si define al lugar:
@@ -894,8 +879,6 @@ export function tagMentioned(id: string, texts: string[]) {
 const NOT_FROM_EXA_SUMMARY_GROUPS = new Set(['features', 'goodFor', 'offers', 'atmosphere'])
 // Estos grupos además necesitan un fact que nombre el tag, como las cocinas.
 const MENTION_REQUIRED_GROUPS = new Set(['features', 'goodFor', 'atmosphere'])
-// Una página del local en estas plataformas prueba que tiene delivery.
-const DELIVERY_HOSTS = ['rappi.com.uy', 'pedidosya.com.uy']
 
 // Palabras que no cuentan para respaldar un plato: "milanesas a la napolitana" respalda "milanesa napolitana".
 const DISH_STOPWORDS = new Set(['a', 'la', 'las', 'el', 'los', 'de', 'del', 'con', 'al', 'y'])
@@ -1278,7 +1261,7 @@ type TaggedItem = PlaceExtraction['tags'][number]
 export function postProcess(
   target: Target,
   data: PlaceExtraction,
-  context: { sources?: Source[]; seedCategories?: CategoryId[]; categoryFallback?: string[]; deterministicContact?: DeterministicContact } = {},
+  context: { sources?: Source[]; seedCategories?: CategoryId[]; categoryFallback?: string[]; deterministicContact?: DeterministicContact; prominenceSignals?: ProminenceSourceSignals } = {},
 ): PlaceEnrichmentDraft {
   const sources = context.sources ?? []
   const sourcesById = new Map(sources.map((source) => [source.id, source]))
@@ -1541,6 +1524,13 @@ export function postProcess(
     dishes,
     signature,
   }
+  // Seguidores de una sucursal de cadena: son de la marca y no dicen nada de este local.
+  const prominence = context.prominenceSignals ?? NO_PROMINENCE_SIGNALS
+  const signals = {
+    editorialMentions: prominence.editorialMentions,
+    listedOrAwarded: prominence.listedOrAwarded,
+    igFollowers: chain ? null : prominence.instagramFollowers,
+  }
   return PlaceDraft.parse({
     ...target,
     ...processed,
@@ -1548,6 +1538,7 @@ export function postProcess(
     dishes,
     signature,
     placeFacts,
+    signals,
     embeddingText: buildEmbeddingText(searchInput),
     keywordText: buildKeywordText(searchInput),
   })
@@ -1835,6 +1826,8 @@ export type CollectedSources = {
   deterministicContact: DeterministicContact
   instagramCandidates: string[]
   instagramValidation: InstagramValidation
+  /** Menciones editoriales y seguidores, de las mismas fuentes; postProcess decide igFollowers. */
+  prominenceSignals?: ProminenceSourceSignals
   costUsage: ExtractionCostUsage
   timings: Record<string, number>
   elapsedMs: number
@@ -1975,6 +1968,13 @@ export class PlaceExtractionService implements PlaceExtractor {
         ...(exaSummary ? filterSources([exaSummary]).map((source) => ({ source, origin: 'exa' as const })) : []),
         ...filterSources(exaCandidates).map((source) => ({ source, origin: 'exa' as const })),
       ]
+      // Antes de deduplicar el texto: una nota cuyas líneas ya aparecieron en otra fuente igual cuenta.
+      const editorial = editorialSignals(exaCandidates.filter((source) => source.kind !== 'blocked'), { brand, websiteUrl })
+      const prominenceSignals: ProminenceSourceSignals = {
+        editorialMentions: editorial.editorialMentions,
+        listedOrAwarded: editorial.listedOrAwarded,
+        instagramFollowers: profile?.followers ?? null,
+      }
       const seenUrls = new Set<string>()
       const used = staged.filter(({ source }) => {
         // La misma URL puede llegar como resultado resumido de Exa y como
@@ -2007,6 +2007,7 @@ export class PlaceExtractionService implements PlaceExtractor {
         deterministicContact: resolveDeterministicContact(details, sources, this.reservationHosts),
         instagramCandidates: candidates,
         instagramValidation,
+        prominenceSignals,
         costUsage,
         timings,
         elapsedMs: performance.now() - startedAt,
@@ -2096,6 +2097,7 @@ export class PlaceExtractionService implements PlaceExtractor {
       const context = {
         seedCategories: collected.request.seedCategories,
         deterministicContact: collected.deterministicContact,
+        prominenceSignals: collected.prominenceSignals,
         categoryFallback: [],
       }
       let data = extracted

@@ -43,7 +43,7 @@ export const gatewayEmbedder: Embedder = async (values) => (await embedMany({ mo
 // manualOverrides guarda nombres de columna SQL (diet_vegan); el update usa las keys de Drizzle (dietVegan).
 const KEY_BY_COLUMN = new Map(Object.entries(getTableColumns(places)).map(([key, column]) => [column.name, key]))
 // Una extracción nunca pisa la identidad ni la curaduría del lugar.
-const NEVER_UPDATED = new Set(['id', 'googlePlaceId', 'slug', 'status', 'createdAt'])
+const NEVER_UPDATED = new Set(['id', 'googlePlaceId', 'slug', 'status', 'featured', 'createdAt'])
 
 export function slugify(name: string) {
   const slug = name.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()

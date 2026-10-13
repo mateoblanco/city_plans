@@ -1686,3 +1686,45 @@ describe('PlaceExtractionService', () => {
     expect(mini.performance.costUsd.providers.llm).toMatchObject({ inputCostUsd: 0.00025, outputCostUsd: 0.001 })
   })
 })
+
+describe('señales de prominencia', () => {
+  it('cuenta menciones editoriales de las fuentes de Exa y los seguidores del Instagram validado, sin llamadas nuevas', async () => {
+    const searchPlace = vi.fn(async () => exaResponse('@cafebrasilero', [
+      { title: 'Los 10 mejores cafés de Montevideo', url: 'https://www.elpais.com.uy/gastronomia/cafes', highlights: ['Café Brasilero, desde 1877.'] },
+      { title: 'Café Brasilero', url: 'https://www.ladiaria.com.uy/2024/cafe', highlights: ['El Café Brasilero sigue en Ituzaingó.'] },
+      { title: 'Café Brasilero - TripAdvisor', url: 'https://www.tripadvisor.com.uy/Restaurant_Review-cafe', highlights: ['Café Brasilero'] },
+      { title: 'Café Brasilero', url: 'https://www.pedidosya.com.uy/restaurantes/montevideo/cafe-brasilero', highlights: ['Café Brasilero'] },
+    ]))
+    const scrapeMany = vi.fn(async () => [{ url: 'https://www.instagram.com/cafebrasilero/', name: target.name, bio: 'Montevideo, Uruguay', links: [], followers: 12_000 }])
+    const service = new PlaceExtractionService({
+      apiKey: 'test-key',
+      details: { getDetails: async () => googleDetails },
+      exa: { configured: true, searchPlace },
+      instagram: { configured: true, scrapeMany },
+      generate: async () => extraction,
+    })
+
+    const result = await service.extract('place-1', { seedCategories: ['cafe'] })
+
+    expect(result.status).toBe('ok')
+    if (result.status !== 'ok') return
+    expect(result.place.signals).toEqual({ editorialMentions: 2, listedOrAwarded: true, igFollowers: 12_000 })
+    expect(searchPlace).toHaveBeenCalledOnce()
+    expect(scrapeMany).toHaveBeenCalledOnce()
+  })
+
+  it('en una sucursal de cadena no guarda los seguidores de la marca', () => {
+    const source: Source = { id: 'S1', kind: 'web', trust: 'official', url: 'https://marca.example/', text: 'La Nueva Roma. Helados artesanales.' }
+    const prominenceSignals = { editorialMentions: 3, listedOrAwarded: false, instagramFollowers: 40_000 }
+
+    const branch = postProcess({ ...target, name: 'La Nueva Roma Cordón' }, emptyExtraction, { sources: [source], prominenceSignals })
+    const single = postProcess({ ...target, name: 'La Nueva Roma' }, emptyExtraction, { sources: [source], prominenceSignals })
+
+    expect(branch.signals).toEqual({ editorialMentions: 3, listedOrAwarded: false, igFollowers: null })
+    expect(single.signals.igFollowers).toBe(40_000)
+  })
+
+  it('sin señales del pipeline quedan en cero', () => {
+    expect(postProcess(target, emptyExtraction, { sources: [] }).signals).toEqual({ editorialMentions: 0, listedOrAwarded: false, igFollowers: null })
+  })
+})

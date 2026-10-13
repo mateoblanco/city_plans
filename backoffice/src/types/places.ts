@@ -53,6 +53,16 @@ export type GooglePlaceDetailsResponse = {
   attribution: string
 }
 
+/** Señales de prominencia que salen de las fuentes; el puntaje se calcula al guardar. */
+export type PlaceSignals = {
+  /** Fuentes editoriales distintas (por dominio) que nombran al lugar. */
+  editorialMentions: number
+  /** Alguna de esas fuentes es un ranking o menciona un premio. */
+  listedOrAwarded: boolean
+  /** Seguidores del Instagram validado; null sin Instagram o en una sucursal de cadena. */
+  igFollowers: number | null
+}
+
 export type PlaceEnrichmentDraft = {
   name: string
   address: string | null
@@ -106,6 +116,7 @@ export type PlaceEnrichmentDraft = {
   locatedIn: string | null
   /** Para auditar en el backoffice de dónde sale cada dato; no entra en embeddingText ni keywordText. */
   placeFacts: PlaceFact[]
+  signals: PlaceSignals
   embeddingText: string
   keywordText: string
 }
@@ -191,6 +202,11 @@ export type PlaceListItem = {
   hoursStatus: string
   updatedAt: string
   hasEmbedding: boolean
+  prominence: number
+  editorialMentions: number
+  listedOrAwarded: boolean
+  igFollowers: number | null
+  featured: boolean
 }
 
 export type PlaceEnrichmentResponse = {
@@ -349,6 +365,7 @@ export type ApiErrorCode =
   | 'QUOTA_ERROR'
   | 'TIMEOUT_ERROR'
   | 'UPSTREAM_ERROR'
+  | 'NOT_FOUND_ERROR'
   | 'UNKNOWN_ERROR'
 
 export type ApiErrorResponse = {

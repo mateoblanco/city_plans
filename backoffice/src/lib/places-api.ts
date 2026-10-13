@@ -161,6 +161,17 @@ export async function listSavedPlaces(signal?: AbortSignal): Promise<PlaceListIt
   return (await parseApiResponse<{ places: PlaceListItem[] }>(response)).places
 }
 
+/** Marca o desmarca un lugar guardado como destacado (curaduría manual). */
+export async function setPlaceFeatured(id: string, featured: boolean, signal?: AbortSignal): Promise<void> {
+  const response = await fetch(`/api/places/${encodeURIComponent(id)}/featured`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ featured }),
+    signal,
+  })
+  await parseApiResponse<{ id: string; featured: boolean }>(response)
+}
+
 const EXISTS_CHUNK = 100
 
 /** googlePlaceId que ya están en la base; consulta en tandas para no alargar demasiado la URL. */

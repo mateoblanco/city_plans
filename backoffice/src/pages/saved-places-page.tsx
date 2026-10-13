@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { AlertCircle, Database, RotateCcw } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { AlertCircle, ArrowDown, ArrowUpDown, Database, RotateCcw } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -12,13 +12,15 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { CATEGORIES } from '@/data/tags'
-import { listSavedPlaces } from '@/lib/places-api'
+import { listSavedPlaces, setPlaceFeatured } from '@/lib/places-api'
 import type { PlaceListItem } from '@/types/places'
 
 type LoadState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
   | { status: 'success'; places: PlaceListItem[] }
+
+type SortOrder = 'recent' | 'prominence'
 
 const STATUS_LABELS: Record<string, string> = { draft: 'Borrador', published: 'Publicado', hidden: 'Oculto' }
 const HOURS_LABELS: Record<string, string> = { exact: 'Exacto', partial: 'Parcial', vague: 'Vago', none: 'Sin horario' }
@@ -31,10 +33,17 @@ function formatUpdatedAt(value: string) {
   return new Date(value).toLocaleString('es-UY', { dateStyle: 'short', timeStyle: 'short' })
 }
 
-/** Lugares guardados en la base. Sólo lectura. */
+const byRecent = (a: PlaceListItem, b: PlaceListItem) => b.updatedAt.localeCompare(a.updatedAt)
+const byProminence = (a: PlaceListItem, b: PlaceListItem) => b.prominence - a.prominence || byRecent(a, b)
+
+/** Lugares guardados en la base. Sólo lectura, salvo el destacado (curaduría manual). */
 export function SavedPlacesPage() {
   const [state, setState] = useState<LoadState>({ status: 'loading' })
   const [attempt, setAttempt] = useState(0)
+  const [sort, setSort] = useState<SortOrder>('recent')
+  // Ids con el destacado guardándose y errores del último intento por fila.
+  const [saving, setSaving] = useState<ReadonlySet<string>>(new Set())
+  const [featuredErrors, setFeaturedErrors] = useState<Record<string, string>>({})
 
   useEffect(() => {
     const controller = new AbortController()
@@ -52,7 +61,34 @@ export function SavedPlacesPage() {
     setAttempt((current) => current + 1)
   }
 
-  const places = state.status === 'success' ? state.places : []
+  function updateFeatured(id: string, featured: boolean) {
+    setState((current) => current.status === 'success'
+      ? { ...current, places: current.places.map((place) => place.id === id ? { ...place, featured } : place) }
+      : current)
+  }
+
+  // Optimista: se marca enseguida y se revierte si no se pudo guardar.
+  async function toggleFeatured(place: PlaceListItem) {
+    const featured = !place.featured
+    updateFeatured(place.id, featured)
+    setSaving((current) => new Set(current).add(place.id))
+    setFeaturedErrors(({ [place.id]: _previous, ...rest }) => rest)
+    try {
+      await setPlaceFeatured(place.id, featured)
+    } catch (error) {
+      updateFeatured(place.id, !featured)
+      setFeaturedErrors((current) => ({ ...current, [place.id]: error instanceof Error ? error.message : 'No se pudo guardar el destacado.' }))
+    } finally {
+      setSaving((current) => {
+        const next = new Set(current)
+        next.delete(place.id)
+        return next
+      })
+    }
+  }
+
+  const loaded = state.status === 'success' ? state.places : null
+  const places = useMemo(() => loaded ? [...loaded].sort(sort === 'prominence' ? byProminence : byRecent) : [], [loaded, sort])
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6 lg:px-8 lg:py-14">
@@ -62,7 +98,7 @@ export function SavedPlacesPage() {
             Lugares
           </h2>
           <p className="mt-3 text-base leading-7 text-muted-foreground">
-            Lugares guardados en la base, del más reciente al más viejo.
+            Lugares guardados en la base, del más reciente al más viejo o por prominencia.
           </p>
         </div>
 
@@ -118,6 +154,25 @@ export function SavedPlacesPage() {
                       <TableHead className="px-4 sm:px-5">Status</TableHead>
                       <TableHead className="px-4 sm:px-5">Horario</TableHead>
                       <TableHead className="px-4 text-center sm:px-5">Embedding</TableHead>
+                      <TableHead className="px-4 text-right sm:px-5" aria-sort={sort === 'prominence' ? 'descending' : 'none'}>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="-mr-2 h-7 px-2"
+                          onClick={() => setSort((current) => current === 'prominence' ? 'recent' : 'prominence')}
+                          title={sort === 'prominence' ? 'Ordenar por más reciente' : 'Ordenar por prominencia'}
+                        >
+                          Prominencia
+                          {sort === 'prominence'
+                            ? <ArrowDown className="size-3.5" aria-hidden="true" />
+                            : <ArrowUpDown className="size-3.5 text-muted-foreground" aria-hidden="true" />}
+                        </Button>
+                      </TableHead>
+                      <TableHead className="px-4 text-right sm:px-5">Menciones</TableHead>
+                      <TableHead className="px-4 text-center sm:px-5">Lista/premio</TableHead>
+                      <TableHead className="px-4 text-right sm:px-5">Seguidores</TableHead>
+                      <TableHead className="px-4 text-center sm:px-5">Destacado</TableHead>
                       <TableHead className="px-4 sm:px-5">Última actualización</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -138,6 +193,29 @@ export function SavedPlacesPage() {
                           {place.hasEmbedding
                             ? <span className="font-medium text-emerald-700" aria-label="Con embedding">✓</span>
                             : <span className="text-muted-foreground" aria-label="Sin embedding">✗</span>}
+                        </TableCell>
+                        <TableCell className="px-4 py-3 text-right tabular-nums sm:px-5">{place.prominence.toFixed(2)}</TableCell>
+                        <TableCell className="px-4 py-3 text-right tabular-nums sm:px-5">{place.editorialMentions}</TableCell>
+                        <TableCell className="px-4 py-3 text-center sm:px-5">
+                          {place.listedOrAwarded
+                            ? <span className="font-medium text-emerald-700" aria-label="En lista o premiado">✓</span>
+                            : <span className="text-muted-foreground" aria-label="Sin lista ni premio">—</span>}
+                        </TableCell>
+                        <TableCell className="px-4 py-3 text-right text-muted-foreground tabular-nums sm:px-5">
+                          {place.igFollowers === null ? '—' : place.igFollowers.toLocaleString('es-UY')}
+                        </TableCell>
+                        <TableCell className="px-4 py-3 text-center sm:px-5">
+                          <input
+                            type="checkbox"
+                            className="size-4 cursor-pointer accent-primary disabled:cursor-wait"
+                            checked={place.featured}
+                            disabled={saving.has(place.id)}
+                            onChange={() => void toggleFeatured(place)}
+                            aria-label={`Destacar ${place.name}`}
+                          />
+                          {featuredErrors[place.id] && (
+                            <p className="mt-1 text-xs text-destructive" role="alert">{featuredErrors[place.id]}</p>
+                          )}
                         </TableCell>
                         <TableCell className="px-4 py-3 whitespace-nowrap text-muted-foreground tabular-nums sm:px-5">
                           {formatUpdatedAt(place.updatedAt)}

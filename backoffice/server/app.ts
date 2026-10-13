@@ -98,6 +98,8 @@ const savePlacesRequestSchema = z.object({
   results: z.array(z.object({ status: z.string() }).passthrough()).min(1).max(MAX_SAVE_PLACES),
 })
 
+const setFeaturedSchema = z.object({ featured: z.boolean() })
+
 function apiError(
   code: ApiErrorResponse['error']['code'],
   message: string,
@@ -342,6 +344,24 @@ export function createApp({ provider, exaProvider, matchProviders = {}, instagra
     } catch (error) {
       console.error(JSON.stringify({ event: 'places_list_error', message: error instanceof Error ? error.message : String(error) }))
       return context.json(apiError('UNKNOWN_ERROR', 'No se pudieron cargar los lugares.'), 500)
+    }
+  })
+
+  // Curaduría manual: sólo cambia featured. El pipeline nunca lo escribe.
+  app.patch('/api/places/:id/featured', async (context) => {
+    if (!placesReader) return context.json(apiError('CONFIGURATION_ERROR', MISSING_DATABASE), 503)
+    const id = context.req.param('id')
+    const parsed = setFeaturedSchema.safeParse(await context.req.json().catch(() => null))
+    if (!z.uuid().safeParse(id).success || !parsed.success) {
+      return context.json(apiError('VALIDATION_ERROR', 'El pedido para destacar el lugar no es válido.'), 400)
+    }
+    try {
+      const found = await placesReader.setFeatured(id, parsed.data.featured)
+      if (!found) return context.json(apiError('NOT_FOUND_ERROR', 'El lugar no existe.'), 404)
+      return context.json({ id, featured: parsed.data.featured })
+    } catch (error) {
+      console.error(JSON.stringify({ event: 'places_featured_error', message: error instanceof Error ? error.message : String(error) }))
+      return context.json(apiError('UNKNOWN_ERROR', 'No se pudo guardar el destacado.'), 500)
     }
   })
 

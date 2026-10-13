@@ -1,10 +1,13 @@
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   check,
   customType,
   index,
+  integer,
   jsonb,
   pgTable,
+  real,
   text,
   timestamp,
   uuid,
@@ -115,6 +118,18 @@ export const places = pgTable(
     highlights: jsonb("highlights").$type<Localized[]>().notNull().default([]),
     transitLines: jsonb("transit_lines").$type<TransitLine[]>().notNull().default([]),
 
+    // Prominencia: señales del pipeline (o de signals:refresh) y el puntaje que sale de ellas.
+    // Fuentes editoriales distintas (por dominio) que nombran al lugar.
+    editorialMentions: integer("editorial_mentions").notNull().default(0),
+    // Alguna de esas fuentes es un ranking ("los mejores…") o menciona un premio.
+    listedOrAwarded: boolean("listed_or_awarded").notNull().default(false),
+    // Seguidores del Instagram validado; null sin Instagram o en una sucursal de cadena.
+    igFollowers: integer("ig_followers"),
+    // 0 a 1, de computeProminence (server/places/prominence.ts).
+    prominence: real("prominence").notNull().default(0),
+    // Curaduría manual desde el backoffice: el pipeline nunca lo escribe.
+    featured: boolean("featured").notNull().default(false),
+
     // Búsqueda
     embeddingText: text("embedding_text"),
     keywordText: text("keyword_text"),
@@ -155,6 +170,7 @@ export const places = pgTable(
     index("places_embedding_idx").using("hnsw", t.embedding.op("vector_cosine_ops")),
     index("places_neighborhood_idx").on(t.neighborhoodId),
     index("places_status_idx").on(t.status),
+    index("places_prominence_idx").on(t.prominence),
   ]
 );
 

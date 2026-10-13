@@ -61,6 +61,12 @@ export const PlaceDraft = z.object({
     trust: z.enum(['official', 'third_party']),
     supports: z.array(z.string()),
   })),
+  // Señales de prominencia; el default acepta resultados de antes de que existieran.
+  signals: z.object({
+    editorialMentions: z.number().int().nonnegative(),
+    listedOrAwarded: z.boolean(),
+    igFollowers: z.number().int().nonnegative().nullable(),
+  }).default({ editorialMentions: 0, listedOrAwarded: false, igFollowers: null }),
   embeddingText: z.string(),
   keywordText: z.string(),
 })

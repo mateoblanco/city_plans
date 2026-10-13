@@ -74,6 +74,28 @@ describe('savePlaces', () => {
     }
   })
 
+  it('actualiza las señales y prominence, y nunca escribe featured', async () => {
+    const { store, inserted, updated } = fakeStore([{ id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(draft().embeddingText), manualOverrides: [] }])
+
+    await savePlaces([ok(), ok({ googlePlaceId: 'place-2' })], { store, embed: vectors })
+
+    expect(updated[0].values).toMatchObject({ editorialMentions: 2, listedOrAwarded: true, igFollowers: 999 })
+    expect(updated[0].values.prominence).toBeCloseTo(0.9)
+    expect(updated[0].values).not.toHaveProperty('featured')
+    expect(inserted[0]).not.toHaveProperty('featured')
+  })
+
+  it('acepta un resultado sin signals (anterior a la prominencia) con señales vacías', async () => {
+    const { store, inserted } = fakeStore()
+    const { signals: _signals, ...place } = draft()
+
+    const results = await savePlaces([{ source: 'llm', status: 'ok', place }], { store, embed: vectors })
+
+    expect(results[0].action).toBe('created')
+    expect(inserted[0]).toMatchObject({ editorialMentions: 0, listedOrAwarded: false, igFollowers: null })
+    expect(inserted[0].prominence).toBeCloseTo(0.125)
+  })
+
   it('re-embebe un existente cuyo texto cambió', async () => {
     const { store, updated } = fakeStore([{ id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: 'viejo', manualOverrides: [] }])
 

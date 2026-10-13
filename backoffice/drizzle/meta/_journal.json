@@ -36,6 +36,13 @@
       "when": 1791896830398,
       "tag": "0004_search_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791920349784,
+      "tag": "0005_prominence",
+      "breakpoints": true
     }
   ]
 }

@@ -36,6 +36,10 @@ describe('toRow', () => {
       descriptionEn: 'Classic grill.',
       highlights: [{ es: 'Pulpo a la gallega', en: 'Galician octopus' }],
       transitLines: [{ line: '121', stopId: '42', meters: 150 }],
+      editorialMentions: 2,
+      listedOrAwarded: true,
+      igFollowers: 999,
+      prominence: expect.closeTo(0.9),
       embeddingText: 'El Palenque. Ciudad Vieja, Montevideo. Dentro de Mercado del Puerto',
       keywordText: 'El Palenque. Ciudad Vieja. Mercado del Puerto. Parrilla',
     })

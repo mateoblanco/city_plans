@@ -1,5 +1,6 @@
 import type { NewPlace } from '../db/schema.ts'
 import type { PlaceEnrichmentDraft } from '../../src/types/places.ts'
+import { computeProminence } from './prominence.ts'
 
 export type PlaceRow = Omit<NewPlace, 'slug' | 'status' | 'neighborhoodId'> & { neighborhoodId: string }
 
@@ -9,12 +10,13 @@ export const MISSING_NAME = 'Sin nombre: ninguna fuente confirma el nombre'
 const text = (value: string | null | undefined) => value?.trim() ? value : null
 
 /**
- * Convierte el place del pipeline en una fila de `places`. placeFacts y lo que está fuera de
+ * Convierte el place del pipeline en una fila de `places`, con prominence calculado desde signals.
+ * Nunca incluye featured (curaduría manual). placeFacts y lo que está fuera de
  * place (review, sourceAudit, performance) no se guardan. El barrio ya tiene que estar validado.
  * Los textos vacíos pasan a null; sin nombre (NOT NULL en la tabla) tira un error.
  */
 export function toRow(place: PlaceEnrichmentDraft & { neighborhoodId: string }): PlaceRow {
-  const { coordinates, dietary, contact, description } = place
+  const { coordinates, dietary, contact, description, signals } = place
   const name = text(place.name)
   if (!name) throw new Error(MISSING_NAME)
   return {
@@ -47,6 +49,10 @@ export function toRow(place: PlaceEnrichmentDraft & { neighborhoodId: string }):
     descriptionEn: text(description.en),
     highlights: place.highlights,
     transitLines: place.transit.lines,
+    editorialMentions: signals.editorialMentions,
+    listedOrAwarded: signals.listedOrAwarded,
+    igFollowers: signals.igFollowers,
+    prominence: computeProminence(signals),
     embeddingText: text(place.embeddingText),
     keywordText: text(place.keywordText),
   }

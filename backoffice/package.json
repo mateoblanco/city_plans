@@ -14,7 +14,9 @@
     "preview": "vite preview",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "prominence:recompute": "tsx server/scripts/prominence-recompute.ts",
+    "signals:refresh": "tsx server/scripts/signals-refresh.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
