@@ -1,9 +1,13 @@
 import Link from "next/link";
 import PlaceCard from "@/components/PlaceCard/PlaceCard";
-import { searchPlaces, type SearchResponse, type SearchResult } from "@/server/search";
+import { searchPlaces, type Chip, type SearchResponse, type SearchResult } from "@/server/search";
 import DebugPanel from "./DebugPanel";
 import { searchHref } from "./search-href";
 import styles from "./SearchPage.module.scss";
+
+/** "Quitar: excepto restaurantes", "Quitar: sin TACC"; los nombres propios (barrios, lugares) quedan como están. */
+const removeText = ({ kind, label }: Chip) =>
+  `Quitar: ${kind === "diet" || kind === "exclude" ? `${label.charAt(0).toLowerCase()}${label.slice(1)}` : label}`;
 
 type SearchPageProps = {
   query: string;
@@ -48,7 +52,7 @@ const SearchPage = async ({ query, remove, debug }: SearchPageProps) => {
         <ul className={styles.chips} aria-label="Lo que entendimos">
           {interpreted.chips.map((chip) => (
             <li key={`${chip.kind}:${chip.id}`}>
-              <Link className={styles.chip} href={removeHref(chip)} aria-label={`Quitar ${chip.label}`}>
+              <Link className={styles.chip} href={removeHref(chip)} aria-label={removeText(chip)}>
                 {chip.label} ×
               </Link>
             </li>
@@ -74,7 +78,7 @@ const SearchPage = async ({ query, remove, debug }: SearchPageProps) => {
               {suggestedRemovals.map((chip) => (
                 <li key={`${chip.kind}:${chip.id}`}>
                   <Link className={styles.chip} href={removeHref(chip)}>
-                    Quitar {chip.label}
+                    {removeText(chip)}
                   </Link>
                 </li>
               ))}

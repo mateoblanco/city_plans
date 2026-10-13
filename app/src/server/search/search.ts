@@ -315,8 +315,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     const blocking = await blockingConditions(deps.store, filtersOf(state))
     const chips = buildChips(interpretation, today)
     suggestedRemovals = chips.filter((chip) => (blocking.diet && chip.kind === 'diet') || (blocking.exclude && chip.kind === 'exclude'))
-    const excludeLabels = chips.filter((chip) => chip.kind === 'exclude').map((chip) => chip.label)
-    relaxed.push(noMatchNotice(interpretation, blocking, excludeLabels))
+    relaxed.push(noMatchNotice(interpretation, blocking))
     timings.diagnose = elapsed(step)
   }
   timings.total = elapsed(started)

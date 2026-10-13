@@ -1,7 +1,7 @@
 import { label } from '@shared/tags.ts'
 import { neighborhoodDisplayName } from '@shared/neighborhood-names.ts'
 import { DIET_KEYS, type ChipKind, type Interpretation } from './interpretation'
-import { dietLabel, momentLabel, PRICE_LABELS } from './labels'
+import { dietLabel, excludeLabel, momentLabel, PRICE_LABELS } from './labels'
 
 export type Chip = { kind: ChipKind; id: string; label: string }
 
@@ -22,9 +22,7 @@ export function buildChips(value: Interpretation, today: number): Chip[] {
     chips.push({ kind: 'openAt', id: openAt === 'now' ? 'now' : 'day', label: momentLabel(moment, lang, today) })
   }
   for (const id of [...value.prefer.categories, ...value.prefer.tags]) chips.push({ kind: 'prefer', id, label: label(id, lang) })
-  for (const id of [...value.exclude.categories, ...value.exclude.tags]) {
-    chips.push({ kind: 'exclude', id, label: `${lang === 'es' ? 'Sin' : 'No'} ${label(id, lang).toLowerCase()}` })
-  }
+  for (const id of [...value.exclude.categories, ...value.exclude.tags]) chips.push({ kind: 'exclude', id, label: excludeLabel(id, lang) })
   if (value.vibe) chips.push({ kind: 'vibe', id: 'vibe', label: value.vibe })
   return chips
 }

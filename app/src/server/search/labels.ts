@@ -29,6 +29,28 @@ export function dietLevelLabel(key: DietKey, level: string, lang: Lang): string 
   return null
 }
 
+// Las categorías excluidas se leen en plural: "Excepto restaurantes".
+const CATEGORY_PLURALS: Record<Lang, Record<string, string>> = {
+  es: {
+    restaurant: 'restaurantes', cafe: 'cafés', bar: 'bares', brewery: 'cervecerías', wine_bar: 'vinotecas', bakery: 'panaderías',
+    ice_cream_shop: 'heladerías', grill: 'parrillas', chiviteria: 'chiviterías', pizzeria: 'pizzerías', night_club: 'boliches', bodegon: 'bodegones',
+  },
+  en: {
+    restaurant: 'restaurants', cafe: 'cafés', bar: 'bars', brewery: 'breweries', wine_bar: 'wine bars', bakery: 'bakeries',
+    ice_cream_shop: 'ice cream shops', grill: 'steakhouses', chiviteria: 'chivito spots', pizzeria: 'pizzerias', night_club: 'night clubs', bodegon: 'bodegones',
+  },
+}
+
+/** Lo excluido, en minúscula: "restaurantes", "pizza". */
+export function excludedTerm(id: string, lang: Lang) {
+  return CATEGORY_PLURALS[lang][id] ?? label(id, lang).toLowerCase()
+}
+
+/** Chip de exclusión: "Excepto restaurantes" / "Except restaurants". */
+export function excludeLabel(id: string, lang: Lang) {
+  return `${lang === 'es' ? 'Excepto' : 'Except'} ${excludedTerm(id, lang)}`
+}
+
 const capitalize = (value: string) => value.charAt(0).toUpperCase() + value.slice(1)
 
 export function momentLabel(moment: Moment | 'now', lang: Lang, today: number) {

@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { SEARCH_CONFIG } from './config'
 import { dishTarget } from './dishes'
 import { buildRankings, fuse, reciprocalRankFusion, type FuseContext } from './fuse'
+import { buildChips } from './chips'
+import { emptyInterpretation } from './interpretation'
+import { noMatchNotice } from './relax'
 import { runSearch } from './search'
 import { everyDay, fakeCache, fakeStore, llmOutput, row } from './test/fixtures'
 
@@ -255,5 +258,28 @@ describe('runSearch', () => {
     const response = await runSearch('  ¿? ', { store, cache: fakeCache().cache }, { now })
     expect(response.results).toEqual([])
     expect(calls).toEqual([])
+  })
+})
+
+describe('exclusiones', () => {
+  const value = emptyInterpretation()
+  value.must.diet = { vegan: true }
+  value.exclude = { categories: ['restaurant', 'bar'], tags: ['pizza'] }
+
+  it('los chips se leen como exclusión', () => {
+    expect(buildChips(value, 1).filter((chip) => chip.kind === 'exclude').map((chip) => chip.label)).toEqual([
+      'Excepto restaurantes',
+      'Excepto bares',
+      'Excepto pizza',
+    ])
+    expect(buildChips({ ...value, language: 'en' }, 1).find((chip) => chip.kind === 'exclude')?.label).toBe('Except restaurants')
+  })
+
+  it('el aviso de cero resultados nombra lo excluido igual que los chips', () => {
+    expect(noMatchNotice(value, { diet: true, exclude: true }).message).toBe(
+      'No encontramos lugares con opciones veganas confirmadas, excepto restaurantes, bares y pizza.',
+    )
+    expect(noMatchNotice(value, { diet: false, exclude: true }).message).toBe('No encontramos lugares excepto restaurantes, bares y pizza.')
+    expect(noMatchNotice(value, { diet: true, exclude: false }).message).toBe('No encontramos lugares con opciones veganas confirmadas.')
   })
 })

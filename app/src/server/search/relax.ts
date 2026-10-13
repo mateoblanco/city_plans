@@ -4,6 +4,7 @@ import type { CandidateRow, DishMode } from './candidates'
 import { hasBroaderRelated, relatedLabel, type DishTarget } from './dishes'
 import { openStatus, type Moment } from './hours'
 import { DIET_KEYS, type DietKey, type Interpretation, type Lang } from './interpretation'
+import { excludedTerm } from './labels'
 
 // Orden fijo: los tags de must primero porque sus datos están incompletos; el barrio después
 // porque para la persona pesa más. similarity es el último recurso.
@@ -129,15 +130,15 @@ const DIET_WORDS: Record<Lang, Record<DietKey, string>> = {
 }
 
 /** Aviso cuando ni el último recurso encuentra nada: nombra la dieta y/o los exclude que bloquean. */
-export function noMatchNotice(value: Interpretation, blocking: { diet: boolean; exclude: boolean }, excludeLabels: string[]) {
+export function noMatchNotice(value: Interpretation, blocking: { diet: boolean; exclude: boolean }) {
   const lang = value.language
   const es = lang === 'es'
-  const parts: string[] = []
-  const diet = DIET_KEYS.filter((key) => value.must.diet[key]).map((key) => DIET_WORDS[lang][key])
-  if (blocking.diet && diet.length) parts.push(es ? `con opciones ${list(diet, lang)} confirmadas` : `with confirmed ${list(diet, lang)} options`)
-  if (blocking.exclude && excludeLabels.length) parts.push(es ? `que cumplan: ${excludeLabels.join(', ').toLowerCase()}` : `matching: ${excludeLabels.join(', ').toLowerCase()}`)
-  const message = parts.length
-    ? es ? `No encontramos lugares ${parts.join(' y ')}.` : `We couldn't find places ${parts.join(' and ')}.`
+  const diet = blocking.diet ? DIET_KEYS.filter((key) => value.must.diet[key]).map((key) => DIET_WORDS[lang][key]) : []
+  const excluded = blocking.exclude ? [...value.exclude.categories, ...value.exclude.tags].map((id) => excludedTerm(id, lang)) : []
+  const withDiet = diet.length ? (es ? ` con opciones ${list(diet, lang)} confirmadas` : ` with confirmed ${list(diet, lang)} options`) : ''
+  const except = excluded.length ? `${diet.length ? ',' : ''} ${es ? 'excepto' : 'except'} ${list(excluded, lang)}` : ''
+  const message = withDiet || except
+    ? es ? `No encontramos lugares${withDiet}${except}.` : `We couldn't find places${withDiet}${except}.`
     : es ? 'Todavía no hay lugares publicados.' : 'There are no published places yet.'
   return { what: 'noMatch' as const, message }
 }
