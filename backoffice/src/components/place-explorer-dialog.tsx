@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertCircle, LoaderCircle, RotateCcw } from 'lucide-react'
 import { PlaceTagsEvidence } from '@/components/place-tags-evidence'
+import { SavePlaceButton } from '@/components/save-place-button'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -154,9 +155,12 @@ export function PlaceExplorerDialog({ place, onClose }: PlaceExplorerDialogProps
       >
         <DialogHeader className="border-b px-5 py-4 pr-14">
           <DialogTitle>Información multi-fuente</DialogTitle>
-          <DialogDescription>
-            {place?.name}. Google es exacto; las demás fuentes son coincidencias estimadas.
-          </DialogDescription>
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <DialogDescription>
+              {place?.name}. Google es exacto; las demás fuentes son coincidencias estimadas.
+            </DialogDescription>
+            <SavePlaceButton result={extraction.status === 'success' ? extraction.data ?? null : null} />
+          </div>
         </DialogHeader>
 
         <div

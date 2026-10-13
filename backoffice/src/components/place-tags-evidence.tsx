@@ -8,6 +8,7 @@ const GROUPS: { group: GroupName; title: string }[] = [
   { group: 'foods', title: 'Comidas' },
   { group: 'drinks', title: 'Bebidas' },
   { group: 'features', title: 'Características' },
+  { group: 'atmosphere', title: 'Ambiente' },
   { group: 'goodFor', title: 'Ideal para' },
   { group: 'offers', title: 'Ofertas' },
 ]

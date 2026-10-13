@@ -1,17 +1,21 @@
 import { useEffect, useState } from 'react'
-import { Map as MapIcon, Search, Utensils } from 'lucide-react'
+import { Database, Map as MapIcon, Search, Utensils } from 'lucide-react'
 import { NeighborhoodSweepPage } from '@/pages/neighborhood-sweep-page'
 import { PlaceSearchPage } from '@/pages/place-search-page'
+import { SavedPlacesPage } from '@/pages/saved-places-page'
 
-type PageId = 'search' | 'neighborhood'
+type PageId = 'search' | 'neighborhood' | 'places'
 
 const pages: readonly { id: PageId; hash: string; label: string; icon: typeof Search }[] = [
   { id: 'search', hash: '#/', label: 'Buscar lugares', icon: Search },
   { id: 'neighborhood', hash: '#/barrio', label: 'Buscar por barrio', icon: MapIcon },
+  { id: 'places', hash: '#/lugares', label: 'Lugares', icon: Database },
 ]
 
 function pageFromHash(hash: string): PageId {
-  return hash === '#/barrio' ? 'neighborhood' : 'search'
+  if (hash === '#/barrio') return 'neighborhood'
+  if (hash === '#/lugares') return 'places'
+  return 'search'
 }
 
 function App() {
@@ -62,7 +66,9 @@ function App() {
       </aside>
 
       <main className="min-w-0 flex-1">
-        {page === 'search' ? <PlaceSearchPage /> : <NeighborhoodSweepPage />}
+        {page === 'search' && <PlaceSearchPage />}
+        {page === 'neighborhood' && <NeighborhoodSweepPage />}
+        {page === 'places' && <SavedPlacesPage />}
       </main>
     </div>
   )

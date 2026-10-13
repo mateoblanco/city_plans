@@ -38,7 +38,7 @@ const searchResponseSchema = z.object({
   }),
 })
 
-export const EXA_PLACE_OUTPUT_SCHEMA: DeepOutputSchema & { description: string } = {
+export const EXA_PLACE_OUTPUT_SCHEMA = {
   description: 'Schema describing a place or venue, including its details, hours, and menu',
   type: 'object',
   required: [
@@ -93,7 +93,7 @@ export const EXA_PLACE_OUTPUT_SCHEMA: DeepOutputSchema & { description: string }
       },
     },
   },
-}
+} satisfies DeepOutputSchema & { description: string }
 
 export const EXA_PLACE_SEARCH_OPTIONS: RegularSearchOptions = {
   // Priorizamos fuentes de alta señal: menos resultados también reduce el

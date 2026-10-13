@@ -1,27 +1,99 @@
+import Link from "next/link";
 import PlaceCard from "@/components/PlaceCard/PlaceCard";
+import { searchPlaces, type SearchResponse, type SearchResult } from "@/server/search";
+import DebugPanel from "./DebugPanel";
+import { searchHref } from "./search-href";
+import styles from "./SearchPage.module.scss";
 
 type SearchPageProps = {
   query: string;
+  remove: string | null;
+  debug: boolean;
 };
 
-const PLACEHOLDER_PLACES = [
-  "Lugar 1",
-  "Lugar 2",
-  "Lugar 3",
-  "Lugar 4",
-  "Lugar 5",
-  "Lugar 6",
-];
+const Places = ({ places }: { places: SearchResult[] }) => (
+  <div className={styles.grid}>
+    {places.map((place) => (
+      <PlaceCard key={place.id} place={place} />
+    ))}
+  </div>
+);
 
-const SearchPage = ({ query }: SearchPageProps) => {
-  return (
-    <div>
-      <div>Resultados para: {query}</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)" }}>
-        {PLACEHOLDER_PLACES.map((name) => (
-          <PlaceCard key={name} name={name} />
-        ))}
+const SearchPage = async ({ query, remove, debug }: SearchPageProps) => {
+  let response: SearchResponse;
+  try {
+    response = await searchPlaces(query, { remove, debug });
+  } catch (error) {
+    console.error("Falló la búsqueda", error);
+    return (
+      <div className={styles.empty} role="alert">
+        <p>No pudimos completar la búsqueda.</p>
+        <Link href={searchHref({ q: query, remove, debug })} prefetch={false}>
+          Reintentar
+        </Link>
       </div>
+    );
+  }
+
+  const { interpreted, relaxed, results, suggestedRemovals, needsLocation } = response;
+  const removeHref = (chip: { kind: string; id: string }) => searchHref({ q: query, remove, add: chip, debug });
+  const has = results.filter((result) => result.matchLevel === "has");
+  const maybe = results.filter((result) => result.matchLevel === "maybe");
+  const dishes = interpreted.chips.filter((chip) => chip.kind === "dish").map((chip) => chip.label);
+  const notices = [...relaxed.map((notice) => notice.message), ...(needsLocation ? ["Pronto vas a poder buscar cerca tuyo."] : [])];
+
+  return (
+    <div className={styles.results}>
+      {interpreted.chips.length > 0 && (
+        <ul className={styles.chips} aria-label="Lo que entendimos">
+          {interpreted.chips.map((chip) => (
+            <li key={`${chip.kind}:${chip.id}`}>
+              <Link className={styles.chip} href={removeHref(chip)} aria-label={`Quitar ${chip.label}`}>
+                {chip.label} ×
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {notices.length > 0 && (
+        <div className={styles.notices}>
+          {notices.map((message) => (
+            <p key={message} className={styles.notice} role="status">
+              {message}
+            </p>
+          ))}
+        </div>
+      )}
+
+      {results.length === 0 ? (
+        <div className={styles.empty}>
+          {relaxed.length === 0 && <p>No encontramos lugares para esta búsqueda.</p>}
+          {suggestedRemovals.length > 0 && (
+            <ul className={styles.chips}>
+              {suggestedRemovals.map((chip) => (
+                <li key={`${chip.kind}:${chip.id}`}>
+                  <Link className={styles.chip} href={removeHref(chip)}>
+                    Quitar {chip.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : (
+        <>
+          {has.length > 0 && <Places places={has} />}
+          {maybe.length > 0 && (
+            <section className={styles.results}>
+              <h2 className={styles.sectionTitle}>Puede que tengan {dishes.length ? dishes.join(" o ") : "lo que buscás"}</h2>
+              <Places places={maybe} />
+            </section>
+          )}
+        </>
+      )}
+
+      {response.debug && <DebugPanel debug={response.debug} />}
     </div>
   );
 };

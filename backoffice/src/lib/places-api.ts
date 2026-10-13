@@ -8,10 +8,12 @@ import type {
   NeighborhoodSweepMode,
   PlaceAnchor,
   PlaceEnrichmentResponse,
+  PlaceListItem,
   PlaceMatchResponse,
   PlaceSummary,
   PlacesSearchRequest,
   PlacesSearchResponse,
+  SavePlaceResult,
 } from '@/types/places'
 
 export class PlacesApiError extends Error {
@@ -141,6 +143,35 @@ export async function saveExtractionReport(report: ExtractionReportRequest): Pro
     body: JSON.stringify(report),
   })
   return parseApiResponse<{ path: string }>(response)
+}
+
+/** Guarda resultados del pipeline en la base: crea o actualiza cada lugar. */
+export async function savePlaces(results: PlaceEnrichmentResponse[]): Promise<SavePlaceResult[]> {
+  const response = await fetch('/api/places', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ results }),
+  })
+  return (await parseApiResponse<{ results: SavePlaceResult[] }>(response)).results
+}
+
+/** Lugares guardados en la base, del más reciente al más viejo. */
+export async function listSavedPlaces(signal?: AbortSignal): Promise<PlaceListItem[]> {
+  const response = await fetch('/api/places', { signal })
+  return (await parseApiResponse<{ places: PlaceListItem[] }>(response)).places
+}
+
+const EXISTS_CHUNK = 100
+
+/** googlePlaceId que ya están en la base; consulta en tandas para no alargar demasiado la URL. */
+export async function existingPlaceIds(ids: readonly string[], signal?: AbortSignal): Promise<Set<string>> {
+  const unique = [...new Set(ids)]
+  const chunks = Array.from({ length: Math.ceil(unique.length / EXISTS_CHUNK) }, (_, index) => unique.slice(index * EXISTS_CHUNK, (index + 1) * EXISTS_CHUNK))
+  const found = await Promise.all(chunks.map(async (chunk) => {
+    const response = await fetch(`/api/places/exists?ids=${chunk.map(encodeURIComponent).join(',')}`, { signal })
+    return (await parseApiResponse<{ ids: string[] }>(response)).ids
+  }))
+  return new Set(found.flat())
 }
 
 /** Recorre un barrio completo y entrega cada evento NDJSON a medida que llega. */

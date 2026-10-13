@@ -7,10 +7,16 @@ import {
   classifySource,
   deduplicateSourceText,
   extractionModelConfig,
+  cuisineMentioned,
+  dishSupportedBy,
+  isChainBranch,
   postProcess,
+  signatureAllowed,
   providerOptionsFor,
   reviewExtraction,
   slotsFromBlocks,
+  instagramHandlesFromResults,
+  isForeignSource,
   resolveDeterministicContact,
   SYSTEM_PROMPT,
   HOURS_RETRY_PROMPT,
@@ -18,6 +24,8 @@ import {
   llmUsageCost,
   mainExtractionRequest,
   mentionsAddress,
+  MISSING_NAME_DOUBT,
+  officialWebsiteHome,
   type PlaceExtraction,
   type Source,
 } from './place-extraction-service.ts'
@@ -41,9 +49,13 @@ const extraction: PlaceExtraction = {
   dietary: { vegan: 'unknown', vegetarian: 'has_options', glutenFree: 'unknown' },
   price: 'moderate', reservations: 'unknown',
   hours: { raw: 'Lunes 08:00 a 19:00', display: null, blocks: [{ days: [1], opens: '08:00', closes: '19:00' }] },
-  contact: { phone: '2915 0000', whatsapp: null, instagram: 'cafebrasilero', website: 'https://cafe.example/', menuUrl: null, reservationUrl: null },
+  contact: { phone: '2915 0000', whatsapp: '', instagram: 'cafebrasilero', website: 'https://cafe.example/', menuUrl: '', reservationUrl: '' },
   highlights: [{ es: 'flat white', en: 'flat white', facts: ['F1'] }],
+  dishes: [],
+  signature: [],
   description: { es: 'Un café histórico para hacer una pausa.', en: 'A historic café for a relaxed break.' },
+  name: '',
+  address: '',
   locatedIn: null,
   support: [],
   doubts: [],
@@ -140,6 +152,103 @@ describe('PlaceExtractionService', () => {
       google: true, exa: true, instagram: false, instagramCandidates: [],
       instagramSelection: { handle: null, origin: null, candidates: [] },
     })
+  })
+
+  it('busca las fuentes de una sucursal con la marca y toma de Exa la web de la marca si Google no la tiene', async () => {
+    const searchPlace = vi.fn(async () => exaResponse('@lanuevaroma', [
+      { title: 'La Nueva Roma', url: 'https://guia.example/la-nueva-roma', highlights: ['La Nueva Roma'] },
+      { title: 'Sabores', url: 'https://www.lanuevaroma.example/sabores', highlights: ['Sabores de La Nueva Roma'] },
+    ]))
+    const scrape = vi.fn(async (url: string) => ({ url, title: 'La Nueva Roma', description: '', content: 'Helados artesanales', instagramUrls: [] }))
+    // El perfil de la marca no lleva el barrio de la sucursal ni su dirección.
+    const scrapeMany = vi.fn(async () => [{ url: 'https://www.instagram.com/lanuevaroma/', name: 'La Nueva Roma', bio: 'Helados artesanales', links: ['https://www.lanuevaroma.example/'] }])
+    const service = new PlaceExtractionService({
+      apiKey: 'test-key',
+      details: { getDetails: async () => ({ ...googleDetails, anchor: { ...googleDetails.anchor, name: 'La Nueva Roma Cordón' } }) },
+      exa: { configured: true, searchPlace },
+      instagram: { configured: true, scrapeMany },
+      website: { configured: true, scrape },
+      generate: async () => extraction,
+    })
+
+    const collected = await service.collectSources('place-1', { seedCategories: ['ice_cream_shop'] })
+
+    expect(searchPlace).toHaveBeenCalledWith('La Nueva Roma')
+    expect(scrape).toHaveBeenCalledWith('https://www.lanuevaroma.example/')
+    expect(collected.sources.filter((source) => source.trust === 'official').map((source) => source.url))
+      .toEqual(['https://www.lanuevaroma.example/', 'https://www.instagram.com/lanuevaroma/'])
+    expect(collected.deterministicContact.instagram).toBe('lanuevaroma')
+  })
+
+  it('encuentra el Instagram por los links de la web y la web por los links del Instagram', async () => {
+    const profile = { url: 'https://www.instagram.com/marca.uy/', name: 'Heladería Marca', bio: 'Montevideo, Uruguay', links: ['https://heladeriamarca.example/'] }
+    const page = (url: string) => ({ url, title: 'Heladería Marca', description: '', content: 'Helados', instagramUrls: [], links: ['https://www.instagram.com/marca.uy/'] })
+    const build = (websiteUri: string | null, exaInstagram = '') => {
+      const scrape = vi.fn(async (url: string) => page(url))
+      const scrapeMany = vi.fn(async () => [profile])
+      const service = new PlaceExtractionService({
+        apiKey: 'test-key',
+        details: { getDetails: async () => ({ ...googleDetails, anchor: { ...googleDetails.anchor, name: 'Heladería Marca' }, websiteUri }) },
+        // Exa no trae la web de la marca.
+        exa: { configured: true, searchPlace: async () => exaResponse(exaInstagram) },
+        instagram: { configured: true, scrapeMany },
+        website: { configured: true, scrape },
+        generate: async () => extraction,
+      })
+      return { service, scrape, scrapeMany }
+    }
+
+    // Web en Google: su link propone el Instagram.
+    const fromWeb = build('https://heladeriamarca.example/')
+    await fromWeb.service.collectSources('place-1', { seedCategories: ['ice_cream_shop'] })
+    expect(fromWeb.scrapeMany).toHaveBeenCalledWith(['https://www.instagram.com/marca.uy/'])
+
+    // Sin web: el Instagram validado (por un candidato de Exa) lleva a la web de la marca.
+    const fromInstagram = build(null, '@marca.uy')
+    const collected = await fromInstagram.service.collectSources('place-1', { seedCategories: ['ice_cream_shop'] })
+    expect(fromInstagram.scrape).toHaveBeenCalledWith('https://heladeriamarca.example/')
+    expect(collected.sources.filter((source) => source.trust === 'official').map((source) => source.kind)).toEqual(['web', 'instagram'])
+  })
+
+  it('saca handles de la búsqueda dirigida: instagram.com, agregadores y links en el texto, nunca archivos', () => {
+    expect(instagramHandlesFromResults([
+      { url: 'https://viralist.ai/instagram/creators/oriundo.uy', highlights: [] },
+      { url: 'https://www.instagram.com/el.mingus/', highlights: [] },
+      { url: 'https://guia.example/bar', highlights: ['Seguilos en instagram.com/barmarca'] },
+      { url: 'https://www.instagram.com/entradas.html', highlights: [] },
+      { url: 'https://guia.example/otro', highlights: ['Sin redes'] },
+    ])).toEqual(['oriundo.uy', 'el.mingus', 'barmarca'])
+  })
+
+  it('propone y valida el Instagram con @handles sin etiqueta, la búsqueda dirigida y la dirección en la bio', async () => {
+    const scrapeMany = vi.fn(async (urls: string[]) => urls.map((url) => url.includes('sumi')
+      // Nombre corto ("SUMI" para "Sumi Sushi") sin Montevideo, pero con la dirección del local en la bio.
+      ? { url, name: 'SUMI', bio: '19 años en el mismo lugar 📍PATRIA 699', links: [] }
+      // Misma dirección y otro nombre: no es el perfil del local.
+      : { url, name: 'Peluquería Vecina', bio: 'Patria 699', links: [] }))
+    const service = new PlaceExtractionService({
+      apiKey: 'test-key',
+      details: { getDetails: async () => ({ ...googleDetails, anchor: { ...googleDetails.anchor, name: 'Sumi Sushi', address: 'Patria 699, 11300 Montevideo' } }) },
+      exa: {
+        configured: true,
+        searchPlace: async () => ({ ...exaResponse(), output: { ...exaResponse().output, content: { ...exaResponse().output.content, contact_info: 'Email: @sumi_japanese_food' } } }),
+        searchText: async (query: string) => ({ query, results: [{ title: 'peluqueria.vecina', url: 'https://viralist.ai/instagram/creators/peluqueria.vecina', highlights: [] }], requestId: 'r' }),
+      },
+      instagram: { configured: true, scrapeMany },
+      generate: async () => extraction,
+    })
+
+    const collected = await service.collectSources('place-1', { seedCategories: ['restaurant'] })
+
+    expect(scrapeMany).toHaveBeenCalledWith(['https://www.instagram.com/sumi_japanese_food/', 'https://www.instagram.com/peluqueria.vecina/'])
+    expect(collected.instagramValidation.profile?.url).toBe('https://www.instagram.com/sumi_japanese_food/')
+  })
+
+  it('descarta fuentes de otros países por dominio o por una dirección extranjera sin mención de Uruguay', () => {
+    expect(isForeignSource('https://www.brookies.com.br/p/contato', 'Brookies Cookies & Co.')).toBe(true)
+    expect(isForeignSource('https://guia.example/brookies', 'Av. Independência, 1211 - Porto Alegre - RS, 90035-077')).toBe(true)
+    expect(isForeignSource('https://guia.example/bar', 'Calle Buenos Aires 400, Ciudad Vieja, Montevideo')).toBe(false)
+    expect(isForeignSource('https://uy.eldirectorio.co/empresas/montevideo/bar', 'Bar en Montevideo')).toBe(false)
   })
 
   it('devuelve el costo por proveedor con el uso real de tokens del LLM', async () => {
@@ -541,7 +650,7 @@ describe('PlaceExtractionService', () => {
     })
   })
 
-  it('resuelve contactos determinísticos desde Google, texto y links', () => {
+  it('resuelve contactos determinísticos sólo desde el texto y los links de las fuentes, nunca de Google', () => {
     const sources = [{
       id: 'S1', kind: 'exa' as const, trust: 'third_party' as const, url: 'https://example.com/',
       text: 'Reservas https://oriundo.meitre.com/ · Instagram: @magnolio.uy · Correo: @oriundo.uy · Tel: 099 111 222',
@@ -551,25 +660,21 @@ describe('PlaceExtractionService', () => {
       ...googleDetails,
       anchor: { ...googleDetails.anchor, name: 'Oriundo' },
       websiteUri: 'https://oriundo.uy/',
-      phoneNumber: null,
+      phoneNumber: '+598 2418 5404',
     }, sources)
 
     expect(contact).toEqual({
-      website: 'https://oriundo.uy/',
       reservationUrl: 'https://oriundo.meitre.com/',
       instagram: 'oriundo.uy',
       phone: '+598 99 111 222',
     })
+    // La web y el teléfono de Google no se usan, tampoco una web de Google que sea de reservas.
     expect(resolveDeterministicContact({
       ...googleDetails,
       websiteUri: 'https://oriundo.meitre.com/',
       phoneNumber: '+598 2418 5404',
-    }, sources)).toMatchObject({
-      website: null,
-      reservationUrl: 'https://oriundo.meitre.com/',
-      phone: '+598 2418 5404',
-    })
-    expect(resolveDeterministicContact({ ...googleDetails, websiteUri: 'https://instagram.com/oriundo.uy/' }, [])).not.toHaveProperty('website')
+    }, [])).toEqual({})
+    expect(resolveDeterministicContact({ ...googleDetails, websiteUri: 'https://instagram.com/oriundo.uy/' }, [])).toEqual({})
     expect(resolveDeterministicContact({ ...googleDetails, websiteUri: null }, [{
       ...sources[0], links: ['https://book.example/reserva'], text: 'Reservas https://book.example/reserva',
     }], ['book.example'])).toMatchObject({ reservationUrl: 'https://book.example/reserva' })
@@ -597,24 +702,356 @@ describe('PlaceExtractionService', () => {
     expect(emailOnly).not.toHaveProperty('instagram')
   })
 
+  it('respalda un plato si sus palabras significativas están en un mismo fact', () => {
+    expect(dishSupportedBy('milanesa napolitana', 'Sirven milanesas a la napolitana con fritas')).toBe(true)
+    expect(dishSupportedBy('chivito canadiense', 'El clásico es el chivito al pan canadiense')).toBe(true)
+    expect(dishSupportedBy('Pulpo a la gallega', 'pulpo gallego')).toBe(false)
+    expect(dishSupportedBy('flan con dulce de leche', 'Flanes caseros con dulce de leche')).toBe(true)
+    expect(dishSupportedBy('milanesa napolitana', 'Hay milanesas')).toBe(false)
+    expect(dishSupportedBy('de la', 'de la casa')).toBe(false)
+  })
+
+  it('guarda sólo platos respaldados por un fact, normalizados, sin repetir y hasta 15', () => {
+    const source: Source = { id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://guia.example/', text: 'bodegón' }
+    const many = Array.from({ length: 20 }, (_, index) => `plato${index}`)
+    const place = postProcess(target, {
+      ...emptyExtraction,
+      facts: [
+        { id: 'F1', text: 'Sirven milanesas a la napolitana', sourceId: 'S1', kind: 'food', proposedTag: null },
+        { id: 'F2', text: 'El clásico es el chivito al pan canadiense', sourceId: 'S1', kind: 'food', proposedTag: null },
+        { id: 'F3', text: 'Tienen ravioles', sourceId: 'S1', kind: 'food', proposedTag: null },
+        { id: 'F4', text: 'y también salsa bolognesa', sourceId: 'S1', kind: 'food', proposedTag: null },
+        { id: 'F5', text: `Carta: ${many.join(', ')}`, sourceId: 'S1', kind: 'food', proposedTag: null },
+      ],
+      dishes: ['Milanesa Napolitana', 'chivito canadiense', 'milanesas napolitanas', 'ravioles bolognesa', 'lasaña', ...many],
+    }, { sources: [source] })
+    expect(place.dishes.slice(0, 2)).toEqual(['milanesa napolitana', 'chivito canadiense'])
+    expect(place.dishes).not.toContain('ravioles bolognesa')
+    expect(place.dishes).not.toContain('lasaña')
+    expect(place.dishes).toHaveLength(15)
+    expect(place.keywordText).toContain('milanesa napolitana')
+    expect(place.embeddingText).not.toContain('milanesa napolitana')
+  })
+
+  it('convierte el contacto vacío del modelo en null', () => {
+    const place = postProcess(target, {
+      ...emptyExtraction,
+      contact: { phone: '  ', whatsapp: '', instagram: '', website: '', menuUrl: '', reservationUrl: '' },
+    }, { sources: [{ id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://guia.example/', text: 'café' }] })
+    expect(place.contact).toEqual({ phone: null, whatsapp: null, instagram: null, website: null, menuUrl: null, reservationUrl: null })
+  })
+
+  it('acepta una cocina sólo si un texto nombra su label o un sinónimo', () => {
+    expect(cuisineMentioned('mexican', ['Carta con tacos veganos'])).toBe(false)
+    expect(cuisineMentioned('italian', ['Cocina italiana casera'])).toBe(true)
+    expect(cuisineMentioned('middle_eastern', ['Comida arabe para compartir'])).toBe(true)
+    expect(cuisineMentioned('middle_eastern', ['Comida árabe para compartir'])).toBe(true)
+    expect(cuisineMentioned('japanese', ['Sirven sushi'])).toBe(false)
+    expect(cuisineMentioned('inventada', ['cocina inventada'])).toBe(false)
+  })
+
+  it('descarta las cocinas que ningún fact nombra y las anota en review', () => {
+    const sources: Source[] = [{ id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://guia.example/', text: 'bar' }]
+    const data: PlaceExtraction = {
+      ...emptyExtraction,
+      facts: [
+        { id: 'F1', text: 'Carta con tacos veganos y falafel', sourceId: 'S1', kind: 'food', proposedTag: 'middle_eastern' },
+        { id: 'F2', text: 'Cocina italiana casera', sourceId: 'S1', kind: 'food', proposedTag: null },
+      ],
+      tags: [
+        { group: 'categories', id: 'bar', facts: ['F1'] },
+        { group: 'cuisines', id: 'mexican', facts: ['F1'] },
+        { group: 'cuisines', id: 'italian', facts: ['F2'] },
+      ],
+    }
+    const place = postProcess(target, data, { sources })
+    expect(place.tags).toContain('italian')
+    expect(place.tags).not.toContain('mexican')
+    expect(place.tags).not.toContain('middle_eastern')
+    expect(reviewExtraction(place, data).anomalies).toContainEqual({ type: 'cuisine_unmentioned', detail: 'mexican, middle_eastern' })
+  })
+
+  it('mantiene la cocina que agrega el código para una parrilla aunque ningún fact la nombre', () => {
+    const place = postProcess(target, {
+      ...emptyExtraction,
+      facts: [{ id: 'F1', text: 'Parrilla a leña con achuras', sourceId: 'S1', kind: 'food', proposedTag: null }],
+      tags: [{ group: 'categories', id: 'grill', facts: ['F1'] }],
+    }, { sources: [{ id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://guia.example/', text: 'parrilla' }] })
+    expect(place.tags).toContain('uruguayan')
+  })
+
+  it('acepta signature sólo con ids que quedaron en tags, sin repetir y hasta 3', () => {
+    const facts = [{ id: 'F1', text: 'bar acogedor con cerveza artesanal y DJ', sourceId: 'S1', kind: 'drink' as const, proposedTag: null }]
+    const place = postProcess(target, {
+      ...emptyExtraction,
+      facts,
+      tags: [
+        { group: 'categories', id: 'bar', facts: ['F1'] }, { group: 'drinks', id: 'craft_beer', facts: ['F1'] },
+        { group: 'atmosphere', id: 'cozy', facts: ['F1'] }, { group: 'features', id: 'dj', facts: ['F1'] },
+        { group: 'atmosphere', id: 'elegant', facts: [] },
+      ],
+      signature: ['craft_beer', 'craft_beer', 'inventado', 'elegant', 'cozy', 'bar', 'dj'],
+    }, { sources: [{ id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://guia.example/', text: 'bar' }] })
+    expect(place.tags).toEqual(expect.arrayContaining(['craft_beer', 'cozy', 'dj']))
+    expect(place.tags).not.toContain('elegant')
+    expect(place.signature).toEqual(['craft_beer', 'cozy', 'dj'])
+    expect(place.embeddingText).toContain('Cerveza artesanal')
+    expect(place.embeddingText).toContain('Acogedor')
+    expect(place.embeddingText).toContain('DJ')
+  })
+
+  it('features, goodFor, offers y atmosphere no salen sólo del resumen de Exa; features, goodFor y atmosphere necesitan nombrarse', () => {
+    const summary: Source = { id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://exa.ai/', text: 'RESUMEN ESTRUCTURADO DE EXA' }
+    const page: Source = { id: 'S2', kind: 'exa', trust: 'third_party', url: 'https://guia.example/bar', text: 'Bar' }
+    const place = postProcess(target, {
+      ...emptyExtraction,
+      facts: [
+        { id: 'F1', text: 'Tiene pizzas y es accesible, con plato del día', sourceId: 'S1', kind: 'food', proposedTag: null },
+        { id: 'F2', text: 'Reciben pedidos por PedidosYa', sourceId: 'S2', kind: 'other', proposedTag: null },
+        { id: 'F3', text: 'Se mira fútbol en pantalla grande', sourceId: 'S2', kind: 'other', proposedTag: null },
+        { id: 'F4', text: 'Tiene carta de cócteles, vinos y cervezas', sourceId: 'S2', kind: 'drink', proposedTag: null },
+        { id: 'F5', text: 'Hay plato del día al mediodía', sourceId: 'S2', kind: 'food', proposedTag: null },
+      ],
+      tags: [
+        // Comidas pueden salir sólo del resumen; accessible y menu_of_the_day no.
+        { group: 'foods', id: 'pizza', facts: ['F1'] },
+        { group: 'features', id: 'accessible', facts: ['F1'] },
+        { group: 'offers', id: 'menu_of_the_day', facts: ['F1'] },
+        // De una página: delivery y watch_football se nombran con sus sinónimos; groups no se nombra.
+        { group: 'features', id: 'delivery', facts: ['F2'] },
+        { group: 'features', id: 'watch_football', facts: ['F3'] },
+        { group: 'goodFor', id: 'groups', facts: ['F4'] },
+      ],
+    }, { sources: [summary, page] })
+    expect(place.tags).toEqual(expect.arrayContaining(['pizza', 'delivery', 'watch_football']))
+    expect(place.tags).not.toContain('accessible')
+    expect(place.tags).not.toContain('menu_of_the_day')
+    expect(place.tags).not.toContain('groups')
+
+    // offers no necesita nombrarse, pero sí un fact fuera del resumen.
+    const withPage = postProcess(target, {
+      ...emptyExtraction,
+      facts: [{ id: 'F5', text: 'Hay almuerzo ejecutivo', sourceId: 'S2', kind: 'food', proposedTag: null }],
+      tags: [{ group: 'offers', id: 'menu_of_the_day', facts: ['F5'] }],
+    }, { sources: [summary, page] })
+    expect(withPage.tags).toContain('menu_of_the_day')
+  })
+
+  it('un tag respaldado sólo por el resumen de Exa se queda si una fuente real lo nombra', () => {
+    const summary: Source = { id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://exa.ai/', text: 'RESUMEN ESTRUCTURADO DE EXA\nTiene delivery a través de Rappi. Tiene wifi.' }
+    const rappi: Source = { id: 'S2', kind: 'exa', trust: 'third_party', url: 'https://www.rappi.com.uy/restaurantes/113414-pancho-va', text: 'Pancho Va! Precios y Menú para Delivery - Rappi\nPancho de soja $250' }
+    const pancho = { ...target, name: 'Pancho Va!' }
+    const place = postProcess(pancho, {
+      ...emptyExtraction,
+      facts: [
+        { id: 'F1', text: 'Tiene delivery a través de Rappi', sourceId: 'S1', kind: 'other', proposedTag: null },
+        { id: 'F2', text: 'Tiene wifi', sourceId: 'S1', kind: 'other', proposedTag: null },
+      ],
+      tags: [{ group: 'features', id: 'delivery', facts: ['F1'] }, { group: 'features', id: 'wifi', facts: ['F2'] }],
+    }, { sources: [summary, rappi] })
+    // delivery queda por la página de Rappi, que lo nombra; wifi sólo lo dice el resumen y se va.
+    expect(place.tags).toContain('delivery')
+    expect(place.tags).not.toContain('wifi')
+    expect(place.placeFacts.find((fact) => fact.supports.includes('features.delivery') && fact.sourceUrl === rappi.url)?.text)
+      .toBe('Pancho Va! Precios y Menú para Delivery - Rappi')
+  })
+
+  it('agrega delivery si hay una página del local en Rappi o PedidosYa, aunque nadie lo proponga', () => {
+    const page = (url: string, text: string): Source => ({ id: 'S1', kind: 'exa', trust: 'third_party', url, text })
+    const run = (source: Source) => postProcess({ ...target, name: 'Heladería Marca' }, emptyExtraction, { sources: [source] })
+
+    const withPage = run(page('https://www.pedidosya.com.uy/restaurantes/montevideo/heladeria-marca', 'Heladería Marca - Helados'))
+    expect(withPage.tags).toContain('delivery')
+    expect(withPage.tags).not.toContain('takeaway')
+    expect(withPage.placeFacts.find((fact) => fact.supports.includes('features.delivery'))?.text).toBe('Tiene página de pedidos en pedidosya.com.uy')
+    // Una página de Rappi de otro local no cuenta.
+    expect(run(page('https://www.rappi.com.uy/restaurantes/125589-bliss-cookies', 'Bliss Cookies')).tags).not.toContain('delivery')
+  })
+
+  it('saca de signature servicios y logística, y momentos que no definen al lugar', () => {
+    expect(signatureAllowed('delivery', 'Bar Uno', 'Un bar de barrio.')).toBe(false)
+    expect(signatureAllowed('wifi', 'Bar Uno', 'Un bar de barrio.')).toBe(false)
+    expect(signatureAllowed('menu_of_the_day', 'Bar Uno', 'Un bar de barrio.')).toBe(false)
+    expect(signatureAllowed('live_music', 'Bar Uno', 'Un bar de barrio.')).toBe(true)
+    // Un momento sólo si el nombre o la primera oración de la descripción lo nombran.
+    expect(signatureAllowed('brunch', 'Café Uno', 'Un café de brunch con mesas al sol. Abre de mañana.')).toBe(true)
+    expect(signatureAllowed('brunch', 'Brunch Club', 'Un café con mesas al sol.')).toBe(true)
+    expect(signatureAllowed('lunch', 'Resto Uno', 'Un restaurante de pastas. Abre al mediodía.')).toBe(false)
+    expect(signatureAllowed('afternoon_snack', 'Café Uno', 'Un café de especialidad.')).toBe(false)
+
+    const facts = [{ id: 'F1', text: 'pizzas con delivery, para cenar y con música en vivo', sourceId: 'S1', kind: 'food' as const, proposedTag: null }]
+    const place = postProcess(target, {
+      ...emptyExtraction,
+      facts,
+      description: { es: 'Una pizzería de barrio con música en vivo.', en: 'A neighborhood pizzeria with live music.' },
+      tags: [
+        { group: 'foods', id: 'pizza', facts: ['F1'] }, { group: 'features', id: 'delivery', facts: ['F1'] },
+        { group: 'moments', id: 'dinner', facts: ['F1'] }, { group: 'features', id: 'live_music', facts: ['F1'] },
+      ],
+      signature: ['delivery', 'dinner', 'pizza', 'live_music'],
+    }, { sources: [{ id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://guia.example/', text: 'pizzas' }] })
+    expect(place.tags).toEqual(expect.arrayContaining(['delivery', 'dinner']))
+    expect(place.signature).toEqual(['pizza', 'live_music'])
+    expect(SYSTEM_PROMPT).toContain('Nunca servicios o logística (delivery, takeaway, wifi, outlets, accessible, pet_friendly, menu_of_the_day)')
+  })
+
+  it('lista atmosphere y bodegon entre los ids permitidos y pide cocinas sólo por el estilo principal', () => {
+    expect(SYSTEM_PROMPT).toContain('- atmosphere: quiet, lively, cozy, elegant')
+    expect(SYSTEM_PROMPT).toMatch(/- categories: .*bodegon/)
+    expect(SYSTEM_PROMPT).toContain('nunca por un plato suelto')
+  })
+
   it('preserva la semilla y aplica el contacto determinístico sobre el LLM', () => {
     const place = postProcess(target, {
       ...extraction,
       tags: [{ group: 'categories', id: 'wine_bar', facts: ['F1'] }],
       reservations: 'no_reservations',
-      contact: { ...extraction.contact, phone: '000', instagram: 'marca-ajena', website: 'https://incorrecta.example/', reservationUrl: null },
+      contact: { ...extraction.contact, phone: '000', instagram: 'marca-ajena', website: 'https://incorrecta.example/', reservationUrl: '' },
       facts: [{ id: 'F1', text: 'es un wine bar', sourceId: 'S1', kind: 'other', proposedTag: null }],
       support: [],
     }, {
       seedCategories: ['bar'],
       sources: [{ id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://example.com/', text: 'wine bar' }],
       deterministicContact: {
-        phone: '+598 2418 5404', instagram: 'oriundo.uy', website: null, reservationUrl: 'https://oriundo.meitre.com/',
+        phone: '+598 2418 5404', instagram: 'oriundo.uy', reservationUrl: 'https://oriundo.meitre.com/',
       },
     })
     expect(place.categories).toEqual(['wine_bar', 'bar'])
     expect(place.contact).toMatchObject({ phone: '+598 2418 5404', instagram: 'oriundo.uy', website: null, reservationUrl: 'https://oriundo.meitre.com/' })
     expect(place.reservations).toBe('accepts')
+  })
+
+  it('guarda nombre y dirección sólo si una fuente citada los dice, nunca los de Google', () => {
+    const source: Source = { id: 'S1', kind: 'web', trust: 'official', url: 'https://cafe.example/', text: 'Café Brasilero Montevideo. Estamos en Ituzaingó 1447, Ciudad Vieja.' }
+    const facts = [
+      { id: 'F1', text: 'El local se llama Café Brasilero', sourceId: 'S1', kind: 'other' as const, proposedTag: null },
+      { id: 'F2', text: 'Está en Ituzaingó 1447', sourceId: 'S1', kind: 'other' as const, proposedTag: null },
+    ]
+    const base = { ...emptyExtraction, facts, name: 'Café Brasilero', address: 'Ituzaingó 1447' }
+
+    const sourced = postProcess({ ...target, name: 'Nombre De Google', address: 'Dirección de Google 1' }, {
+      ...base, support: [{ field: 'name', facts: ['F1'] }, { field: 'address', facts: ['F2'] }],
+    }, { sources: [source] })
+    expect(sourced).toMatchObject({ name: 'Café Brasilero', address: 'Ituzaingó 1447' })
+    expect(sourced.embeddingText).toContain('Café Brasilero')
+    expect(sourced.embeddingText).not.toContain('Nombre De Google')
+    expect(sourced.placeFacts.map((fact) => fact.supports)).toEqual([['name'], ['address']])
+    expect(reviewExtraction(sourced, base).doubts).toEqual([])
+
+    // Sin support, o con un valor que no está en la fuente citada, no hay respaldo de Google
+    // (cuando ninguna fuente nombra la marca de Google).
+    const unknownBrand = { ...target, name: 'Nombre De Google' }
+    const unsupported = postProcess(unknownBrand, base, { sources: [source] })
+    expect(unsupported).toMatchObject({ name: '', address: null })
+    expect(postProcess(unknownBrand, {
+      ...base, name: 'Otro Nombre', address: 'Rambla 1', support: [{ field: 'name', facts: ['F1'] }, { field: 'address', facts: ['F2'] }],
+    }, { sources: [source] })).toMatchObject({ name: '', address: null })
+    expect(reviewExtraction(unsupported, { ...base, doubts: ['d1', 'd2', 'd3', 'd4', 'd5'] }).doubts)
+      .toEqual([MISSING_NAME_DOUBT, 'd1', 'd2', 'd3', 'd4'])
+  })
+
+  it('guarda la marca sin la sucursal si una fuente la nombra, aunque el modelo no la cite', () => {
+    const exaSummary: Source = { id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://exa.ai/', text: 'RESUMEN ESTRUCTURADO DE EXA\nDescripción: La Nueva Roma es una heladería artesanal' }
+    const directory: Source = { id: 'S2', kind: 'exa', trust: 'third_party', url: 'https://guia.example/la-nueva-roma', text: 'La Nueva Roma, heladería artesanal desde 1963' }
+    const branch = { ...target, name: 'La Nueva Roma Cordón' }
+    const facts = [{ id: 'F1', text: 'La Nueva Roma es una heladería artesanal', sourceId: 'S1', kind: 'other' as const, proposedTag: null }]
+
+    // El modelo devuelve el nombre con la sucursal y cita una fuente que sólo dice la marca.
+    expect(postProcess(branch, {
+      ...emptyExtraction, facts, name: 'La Nueva Roma Cordón', support: [{ field: 'name', facts: ['F1'] }],
+    }, { sources: [exaSummary, directory] }).name).toBe('La Nueva Roma')
+
+    // El modelo no cita el nombre: alcanza con que la web oficial nombre la marca.
+    const web: Source = { id: 'S1', kind: 'web', trust: 'official', url: 'https://marca.example/', text: 'Home - LA NUEVA ROMA. Helados artesanales.' }
+    expect(postProcess(branch, { ...emptyExtraction, name: 'La Nueva Roma' }, { sources: [web] }).name).toBe('La Nueva Roma')
+
+    // El resumen de Exa sale de una búsqueda con ese nombre: solo no confirma la marca.
+    const onlySummary = postProcess(branch, { ...emptyExtraction, facts, name: 'La Nueva Roma' }, { sources: [exaSummary] })
+    expect(onlySummary.name).toBe('')
+    expect(reviewExtraction(onlySummary, emptyExtraction).doubts).toContain(MISSING_NAME_DOUBT)
+  })
+
+  it('detecta sucursales de cadenas por la marca o por fuentes que muestran varias sucursales', () => {
+    const page = (url: string, text: string): Source => ({ id: 'S1', kind: 'exa', trust: 'third_party', url, text })
+    expect(isChainBranch({ name: 'La Nueva Roma Cordón' }, [])).toBe(true)
+    expect(isChainBranch({ name: 'Freddo' }, [page('https://marca.example/', 'Conocé nuestras sucursales')])).toBe(true)
+    expect(isChainBranch({ name: 'Freddo' }, [page('https://marca.example/store/pocitos/', 'Pocitos')])).toBe(true)
+    expect(isChainBranch({ name: 'Café Brasilero' }, [page('https://cafe.example/', 'Café histórico de la Ciudad Vieja')])).toBe(false)
+  })
+
+  describe('sucursal de una cadena', () => {
+    const branch = { ...target, name: 'Heladería Marca', address: 'Av. Gonzalo Ramírez 2051', neighborhoodId: 'CORDON' }
+    const web: Source = { id: 'S1', kind: 'web', trust: 'official', url: 'https://marca.example/', text: 'Heladería Marca. Conocé nuestras sucursales.' }
+    const otherBranch: Source = { id: 'S2', kind: 'exa', trust: 'third_party', url: 'https://guia.example/marca-shopping', text: 'Heladería Marca, Av. Luis Alberto de Herrera 1290. Tel 2622 0000. Lunes 10 a 22. Tiene terraza y wifi.' }
+    const thisBranch: Source = { id: 'S3', kind: 'exa', trust: 'third_party', url: 'https://guia.example/marca-cordon', text: 'Heladería Marca en Cordón, Av. Gonzalo Ramírez 2051. Tel 2410 0000. Lunes 12 a 23. Tiene terraza.' }
+    const fromSource = (sourceId: string): PlaceExtraction => ({
+      ...emptyExtraction,
+      facts: [{ id: 'F1', text: 'Horario, teléfono, dirección, terraza y wifi', sourceId, kind: 'other', proposedTag: null }],
+      tags: [{ group: 'features', id: 'terrace', facts: ['F1'] }, { group: 'features', id: 'wifi', facts: ['F1'] }],
+      hours: { raw: 'Lunes', display: null, blocks: [{ days: [1], opens: '10:00', closes: '22:00' }] },
+      contact: { ...emptyExtraction.contact, phone: '2622 0000', whatsapp: '', instagram: 'heladeriamarca', website: 'https://marca.example/', menuUrl: '', reservationUrl: '' },
+      address: sourceId === 'S2' ? 'Av. Luis Alberto de Herrera 1290' : 'Av. Gonzalo Ramírez 2051',
+      support: ['hours', 'contact.phone', 'contact.website', 'contact.instagram', 'address'].map((field) => ({ field, facts: ['F1'] })),
+    })
+
+    it('descarta horario, teléfono, dirección y features físicos que vienen de otra sucursal', () => {
+      const place = postProcess(branch, fromSource('S2'), { sources: [web, otherBranch], deterministicContact: { phone: '+598 2622 0000' } })
+      expect(place.hours).toMatchObject({ status: 'none', slots: [], missingReason: 'chain_branch_not_found' })
+      // Web e Instagram son de la marca: se mantienen aunque ninguna fuente confirme la sucursal.
+      expect(place.contact).toMatchObject({ phone: null, website: 'https://marca.example/', instagram: 'heladeriamarca' })
+      expect(place.address).toBeNull()
+      // terrace depende del local; wifi es de la marca y se mantiene.
+      expect(place.tags).not.toContain('terrace')
+      expect(place.tags).toContain('wifi')
+    })
+
+    it('los acepta si la fuente menciona la dirección o el barrio de esta sucursal', () => {
+      const place = postProcess(branch, { ...fromSource('S3'), contact: { ...fromSource('S3').contact, phone: '2410 0000' } }, { sources: [web, otherBranch, thisBranch] })
+      expect(place.hours.status).toBe('exact')
+      expect(place.contact.phone).toBe('+598 2410 0000')
+      expect(place.address).toBe('Av. Gonzalo Ramírez 2051')
+      expect(place.tags).toEqual(expect.arrayContaining(['terrace', 'wifi']))
+
+      const byNeighborhood: Source = { ...thisBranch, text: 'Heladería Marca, sucursal Cordón. Lunes 12 a 23. Tiene terraza.' }
+      const fromNeighborhood = postProcess(branch, fromSource('S3'), { sources: [web, byNeighborhood] })
+      expect(fromNeighborhood.hours.status).toBe('exact')
+      expect(fromNeighborhood.tags).toContain('terrace')
+    })
+  })
+
+  it('valida los teléfonos como números de Uruguay: un CEP brasileño no es un teléfono', () => {
+    const phoneIn = (text: string) => resolveDeterministicContact(googleDetails, [{ id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://guia.example/', text }]).phone ?? null
+    expect(phoneIn('Porto Alegre - RS, 90035-077')).toBeNull()
+    expect(phoneIn('Tel. 2710-7913')).toBe('+598 2710 7913')
+    expect(phoneIn('Celular 092 207 690')).toBe('+598 92 207 690')
+    expect(phoneIn('Local en Maldonado: 4222 1234')).toBe('+598 4222 1234')
+    expect(phoneIn('Buenos Aires: +54 11 4444 5555')).toBeNull()
+    // Número corto (UAN): válido para libphonenumber, pero no es el teléfono de un local.
+    expect(phoneIn('Llamá al 2110')).toBeNull()
+  })
+
+  it('el teléfono del modelo con support gana sobre el que aparece en el texto de las fuentes', () => {
+    const source: Source = { id: 'S1', kind: 'web', trust: 'official', url: 'https://cafe.example/', text: 'Tel 2915 0000' }
+    const data = {
+      ...emptyExtraction,
+      facts: [{ id: 'F1', text: 'El teléfono es 2915 0000', sourceId: 'S1', kind: 'contact' as const, proposedTag: null }],
+      contact: { ...emptyExtraction.contact, phone: '2915 0000', website: '', instagram: '' },
+    }
+    const context = { sources: [source], deterministicContact: { phone: '+598 99 111 222' } }
+
+    expect(postProcess(target, { ...data, support: [{ field: 'contact.phone', facts: ['F1'] }] }, context).contact.phone).toBe('+598 2915 0000')
+    expect(postProcess(target, data, context).contact.phone).toBe('+598 99 111 222')
+  })
+
+  it('completa la web con la home de la web oficial scrapeada, salvo que el modelo traiga una con respaldo', () => {
+    const official: Source = { id: 'S1', kind: 'web', trust: 'official', url: 'http://www.cafe.example/carta/menu.html?x=1', text: 'Carta del café. Web: https://cafe-oficial.example/' }
+    const data = { ...emptyExtraction, facts: [{ id: 'F1', text: 'La web es https://cafe-oficial.example/', sourceId: 'S1', kind: 'contact' as const, proposedTag: null }], contact: { ...emptyExtraction.contact, website: 'https://cafe-oficial.example/', phone: '', instagram: '' } }
+
+    expect(postProcess(target, data, { sources: [official] }).contact.website).toBe('https://www.cafe.example/')
+    expect(postProcess(target, { ...data, support: [{ field: 'contact.website', facts: ['F1'] }] }, { sources: [official] }).contact.website).toBe('https://cafe-oficial.example/')
+    expect(officialWebsiteHome([{ ...official, trust: 'third_party' }])).toBeNull()
+    expect(officialWebsiteHome([{ ...official, url: 'https://oriundo.meitre.com/' }, { ...official, url: 'https://linktr.ee/cafe' }])).toBeNull()
+    expect(officialWebsiteHome([{ ...official, kind: 'instagram', url: 'https://instagram.com/cafe/' }])).toBeNull()
   })
 
   it('mantiene horarios y highlights aislados al extraer Namasté, Culto Café y Oriundo en secuencia', async () => {
@@ -679,7 +1116,8 @@ describe('PlaceExtractionService', () => {
     for (const name of ['Namasté', 'Culto Café', 'Oriundo'] as const) {
       const response = await service.extract(`${name}-place`, { seedCategories: ['restaurant'] })
       expect(response).toMatchObject({ status: 'ok', place: { highlights: fixtures[name].highlights } })
-      expect(response.place?.hours.slots).toHaveLength(name === 'Namasté' ? 12 : name === 'Culto Café' ? 1 : 2)
+      if (response.status !== 'ok') throw new Error(`${name} sin status ok`)
+      expect(response.place.hours.slots).toHaveLength(name === 'Namasté' ? 12 : name === 'Culto Café' ? 1 : 2)
     }
   })
 
@@ -704,7 +1142,7 @@ describe('PlaceExtractionService', () => {
           ...emptyExtraction,
           facts: [{ id: 'F1', text: 'es un wine bar', sourceId: 'S1', kind: 'other' as const, proposedTag: null }],
           tags: runs % 2 ? [{ group: 'categories' as const, id: 'wine_bar', facts: ['F1'] }] : [],
-          contact: { ...extraction.contact, instagram: 'magnolio.uy', reservationUrl: null },
+          contact: { ...extraction.contact, instagram: 'magnolio.uy', reservationUrl: '' },
           support: [],
         }
       },
@@ -742,7 +1180,7 @@ describe('PlaceExtractionService', () => {
     expect(SYSTEM_PROMPT).toContain('es siempre en español')
     expect(SYSTEM_PROMPT).toContain('- Jams, toques o bandas → live_music además de events. Libros o actividades para chicos → kids_friendly.')
     expect(SYSTEM_PROMPT).toContain('- Una versión vegetal explícita de un plato (de soja, de seitán, veggie, de lentejas) cuenta como vegetarian has_options.')
-    expect(SYSTEM_PROMPT).toContain('proposedTag es null solo para anécdotas, historia de la marca, datos de contacto, medios de pago o información de otras sucursales. Si el fact describe comida, bebida, actividades o características del lugar, proponé un tag existente o uno nuevo.')
+    expect(SYSTEM_PROMPT).toContain('proposedTag es null solo para anécdotas, historia de la marca, nombre o dirección del local, datos de contacto, medios de pago o información de otras sucursales. Si el fact describe comida, bebida, actividades o características del lugar, proponé un tag existente o uno nuevo.')
     expect(SYSTEM_PROMPT).toContain('- Sesiones de discos o escucha de vinilos → vinyl.')
     expect(SYSTEM_PROMPT).toContain('- Si el horario aparece en una sola fuente de terceros y ninguna otra lo contradice, usalo (source third_party).')
     expect(SYSTEM_PROMPT).not.toContain('Solo descartá horarios de terceros')
@@ -838,7 +1276,7 @@ describe('PlaceExtractionService', () => {
       dietary: { vegan: 'has_options', vegetarian: 'unknown', glutenFree: 'unknown' },
       price: 'high',
       reservations: 'accepts',
-      contact: { phone: '2915 0000', whatsapp: null, instagram: null, website: 'https://local.example/', menuUrl: null, reservationUrl: null },
+      contact: { phone: '2915 0000', whatsapp: '', instagram: '', website: 'https://local.example/', menuUrl: '', reservationUrl: '' },
       support: [
         { field: 'reservations', facts: ['F3'] },
         { field: 'contact.website', facts: ['F1'] },
@@ -861,10 +1299,11 @@ describe('PlaceExtractionService', () => {
     const place = postProcess(target, {
       ...emptyExtraction,
       facts: [{ id: 'F1', text: 'reserva por Meitre', sourceId: 'S1', kind: 'reservations', proposedTag: null }],
-      contact: { phone: null, whatsapp: null, instagram: null, website: 'https://local.meitre.com/', menuUrl: null, reservationUrl: null },
+      contact: { phone: '', whatsapp: '', instagram: '', website: 'https://local.meitre.com/', menuUrl: '', reservationUrl: '' },
       support: [{ field: 'contact.website', facts: ['F1'] }],
     }, { sources: [{ id: 'S1', kind: 'web', trust: 'official', url: 'https://local.example/', text: 'Reservas por Meitre' }] })
-    expect(place.contact).toMatchObject({ website: null, reservationUrl: 'https://local.meitre.com/' })
+    // La web de reservas pasa a reservationUrl; website queda con la home de la web oficial scrapeada.
+    expect(place.contact).toMatchObject({ website: 'https://local.example/', reservationUrl: 'https://local.meitre.com/' })
     expect(place.reservations).toBe('accepts')
   })
 
@@ -969,7 +1408,8 @@ describe('PlaceExtractionService', () => {
   })
 
   it('revisa facts sin mapear, dudas del modelo y anomalías de horarios, bebidas y contacto', () => {
-    const source = { id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://bar.example/', text: 'Abrimos todos los días desde las 18. Probá el flat white. Mesa de ping pong.' }
+    // De terceros: con una web oficial, website se completaría y no habría anomalía no_contact.
+    const source = { id: 'S1', kind: 'directory' as const, trust: 'third_party' as const, url: 'https://guia.example/bar', text: 'Abrimos todos los días desde las 18. Probá el flat white. Mesa de ping pong.' }
     const data: PlaceExtraction = {
       ...emptyExtraction,
       facts: [
@@ -987,7 +1427,7 @@ describe('PlaceExtractionService', () => {
       doubts: ['¿Es bar o boliche?', '  ', '¿Es bar o boliche?', 'd2', 'd3', 'd4', 'd5', 'd6'],
     }
     const place = postProcess(target, data, { sources: [source], seedCategories: ['bar'] })
-    const review = reviewExtraction(place, data)
+    const review = reviewExtraction({ ...place, name: 'Bar de prueba' }, data)
 
     expect(review.unmappedFacts).toEqual([
       { id: 'F3', text: 'Mesa de ping pong', proposedTag: 'ping_pong' },
@@ -1078,7 +1518,7 @@ describe('PlaceExtractionService', () => {
         { id: 'F2', text: 'Instagram @resto', sourceId: 'S1', kind: 'contact', proposedTag: null },
       ],
       dietary: { vegan: 'fully', vegetarian: 'unknown', glutenFree: 'unknown' },
-      contact: { ...emptyExtraction.contact, instagram: 'resto', website: null, phone: null },
+      contact: { ...emptyExtraction.contact, instagram: 'resto', website: '', phone: '' },
       support: [{ field: 'dietary.vegan', facts: ['F1'] }, { field: 'contact.instagram', facts: ['F2'] }],
     }
     const place = postProcess(target, data, { sources: [source], seedCategories: ['restaurant'] })
@@ -1135,7 +1575,8 @@ describe('PlaceExtractionService', () => {
       const response = await service.extract('place-1', { seedCategories: ['restaurant'] })
       if (response.status !== 'ok') throw new Error('sin fuentes')
 
-      expect(searchText.mock.calls.map(([query]) => query)).toEqual([`${googleDetails.anchor.name} ${googleDetails.anchor.address} horario`])
+      // La otra búsqueda de texto es la dirigida a Instagram, al recolectar fuentes.
+      expect(searchText.mock.calls.map(([query]) => query)).toEqual([`${googleDetails.anchor.name} Montevideo instagram`, `${googleDetails.anchor.name} ${googleDetails.anchor.address} horario`])
       // Las fuentes nuevas se numeran después de las del lugar.
       expect(hoursCalls).toHaveLength(1)
       expect(hoursCalls[0].sources.map((source) => source.url)).toEqual(['https://cadena.example/sucursales'])
@@ -1150,7 +1591,8 @@ describe('PlaceExtractionService', () => {
       // Exa: 1 búsqueda (0,007) + 1 página de highlights (0,001); gpt-5-mini: 1000 in (0,00025) + 100 out (0,0002).
       expect(response.review.hoursRetry).toEqual({ attempted: true, recovered: true, costUsd: 0.00845 })
       expect(response.performance.costUsd.providers.hoursRetry).toEqual({ model: 'openai/gpt-5-mini', inputTokens: 1000, outputTokens: 100, costUsd: 0.00045 })
-      expect(response.performance.costUsd.providers.exa).toMatchObject({ requests: 2, highlightPages: 1 })
+      // Búsqueda del lugar + dirigida a Instagram + horario; el mock devuelve una página en las dos de texto.
+      expect(response.performance.costUsd.providers.exa).toMatchObject({ requests: 3, highlightPages: 2 })
       expect(response.performance.costUsd.providers.llm.model).toBe(sonnet.model)
     })
 
@@ -1192,11 +1634,12 @@ describe('PlaceExtractionService', () => {
     })
 
     it('no busca de nuevo si la extracción ya trae horario', async () => {
-      const searchText = vi.fn()
+      const searchText = vi.fn(async (query: string) => ({ query, results: [], requestId: 'r' }))
       const service = serviceWith(searchText, vi.fn(), { ...extraction, support: [{ field: 'hours', facts: ['F1'] }] })
       const response = await service.extract('place-1', { seedCategories: ['cafe'] })
       if (response.status !== 'ok') throw new Error('sin fuentes')
-      expect(searchText).not.toHaveBeenCalled()
+      // Sólo la búsqueda dirigida a Instagram; ninguna de horario.
+      expect(searchText.mock.calls.map(([query]) => query)).toEqual([`${googleDetails.anchor.name} Montevideo instagram`])
       expect(response.place.hours.missingReason).toBeNull()
       expect(response.review.hoursRetry).toEqual({ attempted: false, recovered: false, costUsd: 0 })
       expect(response.performance.costUsd.providers.hoursRetry).toBeUndefined()

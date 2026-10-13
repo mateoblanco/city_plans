@@ -20,6 +20,8 @@ import { PlacesProviderError } from './providers/places-provider.ts'
 import type { ExaPlaceProvider } from './providers/exa-place-provider.ts'
 import type { PlaceExtractor } from './providers/place-extraction-service.ts'
 import type { NeighborhoodSweeper } from './providers/neighborhood-sweep.ts'
+import type { PlacesSaver } from './places/save.ts'
+import type { PlacesReader } from './places/list.ts'
 import {
   buildExtractionReport,
   extractionReportRequestSchema,
@@ -85,7 +87,16 @@ type AppDependencies = {
   extractor?: PlaceExtractor
   sweeper?: NeighborhoodSweeper
   reportWriter?: ExtractionReportWriter
+  placesSaver?: PlacesSaver
+  placesReader?: PlacesReader
 }
+
+const MAX_SAVE_PLACES = 500
+const MISSING_DATABASE = 'Falta configurar DATABASE_URL en .env.local.'
+// Lo mínimo: cada resultado es un objeto con status. El place se valida entero en savePlaces.
+const savePlacesRequestSchema = z.object({
+  results: z.array(z.object({ status: z.string() }).passthrough()).min(1).max(MAX_SAVE_PLACES),
+})
 
 function apiError(
   code: ApiErrorResponse['error']['code'],
@@ -113,7 +124,7 @@ function providerError(error: PlacesProviderError) {
   return { status: 502 as const, body: apiError('UPSTREAM_ERROR', error.message) }
 }
 
-export function createApp({ provider, exaProvider, matchProviders = {}, instagramConfigured = false, extractor, sweeper, reportWriter }: AppDependencies = {}) {
+export function createApp({ provider, exaProvider, matchProviders = {}, instagramConfigured = false, extractor, sweeper, reportWriter, placesSaver, placesReader }: AppDependencies = {}) {
   const app = new Hono()
 
   app.get('/api/health', (context) =>
@@ -318,6 +329,48 @@ export function createApp({ provider, exaProvider, matchProviders = {}, instagra
       return context.json({ path })
     } catch {
       return context.json(apiError('UNKNOWN_ERROR', 'No se pudo escribir el reporte del lote.'), 500)
+    }
+  })
+
+  // Guarda resultados de /api/extract en Neon; cada place se valida contra PlaceDraft en savePlaces.
+  app.get('/api/places', async (context) => {
+    if (!placesReader) return context.json(apiError('CONFIGURATION_ERROR', MISSING_DATABASE), 503)
+    try {
+      const list = await placesReader.list()
+      context.header('Cache-Control', 'no-store')
+      return context.json({ places: list })
+    } catch (error) {
+      console.error(JSON.stringify({ event: 'places_list_error', message: error instanceof Error ? error.message : String(error) }))
+      return context.json(apiError('UNKNOWN_ERROR', 'No se pudieron cargar los lugares.'), 500)
+    }
+  })
+
+  app.post('/api/places', async (context) => {
+    if (!placesSaver) return context.json(apiError('CONFIGURATION_ERROR', MISSING_DATABASE), 503)
+    const body = await context.req.json().catch(() => null)
+    const parsed = savePlacesRequestSchema.safeParse(body)
+    if (!parsed.success) {
+      return context.json(apiError('VALIDATION_ERROR', 'La lista de lugares para guardar no es válida.'), 400)
+    }
+    try {
+      return context.json({ results: await placesSaver.save(parsed.data.results) })
+    } catch (error) {
+      console.error(JSON.stringify({ event: 'places_save_error', message: error instanceof Error ? error.message : String(error) }))
+      return context.json(apiError('UNKNOWN_ERROR', 'No se pudieron guardar los lugares.'), 500)
+    }
+  })
+
+  app.get('/api/places/exists', async (context) => {
+    if (!placesSaver) return context.json(apiError('CONFIGURATION_ERROR', MISSING_DATABASE), 503)
+    const ids = [...new Set((context.req.query('ids') ?? '').split(',').map((id) => id.trim()).filter(Boolean))]
+    if (ids.length === 0 || ids.length > MAX_SAVE_PLACES || ids.some((id) => id.length > 300)) {
+      return context.json(apiError('VALIDATION_ERROR', 'La lista de ids no es válida.'), 400)
+    }
+    try {
+      return context.json({ ids: await placesSaver.existing(ids) })
+    } catch (error) {
+      console.error(JSON.stringify({ event: 'places_exists_error', message: error instanceof Error ? error.message : String(error) }))
+      return context.json(apiError('UNKNOWN_ERROR', 'No se pudo consultar la base.'), 500)
     }
   })
 

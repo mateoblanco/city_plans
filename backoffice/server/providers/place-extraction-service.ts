@@ -1,8 +1,10 @@
 import { APICallError, generateText, Output } from 'ai'
+import { findPhoneNumbersInText, parsePhoneNumberFromString, type PhoneNumber } from 'libphonenumber-js/max'
 import { z } from 'zod'
 import {
   CATEGORIES,
   type CategoryId,
+  ATMOSPHERE,
   CUISINES,
   DRINKS,
   FEATURES,
@@ -14,6 +16,7 @@ import {
   type TagId,
   buildEmbeddingText,
   buildKeywordText,
+  findDef,
   groupOf,
 } from '../../src/data/tags.ts'
 import { PlaceDraft } from '../../src/data/place-schema.ts'
@@ -21,6 +24,7 @@ import { getNeighborhood } from '../../src/lib/getNeighborhood.ts'
 import { neighborhoodDisplayName } from '../../src/data/neighborhood-names.ts'
 import type {
   ExaPlaceResponse,
+  ExaPlaceResult,
   GooglePlaceDetailsResponse,
   InstagramAuditCandidate,
   PlaceEnrichmentDraft,
@@ -30,6 +34,7 @@ import type {
   PlaceReview,
   PlaceReviewAnomaly,
 } from '../../src/types/places.ts'
+import { brandFromGoogleName } from './brand-name.ts'
 import { PlacesProviderError } from './places-provider.ts'
 import { withServiceLimit } from './service-limits.ts'
 import type { TransitInfo } from './montevideo-bus-provider.ts'
@@ -41,6 +46,12 @@ const DEFAULT_EXTRACTION_MODEL = 'anthropic/claude-sonnet-5.5'
 const MAX_CHARS_PER_SOURCE = 6_000
 const MAX_FACTS = 40
 const MAX_HIGHLIGHTS = 8
+const MAX_DISHES = 15
+const MAX_SIGNATURE = 3
+// Servicios y logística no definen a un lugar: nunca van en signature.
+const SIGNATURE_EXCLUDED = new Set(['delivery', 'takeaway', 'wifi', 'outlets', 'accessible', 'pet_friendly', 'menu_of_the_day'])
+// Momentos: sólo si el lugar se define por ese momento (un lugar de brunch).
+const SIGNATURE_MOMENTS = new Set(['lunch', 'dinner', 'breakfast', 'brunch', 'afternoon_snack'])
 const BLOCKED_HOSTS = ['google.com', 'goo.gl', 'maps.app.goo.gl', 'corner.inc', 'exa.ai', 'facebook.com', 'foursquare.com']
 const DIRECTORY_HOSTS = ['opina.com.uy', 'linkedin.com', 'tripadvisor', 'restaurantguru', 'yelp.com', 'wanderlog.com', 'saliracomer.com', 'laguiadelociouruguay.com']
 
@@ -57,12 +68,13 @@ export type Source = {
 }
 type SourceCandidate = Omit<Source, 'kind' | 'trust'> & { kind: SourceKind | 'blocked'; trust?: SourceTrust }
 type SourceContext = { name: string; websiteUrl?: string | null; instagramUrls?: string[] }
-type Target = Omit<PlaceEnrichmentDraft, 'categories' | 'tags' | 'dietary' | 'price' | 'reservations' | 'hours' | 'contact' | 'highlights' | 'description' | 'locatedIn' | 'placeFacts' | 'embeddingText' | 'keywordText'>
+// Nombre y dirección de Google: sólo para buscar e identificar el local, nunca para guardar.
+type Target = Omit<PlaceEnrichmentDraft, 'name' | 'address' | 'categories' | 'tags' | 'dietary' | 'price' | 'reservations' | 'hours' | 'contact' | 'highlights' | 'description' | 'locatedIn' | 'placeFacts' | 'dishes' | 'signature' | 'embeddingText' | 'keywordText'> & { name: string; address: string }
 
 const DietLevel = z.enum(['unknown', 'no', 'has_options', 'fully'])
 const FactKind = z.enum(['food', 'drink', 'feature', 'hours', 'dietary', 'price', 'reservations', 'contact', 'other'])
 
-const TagGroupField = z.enum(['categories', 'moments', 'cuisines', 'foods', 'drinks', 'features', 'goodFor', 'offers'])
+const TagGroupField = z.enum(['categories', 'moments', 'cuisines', 'foods', 'drinks', 'features', 'atmosphere', 'goodFor', 'offers'])
 
 // Una sola lista de { group, id, facts }: cada categoría o tag cita los facts que lo respaldan.
 // Sin enums de ids, .max() ni regex: con la salida estructurada nativa, ocho listas o cientos
@@ -84,16 +96,24 @@ export const PlaceExtraction = z.object({
       closes: z.string().nullable(),
     })),
   }),
+  // "" = sin dato. Strings y no nullable para que entre la gramática; postProcess los pasa a null.
   contact: z.object({
-    phone: z.string().nullable(),
-    whatsapp: z.string().nullable(),
-    instagram: z.string().nullable(),
-    website: z.string().nullable(),
-    menuUrl: z.string().nullable(),
-    reservationUrl: z.string().nullable(),
+    phone: z.string(),
+    whatsapp: z.string(),
+    instagram: z.string(),
+    website: z.string(),
+    menuUrl: z.string(),
+    reservationUrl: z.string(),
   }),
   highlights: z.array(z.object({ es: z.string(), en: z.string(), facts: z.array(z.string()) })),
+  // Platos y signature como strings simples: postProcess valida el respaldo, los ids y los topes.
+  dishes: z.array(z.string()),
+  signature: z.array(z.string()),
   description: z.object({ es: z.string(), en: z.string() }),
+  // Nombre y dirección según las fuentes, con sus facts en support; "" si ninguna fuente los dice.
+  // Strings simples y no nullable: cada nullable suma una rama a la gramática, que ya está al límite.
+  name: z.string(),
+  address: z.string(),
   // Lugar que contiene al local; sus facts van en support con field locatedIn. Un string y no un
   // objeto: el objeto nullable agranda la gramática del output estructurado y Anthropic la rechaza.
   locatedIn: z.string().nullable(),
@@ -104,6 +124,20 @@ export const PlaceExtraction = z.object({
 })
 
 export type PlaceExtraction = z.infer<typeof PlaceExtraction>
+type Contact = PlaceEnrichmentDraft['contact']
+
+/** El contacto del modelo usa "" para "sin dato"; el resto del pipeline usa null. */
+function contactFromModel(contact: PlaceExtraction['contact']): Contact {
+  const value = (text: string) => text.trim() || null
+  return {
+    phone: value(contact.phone),
+    whatsapp: value(contact.whatsapp),
+    instagram: value(contact.instagram),
+    website: value(contact.website),
+    menuUrl: value(contact.menuUrl),
+    reservationUrl: value(contact.reservationUrl),
+  }
+}
 
 // Segunda búsqueda de horarios (cadenas): sólo hours, con los mismos blocks.
 export const HoursRetryExtraction = z.object({
@@ -253,12 +287,13 @@ function llmPrice(model: string): LlmPrice | null {
   return known ?? null
 }
 
-const ALLOWED_TAG_GROUPS = { categories: CATEGORIES, moments: MOMENTS, cuisines: CUISINES, foods: FOODS, drinks: DRINKS, features: FEATURES, goodFor: GOOD_FOR, offers: OFFERS } as const
+const ALLOWED_TAG_GROUPS = { categories: CATEGORIES, moments: MOMENTS, cuisines: CUISINES, foods: FOODS, drinks: DRINKS, features: FEATURES, atmosphere: ATMOSPHERE, goodFor: GOOD_FOR, offers: OFFERS } as const
 
 export const SYSTEM_PROMPT = `Sos un curador de gastronomía de Montevideo. A partir de las fuentes, devolvé un JSON sobre el local objetivo. Trabajá en dos pasos y en este orden.
 
 PASO 1 — facts
 - facts es la lista de hechos concretos que dicen las fuentes sobre el local objetivo. Cada fact tiene id (F1, F2, F3… en orden, sin repetir), text (una frase corta en español), sourceId (el id de la fuente de donde sale) y kind: food, drink, feature, hours, dietary, price, reservations, contact u other.
+- El text de cada fact va siempre en español, aunque la fuente esté en otro idioma. Traducí los nombres de platos y productos al nombre habitual en Uruguay ("Spanish omelette" → "tortilla de papas", "burger" → "hamburguesa"). El nombre propio del local no se traduce.
 - Máximo 40 facts, de una frase corta cada uno. Priorizá los que sirven para tags, horarios, dietary y la descripción.
 - Sólo hechos del local objetivo: ignorá otras sucursales, otras ciudades y otros países, aunque compartan nombre o cuenta (por ejemplo, un Instagram de otro país).
 - Ignorá el contenido de tienda online: productos envasados, bolsas de café, suscripciones, insumos, merch, gift cards y sus precios. Ignorá también reseñas y puntajes.
@@ -266,15 +301,18 @@ PASO 1 — facts
 - Nada inventado ni deducido sin base. Cada fuente indica si es OFICIAL (web o Instagram validado del local) o TERCEROS; si se contradicen, gana la OFICIAL.
 
 PASO 2 — el resto del JSON, sólo a partir de facts
-- tags es una lista de { group, id, facts } con las categorías y los tags del local: group es categories, moments, cuisines, foods, drinks, features, goodFor u offers; id es uno de los ids permitidos de ese grupo (ver IDS PERMITIDOS); facts son los ids de los facts que lo respaldan (por ejemplo ["F3", "F7"]).
-- support respalda los demás datos: una entrada { field, facts }, con los ids de los facts, para cada uno que completes, con field exactamente igual a uno de estos: dietary.vegan, dietary.vegetarian, dietary.glutenFree, price, reservations, hours, contact.phone, contact.whatsapp, contact.instagram, contact.website, contact.menuUrl, contact.reservationUrl, locatedIn.
+- tags es una lista de { group, id, facts } con las categorías y los tags del local: group es categories, moments, cuisines, foods, drinks, features, atmosphere, goodFor u offers; id es uno de los ids permitidos de ese grupo (ver IDS PERMITIDOS); facts son los ids de los facts que lo respaldan (por ejemplo ["F3", "F7"]).
+- support respalda los demás datos: una entrada { field, facts }, con los ids de los facts, para cada uno que completes, con field exactamente igual a uno de estos: dietary.vegan, dietary.vegetarian, dietary.glutenFree, price, reservations, hours, contact.phone, contact.whatsapp, contact.instagram, contact.website, contact.menuUrl, contact.reservationUrl, locatedIn, name, address.
 - Lo que no cite un fact se descarta.
-- proposedTag: en cada fact que no cites en ningún tag ni support, completá proposedTag: el id existente que debería haberse usado, un id nuevo en snake_case si ningún tag encaja, o null. proposedTag es null solo para anécdotas, historia de la marca, datos de contacto, medios de pago o información de otras sucursales. Si el fact describe comida, bebida, actividades o características del lugar, proponé un tag existente o uno nuevo. En los facts citados, null.
+- proposedTag: en cada fact que no cites en ningún tag ni support, completá proposedTag: el id existente que debería haberse usado, un id nuevo en snake_case si ningún tag encaja, o null. proposedTag es null solo para anécdotas, historia de la marca, nombre o dirección del local, datos de contacto, medios de pago o información de otras sucursales. Si el fact describe comida, bebida, actividades o características del lugar, proponé un tag existente o uno nuevo. En los facts citados, null.
 - Platos y bebidas concretos nunca van con proposedTag null: mapealos al tag más cercano (tapas o platos pequeños → tapas, y además picada si mencionan tablas, fiambres o quesos para compartir; postres dulces → desserts; jugos o licuados → smoothies; yogur, tostadas o similares → breakfast).
 - Cada tag tiene que corresponder a al menos un fact. No pongas tags sin un fact que los respalde. Usá solamente los ids permitidos.
 - Inferí tags razonables a partir de los facts. Ejemplo inventado: "pasan música con DJs los viernes y se llena a la salida de la oficina" → dj, after_office; "ideal para trabajar con la compu" → work. Pero foods, cuisines y dietary sólo con menciones explícitas: nunca deduzcas platos, tipo de cocina ni opciones dietarias por el tipo de local. cuisines tiene máximo tres valores.
+- cuisines sólo si es el estilo principal del lugar o una parte relevante de la carta, nunca por un plato suelto: una parrilla que tiene una pasta no es italian. Además, una cocina necesita un fact que la nombre ("cocina italiana", "comida mexicana"); si ningún fact la nombra, no la pongas.
+- features, goodFor y atmosphere también necesitan un fact que nombre el tag con palabras de esa idea ("tiene terraza", "ideal para ir en grupo", "ambiente acogedor"). El RESUMEN ESTRUCTURADO DE EXA no alcanza solo para features, goodFor, offers ni atmosphere: necesitan un fact de otra fuente.
+- atmosphere (quiet, lively, cozy, elegant) sólo con un fact que describa el ambiente del lugar.
 - Los facts de fuentes de terceros son válidos para tags de comida, bebida, características y momentos. Solo dietary necesita una mención explícita, y si una fuente oficial contradice a un tercero, gana la oficial.
-- Platos concretos siempre se mapean a un tag: cortes de carne o achuras → grilled_meat; pescados, mariscos o arroces con mariscos → seafood; pastas rellenas o caseras → pasta; flan, panqueques u otros postres → desserts; falafel, hummus o similares → middle_eastern; bowls o ensaladas → salads; huevos o tostadas → breakfast. Variedad de cervezas → craft_beer o draft_beer. Transmisiones deportivas → el tag de pantallas para fútbol (watch_football).
+- Platos concretos siempre se mapean a un tag: cortes de carne o achuras → grilled_meat; pescados, mariscos o arroces con mariscos → seafood; pastas rellenas o caseras → pasta; flan, panqueques u otros postres → desserts; bowls o ensaladas → salads; huevos o tostadas → breakfast. Variedad de cervezas → craft_beer o draft_beer. Transmisiones deportivas → el tag de pantallas para fútbol (watch_football).
 - Si hay facts de bebidas, tiene que haber al menos un tag de bebida. Una mención genérica de tragos o cócteles → classic_cocktails. Tragos propios de la casa, de autor, o cócteles con una base especial (ej. a base de vino) → signature_cocktails.
 - moments: no devuelvas late_night; lo decide el código con los horarios.
 - features: open_kitchen sólo si se menciona una cocina a la vista o abierta; bar_seating sólo si se puede comer en la barra, no por tener una barra para pedir bebidas. delivery y takeaway sólo para comida del local, nunca envíos de una tienda online.
@@ -284,13 +322,18 @@ PASO 2 — el resto del JSON, sólo a partir de facts
 - Si una fuente dice que solo se paga en efectivo, usá cash_only.
 - Jams, toques o bandas → live_music además de events. Libros o actividades para chicos → kids_friendly.
 - Sillas altas, menú infantil, juegos o espacio para chicos → kids_friendly.
+- dishes: platos concretos de comida que aparecen en los facts, en español, en minúscula y con el nombre normalizado, sin artículos ni conectores sobrantes ("milanesas a la napolitana" → "milanesa napolitana"; "chivito al pan canadiense" → "chivito canadiense"). Cada plato tiene que estar en el texto de un fact. Máximo 15. Nada de bebidas, productos de tienda online ni categorías genéricas (comida casera, minutas).
+- signature: hasta 3 ids de los tags que ya pusiste y que mejor definen al lugar (por qué es conocido), de cualquier grupo salvo categories. Tienen que estar en tags. Nunca servicios o logística (delivery, takeaway, wifi, outlets, accessible, pet_friendly, menu_of_the_day). Momentos (lunch, dinner, breakfast, brunch, afternoon_snack) sólo si el lugar se define por ese momento, por ejemplo un lugar de brunch.
 - offers: sólo promociones o formatos concretos (merienda para dos, menú del día o ejecutivo, tenedor libre, happy hour).
 - dietary no se infiere: has_options si un fact menciona opciones veganas, vegetarianas o sin TACC; fully sólo con una frase inequívoca de que todo el local cumple; "no" sólo si se dice explícitamente; si no, unknown. Si el menú menciona queso, huevo, manteca, leche o crema que no sean veganos, vegan no puede ser fully.
 - Una versión vegetal explícita de un plato (de soja, de seitán, veggie, de lentejas) cuenta como vegetarian has_options.
 - price sólo con precios o una mención explícita. reservations sólo con un fact que lo diga.
+- Cada campo de contact va con "" si las fuentes no lo dicen.
 - contact.website es exclusivamente la web propia del local. Los links de reservas, delivery, WhatsApp o Linktree van a su campo, nunca a website.
 - Si las fuentes dicen que el local está dentro de otro lugar (shopping, mercado, galería, hotel, museo, polo gastronómico), completá locatedIn con el nombre de ese lugar. Si no lo dicen claramente, null. No lo deduzcas solo de la dirección.
 - Si completás locatedIn, citá en support los facts que lo dicen, con field locatedIn.
+- name es el nombre de la marca tal como lo escriben las fuentes, sin la sucursal (barrio, shopping, "sucursal X"). Citá en support, con field name, los facts que lo dicen. Si ninguna fuente lo nombra, "". El Nombre de LOCAL OBJETIVO sirve para identificar el local, no es una fuente.
+- address es la dirección del local tal como aparece en una fuente, con su support (field address). Si ninguna fuente la trae, "". No copies la Dirección de LOCAL OBJETIVO.
 
 HORARIOS
 - Si hay un horario en una fuente OFICIAL, usá sólo ese para raw y blocks: no lo completes ni lo mezcles con horarios de TERCEROS (por ejemplo, no tomes una hora de cierre de un directorio).
@@ -306,7 +349,7 @@ HORARIOS
 
 HIGHLIGHTS Y DESCRIPCIÓN
 - highlights son platos o tragos concretos y cortos que aparecen en los facts; nunca productos de tienda online. Cada uno es { es, en, facts }: facts son los ids de los facts donde aparece; es siempre en español aunque la fuente esté en otro idioma (usá el nombre conocido en español si existe); en siempre en inglés. Para nombres locales sin traducción, conservá el nombre y, si hace falta, agregá sólo en en una aclaración breve entre paréntesis.
-- description.es: 2-3 frases en rioplatense, cercanas y sin exagerar, con palabras propias: qué es, qué se come y toma, el ambiente y el mejor momento. Sin horarios y sin mencionar empresas ni terceros irrelevantes. description.en: la misma idea en inglés natural.
+- description.es: 2-3 frases en rioplatense, cercanas y sin exagerar, con palabras propias: qué es el lugar, su ambiente y por qué es conocido. Puede nombrar los platos o bebidas característicos, pero no enumerar la carta. Sin horarios y sin mencionar empresas ni terceros irrelevantes. description.en: la misma idea en inglés natural.
 - La descripción sólo puede mencionar cosas que estén en facts, y todo lo que mencione tiene que estar en los tags: si decís DJ → dj; tragos o cócteles → classic_cocktails o signature_cocktails; after office → after_office; celebraciones → celebration; patio → patio. No menciones nada que no hayas tagueado.
 - doubts: anotá en doubts lo que no supiste resolver (máx. 5). No inventes dudas.
 
@@ -315,6 +358,8 @@ ${(Object.entries(ALLOWED_TAG_GROUPS) as [string, Record<string, unknown>][]).ma
 
 export const DEFAULT_RESERVATION_HOSTS = ['meitre.com', 'dinnerin', 'tablesapp', 'covermanager', 'resy', 'opentable'] as const
 const LINK_AGGREGATOR_HOSTS = ['linktr.ee', 'beacons.ai', 'solo.to', 'campsite.bio']
+// Resumen que arma Exa a partir de la búsqueda (que lleva el nombre): no confirma el nombre.
+const EXA_SUMMARY_URL = 'https://exa.ai/'
 
 function hostname(value: string | null) {
   try { return value ? new URL(value).hostname.toLowerCase().replace(/^www\./, '') : null } catch { return null }
@@ -335,8 +380,12 @@ function normalizedUrl(value: string): string | null {
   }
 }
 
+// Un "handle" con extensión de archivo (entradas.html, logo.png) sale de un link roto, no de un perfil.
+const FILE_LIKE_HANDLE = /\.(?:html?|php|aspx?|jsp|cgi|png|jpe?g|gif|webp|svg|pdf|xml|json|js|css)$/i
+
 function instagramProfileUrl(value: string): string | null {
   const candidate = value.trim()
+  if (FILE_LIKE_HANDLE.test(candidate.replace(/\/+$/, ''))) return null
   if (/^@?[a-z0-9._]{1,30}$/i.test(candidate)) {
     const handle = candidate.replace(/^@/, '').toLowerCase()
     return `https://www.instagram.com/${handle}/`
@@ -366,17 +415,32 @@ function samePlaceName(expected: string, actual: string): boolean {
   return Boolean(left && right && (left === right || left.length >= 5 && right.includes(left) || right.length >= 5 && left.includes(right)))
 }
 
-function instagramProfileMatches(details: GooglePlaceDetailsResponse, profile: InstagramProfileData): boolean {
+const GENERIC_NAME_WORDS = new Set(['bar', 'cafe', 'resto', 'restaurante', 'restaurant', 'the', 'los', 'las', 'del', 'club', 'casa'])
+
+/** Alguna palabra propia de la marca (3+ letras, no genérica) aparece en el texto. */
+function sharesBrandWord(brand: string, text: string) {
+  const haystack = ` ${canonical(text).replace(/[^a-z0-9]+/g, ' ')} `
+  return canonical(brand).split(/[^a-z0-9]+/).some((word) => word.length >= 3 && !GENERIC_NAME_WORDS.has(word) && haystack.includes(` ${word} `))
+}
+
+function instagramProfileMatches(details: GooglePlaceDetailsResponse, profile: InstagramProfileData, websiteUrl: string | null): boolean {
   const values = [profile.url, profile.name, profile.bio, ...profile.links, ...(profile.posts ?? [])]
   const normalized = canonical(values.join(' '))
   if (/\bbrasil\b|\bbrazil\b|\bargentina\b|\bbuenos aires\b|\.br\b|\.ar\b/.test(normalized)) return false
-  const hasName = samePlaceName(details.anchor.name, profile.name)
+  const hasName = samePlaceName(brandFromGoogleName(details.anchor.name), profile.name)
   const hasLocalSignal = /\bmontevideo\b|\buruguay\b|\buru\b|\b(?:uy|mvd)\b/.test(normalized)
   const addressNumbers = canonical(details.anchor.address).match(/\b\d{2,}\b/g) ?? []
   const hasAddress = addressNumbers.some((number) => new RegExp(`\\b${number}\\b`).test(normalized))
-  const officialHost = hostname(details.websiteUri)
-  const hasWebsiteCrossLink = Boolean(officialHost && !instagramProfileUrl(details.websiteUri ?? '') && profile.links.some((link) => hostname(link) === officialHost))
-  return hasName && (hasLocalSignal || hasAddress || hasWebsiteCrossLink)
+  const officialHost = hostname(websiteUrl)
+  const hasWebsiteCrossLink = Boolean(officialHost && !instagramProfileUrl(websiteUrl ?? '') && profile.links.some((link) => hostname(link) === officialHost))
+  if (hasName && (hasLocalSignal || hasAddress || hasWebsiteCrossLink)) return true
+  // Nombre corto o distinto ("SUMI" para "Sumi Sushi"): alcanza con una palabra de la marca en el
+  // nombre o el handle si la bio trae la dirección del local o su teléfono.
+  const bio = [profile.bio, ...(profile.posts ?? [])].join('\n')
+  const googlePhone = normalizeUruguayPhone(details.phoneNumber ?? null)
+  const hasPhone = Boolean(googlePhone && phonesInText(bio).map(normalizeUruguayPhone).includes(googlePhone))
+  return sharesBrandWord(brandFromGoogleName(details.anchor.name), `${profile.name} ${profile.url}`) &&
+    (mentionsAddress(bio, details.anchor.address) || hasPhone)
 }
 
 function matchesPlaceDomain(host: string, name: string): boolean {
@@ -387,7 +451,7 @@ function matchesPlaceDomain(host: string, name: string): boolean {
   return words.length > 0 && words.every((word) => hostValue.includes(word))
 }
 
-export function classifyContact(contact: PlaceExtraction['contact']) {
+export function classifyContact(contact: Contact) {
   const normalized = { ...contact }
   if (normalized.website && /^https?:\/\/(?:wa\.me|api\.whatsapp\.com|web\.whatsapp\.com)\//i.test(normalized.website)) {
     normalized.whatsapp ??= normalized.website
@@ -421,6 +485,19 @@ export function classifySource(url: string, context: SourceContext): SourceKind 
   if (knownWebsite === host) return 'web'
   if (DIRECTORY_HOSTS.some((directory) => host === directory || host.endsWith(`.${directory}`) || host.split('.').includes(directory))) return 'directory'
   return matchesPlaceDomain(host, context.name) ? 'web' : 'directory'
+}
+
+// Dominios de otros países (".com.br", ".ar"…). ".co" no: lo usan directorios uruguayos.
+const FOREIGN_TLDS = new Set(['br', 'ar', 'cl', 'py', 'pe', 'bo', 'mx', 'es', 'ec', 've', 'ph', 'pt', 'it', 'fr', 'de', 'uk', 'au', 'ca', 'us'])
+// Señales de dirección de otro país: ciudades, CEP brasileño o prefijos telefónicos de Brasil y Argentina.
+const FOREIGN_ADDRESS = /\b(?:porto alegre|sao paulo|rio de janeiro|florianopolis|curitiba|buenos aires|santiago de chile|asuncion)\b|\b\d{5}-\d{3}\b|\+\s?5[45]\b/
+
+/** Fuente de otro país: dominio extranjero, o dirección extranjera sin ninguna mención de Uruguay o Montevideo. */
+export function isForeignSource(url: string, text: string): boolean {
+  const host = hostname(url)
+  if (host && FOREIGN_TLDS.has(host.split('.').at(-1)!)) return true
+  const normalized = canonical(text)
+  return FOREIGN_ADDRESS.test(normalized) && !/\b(?:uruguay|montevideo)\b/.test(normalized)
 }
 
 export function filterSources(sources: SourceCandidate[]): Source[] {
@@ -587,7 +664,7 @@ function sourceFromExaSummary(exa: ExaPlaceResponse): SourceCandidate {
     id: '',
     kind: 'exa',
     trust: 'third_party',
-    url: 'https://exa.ai/',
+    url: EXA_SUMMARY_URL,
     text: [
       'RESUMEN ESTRUCTURADO DE EXA',
       `Descripción: ${content.description}`,
@@ -612,16 +689,41 @@ function sourceFromWebsite(page: WebsitePageData): SourceCandidate {
   }
 }
 
-function instagramCandidates(details: GooglePlaceDetailsResponse, exa: ExaPlaceResponse | null): string[] {
+const MAX_DIRECTED_INSTAGRAM_HANDLES = 5
+// Agregadores que publican perfiles de Instagram en la URL (viralist.ai/instagram/creators/<handle>).
+const INSTAGRAM_AGGREGATOR_PATH = /\/instagram\/(?:[a-z-]+\/)?([a-z0-9._]{1,30})\/?$/i
+
+/** Handles de la búsqueda dirigida a Instagram: URLs de instagram.com, de agregadores y links a perfiles en el texto. */
+export function instagramHandlesFromResults(results: Pick<ExaPlaceResult, 'url' | 'text' | 'highlights'>[]): string[] {
+  const handles = results.flatMap((result) => {
+    const text = result.text ?? result.highlights.join('\n')
+    let aggregated: string | null = null
+    try {
+      const url = new URL(result.url)
+      if (!/(?:^|\.)instagram\.com$/i.test(url.hostname)) aggregated = INSTAGRAM_AGGREGATOR_PATH.exec(url.pathname)?.[1] ?? null
+    } catch { /* URL inválida */ }
+    return [
+      instagramHandle(result.url),
+      aggregated && instagramHandle(aggregated),
+      ...(text.match(/instagram\.com\/[A-Za-z0-9._]{1,30}/gi) ?? []).map(instagramHandle),
+    ]
+  }).filter((handle): handle is string => Boolean(handle))
+  return [...new Set(handles)].slice(0, MAX_DIRECTED_INSTAGRAM_HANDLES)
+}
+
+function instagramCandidates(details: GooglePlaceDetailsResponse, exa: ExaPlaceResponse | null, websiteLinks: string[] = [], directedHandles: string[] = []): string[] {
   const instagramFromContactInfo = (value: string) => {
     const urls = value.match(/(?:https?:\/\/)?(?:www\.)?instagram\.com\/[A-Za-z0-9._]{1,30}\/?/gi) ?? []
-    const labeledHandles = [...value.matchAll(/instagram\s*[:-]?\s*@?([A-Za-z0-9._]{1,30})/gi)].map((match) => `@${match[1]}`)
-    return [...urls, ...labeledHandles]
+    // Cualquier @handle, con o sin la etiqueta "Instagram" (el resumen a veces lo pone como Email).
+    const handles = instagramMentions(value).map((handle) => `@${handle}`)
+    return [...urls, ...handles]
   }
   const values = [
     details.websiteUri ?? '',
     ...instagramFromContactInfo(exa?.output.content.contact_info ?? ''),
     ...(exa?.results.flatMap((result) => [result.url, ...(result.extras?.links ?? [])]) ?? []),
+    ...websiteLinks,
+    ...directedHandles,
   ]
   return [...new Set(values.map(instagramProfileUrl).filter((value): value is string => Boolean(value)))]
 }
@@ -632,6 +734,7 @@ async function validatedInstagram(
   provider: InstagramProvider | undefined,
   details: GooglePlaceDetailsResponse,
   candidates: string[],
+  websiteUrl: string | null = details.websiteUri ?? null,
 ): Promise<InstagramValidation> {
   const handles = candidates.map(instagramHandle).filter((handle): handle is string => Boolean(handle))
   if (candidates.length === 0) return { profile: null, candidates: [] }
@@ -652,7 +755,7 @@ async function validatedInstagram(
   const accepted = profiles.flatMap((profile) => {
     const profileUrl = instagramProfileUrl(profile.url)
     if (!profileUrl || !requestedProfiles.has(profileUrl)) return []
-    if (!instagramProfileMatches(details, profile)) return []
+    if (!instagramProfileMatches(details, profile, websiteUrl)) return []
     return [{ ...profile, url: profileUrl }]
   })
   const unique = new Map(accepted.flatMap((profile) => {
@@ -762,13 +865,64 @@ function hasPhrase(text: string, phrase: string) {
   return needle.length > 1 && haystack.includes(` ${needle} `)
 }
 
+/** Una cocina se acepta sólo si algún texto la nombra: su label o un sinónimo de tags.ts, sin acentos. */
+/**
+ * Un tag puede ir en signature salvo servicios y logística. Un momento sólo si define al lugar:
+ * lo nombra el nombre o la primera oración de la descripción, la que dice qué es el lugar.
+ */
+export function signatureAllowed(id: string, name: string, description: string) {
+  if (SIGNATURE_EXCLUDED.has(id)) return false
+  if (!SIGNATURE_MOMENTS.has(id)) return true
+  const definition = `${name}. ${description.split(/(?<=\.)\s/)[0] ?? ''}`
+  const moment = MOMENTS[id as keyof typeof MOMENTS]
+  return [moment.label.es, ...moment.synonyms.es].some((phrase) => hasPhrase(definition, phrase))
+}
+
+export function cuisineMentioned(id: string, texts: string[]) {
+  return Object.hasOwn(CUISINES, id) && tagMentioned(id, texts)
+}
+
+/** Algún texto contiene el label o un sinónimo del tag (es o en), como frase completa y sin acentos. */
+export function tagMentioned(id: string, texts: string[]) {
+  const definition = findDef(id)
+  if (!definition) return false
+  const phrases = [definition.label.es, definition.label.en, ...definition.synonyms.es, ...definition.synonyms.en]
+  return texts.some((text) => phrases.some((phrase) => hasPhrase(text, phrase)))
+}
+
+// El resumen de Exa no alcanza solo para estos grupos: es donde inventa (accesible, pet friendly…).
+const NOT_FROM_EXA_SUMMARY_GROUPS = new Set(['features', 'goodFor', 'offers', 'atmosphere'])
+// Estos grupos además necesitan un fact que nombre el tag, como las cocinas.
+const MENTION_REQUIRED_GROUPS = new Set(['features', 'goodFor', 'atmosphere'])
+// Una página del local en estas plataformas prueba que tiene delivery.
+const DELIVERY_HOSTS = ['rappi.com.uy', 'pedidosya.com.uy']
+
+// Palabras que no cuentan para respaldar un plato: "milanesas a la napolitana" respalda "milanesa napolitana".
+const DISH_STOPWORDS = new Set(['a', 'la', 'las', 'el', 'los', 'de', 'del', 'con', 'al', 'y'])
+
+/** Palabras significativas sin acentos, con singular y plural igualados (milanesas → milanesa, panes → pan). */
+function dishWords(value: string) {
+  return canonical(value).split(/[^a-z0-9]+/).filter((word) => word && !DISH_STOPWORDS.has(word))
+    .map((word) => word.length > 3 ? word.replace(/s$/, '').replace(/e$/, '') : word)
+}
+
+/** Un plato está respaldado si todas sus palabras significativas aparecen en el texto del fact. */
+export function dishSupportedBy(dish: string, factText: string) {
+  const needed = dishWords(dish)
+  const available = new Set(dishWords(factText))
+  return needed.length > 0 && needed.every((word) => available.has(word))
+}
+
 // El esquema del LLM pide los grupos por separado; el post-proceso los une en tags.
-const LLM_TAG_GROUPS = ['moments', 'cuisines', 'foods', 'drinks', 'features', 'goodFor', 'offers'] as const satisfies readonly TagGroupName[]
+const LLM_TAG_GROUPS = ['moments', 'cuisines', 'foods', 'drinks', 'features', 'atmosphere', 'goodFor', 'offers'] as const satisfies readonly TagGroupName[]
 // El código los calcula desde los horarios: un proposedTag no los aplica.
 const HOURS_DERIVED_TAGS = new Set(['late_night', 'breakfast', 'lunch', 'dinner'])
 const MAX_CUISINES = 3
 
-type ProcessedExtraction = Omit<PlaceExtraction, 'hours' | 'facts' | 'support' | 'tags' | 'highlights' | 'doubts' | 'locatedIn'> & {
+type ProcessedExtraction = Omit<PlaceExtraction, 'hours' | 'facts' | 'support' | 'tags' | 'highlights' | 'doubts' | 'locatedIn' | 'name' | 'address' | 'dishes' | 'signature' | 'contact'> & {
+  contact: Contact
+  name: string
+  address: string | null
   locatedIn: string | null
   highlights: { es: string; en: string }[]
   categories: CategoryId[]
@@ -927,15 +1081,20 @@ function applyConsistencyRules(result: ProcessedExtraction) {
   })) addUnique(result.tags, 'late_night')
 }
 
+// Fijos y celulares: libphonenumber también da por válidos números cortos (UAN) como "2110".
+const PHONE_TYPES = new Set(['FIXED_LINE', 'MOBILE', 'FIXED_LINE_OR_MOBILE'])
+const isUruguayPhone = (phone: PhoneNumber | undefined): phone is PhoneNumber =>
+  phone?.country === 'UY' && phone.isValid() && PHONE_TYPES.has(phone.getType() ?? '')
+
+/** Fijo o celular válido de Uruguay según libphonenumber, en formato internacional; null si no lo es. */
 function normalizeUruguayPhone(value: string | null) {
   if (!value) return null
-  let digits = value.replace(/\D/g, '')
-  if (digits.startsWith('00598')) digits = digits.slice(5)
-  else if (digits.startsWith('598')) digits = digits.slice(3)
-  if (digits.length === 9 && digits.startsWith('0')) digits = digits.slice(1)
-  if (/^2\d{7}$/.test(digits)) return `+598 ${digits.slice(0, 4)} ${digits.slice(4)}`
-  if (/^9\d{7}$/.test(digits)) return `+598 ${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5)}`
-  return null
+  const raw = value.trim().replace(/^tel:/i, '')
+  const digits = raw.replace(/\D/g, '')
+  // "598…" o "00598…" sin el +: libphonenumber lo tomaría como número nacional.
+  const candidate = /^(?:00)?598\d{8}$/.test(digits) && !raw.startsWith('+') ? `+${digits.replace(/^00/, '')}` : raw
+  const phone = parsePhoneNumberFromString(candidate, 'UY')
+  return isUruguayPhone(phone) ? phone.formatInternational() : null
 }
 
 function whatsappNumber(value: string | null) {
@@ -962,7 +1121,7 @@ function httpsUrl(value: string | null) {
   }
 }
 
-function normalizeContact(contact: PlaceExtraction['contact']) {
+function normalizeContact(contact: Contact) {
   const normalizedInstagram = contact.instagram?.replace(/^@/, '').trim().toLowerCase() || null
   const instagram = contact.instagram ? instagramHandle(contact.instagram) ?? normalizedInstagram : null
   return {
@@ -978,7 +1137,7 @@ function normalizeContact(contact: PlaceExtraction['contact']) {
 
 const SOCIAL_HOSTS = ['instagram.com', 'instagr.am', 'facebook.com', 'tiktok.com', 'x.com', 'twitter.com', 'linkedin.com', 'youtube.com']
 
-export type DeterministicContact = Partial<Pick<PlaceExtraction['contact'], 'phone' | 'instagram' | 'website' | 'reservationUrl'>>
+export type DeterministicContact = Partial<Pick<PlaceExtraction['contact'], 'phone' | 'instagram' | 'reservationUrl'>>
 
 function linksInText(value: string): string[] {
   return value.match(/https?:\/\/[^\s<>"')\]]+/gi)?.map((link) => link.replace(/[.,;:!?]+$/, '')) ?? []
@@ -990,6 +1149,34 @@ function sourceLinks(source: Source): string[] {
 
 function isSocialUrl(value: string) {
   return hostedBy(value, SOCIAL_HOSTS)
+}
+
+/** Web propia scrapeable: ni Instagram ni otra red, ni reservas ni agregador de links. */
+function isOwnWebsite(url: string, reservationHosts: readonly string[]) {
+  return !instagramProfileUrl(url) && !hostedBy(url, reservationHosts) && !isSocialUrl(url) && !hostedBy(url, LINK_AGGREGATOR_HOSTS)
+}
+
+/** Home de la primera URL cuyo dominio lleva el nombre de la marca (no directorios, redes ni reservas). */
+export function brandWebsite(urls: string[], brand: string, reservationHosts: readonly string[] = DEFAULT_RESERVATION_HOSTS): string | null {
+  for (const url of urls) {
+    if (classifySource(url, { name: brand }) !== 'web' || !isOwnWebsite(url, reservationHosts)) continue
+    return `https://${new URL(url).host}/`
+  }
+  return null
+}
+
+/** Home (https://dominio/) de la web oficial scrapeada; null si no hay o si es red social, reservas o agregador. */
+export function officialWebsiteHome(sources: Source[]): string | null {
+  for (const source of sources) {
+    if (source.kind !== 'web' || source.trust !== 'official') continue
+    if (isSocialUrl(source.url) || hostedBy(source.url, DEFAULT_RESERVATION_HOSTS) || hostedBy(source.url, LINK_AGGREGATOR_HOSTS)) continue
+    try {
+      return `https://${new URL(source.url).host}/`
+    } catch {
+      continue
+    }
+  }
+  return null
 }
 
 function instagramMentions(value: string): string[] {
@@ -1041,33 +1228,37 @@ function preferredInstagramHandle(name: string, sources: Source[], extraLinks: s
   return scored[0]?.score >= 0.55 ? scored[0].handle : null
 }
 
-function phonesInText(value: string): string[] {
-  return value.match(/(?:\+|00)?\s*(?:598\s*)?(?:0\s*)?[29](?:[\s().-]*\d){7}\b/g) ?? []
+/** Primer teléfono uruguayo que aparece en el texto o los links de las fuentes. */
+function firstSourcePhone(sources: Source[]): string | null {
+  return sources
+    // De los links, sólo tel: y WhatsApp: cualquier otra URL puede tener dígitos que no son un teléfono.
+    .flatMap((source) => [...phonesInText(source.text), ...sourceLinks(source).filter((link) => /^tel:/i.test(link) || whatsappNumber(link) !== link).map(whatsappNumber)])
+    .map(normalizeUruguayPhone)
+    .find((value): value is string => Boolean(value)) ?? null
 }
 
+function phonesInText(value: string): string[] {
+  return findPhoneNumbersInText(value, 'UY')
+    .filter(({ number }) => isUruguayPhone(number))
+    .map(({ number }) => number.number)
+}
+
+/**
+ * Contacto que sale directo del texto y los links de las fuentes. Nada de Google: su web y su
+ * teléfono no se guardan. La marca (nombre de Google sin sucursal) sólo se usa para elegir entre handles de Instagram.
+ */
 export function resolveDeterministicContact(
   details: GooglePlaceDetailsResponse,
   sources: Source[],
   reservationHosts: readonly string[] = DEFAULT_RESERVATION_HOSTS,
 ): DeterministicContact {
-  const googleWebsite = details.websiteUri ? httpsUrl(details.websiteUri) : null
-  const googleReservation = googleWebsite && hostedBy(googleWebsite, reservationHosts) ? googleWebsite : null
-  const reservationUrl = googleReservation ?? sources
+  const reservationUrl = sources
     .flatMap(sourceLinks)
     .map(httpsUrl)
     .find((url): url is string => Boolean(url && hostedBy(url, reservationHosts))) ?? null
-  const website = googleWebsite && !googleReservation && !isSocialUrl(googleWebsite) &&
-    !hostedBy(googleWebsite, LINK_AGGREGATOR_HOSTS) &&
-    !/^https:\/\/(?:wa\.me|api\.whatsapp\.com|web\.whatsapp\.com)\//i.test(googleWebsite)
-    ? googleWebsite
-    : undefined
-  const phone = normalizeUruguayPhone(details.phoneNumber ?? null) ?? sources
-    .flatMap((source) => [...phonesInText(source.text), ...sourceLinks(source)])
-    .map(normalizeUruguayPhone)
-    .find((value): value is string => Boolean(value)) ?? null
-  const instagram = preferredInstagramHandle(details.anchor.name, sources, details.websiteUri ? [details.websiteUri] : [])
+  const phone = firstSourcePhone(sources)
+  const instagram = preferredInstagramHandle(brandFromGoogleName(details.anchor.name), sources)
   return {
-    ...(website ? { website } : googleReservation ? { website: null } : {}),
     ...(reservationUrl ? { reservationUrl } : {}),
     ...(instagram ? { instagram } : {}),
     ...(phone ? { phone } : {}),
@@ -1091,7 +1282,7 @@ export function postProcess(
 ): PlaceEnrichmentDraft {
   const sources = context.sources ?? []
   const sourcesById = new Map(sources.map((source) => [source.id, source]))
-  const result = structuredClone(data)
+  const result = { ...structuredClone(data), contact: contactFromModel(data.contact) }
 
   // Facts: id sin repetir, fuente existente y texto, hasta MAX_FACTS.
   const seenFactIds = new Set<string>()
@@ -1145,6 +1336,15 @@ export function postProcess(
   const verifiedFields = new Set<string>()
   const supported = (field: string) => support.has(field) || verifiedFields.has(field)
 
+  // Cadenas: horario, teléfono, dirección y features físicos sólo si todas sus fuentes hablan de
+  // esta sucursal (dirección o barrio). Web, Instagram, categorías, platos, descripción, dieta y precio son de la marca.
+  const chain = isChainBranch(target, sources)
+  const branchFact = (fact: ValidFact) => mentionsBranch(fact.source, target)
+  const branchOnly = (field: string) => {
+    const cited = (support.get(field) ?? []).map((id) => factsById.get(id)!)
+    return !chain || (cited.length > 0 && cited.every(branchFact))
+  }
+
   const trustedInstagram = sources.filter((source) => source.kind === 'instagram' && source.trust === 'official')
   if (trustedInstagram.length === 1) {
     const handle = instagramProfileUrl(trustedInstagram[0].url)?.split('/').filter(Boolean).at(-1) ?? null
@@ -1159,28 +1359,86 @@ export function postProcess(
   const retainTags = <T extends string>(group: keyof typeof ALLOWED_TAG_GROUPS): T[] =>
     [...new Set(result.tags.filter((item) => item.group === group && knownTag(item) && supported(`${group}.${item.id}`)).map((item) => item.id))] as T[]
   const categories = retainTags<CategoryId>('categories')
+  const factTexts = facts.map((fact) => fact.text)
+  // Facts que arma el código desde el texto de una fuente (ids C1, C2…), para que el tag tenga respaldo auditable.
+  const addCodeFact = (field: string, text: string, source: Source) => {
+    let index = 1
+    while (factsById.has(`C${index}`)) index += 1
+    const fact: ValidFact = { id: `C${index}`, text: text.trim().slice(0, 200), kind: 'feature', source }
+    facts.push(fact)
+    factsById.set(fact.id, fact)
+    support.set(field, [...(support.get(field) ?? []), fact.id])
+  }
+  // Un tag que el modelo sólo respaldó con el resumen de Exa se queda si una fuente real (web,
+  // Instagram, páginas de Exa) lo nombra: la línea que lo nombra pasa a ser su respaldo.
+  const backedBySourceText = (id: string, field: string) => {
+    for (const source of sources) {
+      if (source.url === EXA_SUMMARY_URL) continue
+      const line = source.text.split(/\n|(?<=\.)\s/).find((part) => tagMentioned(id, [part]))
+      if (!line) continue
+      addCodeFact(field, line, source)
+      return true
+    }
+    return false
+  }
   for (const seedCategory of context.seedCategories ?? []) addUnique(categories, seedCategory)
   const tags: TagId[] = [...new Set<TagId>([
     // late_night jamás se toma del modelo: depende exclusivamente de los horarios.
     ...retainTags<TagId>('moments').filter((moment) => moment !== 'late_night'),
     ...LLM_TAG_GROUPS.filter((group) => group !== 'moments').flatMap((group) => retainTags<TagId>(group)),
-  ])]
+  // Una cocina del modelo necesita un fact que la nombre; reviewExtraction anota las descartadas.
+  ].filter((id) => groupOf(id) !== 'cuisines' || cuisineMentioned(id, factTexts))
+  // FEATURES, GOOD_FOR, OFFERS y ATMOSPHERE necesitan un fact que no sea del resumen de Exa; FEATURES,
+  // GOOD_FOR y ATMOSPHERE, además, uno de esos facts tiene que nombrar el tag (label o sinónimo).
+    .filter((id) => {
+      const group = groupOf(id)
+      if (!group || !NOT_FROM_EXA_SUMMARY_GROUPS.has(group)) return true
+      const eligible = (support.get(`${group}.${id}`) ?? []).map((factId) => factsById.get(factId)!).filter((fact) => fact.source.url !== EXA_SUMMARY_URL)
+      if (eligible.length === 0) return backedBySourceText(id, `${group}.${id}`)
+      return !MENTION_REQUIRED_GROUPS.has(group) || tagMentioned(id, eligible.map((fact) => fact.text))
+    })
+  // En una cadena, un feature físico necesita un fact de una fuente que hable de esta sucursal.
+    .filter((id) => !chain || !BRANCH_FEATURES.has(id) || (support.get(`features.${id}`) ?? []).some((factId) => branchFact(factsById.get(factId)!))))]
   // Un highlight tiene que citar un fact válido y aparecer en alguna fuente, en español o en inglés.
   const highlights = result.highlights
     .filter((highlight) => validCitations(highlight.facts).length > 0 &&
       sources.some((source) => hasPhrase(source.text, highlight.es) || hasPhrase(source.text, highlight.en)))
     .map(({ es, en }) => ({ es, en }))
     .slice(0, MAX_HIGHLIGHTS)
+  // Un plato queda si un mismo fact válido lo respalda; se guarda en minúscula y sin repetir.
+  const seenDishes = new Set<string>()
+  const dishes = result.dishes.flatMap((raw) => {
+    const dish = raw.trim().replace(/\s+/g, ' ').toLowerCase()
+    const key = dishWords(dish).join(' ')
+    if (!key || seenDishes.has(key) || !facts.some((fact) => dishSupportedBy(dish, fact.text))) return []
+    seenDishes.add(key)
+    return [dish]
+  }).slice(0, MAX_DISHES)
 
   // Horarios: el modelo interpreta, el código valida bloques y decide la confianza por la fuente del fact.
-  const hoursFacts = (support.get('hours') ?? []).map((id) => factsById.get(id)!).filter(Boolean)
+  const hoursFacts = branchOnly('hours') ? (support.get('hours') ?? []).map((id) => factsById.get(id)!).filter(Boolean) : []
   const slots = hoursFacts.length > 0 ? slotsFromBlocks(result.hours.blocks) : []
   const raw = hoursFacts.length > 0 ? result.hours.raw?.trim() || null : null
   const hoursSource: SourceTrust | null = slots.length > 0 || raw
     ? hoursFacts.some((fact) => fact.source.trust === 'official') ? 'official' : 'third_party'
     : null
 
+  // Nombre: la marca (nombre de Google sin sucursal) si alguna fuente la nombra; el resumen de Exa
+  // no cuenta porque sale de una búsqueda con ese nombre. Si no, el del modelo con su support.
+  const brand = brandFromGoogleName(target.name)
+  const brandConfirmed = sources.some((source) => source.url !== EXA_SUMMARY_URL && hasPhrase(source.text, brand))
+  // Nombre del modelo y dirección: con support y escritos tal cual en alguna fuente citada. Nunca los de Google.
+  const sourcedText = (field: 'name' | 'address') => {
+    const value = result[field].trim()
+    const citedSources = (support.get(field) ?? []).map((id) => factsById.get(id)!.source)
+    return value && citedSources.some((source) => hasPhrase(source.text, value)) ? value : null
+  }
+
+  // En una cadena la dirección además tiene que ser la de esta sucursal, no la de otra de la misma fuente.
+  const address = sourcedText('address')
   const processed: ProcessedExtraction = {
+    name: brandConfirmed ? brand : sourcedText('name') ?? '',
+    address: address && branchOnly('address') && (!chain || mentionsAddress(address, target.address)) ? address : null,
     categories,
     tags,
     dietary: result.dietary,
@@ -1205,17 +1463,38 @@ export function postProcess(
   for (const field of ['phone', 'whatsapp', 'instagram', 'website', 'menuUrl', 'reservationUrl'] as const) {
     if (processed.contact[field] && !supported(`contact.${field}`)) processed.contact[field] = null
   }
+  for (const field of ['phone', 'whatsapp'] as const) {
+    if (processed.contact[field] && !branchOnly(`contact.${field}`)) processed.contact[field] = null
+  }
 
   processed.contact = normalizeContact(processed.contact)
   if (context.deterministicContact) {
-    processed.contact = normalizeContact({ ...processed.contact, ...context.deterministicContact })
+    // El teléfono del modelo, con su support, gana; el que aparece en el texto de las fuentes es respaldo.
+    // En una cadena, el teléfono de respaldo sólo de fuentes que hablan de esta sucursal.
+    const { phone: anyPhone, ...deterministic } = context.deterministicContact
+    const phone = chain ? firstSourcePhone(sources.filter((source) => mentionsBranch(source, target))) : anyPhone
+    processed.contact = normalizeContact({ ...processed.contact, ...deterministic, phone: processed.contact.phone ?? phone ?? null })
   }
+  // La web que el modelo respalda con un fact gana; si no hay, la home de la web oficial scrapeada.
+  processed.contact.website ??= officialWebsiteHome(sources)
   if (processed.contact.reservationUrl && (processed.reservations === 'unknown' || processed.reservations === 'no_reservations')) {
     processed.reservations = 'accepts'
   }
 
+  // Delivery: la página del local (nombra la marca) en Rappi o PedidosYa alcanza, aunque ningún fact lo diga.
+  const deliveryPage = sources.find((source) => hostedBy(source.url, DELIVERY_HOSTS) && hasPhrase(source.text, brand))
+  if (deliveryPage && !processed.tags.includes('delivery')) {
+    processed.tags.push('delivery')
+    addCodeFact('features.delivery', `Tiene página de pedidos en ${hostname(deliveryPage.url)}`, deliveryPage)
+  }
+
   applyConsistencyRules(processed)
   processed.tags = capCuisines(processed.tags)
+  // signature: ids que quedaron en tags, sin repetir y hasta 3. El resto se descarta.
+  const finalTags = new Set<string>(processed.tags)
+  const signature = [...new Set(result.signature.map((id) => id.trim()))]
+    .filter((id): id is TagId => finalTags.has(id) && signatureAllowed(id, processed.name, processed.description.es))
+    .slice(0, MAX_SIGNATURE)
   if (processed.categories.length === 0) {
     processed.categories = (context.categoryFallback ?? []).filter((id): id is keyof typeof CATEGORIES => id in CATEGORIES)
   }
@@ -1230,7 +1509,7 @@ export function postProcess(
       : raw ? 'vague' as const : 'none' as const,
     source: hoursSource,
     // Sin slots, la UI muestra el horario de Google en vivo. extractFrom lo afina tras la segunda búsqueda.
-    missingReason: slots.length > 0 ? null : 'no_data' as const,
+    missingReason: slots.length > 0 ? null : chain ? 'chain_branch_not_found' as const : 'no_data' as const,
   }
 
   const supportsByFact = new Map<string, string[]>()
@@ -1253,17 +1532,21 @@ export function postProcess(
     ...(processed.dietary.vegetarian === 'has_options' || processed.dietary.vegetarian === 'fully' ? ['vegetarian'] : []),
     ...(processed.dietary.glutenFree === 'has_options' || processed.dietary.glutenFree === 'fully' ? ['gluten_free'] : [])]
   const searchInput = {
-    name: target.name,
+    name: processed.name,
     neighborhood: neighborhoodDisplayName(target.neighborhoodId) ?? 'Montevideo',
     description: processed.description,
     locatedIn: processed.locatedIn,
     tags: [...new Set(searchTags)],
     highlights: processed.highlights,
+    dishes,
+    signature,
   }
   return PlaceDraft.parse({
     ...target,
     ...processed,
     hours: normalizedHours,
+    dishes,
+    signature,
     placeFacts,
     embeddingText: buildEmbeddingText(searchInput),
     keywordText: buildKeywordText(searchInput),
@@ -1294,6 +1577,32 @@ export function withRecoveredHours(data: PlaceExtraction, retry: HoursRetryExtra
  * La fuente nombra la sucursal: aparece el número de puerta de la dirección o, si no tiene
  * número, todas las palabras de la calle.
  */
+// Features que dependen del local físico: en una cadena varían de una sucursal a otra.
+const BRANCH_FEATURES = new Set<string>(['terrace', 'sidewalk', 'patio', 'sea_view', 'kids_area', 'accessible', 'pool_table'])
+const MULTI_BRANCH_TEXT = /\b(?:sucursales|nuestros locales|nuestras tiendas|todos los locales|otros locales|otras sucursales)\b/
+const MULTI_BRANCH_PATH = /\/(?:store|stores|locales|sucursales|tiendas)\//
+
+/** Sucursal de una cadena: la marca no es el nombre de Google o alguna fuente muestra varias sucursales. */
+export function isChainBranch(target: Pick<Target, 'name'>, sources: Source[]): boolean {
+  const words = (value: string) => canonical(value).replace(/[^a-z0-9]+/g, ' ').trim()
+  if (words(brandFromGoogleName(target.name)) !== words(target.name)) return true
+  return sources.some((source) => {
+    let path = ''
+    try { path = new URL(source.url).pathname.toLowerCase() } catch { /* URL inválida: sólo el texto */ }
+    return MULTI_BRANCH_TEXT.test(canonical(source.text)) || MULTI_BRANCH_PATH.test(path)
+  })
+}
+
+/**
+ * La fuente habla de esta sucursal: menciona su dirección o su barrio. El resumen de Exa no
+ * cuenta: en una cadena junta datos de varias sucursales.
+ */
+export function mentionsBranch(source: Source, target: Pick<Target, 'address' | 'neighborhoodId'>): boolean {
+  if (source.url === EXA_SUMMARY_URL) return false
+  const neighborhood = neighborhoodDisplayName(target.neighborhoodId ?? null)
+  return mentionsAddress(source.text, target.address) || Boolean(neighborhood && hasPhrase(source.text, neighborhood))
+}
+
 export function mentionsAddress(text: string, address: string): boolean {
   const street = canonical(address.split(',')[0] ?? '')
   const haystack = ` ${canonical(text).replace(/[^a-z0-9]+/g, ' ')} `
@@ -1304,6 +1613,7 @@ export function mentionsAddress(text: string, address: string): boolean {
 }
 
 const MAX_DOUBTS = 5
+export const MISSING_NAME_DOUBT = 'Nombre: ninguna fuente confirma el nombre del local; no se puede guardar.'
 const DAY_LABELS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb']
 
 /**
@@ -1324,7 +1634,11 @@ export function reviewExtraction(
     .filter((fact) => fact.supports.length === 0 && !citedByHighlights.has(fact.id))
     .map(({ id, text }) => ({ id, text, proposedTag: proposedTags.get(id) ?? null }))
 
-  const doubts = [...new Set(data.doubts.map((doubt) => doubt.trim()).filter(Boolean))].slice(0, MAX_DOUBTS)
+  // Sin nombre de las fuentes el lugar no se puede guardar: el aviso va primero para que el tope no lo corte.
+  const doubts = [...new Set([
+    ...(place.name.trim() ? [] : [MISSING_NAME_DOUBT]),
+    ...data.doubts.map((doubt) => doubt.trim()).filter(Boolean),
+  ])].slice(0, MAX_DOUBTS)
 
   const anomalies: PlaceReviewAnomaly[] = []
   const { hours, categories, tags, dietary, contact } = place
@@ -1345,6 +1659,15 @@ export function reviewExtraction(
   const fully = (['vegan', 'vegetarian', 'glutenFree'] as const).filter((field) => dietary[field] === 'fully')
   if (fully.length > 0) anomalies.push({ type: 'dietary_fully', detail: fully.join(', ') })
   if (!contact.instagram && !contact.website) anomalies.push({ type: 'no_contact', detail: 'sin instagram ni website' })
+  // Cocinas que el modelo propuso (por tag o proposedTag) y que postProcess descartó porque ningún fact las nombra.
+  const proposedCuisines = [
+    ...data.tags.filter((item) => item.group === 'cuisines').map((item) => item.id.trim()),
+    ...data.facts.map((fact) => fact.proposedTag?.trim() ?? '').filter((id) => groupOf(id) === 'cuisines'),
+  ]
+  const factTexts = place.placeFacts.map((fact) => fact.text)
+  const unmentioned = [...new Set(proposedCuisines)]
+    .filter((id) => Object.hasOwn(CUISINES, id) && !tags.includes(id) && !cuisineMentioned(id, factTexts))
+  if (unmentioned.length > 0) anomalies.push({ type: 'cuisine_unmentioned', detail: unmentioned.join(', ') })
 
   return { unmappedFacts, doubts, anomalies, hoursRetry }
 }
@@ -1395,7 +1718,7 @@ function instagramAudit(
   const source = selectedFact && sources.find((item) => item.id === selectedFact.sourceId)
   const origin = validation.profile && contactHandle === instagramHandle(validation.profile.url)
     ? 'official_profile' as const
-    : source?.kind === 'exa' && source.url === 'https://exa.ai/'
+    : source?.kind === 'exa' && source.url === EXA_SUMMARY_URL
       ? 'exa_summary' as const
       : source?.kind === 'exa'
         ? 'exa_result' as const
@@ -1577,10 +1900,16 @@ export class PlaceExtractionService implements PlaceExtractor {
     }
     try {
       const detailsPromise = timed('google', () => this.details.getDetails(placeId))
-      // El request no trae nombre: Exa busca con el nombre que devuelve Google.
+      // El request no trae nombre: Exa busca con la marca (nombre de Google sin sucursal); el provider agrega Montevideo.
       const exaPromise = this.exa?.configured
         ? detailsPromise
-          .then((details) => timed('exa', () => withServiceLimit('exa', () => this.exa!.searchPlace(details.anchor.name))))
+          .then((details) => timed('exa', () => withServiceLimit('exa', () => this.exa!.searchPlace(brandFromGoogleName(details.anchor.name)))))
+          .catch(() => null)
+        : Promise.resolve(null)
+      // Búsqueda dirigida a Instagram con la marca: sólo propone handles, que después valida Apify.
+      const instagramSearchPromise = this.exa?.configured && this.exa.searchText
+        ? detailsPromise
+          .then((details) => timed('exaInstagram', () => withServiceLimit('exa', () => this.exa!.searchText!(`${brandFromGoogleName(details.anchor.name)} Montevideo instagram`))))
           .catch(() => null)
         : Promise.resolve(null)
       const transitPromise = timed('transit', () => detailsPromise
@@ -1599,23 +1928,40 @@ export class PlaceExtractionService implements PlaceExtractor {
       const neighborhood = request.neighborhoodId
         ? { neighborhoodId: request.neighborhoodId }
         : getNeighborhood(coordinates.lat, coordinates.lng)
-      const websitePromise = this.website?.configured && details.websiteUri && !instagramProfileUrl(details.websiteUri) &&
-        !hostedBy(details.websiteUri, this.reservationHosts) && !isSocialUrl(details.websiteUri) &&
-        !hostedBy(details.websiteUri, LINK_AGGREGATOR_HOSTS)
-        ? timed('scraping', () => this.website!.scrape(details.websiteUri as string)).catch(() => null)
+      const scrapeWebsite = (url: string | null) => this.website?.configured && url
+        ? timed('scraping', () => this.website!.scrape(url)).catch(() => null)
         : Promise.resolve(null)
+      const brand = brandFromGoogleName(details.anchor.name)
+      const googleWebsite = details.websiteUri && isOwnWebsite(details.websiteUri, this.reservationHosts) ? details.websiteUri : null
+      let websitePromise = scrapeWebsite(googleWebsite)
       const exa = await exaPromise
+      // Sin web propia en Google (pasa en sucursales de cadenas): la web de la marca que traiga Exa.
+      let websiteUrl = googleWebsite ?? (exa ? brandWebsite(exa.results.map((result) => result.url), brand, this.reservationHosts) : null)
+      if (!googleWebsite && websiteUrl) websitePromise = scrapeWebsite(websiteUrl)
       if (exa) {
         costUsage.exaRequests = 1
         costUsage.exaContentPages = exa.results.length
       }
-      const candidates = instagramCandidates(details, exa)
+      // Los links de la web oficial también proponen el Instagram, así que Instagram espera a la web.
+      let website = await websitePromise
+      const instagramSearch = await instagramSearchPromise
+      if (instagramSearch) {
+        costUsage.exaRequests += 1
+        costUsage.exaHighlightPages += instagramSearch.results.length
+      }
+      const directedHandles = instagramSearch ? instagramHandlesFromResults(instagramSearch.results) : []
+      const candidates = instagramCandidates(details, exa, website ? [...website.instagramUrls, ...(website.links ?? [])] : [], directedHandles)
       if (this.instagram?.configured && candidates.length > 0) costUsage.instagramRequests = 1
-      const instagramValidation = await timed('instagram', () => validatedInstagram(this.instagram, details, candidates))
+      const instagramValidation = await timed('instagram', () => validatedInstagram(this.instagram, details, candidates, websiteUrl))
       const profile = instagramValidation.profile
-      const website = await websitePromise
+      // Y al revés: sin web todavía, la que enlaza el Instagram validado si su dominio lleva la marca.
+      if (!websiteUrl && profile) {
+        websiteUrl = brandWebsite(profile.links, brand, this.reservationHosts)
+        website = await scrapeWebsite(websiteUrl)
+      }
       if (website) costUsage.scrapingRequests = 1
-      const exaCandidates = exa ? sourceFromExa(exa) : []
+      // Las páginas de otros países (otra marca con el mismo nombre) no son fuentes del local.
+      const exaCandidates = exa ? sourceFromExa(exa).filter((source) => !isForeignSource(source.url, source.text)) : []
       const exaSummary = exa ? sourceFromExaSummary(exa) : null
       const instagramSource = profile ? sourceFromInstagram(profile) : null
       const blockedUrls = [...new Set(exaCandidates

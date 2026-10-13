@@ -7,3 +7,15 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+# Búsqueda
+
+- La lógica vive en `src/server/search/` (sólo servidor): `searchPlaces(query, { remove, debug })` para server components y `GET /api/search?q=&remove=&debug=1`.
+- Lee la tabla `places` de Neon que llena el backoffice (sólo `status = 'published'`). El esquema y las migraciones son del backoffice; acá va SQL crudo.
+- Tags y barrios vienen de `../shared` (alias `@shared/*`), compartidos con el backoffice. No los copies.
+- Pesos, umbrales y modelo están todos en `src/server/search/config.ts`.
+- Comandos: `yarn test` y `yarn search:eval [--debug] [consulta…]` (corre el set de prueba contra Neon y el AI Gateway).
+- Claves sólo en `.env.local` (ver `.env.example`), nunca con prefijo `NEXT_PUBLIC_`.
+
+
+antes de cualquier deploy, hay que revisar DEPLOY.md.

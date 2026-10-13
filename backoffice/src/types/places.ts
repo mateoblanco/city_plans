@@ -55,7 +55,7 @@ export type GooglePlaceDetailsResponse = {
 
 export type PlaceEnrichmentDraft = {
   name: string
-  address: string
+  address: string | null
   coordinates: {
     lat: number
     lng: number
@@ -97,6 +97,10 @@ export type PlaceEnrichmentDraft = {
     reservationUrl: string | null
   }
   highlights: { es: string; en: string }[]
+  /** Platos concretos de las fuentes, en español y minúscula; cada uno respaldado por un fact. Máx. 15. */
+  dishes: string[]
+  /** Hasta 3 ids de tags que definen al lugar; todos están también en tags. */
+  signature: string[]
   description: { es: string; en: string }
   /** Nombre del lugar que contiene al local (mercado, shopping, galería…); null si las fuentes no lo dicen. */
   locatedIn: string | null
@@ -127,6 +131,7 @@ export type PlaceReviewAnomalyType =
   | 'restaurant_without_food'
   | 'dietary_fully'
   | 'no_contact'
+  | 'cuisine_unmentioned'
 
 export type PlaceReviewAnomaly = { type: PlaceReviewAnomalyType; detail: string }
 
@@ -164,6 +169,28 @@ export type ExtractionReportStats = {
 
 export type ExtractionReportRequest = {
   places: { name: string; googlePlaceId: string; stats: ExtractionReportStats; review: PlaceReview | null }[]
+}
+
+/** Respuesta de POST /api/places por cada lugar enviado. */
+export type SavePlaceResult = {
+  googlePlaceId: string
+  id: string | null
+  action: 'created' | 'updated' | 'skipped'
+  embedded: boolean
+  error?: string
+}
+
+/** Fila del listado de lugares guardados (GET /api/places). */
+export type PlaceListItem = {
+  id: string
+  name: string
+  neighborhoodId: string
+  categories: string[]
+  tags: string[]
+  status: string
+  hoursStatus: string
+  updatedAt: string
+  hasEmbedding: boolean
 }
 
 export type PlaceEnrichmentResponse = {

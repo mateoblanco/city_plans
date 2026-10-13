@@ -7,8 +7,9 @@ const TransitStatus = z.enum(['success', 'partial', 'unavailable'])
 // Contrato del borrador que más adelante podrá mapearse a tablas de la base.
 // Los IDs y campos de curaduría no pertenecen a esta extracción automática.
 export const PlaceDraft = z.object({
+  // Nombre y dirección salen de las fuentes, nunca de Google. Un nombre vacío no se puede guardar.
   name: z.string(),
-  address: z.string(),
+  address: z.string().nullable(),
   coordinates: z.object({
     lat: z.number(),
     lng: z.number(),
@@ -46,6 +47,9 @@ export const PlaceDraft = z.object({
     reservationUrl: z.string().nullable(),
   }),
   highlights: z.array(z.object({ es: z.string(), en: z.string() })).max(8),
+  dishes: z.array(z.string()).max(15),
+  // signature es un subconjunto de tags.
+  signature: z.array(z.enum(TAG_IDS)).max(3),
   description: z.object({ es: z.string(), en: z.string() }),
   locatedIn: z.string().nullable(),
   placeFacts: z.array(z.object({

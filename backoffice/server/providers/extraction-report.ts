@@ -11,6 +11,7 @@ export const REVIEW_ANOMALY_TYPES = [
   'restaurant_without_food',
   'dietary_fully',
   'no_contact',
+  'cuisine_unmentioned',
 ] as const satisfies readonly PlaceReviewAnomalyType[]
 
 const MAX_REPORT_PLACES = 2000

@@ -183,6 +183,65 @@ describe('exploración multi-fuente', () => {
     expect(response.status).toBe(404)
   })
 
+  it('POST /api/places guarda los resultados y GET /api/places/exists devuelve los ya guardados', async () => {
+    const saved = [{ googlePlaceId: 'place-1', id: 'uuid-1', action: 'created', embedded: true }]
+    const placesSaver = { save: vi.fn().mockResolvedValue(saved), existing: vi.fn().mockResolvedValue(['place-1']) }
+    const app = createApp({ placesSaver })
+    const post = (body: unknown) => app.request('/api/places', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const results = [{ status: 'ok', place: { googlePlaceId: 'place-1' } }, { status: 'error' }]
+
+    const response = await post({ results })
+    const exists = await app.request('/api/places/exists?ids=place-1, place-2,,place-1')
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ results: saved })
+    expect(placesSaver.save).toHaveBeenCalledWith(results)
+    expect(exists.status).toBe(200)
+    expect(await exists.json()).toEqual({ ids: ['place-1'] })
+    expect(placesSaver.existing).toHaveBeenCalledWith(['place-1', 'place-2'])
+    expect((await post({ results: [] })).status).toBe(400)
+    expect((await post({ results: [{ place: {} }] })).status).toBe(400)
+    expect((await post(null)).status).toBe(400)
+    expect((await app.request('/api/places/exists')).status).toBe(400)
+  })
+
+  it('GET /api/places devuelve el listado del reader y 500 si falla', async () => {
+    const list = [{
+      id: 'uuid-1', name: 'El Palenque', neighborhoodId: 'CIUDAD VIEJA', categories: ['restaurant'], tags: ['cash_only'],
+      status: 'published', hoursStatus: 'exact', updatedAt: '2026-10-12T15:00:00.000Z', hasEmbedding: true,
+    }]
+    const response = await createApp({ placesReader: { list: vi.fn().mockResolvedValue(list) } }).request('/api/places')
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const failed = await createApp({ placesReader: { list: vi.fn().mockRejectedValue(new Error('boom')) } }).request('/api/places')
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    expect(await response.json()).toEqual({ places: list })
+    expect(failed.status).toBe(500)
+    expect(await failed.json()).toEqual({ error: { code: 'UNKNOWN_ERROR', message: 'No se pudieron cargar los lugares.' } })
+    error.mockRestore()
+  })
+
+  it('/api/places responde 503 si no hay base configurada', async () => {
+    const app = createApp()
+    const response = await app.request('/api/places', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ results: [{ status: 'ok' }] }),
+    })
+    const exists = await app.request('/api/places/exists?ids=place-1')
+    const list = await app.request('/api/places')
+
+    expect(list.status).toBe(503)
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ error: { code: 'CONFIGURATION_ERROR', message: 'Falta configurar DATABASE_URL en .env.local.' } })
+    expect(exists.status).toBe(503)
+  })
+
   it('POST /api/extraction-reports valida el lote, escribe el reporte y lo resume en consola', async () => {
     const reportWriter = vi.fn().mockResolvedValue('output/report-2026-10-10_22-00-00.json')
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})

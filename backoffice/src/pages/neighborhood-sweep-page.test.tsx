@@ -427,4 +427,55 @@ describe('Buscar por barrio', () => {
     expect(reportBodies[1].places).toHaveLength(1)
     expect(screen.queryByRole('button', { name: /Reintentar fallidos/ })).not.toBeInTheDocument()
   })
+
+  it('muestra la tab Procesados con lo del lote y guarda los seleccionados en la base', async () => {
+    const ok = { ...place, placeId: 'a1', name: 'Lugar a1' }
+    const broken = { ...place, placeId: 'a2', name: 'Lugar a2' }
+    const saveBodies: { results: { status: string; place: { googlePlaceId: string } }[] }[] = []
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const json = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status }))
+      if (url.includes('/sweep')) {
+        return ndjson([
+          { type: 'places', items: [ok, broken] },
+          { type: 'done', summary: summary({ totalPlaces: 2, byGroup: { accepted: 2, review: 0, rejected: 0 } }) },
+        ])
+      }
+      if (url === '/api/extraction-reports') return json({ path: 'output/report.json' })
+      if (url.startsWith('/api/places/exists')) return json({ ids: [] })
+      if (url === '/api/places') {
+        saveBodies.push(JSON.parse(String(init?.body)))
+        return json({ results: [{ googlePlaceId: 'a1', id: 'uuid-1', action: 'created', embedded: true }] })
+      }
+      const body = JSON.parse(String(init?.body)) as { googlePlaceId: string }
+      if (body.googlePlaceId === 'a2') return json({ error: { code: 'UPSTREAM_ERROR', message: 'Falló a2' } }, 502)
+      return json({
+        source: 'llm', status: 'ok', model: 'anthropic/claude-sonnet-5.5',
+        performance: { totalMs: 1000, stepsMs: {}, costUsd: { totalUsd: 0.1, providers: { llm: { costUsd: 0.04 } } } },
+        place: { googlePlaceId: 'a1', name: 'Lugar a1', categories: ['bar'], tags: [], placeFacts: [], hours: { status: 'exact' }, contact: { instagram: null, website: null } },
+        review: { unmappedFacts: [], doubts: [], anomalies: [], hoursRetry: { attempted: false, recovered: false, costUsd: 0 } },
+      })
+    }))
+    render(<App />)
+    const user = await startSweep()
+    expect(await screen.findByLabelText('Recorrido completo')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Procesados/ })).not.toBeInTheDocument()
+
+    await user.click(screen.getByLabelText('Seleccionar todos'))
+    await user.click(screen.getByRole('button', { name: 'Procesar (2)' }))
+    await user.click(await screen.findByRole('button', { name: 'Procesados (2)' }))
+
+    expect(screen.queryByRole('button', { name: /^Procesar/ })).not.toBeInTheDocument()
+    expect(await screen.findByText('nuevo')).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Seleccionar Lugar a2' })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: 'Guardar seleccionados (1)' }))
+
+    expect(await screen.findByText('1 creados, 0 actualizados, 0 sin embedding, 0 errores')).toBeInTheDocument()
+    expect(screen.getByText('guardado')).toBeInTheDocument()
+    expect(saveBodies).toHaveLength(1)
+    expect(saveBodies[0].results.map((result) => result.place.googlePlaceId)).toEqual(['a1'])
+
+    await user.click(screen.getByRole('button', { name: /Aceptados/ }))
+    expect(screen.getByRole('button', { name: /^Procesar/ })).toBeInTheDocument()
+  })
 })

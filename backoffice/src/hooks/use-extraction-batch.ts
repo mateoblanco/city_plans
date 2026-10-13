@@ -76,7 +76,8 @@ function reportRequest(outcomes: ExtractionRow[]): ExtractionReportRequest {
       }
       const { place } = result
       return [{
-        name: place.name, googlePlaceId: place.googlePlaceId, review: result.review,
+        // Sin nombre confirmado por las fuentes el reporte igual necesita uno; el de Google no se usa.
+        name: place.name || 'Sin nombre confirmado', googlePlaceId: place.googlePlaceId, review: result.review,
         stats: {
           ...base,
           hoursStatus: place.hours.status,

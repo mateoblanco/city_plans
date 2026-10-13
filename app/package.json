@@ -6,12 +6,19 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "vitest run",
+    "search:eval": "tsx --conditions=react-server --env-file=.env.local scripts/search-eval.mts"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.2.0",
+    "ai": "^7.0.124",
+    "drizzle-orm": "^0.45.4",
     "next": "16.3.8",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "server-only": "^0.0.1",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@svgr/webpack": "^8.1.0",
@@ -19,10 +26,13 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "babel-plugin-react-compiler": "1.0.0",
+    "dotenv": "^18.0.7",
     "eslint": "^9",
     "eslint-config-next": "16.3.8",
     "sass": "^1.105.1",
-    "typescript": "^5"
+    "tsx": "^4.23.15",
+    "typescript": "^5",
+    "vitest": "^4.1.11"
   },
   "packageManager": "yarn@1.22.22+sha1.ac34549e6aa8e7ead463a7407e1c7390f61a6610"
 }

@@ -50,6 +50,17 @@ const extractor = provider
       transit: transitProvider,
     })
   : undefined
+// Neon es opcional: sin DATABASE_URL el server arranca igual y /api/places responde 503.
+const database = process.env.DATABASE_URL?.trim()
+  ? await (async () => {
+      const [{ db }, { drizzlePlacesStore, placesSaver }, { drizzlePlacesReader }] = await Promise.all([
+        import('./db/index.ts'),
+        import('./places/save.ts'),
+        import('./places/list.ts'),
+      ])
+      return { placesSaver: placesSaver(drizzlePlacesStore(db)), placesReader: drizzlePlacesReader(db) }
+    })()
+  : undefined
 const apiPort = Number(process.env.BACKOFFICE_API_PORT ?? 8787)
 
 serve(
@@ -62,6 +73,8 @@ serve(
       matchProviders,
       sweeper,
       reportWriter: fileReportWriter(),
+      placesSaver: database?.placesSaver,
+      placesReader: database?.placesReader,
     }).fetch,
     hostname: '127.0.0.1',
     port: apiPort,

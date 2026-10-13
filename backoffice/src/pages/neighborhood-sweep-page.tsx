@@ -13,6 +13,7 @@ import {
 import { SearchCombobox, type ComboboxOption } from '@/components/search-combobox'
 import { PlaceExplorerDialog } from '@/components/place-explorer-dialog'
 import { ExtractionResultDialog } from '@/components/extraction-result-dialog'
+import { ProcessedPlacesPanel } from '@/components/processed-places-panel'
 import { PlacesTable, type PlacesTableColumn } from '@/components/places-table'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -178,6 +179,8 @@ export function NeighborhoodSweepPage() {
   const [selectedPlace, setSelectedPlace] = useState<NeighborhoodSweepPlace | null>(null)
   const [onlyInside, setOnlyInside] = useState(true)
   const [group, setGroup] = useState<PlaceGroup>('accepted')
+  // Tab "Procesados": resultados del lote para guardar en la base.
+  const [showProcessed, setShowProcessed] = useState(false)
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set())
   const [resultPlace, setResultPlace] = useState<NeighborhoodSweepPlace | null>(null)
   const batch = useExtractionBatch()
@@ -199,6 +202,7 @@ export function NeighborhoodSweepPage() {
     setActiveNeighborhood(target)
     setActiveMode(sweepMode)
     setGroup('accepted')
+    setShowProcessed(false)
     setSelectedIds(new Set())
     setResultPlace(null)
     batch.reset()
@@ -281,6 +285,8 @@ export function NeighborhoodSweepPage() {
   ]
   const selectable = canFilter && group !== 'rejected'
   const hasBatch = Object.keys(batch.rows).length > 0
+  const processedCount = Object.values(batch.rows).filter((row) => row.status === 'done' || row.status === 'error').length
+  const processedTabOpen = showProcessed && canFilter && processedCount > 0
   if (hasBatch) {
     tableColumns.push({ header: 'Procesamiento', cell: (place) => processingStatus(batch.rows[place.placeId], () => setResultPlace(place)) })
   }
@@ -508,10 +514,13 @@ export function NeighborhoodSweepPage() {
                     <button
                       key={item.id}
                       type="button"
-                      onClick={() => setGroup(item.id)}
-                      aria-pressed={group === item.id}
+                      onClick={() => {
+                        setGroup(item.id)
+                        setShowProcessed(false)
+                      }}
+                      aria-pressed={!showProcessed && group === item.id}
                       className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                        group === item.id
+                        !showProcessed && group === item.id
                           ? 'bg-foreground text-background'
                           : 'text-muted-foreground hover:text-foreground'
                       }`}
@@ -519,8 +528,22 @@ export function NeighborhoodSweepPage() {
                       {item.label} ({groupCounts[item.id]})
                     </button>
                   ))}
+                  {processedCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowProcessed(true)}
+                      aria-pressed={showProcessed}
+                      className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                        showProcessed
+                          ? 'bg-foreground text-background'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      Procesados ({processedCount})
+                    </button>
+                  )}
                 </div>
-                <div className="flex flex-wrap gap-2">
+                {!showProcessed && <div className="flex flex-wrap gap-2">
                   {batch.failedCount > 0 && (
                     <Button
                       type="button"
@@ -546,17 +569,21 @@ export function NeighborhoodSweepPage() {
                     )}
                     Procesar ({selectedRequests.length})
                   </Button>
-                </div>
+                </div>}
               </div>
             )}
 
-            {hasResults && visiblePlaces.length === 0 && (
+            {processedTabOpen && (
+              <ProcessedPlacesPanel rows={batch.rows} places={places} categoryLabel={categoryLabel} />
+            )}
+
+            {!processedTabOpen && hasResults && visiblePlaces.length === 0 && (
               <p className="px-4 py-8 text-center text-sm text-muted-foreground sm:px-5">
                 No hay lugares para mostrar con estos filtros.
               </p>
             )}
 
-            {visiblePlaces.length > 0 && (
+            {!processedTabOpen && visiblePlaces.length > 0 && (
               <PlacesTable
                 places={visiblePlaces}
                 columns={tableColumns}

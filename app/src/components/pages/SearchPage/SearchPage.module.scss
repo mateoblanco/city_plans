@@ -1,0 +1,102 @@
+.results {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 0;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+}
+
+.chip {
+  border: 1px solid #000000;
+  border-radius: 999px;
+  color: inherit;
+  display: inline-block;
+  font-size: 14px;
+  padding: 4px 10px;
+  text-decoration: none;
+
+  &:hover {
+    background-color: #f2f2f2;
+  }
+}
+
+.notices {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.notice {
+  background-color: #f5f5f5;
+  color: #555555;
+  font-size: 14px;
+  padding: 8px 12px;
+}
+
+.sectionTitle {
+  font-size: 18px;
+}
+
+.grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, 1fr);
+
+  @media (max-width: 720px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.skeletonCard {
+  animation: pulse 1.2s ease-in-out infinite;
+  aspect-ratio: 1 / 1;
+  background-color: #eeeeee;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+.visuallyHidden {
+  clip: rect(0 0 0 0);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+.debug {
+  border-top: 1px solid #cccccc;
+  font-size: 12px;
+  padding-top: 12px;
+
+  pre {
+    background-color: #f5f5f5;
+    font-family: var(--font-geist-mono), monospace;
+    overflow-x: auto;
+    padding: 8px;
+  }
+
+  details details {
+    margin: 8px 0 0 12px;
+  }
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
