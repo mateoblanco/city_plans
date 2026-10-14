@@ -16,6 +16,8 @@ export function row(overrides: Partial<CandidateRow> & { id: string }): Candidat
     diet: { vegan: 'unknown', vegetarian: 'unknown', glutenFree: 'unknown' },
     price: 'unknown',
     hours: { slots: [], status: 'none' },
+    prominence: 0,
+    featured: false,
     matchesFilters: true,
     semantic: 0.5,
     keyword: 0,
@@ -87,6 +89,7 @@ export function llmOutput(overrides: Partial<LlmInterpretation> = {}): LlmInterp
     vibe: null,
     language: 'es',
     unrecognized: [],
+    wantsBest: false,
     ...overrides,
   }
 }

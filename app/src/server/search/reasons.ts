@@ -24,6 +24,7 @@ export function buildReasons(item: Fused, context: ReasonContext): string[] {
   const lang = interpretation.language
   const es = lang === 'es'
   const reasons: string[] = []
+  if (row.featured) reasons.push(es ? 'Recomendado' : 'Recommended')
 
   context.dishes.forEach((target, index) => {
     const viaTag = (target.tag !== null && row.tags.includes(target.tag)) || (target.category !== null && row.categories.includes(target.category))

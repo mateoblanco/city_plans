@@ -14,6 +14,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Lee la tabla `places` de Neon que llena el backoffice (sólo `status = 'published'`). El esquema y las migraciones son del backoffice; acá va SQL crudo.
 - Tags y barrios vienen de `../shared` (alias `@shared/*`), compartidos con el backoffice. No los copies.
 - Pesos, umbrales y modelo están todos en `src/server/search/config.ts`.
+- Calidad: `prominence` y `featured` (los escribe el backoffice) multiplican el puntaje final (RRF + empujones) dentro de cada nivel, sin cruzarlos (`SEARCH_CONFIG.quality`). `wantsBest` ("el mejor", "best", "top", desde el modelo o el atajo) amplía el rango; no es filtro, chip ni unrecognized. `featured` suma el motivo "Recomendado"; `prominence` nunca se muestra fuera de debug.
 - Comandos: `yarn test` y `yarn search:eval [--debug] [consulta…]` (corre el set de prueba contra Neon y el AI Gateway).
 - Claves sólo en `.env.local` (ver `.env.example`), nunca con prefijo `NEXT_PUBLIC_`.
 

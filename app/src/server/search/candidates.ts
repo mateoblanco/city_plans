@@ -50,6 +50,10 @@ export type CandidateRow = {
   diet: Record<DietKey, string>
   price: string
   hours: Hours
+  /** Señal de calidad del backoffice (0 a 1). Sólo reordena; nunca se muestra. */
+  prominence: number
+  /** Curaduría manual. */
+  featured: boolean
   matchesFilters: boolean
   semantic: number | null
   keyword: number
@@ -150,7 +154,7 @@ export function candidatesQuery(filters: CandidateFilters, scores: ScoreInputs):
   return sql`
     select id, slug, name, neighborhood_id as "neighborhoodId", categories, tags, signature, dishes,
       json_build_object('vegan', diet_vegan, 'vegetarian', diet_vegetarian, 'glutenFree', diet_gluten_free) as diet,
-      price, hours,
+      price, hours, prominence, featured,
       (${matches}) as "matchesFilters",
       ${semantic} as semantic,
       ${keyword} as keyword,

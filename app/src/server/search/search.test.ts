@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { SEARCH_CONFIG } from './config'
 import { dishTarget } from './dishes'
-import { buildRankings, fuse, reciprocalRankFusion, type FuseContext } from './fuse'
+import { buildRankings, fuse, qualityMultiplier, reciprocalRankFusion, type FuseContext } from './fuse'
 import { buildChips } from './chips'
 import { emptyInterpretation } from './interpretation'
 import { noMatchNotice } from './relax'
@@ -11,7 +11,7 @@ import { everyDay, fakeCache, fakeStore, llmOutput, row } from './test/fixtures'
 // Lunes 12/10/2026 13:00 en Montevideo.
 const now = new Date('2026-10-12T16:00:00Z')
 const context = (overrides: Partial<FuseContext> = {}): FuseContext => ({
-  pinnedId: null, dishes: [], categories: [], requestedTags: [], preferTags: [], openAt: null, ...overrides,
+  pinnedId: null, dishes: [], categories: [], requestedTags: [], preferTags: [], openAt: null, wantsBest: false, ...overrides,
 })
 
 describe('fusión', () => {
@@ -63,6 +63,51 @@ describe('fusión', () => {
   })
 })
 
+describe('calidad', () => {
+  const { normal, best } = SEARCH_CONFIG.quality
+
+  it('multiplicador lineal en prominence, con un extra por featured', () => {
+    expect(qualityMultiplier({ prominence: 0, featured: false }, false)).toBeCloseTo(normal.prominenceMin)
+    expect(qualityMultiplier({ prominence: 1, featured: false }, false)).toBeCloseTo(normal.prominenceMax)
+    expect(qualityMultiplier({ prominence: 0.5, featured: true }, false)).toBeCloseTo(((normal.prominenceMin + normal.prominenceMax) / 2) * normal.featured)
+    expect(qualityMultiplier({ prominence: 1, featured: true }, true)).toBeCloseTo(best.prominenceMax * best.featured)
+  })
+
+  it('con relevancia parecida gana el de más calidad, y debug muestra la posición sin calidad', () => {
+    const rows = [row({ id: 'plain', semantic: 0.9 }), row({ id: 'prominent', semantic: 0.8, prominence: 1 })]
+    const fused = fuse(rows, buildRankings(rows), context())
+    expect(fused.map((item) => [item.row.id, item.positionWithoutQuality])).toEqual([['prominent', 2], ['plain', 1]])
+    expect(fused[0].multiplier).toBeCloseTo(normal.prominenceMax)
+    expect(fused[0].score).toBeCloseTo(fused[0].baseScore * normal.prominenceMax)
+  })
+
+  it('un lugar poco relevante no le gana a uno muy relevante, aunque sea featured', () => {
+    const rows = [
+      row({ id: 'relevant', semantic: 0.9, keyword: 0.5, nameScore: 0.9 }),
+      row({ id: 'famous', semantic: 0.8, prominence: 1, featured: true }),
+    ]
+    const fused = fuse(rows, buildRankings(rows), context({ wantsBest: true }))
+    expect(fused.map((item) => item.row.id)).toEqual(['relevant', 'famous'])
+  })
+
+  it('pedir lo mejor amplía el rango', () => {
+    const rows = [row({ id: 'plain', semantic: 0.9, tags: ['quiet'] }), row({ id: 'prominent', semantic: 0.8, prominence: 1 })]
+    const order = (wantsBest: boolean) => fuse(rows, buildRankings(rows), context({ preferTags: ['quiet'], wantsBest })).map((item) => item.row.id)
+    expect(order(false)).toEqual(['plain', 'prominent'])
+    expect(order(true)).toEqual(['prominent', 'plain'])
+  })
+
+  it('no cruza niveles: "puede que tenga" sigue después de "lo tiene"', () => {
+    const dishes = [dishTarget('milanesa napolitana')]
+    const rows = [
+      row({ id: 'tag-only', semantic: 0.9, tags: ['milanesa'], dishHas: [false], dishExact: [false], prominence: 1, featured: true }),
+      row({ id: 'has-it', semantic: 0.8, dishHas: [true], dishExact: [false] }),
+    ]
+    const fused = fuse(rows, buildRankings(rows), context({ dishes, wantsBest: true }))
+    expect(fused.map((item) => item.row.id)).toEqual(['has-it', 'tag-only'])
+  })
+})
+
 describe('runSearch', () => {
   const places = [
     row({ id: 'cafe-cordon', name: 'Café del Cordón', categories: ['cafe'], tags: ['terrace'], hours: everyDay('08:00', '20:00'), diet: { vegan: 'has_options', vegetarian: 'unknown', glutenFree: 'unknown' } }),
@@ -83,6 +128,32 @@ describe('runSearch', () => {
       { kind: 'neighborhood', id: 'CORDON', label: 'Cordón' },
     ])
     expect(response.results[0].reasons).toEqual(['Café', 'Abierto · cierra 20:00', 'Cordón'])
+  })
+
+  it('"los mejores" amplía la calidad sin chip ni filtro; featured suma "Recomendado"', async () => {
+    const withFeatured = places.map((place) => (place.id === 'cafe-rodo' ? { ...place, featured: true } : place))
+    const { store } = fakeStore(withFeatured)
+    const { cache, interpreted } = fakeCache()
+    const response = await runSearch('los mejores cafés', { store, cache }, { now, debug: true })
+    expect(interpreted).toEqual([])
+    expect(response.debug?.interpretation.wantsBest).toBe(true)
+    expect(response.debug?.interpretation.unrecognized).toEqual([])
+    expect(response.debug?.keywords).not.toContain('mejores')
+    expect(response.interpreted.chips).toEqual([{ kind: 'category', id: 'cafe', label: 'Café' }])
+    const rodo = response.debug?.results.find((result) => result.id === 'cafe-rodo')
+    expect(rodo).toMatchObject({ featured: true, prominence: 0 })
+    expect(rodo?.multiplier).toBeCloseTo(SEARCH_CONFIG.quality.best.prominenceMin * SEARCH_CONFIG.quality.best.featured)
+    expect(response.results.find((result) => result.id === 'cafe-rodo')?.reasons[0]).toBe('Recomendado')
+    expect(response.results.find((result) => result.id === 'cafe-cordon')?.reasons).not.toContain('Recomendado')
+  })
+
+  it('"best" en inglés: "Recommended"', async () => {
+    const withFeatured = places.map((place) => (place.id === 'cafe-rodo' ? { ...place, featured: true } : place))
+    const { store } = fakeStore(withFeatured)
+    const response = await runSearch('best cafe in pocitos', { store, cache: fakeCache().cache }, { now, debug: true })
+    expect(response.debug?.source).toBe('shortcut')
+    expect(response.debug?.interpretation.wantsBest).toBe(true)
+    expect(response.results.find((result) => result.id === 'cafe-rodo')?.reasons[0]).toBe('Recommended')
   })
 
   it('usa el modelo cuando el atajo no alcanza y valida lo que devuelve', async () => {

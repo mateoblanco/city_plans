@@ -39,6 +39,16 @@ export const SEARCH_CONFIG = {
     confirmedOpen: 0.01,
   },
 
+  /**
+   * Multiplicador por calidad sobre el puntaje final (RRF + empujones): lineal en prominence y un extra si es featured.
+   * Reordena dentro de cada nivel (fijado, has/maybe, abierto); nunca los cruza.
+   */
+  quality: {
+    normal: { prominenceMin: 0.9, prominenceMax: 1.1, featured: 1.1 },
+    /** Cuando la consulta pide lo mejor ("el mejor chivito", "best coffee", "top"). */
+    best: { prominenceMin: 0.8, prominenceMax: 1.2, featured: 1.2 },
+  },
+
   llm: {
     model: process.env.SEARCH_MODEL?.trim() || 'anthropic/claude-haiku-5.5',
     timeoutMs: 10000,

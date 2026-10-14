@@ -1,7 +1,7 @@
 import { findDef, normalize } from '@shared/tags.ts'
 import { resolveNeighborhood } from '@shared/neighborhood-aliases.ts'
 import { canonicalOf, singularForms } from './dishes'
-import { emptyInterpretation, tidy, type Interpretation } from './interpretation'
+import { BEST_WORDS, emptyInterpretation, tidy, type Interpretation } from './interpretation'
 
 const STOPWORDS_ES = new Set(['en', 'de', 'del', 'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'y', 'o', 'con', 'para', 'por', 'a', 'al', 'zona', 'barrio'])
 const STOPWORDS_EN = new Set(['in', 'at', 'near', 'the', 'a', 'an', 'with', 'for', 'and', 'or', 'of', 'to', 'around', 'area'])
@@ -76,7 +76,12 @@ export function interpretWithDictionary(normalized: string): Interpretation | nu
     }
     if (consumed === 0) {
       const word = words[index]
-      if (STOPWORDS_ES.has(word)) votes.es += 0.5
+      // "mejor", "best", "top": no es un filtro; sólo amplía el multiplicador de calidad.
+      if (BEST_WORDS.has(word)) {
+        result.wantsBest = true
+        const language = BEST_WORDS.get(word)
+        if (language) votes[language] += 0.5
+      } else if (STOPWORDS_ES.has(word)) votes.es += 0.5
       else if (STOPWORDS_EN.has(word)) votes.en += 0.5
       else return null
       consumed = 1

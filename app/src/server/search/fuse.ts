@@ -19,6 +19,8 @@ export type FuseContext = {
   preferTags: string[]
   /** Momento pedido con openAt; null si la consulta no habla de horario. */
   openAt: Moment | null
+  /** La consulta pide lo mejor: rango de calidad más amplio. */
+  wantsBest: boolean
 }
 
 export type Fused = {
@@ -29,7 +31,14 @@ export type Fused = {
   open: OpenState | null
   rrf: number
   boosts: Partial<Record<keyof typeof SEARCH_CONFIG.boosts, number>>
+  /** RRF + empujones, antes de la calidad. */
+  baseScore: number
+  /** Multiplicador por prominence y featured. */
+  multiplier: number
+  /** baseScore × multiplier: con esto se ordena dentro de cada nivel. */
   score: number
+  /** Puesto (desde 1) que tendría ordenando por baseScore, para ver qué movió la calidad. */
+  positionWithoutQuality: number
 }
 
 function ranked(rows: CandidateRow[], value: (row: CandidateRow) => number | null, direction: 'asc' | 'desc'): RankingEntry[] {
@@ -89,6 +98,13 @@ export function boostsFor(row: CandidateRow, context: FuseContext, open: OpenSta
   return result
 }
 
+/** Lineal entre prominenceMin (0) y prominenceMax (1), por el extra de featured. */
+export function qualityMultiplier(row: Pick<CandidateRow, 'prominence' | 'featured'>, wantsBest: boolean): number {
+  const range = wantsBest ? SEARCH_CONFIG.quality.best : SEARCH_CONFIG.quality.normal
+  const prominence = Math.min(1, Math.max(0, Number(row.prominence) || 0))
+  return (range.prominenceMin + (range.prominenceMax - range.prominenceMin) * prominence) * (row.featured ? range.featured : 1)
+}
+
 const tierOf = (item: Fused, context: FuseContext) => [
   item.pinned ? 0 : 1,
   item.matchLevel === 'has' ? 0 : 1,
@@ -104,6 +120,8 @@ export function fuse(rows: CandidateRow[], rankings: Rankings, context: FuseCont
       const open = context.openAt ? openStatus(row.hours, context.openAt) : null
       const boosts = boostsFor(row, context, open)
       const base = rrf.get(row.id) ?? 0
+      const baseScore = base + Object.values(boosts).reduce((sum, value) => sum + (value ?? 0), 0)
+      const multiplier = qualityMultiplier(row, context.wantsBest)
       return {
         row,
         pinned: row.id === context.pinnedId,
@@ -111,13 +129,21 @@ export function fuse(rows: CandidateRow[], rankings: Rankings, context: FuseCont
         open,
         rrf: base,
         boosts,
-        score: base + Object.values(boosts).reduce((sum, value) => sum + (value ?? 0), 0),
+        baseScore,
+        multiplier,
+        score: baseScore * multiplier,
+        positionWithoutQuality: 0,
       }
     })
-  return fused.sort((a, b) => {
+  const byTier = (score: (item: Fused) => number) => (a: Fused, b: Fused) => {
     const tierA = tierOf(a, context)
     const tierB = tierOf(b, context)
     for (let index = 0; index < tierA.length; index++) if (tierA[index] !== tierB[index]) return tierA[index] - tierB[index]
-    return b.score - a.score
+    return score(b) - score(a)
+  }
+  const withoutQuality = [...fused].sort(byTier((item) => item.baseScore))
+  withoutQuality.forEach((item, index) => {
+    item.positionWithoutQuality = index + 1
   })
+  return fused.sort(byTier((item) => item.score))
 }

@@ -63,6 +63,15 @@ describe('atajo con diccionario', () => {
     expect(near?.unrecognized).toEqual(['cerca mio'])
   })
 
+  it('"mejor", "best" y "top" piden lo mejor sin ser filtro', () => {
+    const best = interpretWithDictionary(normalizeQuery('los mejores cafés'))
+    expect(best).toMatchObject({ wantsBest: true, must: { categories: ['cafe'] }, unrecognized: [] })
+    expect(interpretWithDictionary('best cafe')).toMatchObject({ wantsBest: true, language: 'en' })
+    expect(interpretWithDictionary('top bares')?.wantsBest).toBe(true)
+    expect(interpretWithDictionary('cafes en pocitos')?.wantsBest).toBe(false)
+    expect(interpretWithDictionary('el mejor')).toBeNull()
+  })
+
   it('detecta inglés', () => {
     expect(interpretWithDictionary('cafe in pocitos')?.language).toBe('en')
     expect(interpretWithDictionary('vegan')?.language).toBe('en')
@@ -134,6 +143,9 @@ describe('validateInterpretation', () => {
     expect(validateInterpretation(llmOutput({ unrecognized: ['cerca mío'] })).interpretation.needsLocation).toBe(true)
     expect(validateInterpretation(llmOutput({ unrecognized: ['near me'] })).interpretation.needsLocation).toBe(true)
     expect(validateInterpretation(llmOutput({ unrecognized: ['para 15 personas'] })).interpretation.needsLocation).toBe(false)
+    const best = validateInterpretation(llmOutput({ wantsBest: true, unrecognized: ['el mejor', 'the best', 'cerca mío'] })).interpretation
+    expect(best.wantsBest).toBe(true)
+    expect(best.unrecognized).toEqual(['cerca mío'])
   })
 })
 

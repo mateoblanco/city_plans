@@ -32,6 +32,8 @@ export type Interpretation = {
   language: Lang
   unrecognized: string[]
   needsLocation: boolean
+  /** Pide lo mejor ("el mejor chivito", "best coffee"): amplía el multiplicador de calidad. No es filtro ni chip. */
+  wantsBest: boolean
 }
 
 export function emptyInterpretation(language: Lang = 'es'): Interpretation {
@@ -45,6 +47,7 @@ export function emptyInterpretation(language: Lang = 'es'): Interpretation {
     language,
     unrecognized: [],
     needsLocation: false,
+    wantsBest: false,
   }
 }
 
@@ -65,6 +68,7 @@ export const LlmInterpretationSchema = z.object({
   vibe: z.string().nullable(),
   language: z.string(),
   unrecognized: z.array(z.string()),
+  wantsBest: z.boolean(),
 })
 export type LlmInterpretation = z.infer<typeof LlmInterpretationSchema>
 
@@ -91,6 +95,17 @@ const NEAR_ME = /\b(cerca (mio|mia|de mi|de aca|de aqui)|near (me|here)|nearby|p
 export function mentionsNearMe(text: string) {
   return NEAR_ME.test(normalize(text))
 }
+
+/** Palabras que piden lo mejor, en es/en. */
+export const BEST_WORDS = new Map<string, 'es' | 'en' | null>([['mejor', 'es'], ['mejores', 'es'], ['best', 'en'], ['top', null]])
+const BEST = new RegExp(`\\b(${[...BEST_WORDS.keys()].join('|')})\\b`)
+
+export function mentionsBest(text: string) {
+  return BEST.test(normalize(text))
+}
+
+/** Una parte que sólo pide lo mejor ("el mejor", "the best"): no es algo sin reconocer. */
+const onlyBest = (text: string) => normalize(text).split(' ').every((word) => BEST_WORDS.has(word) || ['el', 'la', 'los', 'las', 'lo', 'the'].includes(word))
 
 const unique = <T,>(values: T[]) => [...new Set(values)]
 
@@ -155,8 +170,9 @@ export function validateInterpretation(raw: LlmInterpretation): Validation {
     result.dishes.push({ name, relatedTags: related.tags, relatedCategories: related.categories })
   }
   result.vibe = raw.vibe?.trim() || null
-  result.unrecognized = raw.unrecognized.map((part) => part.trim()).filter(Boolean)
+  result.unrecognized = raw.unrecognized.map((part) => part.trim()).filter((part) => part && !onlyBest(part))
   result.needsLocation = result.unrecognized.some(mentionsNearMe)
+  result.wantsBest = raw.wantsBest === true
 
   return { interpretation: tidy(result), discarded }
 }

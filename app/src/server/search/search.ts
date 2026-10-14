@@ -13,6 +13,7 @@ import {
   applyRemove,
   DIET_KEYS,
   emptyInterpretation,
+  mentionsBest,
   mentionsNearMe,
   parseRemove,
   validateInterpretation,
@@ -53,7 +54,20 @@ export type SearchDebug = {
   keywords: string[]
   attempts: { relaxed: RelaxStep[]; dishMode: DishMode; candidates: number; matching: number; ms: number }[]
   rankings: Rankings
-  results: { id: string; name: string; rrf: number; boosts: Fused['boosts']; score: number; matchLevel: MatchLevel; pinned: boolean }[]
+  results: {
+    id: string
+    name: string
+    rrf: number
+    boosts: Fused['boosts']
+    baseScore: number
+    prominence: number
+    featured: boolean
+    multiplier: number
+    score: number
+    positionWithoutQuality: number
+    matchLevel: MatchLevel
+    pinned: boolean
+  }[]
   timings: Record<string, number>
 }
 
@@ -69,7 +83,7 @@ export type SearchResponse = {
 }
 
 const STOPWORDS = new Set([
-  'en', 'de', 'del', 'el', 'la', 'los', 'las', 'un', 'una', 'y', 'o', 'con', 'para', 'por', 'a', 'al', 'que', 'algo', 'lugar', 'no', 'sea', 'mejor',
+  'en', 'de', 'del', 'el', 'la', 'los', 'las', 'un', 'una', 'y', 'o', 'con', 'para', 'por', 'a', 'al', 'que', 'algo', 'lugar', 'no', 'sea', 'mejor', 'mejores', 'top',
   'in', 'at', 'near', 'the', 'an', 'with', 'for', 'and', 'or', 'of', 'to', 'best', 'place', 'me',
 ])
 
@@ -195,7 +209,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       // Sin modelo, la búsqueda sigue con nombre, palabras y embedding de la consulta.
       source = 'fallback'
       llmError = errorMessage(error)
-      original = { ...emptyInterpretation(), nameQuery: normalized, needsLocation: mentionsNearMe(normalized) }
+      original = { ...emptyInterpretation(), nameQuery: normalized, needsLocation: mentionsNearMe(normalized), wantsBest: mentionsBest(normalized) }
     }
   }
   timings.interpret = elapsed(step)
@@ -268,6 +282,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     requestedTags: [...current.must.tags, ...current.prefer.tags, ...relatedTags],
     preferTags: current.prefer.tags,
     openAt: openAtMoment,
+    wantsBest: current.wantsBest,
   }).slice(0, SEARCH_CONFIG.maxResults)
   timings.fuse = elapsed(step)
 
@@ -352,7 +367,12 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
         name: item.row.name,
         rrf: item.rrf,
         boosts: item.boosts,
+        baseScore: item.baseScore,
+        prominence: item.row.prominence,
+        featured: item.row.featured,
+        multiplier: item.multiplier,
         score: item.score,
+        positionWithoutQuality: item.positionWithoutQuality,
         matchLevel: item.matchLevel,
         pinned: item.pinned,
       })),

@@ -54,7 +54,7 @@ for (const query of queries.length ? queries : QUERIES) {
     const scored = info.results[index];
     const boosts = Object.entries(scored.boosts).map(([name, value]) => `${name}+${value}`).join(" ");
     console.log(
-      `  ${index + 1}. ${result.name}${scored.pinned ? " 📌" : ""} [${result.matchLevel}] ${scored.score.toFixed(4)}${boosts ? ` (${boosts})` : ""}`,
+      `  ${index + 1}. ${result.name}${scored.pinned ? " 📌" : ""}${scored.featured ? " ⭐" : ""} [${result.matchLevel}] ${scored.score.toFixed(4)}${boosts ? ` (${boosts})` : ""} ×${scored.multiplier.toFixed(2)} (sin calidad: #${scored.positionWithoutQuality})`,
     );
     console.log(`     ${result.reasons.join(" · ")}`);
   });

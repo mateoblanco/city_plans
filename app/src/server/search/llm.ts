@@ -35,9 +35,10 @@ Campos:
 - vibe: frase corta en español que describa el ambiente o la ocasión para una búsqueda semántica ("lugar tranquilo para trabajar"); null si la consulta es sólo requisitos concretos.
 - language: "es" o "en", el idioma de la consulta.
 - unrecognized: partes que no pudiste mapear a nada ("cerca mío", "near me", "para 15 personas").
+- wantsBest: true si se pide lo mejor o lo más destacado ("el mejor chivito", "los mejores cafés", "best coffee", "top bares"); si no, false.
 
 Reglas:
-- "mejor", "best", "rico", "bueno" no son requisitos: ignoralos.
+- "mejor", "best", "top" sólo marcan wantsBest: no van en must, prefer, unrecognized ni vibe. "rico" y "bueno" no son requisitos: ignoralos.
 - Las bebidas coloquiales van como tags: "birra" → draft_beer, "vino" → wine.
 - "cumpleaños" o grupos grandes → prefer goodFor (groups, celebration).
 - No inventes ids: si algo no está en el catálogo, va a unrecognized.
