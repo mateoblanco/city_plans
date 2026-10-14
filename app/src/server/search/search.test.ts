@@ -188,13 +188,26 @@ describe('runSearch', () => {
     expect(response.debug?.keywords).not.toContain('pizza')
   })
 
-  it('si el modelo falla sigue con la consulta como nombre y embedding', async () => {
-    const { store } = fakeStore(places)
-    const { cache } = fakeCache(new Error('timeout'))
+  it('si el modelo falla sigue sin avisar: el texto tal cual para nombre, palabras y embedding', async () => {
+    const { store, calls } = fakeStore(places)
+    const { cache, embedded } = fakeCache(new Error('timeout'))
     const response = await runSearch('lugar raro', { store, cache }, { now, debug: true })
     expect(response.debug?.source).toBe('fallback')
     expect(response.debug?.llmError).toBe('timeout')
     expect(response.results).toHaveLength(places.length)
+    expect(response.relaxed).toEqual([])
+    expect(response.interpreted.chips).toEqual([])
+    expect(embedded).toEqual(['lugar raro'])
+    expect(calls[0].scores).toMatchObject({ name: 'lugar raro', keywords: ['raro'] })
+  })
+
+  it('si el modelo falla, toma del diccionario lo que reconoce e ignora lo negado', async () => {
+    const { store } = fakeStore(places)
+    const { cache } = fakeCache(new Error('timeout'))
+    const response = await runSearch('cafecito rico en cordon que no sea pizza', { store, cache }, { now, debug: true })
+    expect(response.debug?.source).toBe('fallback')
+    expect(response.interpreted.chips.map((chip) => `${chip.kind}:${chip.id}`)).toEqual(['neighborhood:CORDON'])
+    expect(response.results.map((result) => result.id)).not.toContain('cafe-rodo')
   })
 
   it('un nombre fuerte va primero y evita el modelo', async () => {

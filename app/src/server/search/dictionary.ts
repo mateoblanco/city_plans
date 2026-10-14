@@ -30,19 +30,28 @@ function phraseLanguage(id: string, phrase: string): 'es' | 'en' | null {
   return en && !es ? 'en' : es && !en ? 'es' : null
 }
 
+// Lo que viene después de una negación suelta ("algo que no sea pizza") no se toma como pedido en el modo parcial.
+const NEGATIONS = new Set(['no', 'ni', 'sin', 'excepto', 'salvo', 'menos', 'not', 'except', 'without'])
+
 /**
  * Atajo sin LLM: si toda la consulta se cubre con barrios, tags, días, "abierto ahora" y palabras vacías,
  * arma la interpretación directamente. Devuelve null en cuanto queda una palabra sin reconocer.
+ *
+ * partial: respaldo cuando el modelo no responde. Toma lo que reconoce e ignora el resto (que igual cuenta
+ * para el embedding y las palabras clave); lo que sigue a una negación suelta se descarta.
  */
-export function interpretWithDictionary(normalized: string): Interpretation | null {
+export function interpretWithDictionary(normalized: string, { partial = false }: { partial?: boolean } = {}): Interpretation | null {
   const words = normalized.split(' ').filter(Boolean)
   if (words.length === 0) return null
   const result = emptyInterpretation()
   const votes = { es: 0, en: 0 }
   let matched = 0
+  let negated = false
 
   for (let index = 0; index < words.length; ) {
     let consumed = 0
+    // Lo negado se reconoce igual (para consumir la frase entera) pero no se aplica.
+    const target = negated ? emptyInterpretation() : result
     for (let length = Math.min(MAX_PHRASE_WORDS, words.length - index); length >= 1 && consumed === 0; length--) {
       const phrase = words.slice(index, index + length).join(' ')
       const neighborhood = resolveNeighborhood(phrase)
@@ -50,27 +59,27 @@ export function interpretWithDictionary(normalized: string): Interpretation | nu
       const nearMe = NEAR_ME.get(phrase as never)
       const day = DAYS.get(phrase)
       if (neighborhood) {
-        result.must.neighborhoods.push(neighborhood)
+        target.must.neighborhoods.push(neighborhood)
       } else if (openNow) {
-        result.must.openAt = 'now'
+        target.must.openAt = 'now'
         votes[openNow]++
       } else if (nearMe) {
-        result.unrecognized.push(phrase)
-        result.needsLocation = true
+        target.unrecognized.push(phrase)
+        target.needsLocation = true
         votes[nearMe]++
       } else if (day) {
-        result.must.openAt = { day: day[0], time: null }
+        target.must.openAt = { day: day[0], time: null }
         votes[day[1]]++
       } else {
         const found = canonicalOf(phrase)
         if (!found) continue
         const language = phraseLanguage(found.id, phrase)
         if (language) votes[language]++
-        if (found.group === 'categories') result.must.categories.push(found.id)
-        else if (found.group === 'dietary') result.must.diet[found.id === 'gluten_free' ? 'glutenFree' : (found.id as 'vegan' | 'vegetarian')] = true
-        else if (found.group === 'foods') result.dishes.push({ name: phrase, relatedTags: [found.id], relatedCategories: [] })
-        else if (found.group === 'atmosphere' || found.group === 'goodFor') result.prefer.tags.push(found.id)
-        else result.must.tags.push(found.id)
+        if (found.group === 'categories') target.must.categories.push(found.id)
+        else if (found.group === 'dietary') target.must.diet[found.id === 'gluten_free' ? 'glutenFree' : (found.id as 'vegan' | 'vegetarian')] = true
+        else if (found.group === 'foods') target.dishes.push({ name: phrase, relatedTags: [found.id], relatedCategories: [] })
+        else if (found.group === 'atmosphere' || found.group === 'goodFor') target.prefer.tags.push(found.id)
+        else target.must.tags.push(found.id)
       }
       consumed = length
     }
@@ -83,13 +92,17 @@ export function interpretWithDictionary(normalized: string): Interpretation | nu
         if (language) votes[language] += 0.5
       } else if (STOPWORDS_ES.has(word)) votes.es += 0.5
       else if (STOPWORDS_EN.has(word)) votes.en += 0.5
-      else return null
+      else if (!partial) return null
+      else if (NEGATIONS.has(word)) negated = true
       consumed = 1
-    } else matched++
+    } else {
+      matched++
+      negated = false
+    }
     index += consumed
   }
 
-  if (matched === 0) return null
+  if (matched === 0 && !partial) return null
   result.language = votes.en > votes.es ? 'en' : 'es'
   return tidy(result)
 }

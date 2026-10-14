@@ -235,11 +235,13 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       discarded = validation.discarded
       model = llm.model
     } catch (error) {
-      // Sin modelo, la búsqueda sigue con nombre, palabras y embedding de la consulta.
+      // Sin modelo (timeout o error), la búsqueda sigue sin avisar: lo que el diccionario reconoce como filtros,
+      // y el texto tal cual para el embedding, las palabras clave y el nombre.
       source = 'fallback'
       llmError = errorMessage(error)
       costs.push({ step: 'interpret', model: SEARCH_CONFIG.llm.model, usd: null, cached: false })
-      original = { ...emptyInterpretation(), nameQuery: normalized, needsLocation: mentionsNearMe(normalized), wantsBest: mentionsBest(normalized) }
+      const partial = interpretWithDictionary(normalized, { partial: true }) ?? emptyInterpretation()
+      original = { ...partial, needsLocation: partial.needsLocation || mentionsNearMe(normalized), wantsBest: partial.wantsBest || mentionsBest(normalized) }
     }
   }
   timings.interpret = elapsed(step)

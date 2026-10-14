@@ -169,3 +169,20 @@ describe('remove', () => {
     expect(base.must.tags).toEqual(['brunch', 'terrace']) // no muta el original
   })
 })
+
+describe('diccionario parcial (respaldo sin modelo)', () => {
+  it('toma lo reconocido, ignora lo desconocido y lo que sigue a una negación', () => {
+    const value = interpretWithDictionary('algo tranqui con terraza en cordon que no sea pizza', { partial: true })!
+    expect(value.must.neighborhoods).toEqual(['CORDON'])
+    expect(value.dishes).toEqual([])
+    expect(interpretWithDictionary('algo tranqui con terraza en cordon', { partial: false })).toBeNull()
+  })
+
+  it('"sin tacc" sigue siendo dieta, no una negación', () => {
+    expect(interpretWithDictionary('algo rico sin tacc', { partial: true })!.must.diet).toEqual({ glutenFree: true })
+  })
+
+  it('sin nada reconocido devuelve una interpretación vacía, no null', () => {
+    expect(interpretWithDictionary('lugar raro', { partial: true })!.must).toMatchObject({ categories: [], tags: [], neighborhoods: [] })
+  })
+})

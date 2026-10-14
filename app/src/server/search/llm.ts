@@ -63,6 +63,8 @@ export async function interpretWithLlm(normalized: string): Promise<LlmResult> {
     system: { role: 'system', content: SYSTEM_PROMPT, providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } } },
     prompt: `Consulta: ${normalized}`,
     providerOptions: model.startsWith('anthropic/') ? { anthropic: { structuredOutputMode: 'outputFormat' } } : {},
+    // Sin razonamiento: la interpretación es una extracción a JSON y el razonamiento sólo sumaba segundos.
+    reasoning: 'none',
     abortSignal: AbortSignal.timeout(SEARCH_CONFIG.llm.timeoutMs),
   })
   return { data: result.output, model, cost: gatewayCost(result.providerMetadata), computedAt: Date.now() }

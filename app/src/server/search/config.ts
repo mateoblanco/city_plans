@@ -57,7 +57,11 @@ export const SEARCH_CONFIG = {
 
   llm: {
     model: process.env.SEARCH_MODEL?.trim() || 'anthropic/claude-haiku-5.5',
-    timeoutMs: 10000,
+    /**
+     * Por debajo de los 10 s en los que Next (dev) da por trabada una entrada de "use cache".
+     * Si se vence, la búsqueda sigue con el diccionario parcial y el embedding del texto.
+     */
+    timeoutMs: 8000,
   },
   embeddingModel: 'openai/text-embedding-3-small',
 
