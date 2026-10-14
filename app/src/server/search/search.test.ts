@@ -185,7 +185,7 @@ describe('runSearch', () => {
     const response = await runSearch('algo que no sea pizza', { store, cache }, { now, debug: true })
     expect(interpreted).toEqual(['algo que no sea pizza'])
     expect(response.debug?.source).toBe('llm')
-    expect(response.debug?.discarded).toEqual(['no_existe'])
+    expect(response.debug?.discarded).toEqual([{ value: 'no_existe', reason: 'no está en los catálogos' }])
     expect(response.results.map((result) => result.id)).not.toContain('pizzeria')
     // Las palabras de lo excluido no se buscan por keyword.
     expect(response.debug?.keywords).not.toContain('pizza')
@@ -339,7 +339,7 @@ describe('runSearch', () => {
     const { store, calls } = fakeStore(withPeruvian)
     const { cache } = fakeCache(llmOutput({ dishes: [{ name: 'ceviche', related: ['peruvian', 'seafood', 'inventado'] }] }))
     const response = await runSearch('ceviche', { store, cache }, { now, debug: true })
-    expect(response.debug?.discarded).toEqual(['inventado'])
+    expect(response.debug?.discarded).toEqual([{ value: 'inventado', reason: 'no está en los catálogos' }])
     expect(calls.map((call) => call.filters.dishMode)).toEqual(['dish', 'related'])
     expect(response.results.map((result) => [result.id, result.matchLevel])).toEqual([['peruano', 'maybe']])
     expect(response.results[0].reasons[0]).toBe('Cocina peruana')

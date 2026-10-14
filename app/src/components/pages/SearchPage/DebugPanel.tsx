@@ -31,6 +31,8 @@ const Interpreted = ({ debug, chips, bar }: DebugPanelProps) => {
     ["Fuente", SOURCE_LABELS[source]],
     ["Intención", bar.intent ? `${bar.intent.id} (${bar.intent.fromText ? "texto" : "URL"})` : "—"],
     ["Intención del texto", bar.textIntent ?? "—"],
+    ["Lo exigido", debug.must.ok ? join(debug.must.trace.map((entry) => `${entry.item} → ${entry.detail}`)) : `PERDIDO: ${debug.must.violations.join(", ")}`],
+    ["Descartado", join(debug.discarded.map((entry) => `${entry.value} (${entry.reason})`))],
     ["Votos", join(Object.entries(debug.intentVotes).map(([id, votes]) => `${id}: ${votes}`))],
     ["Sub-filtros", join(bar.subs.filter((sub) => sub.active).map((sub) => `${sub.id} (${sub.fromText ? `texto: ${sub.removeKeys.join(", ")}` : "URL"})`))],
     ["Extras", join(bar.extras.map((chip) => `${chip.kind}:${chip.id}`))],

@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "search:eval": "tsx --conditions=react-server --env-file=.env.local scripts/search-eval.mts"
+    "search:eval": "tsx --conditions=react-server --env-file=.env.local scripts/search-eval.mts",
+    "search:check": "tsx --conditions=react-server --env-file=.env.local scripts/search-eval.mts --check"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.2.0",

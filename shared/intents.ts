@@ -96,6 +96,12 @@ export const INTENTS = {
 export type IntentId = keyof typeof INTENTS
 export const INTENT_IDS = Object.keys(INTENTS) as IntentId[]
 
+/**
+ * Categorías que a propósito no pertenecen a ninguna intención (el texto las sigue usando como filtro). Toda
+ * categoría de tags.ts tiene que estar en el match de una intención o acá: lo verifica intents.test.ts.
+ */
+export const NO_INTENT_CATEGORIES: CategoryId[] = []
+
 /** Intención donde cae un plato que no coincide con ninguna otra. */
 export const DEFAULT_DISH_INTENT: IntentId = 'eat'
 

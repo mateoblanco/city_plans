@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { PgDialect } from 'drizzle-orm/pg-core'
-import { INTENTS, type IntentDef, type IntentMatch } from '@shared/intents.ts'
+import { INTENTS, NO_INTENT_CATEGORIES, type IntentDef, type IntentMatch } from '@shared/intents.ts'
 import { CATEGORIES, TAG_IDS } from '@shared/tags.ts'
 import { intentHref } from '@/components/pages/SearchPage/search-href'
 import { candidatesQuery } from './candidates'
@@ -16,6 +16,25 @@ const read = (query: string): Interpretation => interpretWithDictionary(normaliz
 const now = new Date('2026-10-12T16:00:00Z')
 
 describe('configuración', () => {
+  it('cada categoría pertenece a una intención o está marcada a propósito como sin intención', () => {
+    const inIntent = new Set<string>((Object.values(INTENTS) as IntentDef[]).flatMap((intent) => intent.match.categories ?? []))
+    for (const id of Object.keys(CATEGORIES)) {
+      const marked = (NO_INTENT_CATEGORIES as string[]).includes(id)
+      expect(inIntent.has(id) || marked, `${id}: sin intención y sin marcar en NO_INTENT_CATEGORIES`).toBe(true)
+      expect(inIntent.has(id) && marked, `${id}: está en una intención y marcada como sin intención`).toBe(false)
+    }
+  })
+
+  it('cada tag y categoría de cada sub-filtro existe en tags.ts', () => {
+    const tagIds = new Set<string>(TAG_IDS)
+    for (const [intentId, intent] of Object.entries(INTENTS) as [string, IntentDef][]) {
+      for (const [subId, sub] of Object.entries(intent.subs)) {
+        for (const id of sub.tags ?? []) expect(tagIds.has(id), `${intentId}.${subId}: tag ${id}`).toBe(true)
+        for (const id of sub.categories ?? []) expect(CATEGORIES, `${intentId}.${subId}: categoría ${id}`).toHaveProperty(id)
+      }
+    }
+  })
+
   it('sólo usa categorías y tags que existen en tags.ts', () => {
     const tagIds = new Set<string>(TAG_IDS)
     for (const intent of Object.values(INTENTS) as IntentDef[]) {

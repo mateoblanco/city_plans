@@ -3,10 +3,11 @@ import { neighborhoodDisplayName } from '@shared/neighborhood-names.ts'
 import centroids from '@shared/neighborhood-centroids.json'
 import { SEARCH_CONFIG } from './config'
 import type { EmbeddingResult, SearchCache } from './cache'
-import type { CandidateFilters, DishMode, NameMatch, ScoreInputs } from './candidates'
+import type { CandidateFilters, CandidateRow, DishMode, NameMatch, ScoreInputs } from './candidates'
 import { summarizeCost, type CostEntry, type SearchCost } from './cost'
 import { buildChips, type Chip } from './chips'
 import { interpretWithDictionary } from './dictionary'
+import { checkMust, intendedDiscards, reportMust, type Discard, type MustCheck } from './invariant'
 import { dishTargetFor, type DishTarget } from './dishes'
 import { applyFilters, filterChipKeys, hasFilters, parseFilters, parseNear, type LatLng } from './filters'
 import { buildBar, emptyBar, intentGroups, parseIntent, resolveIntent, type IntentBar } from './intents'
@@ -61,8 +62,10 @@ export type SearchDebug = {
   source: InterpretationSource
   model: string | null
   llmError: string | null
-  /** Ids o barrios que mandó el modelo y no existen. */
-  discarded: string[]
+  /** Lo que no llegó a la interpretación final, con el motivo: ids o barrios del modelo que no existen, chips quitados… */
+  discarded: Discard[]
+  /** Invariante: dónde terminó cada cosa exigida por el texto (filtro, intención o descartada). */
+  must: MustCheck
   /** Votos de cada intención según el texto (la que más tiene, sin empate, se elige sola). */
   intentVotes: Partial<Record<string, number>>
   original: Interpretation
@@ -75,6 +78,10 @@ export type SearchDebug = {
   results: {
     id: string
     name: string
+    /** Datos del lugar para verificar resultados (search:check). */
+    categories: string[]
+    tags: string[]
+    diet: CandidateRow['diet']
     rrf: number
     boosts: Fused['boosts']
     baseScore: number
@@ -278,7 +285,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
 
   let source: InterpretationSource
   let original: Interpretation
-  let discarded: string[] = []
+  let discarded: Discard[] = []
   let model: string | null = null
   let llmError: string | null = null
   if (textless) {
@@ -296,7 +303,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       const validation = validateInterpretation(priced('interpret', llm.value).data)
       source = 'llm'
       original = validation.interpretation
-      discarded = validation.discarded
+      discarded = validation.discarded.map((value) => ({ value, reason: 'no está en los catálogos' }))
       model = llm.value.model
     } else {
       // Sin modelo (timeout o error), la búsqueda sigue sin avisar: lo que el diccionario reconoce como filtros,
@@ -326,6 +333,9 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   const fromText = applyRemove(original, removals)
   const resolved = resolveIntent(fromText, intentUrl, removals)
   const interpretation = applyFilters(resolved.interpretation, filters)
+  discarded = [...discarded, ...intendedDiscards(original, removals, filters)]
+  const must = checkMust(original, interpretation, resolved, discarded)
+  reportMust(must, rawQuery)
   if (removals.some((removal) => removal.kind === 'name')) pinned = null
 
   // 2. Embedding del texto semántico; si falla, se sigue sin el ranking semántico.
@@ -497,6 +507,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       model,
       llmError,
       discarded,
+      must,
       intentVotes: resolved.votes,
       original,
       interpretation,
@@ -514,6 +525,9 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       results: [...fused, ...cut.cut].map((item) => ({
         id: item.row.id,
         name: item.row.name,
+        categories: item.row.categories,
+        tags: item.row.tags,
+        diet: item.row.diet,
         rrf: item.rrf,
         boosts: item.boosts,
         baseScore: item.baseScore,
