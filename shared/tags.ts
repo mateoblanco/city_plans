@@ -116,7 +116,7 @@ export const FEATURES = {
   books: tag('Libros', 'Books', ['libros', 'librería', 'biblioteca', 'para leer'], ['books']),
   dancing: tag('Para bailar', 'Dancing', ['para bailar', 'funciona como boliche', 'pista de baile'], ['dancing']),
   board_games: tag('Juegos de mesa', 'Board games', ['juegos de mesa', 'juegos'], ['board games', 'games']),
-  watch_football: tag('Pantallas para fútbol', 'Sports on TV', ['ver fútbol', 'ver el partido', 'pantallas', 'pantalla gigante', 'pantalla grande'], ['sports bar', 'watch football', 'watch the game', 'big screen']),
+  watch_football: tag('Deportes en vivo', 'Live sports', ['ver fútbol', 'ver el partido', 'pantallas', 'pantalla gigante', 'pantalla grande', 'fútbol', 'básquet', 'basket', 'deportes', 'ver deportes', 'rugby', 'partido'], ['live sports', 'sports', 'sports bar', 'watch football', 'watch the game', 'big screen', 'basketball', 'soccer', 'rugby']),
   pool_table: tag('Pool y metegol', 'Pool and foosball', ['pool', 'metegol', 'billar'], ['pool table', 'billiards', 'foosball']),
   kids_area: tag('Espacio para niños', 'Kids area', ['espacio para niños', 'juegos para niños'], ['kids area', 'kid friendly', 'playground']),
   wifi: tag('Wifi', 'Wifi', ['wifi', 'internet'], ['wifi', 'wi-fi', 'internet']),
