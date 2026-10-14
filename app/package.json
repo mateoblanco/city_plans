@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.2.0",
+    "@vis.gl/react-google-maps": "^1.10.1",
     "ai": "^7.0.124",
     "drizzle-orm": "^0.45.4",
     "next": "16.3.8",

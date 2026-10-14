@@ -54,6 +54,8 @@ export type CandidateRow = {
   prominence: number
   /** Curaduría manual. */
   featured: boolean
+  lat: number
+  lng: number
   matchesFilters: boolean
   semantic: number | null
   keyword: number
@@ -155,6 +157,7 @@ export function candidatesQuery(filters: CandidateFilters, scores: ScoreInputs):
     select id, slug, name, neighborhood_id as "neighborhoodId", categories, tags, signature, dishes,
       json_build_object('vegan', diet_vegan, 'vegetarian', diet_vegetarian, 'glutenFree', diet_gluten_free) as diet,
       price, hours, prominence, featured,
+      ST_Y(location::geometry) as lat, ST_X(location::geometry) as lng,
       (${matches}) as "matchesFilters",
       ${semantic} as semantic,
       ${keyword} as keyword,

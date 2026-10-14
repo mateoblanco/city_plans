@@ -18,6 +18,8 @@ export function row(overrides: Partial<CandidateRow> & { id: string }): Candidat
     hours: { slots: [], status: 'none' },
     prominence: 0,
     featured: false,
+    lat: -34.9011,
+    lng: -56.1645,
     matchesFilters: true,
     semantic: 0.5,
     keyword: 0,

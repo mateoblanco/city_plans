@@ -336,6 +336,12 @@ describe('runSearch', () => {
     expect(response.results[0].reasons).toEqual(['Vegan options', 'Open · closes 20:00', 'Cordón'])
   })
 
+  it('cada resultado trae sus coordenadas para el mapa', async () => {
+    const { store } = fakeStore([{ ...places[0], lat: -34.9, lng: -56.18 }])
+    const response = await runSearch('Cafés en Cordón', { store, cache: fakeCache().cache }, { now })
+    expect(response.results[0]).toMatchObject({ id: 'cafe-cordon', lat: -34.9, lng: -56.18 })
+  })
+
   it('debug sólo cuando se pide', async () => {
     const { store } = fakeStore(places)
     const response = await runSearch('cafes', { store, cache: fakeCache().cache }, { now })

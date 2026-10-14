@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import Search from "@/components/Search/Search";
 import ResultsSkeleton from "@/components/pages/SearchPage/ResultsSkeleton";
 import SearchPage from "@/components/pages/SearchPage/SearchPage";
+import styles from "@/components/pages/SearchPage/SearchPage.module.scss";
 
 type SearchParams = PageProps<"/search">["searchParams"];
 
@@ -26,7 +27,8 @@ const SearchInput = async ({ searchParams }: { searchParams: SearchParams }) => 
 
 const SearchResults = async ({ searchParams }: { searchParams: SearchParams }) => {
   const { query, remove, debug } = await readParams(searchParams);
-  if (!query) return null;
+  // Sin consulta, la columna del mapa queda reservada igual.
+  if (!query) return <div className={styles.map} />;
 
   // key: el skeleton vuelve a aparecer en cada búsqueda nueva (refinar o quitar un chip).
   return (
@@ -38,7 +40,7 @@ const SearchResults = async ({ searchParams }: { searchParams: SearchParams }) =
 
 const SearchRoute = ({ searchParams }: PageProps<"/search">) => {
   return (
-    <main>
+    <main className={styles.list}>
       <Suspense fallback={<Search />}>
         <SearchInput searchParams={searchParams} />
       </Suspense>

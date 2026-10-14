@@ -35,6 +35,8 @@ export type SearchResult = {
   name: string
   neighborhood: string
   categories: string[]
+  lat: number
+  lng: number
   reasons: string[]
   openStatus: { state: OpenState['state']; closesAt: string | null; label: string }
   matchLevel: MatchLevel
@@ -308,6 +310,8 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       name: item.row.name,
       neighborhood: neighborhoodDisplayName(item.row.neighborhoodId) ?? item.row.neighborhoodId,
       categories: item.row.categories,
+      lat: item.row.lat,
+      lng: item.row.lng,
       reasons: buildReasons(item, { interpretation: current, dishes, dishMode: state.dishMode, moment, isNow, open }),
       openStatus: {
         state: open.state,

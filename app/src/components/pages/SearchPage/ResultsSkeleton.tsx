@@ -11,6 +11,7 @@ const ResultsSkeleton = () => {
           <div key={index} className={styles.skeletonCard} />
         ))}
       </div>
+      <div className={styles.map} />
     </div>
   );
 };

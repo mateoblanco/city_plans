@@ -1,7 +1,8 @@
 import Link from "next/link";
-import PlaceCard from "@/components/PlaceCard/PlaceCard";
 import { searchPlaces, type Chip, type SearchResponse, type SearchResult } from "@/server/search";
 import DebugPanel from "./DebugPanel";
+import MapSync from "./MapSync";
+import ResultCard from "./ResultCard";
 import { searchHref } from "./search-href";
 import styles from "./SearchPage.module.scss";
 
@@ -18,7 +19,7 @@ type SearchPageProps = {
 const Places = ({ places }: { places: SearchResult[] }) => (
   <div className={styles.grid}>
     {places.map((place) => (
-      <PlaceCard key={place.id} place={place} />
+      <ResultCard key={place.id} place={place} />
     ))}
   </div>
 );
@@ -35,6 +36,7 @@ const SearchPage = async ({ query, remove, debug }: SearchPageProps) => {
         <Link href={searchHref({ q: query, remove, debug })} prefetch={false}>
           Reintentar
         </Link>
+        <div className={styles.map} />
       </div>
     );
   }
@@ -46,7 +48,10 @@ const SearchPage = async ({ query, remove, debug }: SearchPageProps) => {
   const dishes = interpreted.chips.filter((chip) => chip.kind === "dish").map((chip) => chip.label);
   const notices = [...relaxed.map((notice) => notice.message), ...(needsLocation ? ["Pronto vas a poder buscar cerca tuyo."] : [])];
 
+  const mapPlaces = results.map(({ id, name, lat, lng }) => ({ id, name, lat, lng }));
+
   return (
+    <MapSync places={mapPlaces}>
     <div className={styles.results}>
       {interpreted.chips.length > 0 && (
         <ul className={styles.chips} aria-label="Lo que entendimos">
@@ -99,6 +104,7 @@ const SearchPage = async ({ query, remove, debug }: SearchPageProps) => {
 
       {response.debug && <DebugPanel debug={response.debug} />}
     </div>
+    </MapSync>
   );
 };
 

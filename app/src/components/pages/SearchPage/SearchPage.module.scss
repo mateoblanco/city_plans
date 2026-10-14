@@ -46,10 +46,49 @@
 .grid {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
+}
 
-  @media (max-width: 720px) {
-    grid-template-columns: 1fr;
+// Layout dividido (sólo desktop): la lista scrollea con la página y el mapa queda fijo a la derecha.
+.list {
+  padding: 16px 24px;
+  width: 55%;
+}
+
+.map {
+  background-color: #e8e8e8;
+  height: 100vh;
+  position: fixed;
+  right: 0;
+  top: 0;
+  width: 45%;
+}
+
+.mapMessage {
+  color: #555555;
+  font-size: 14px;
+  padding: 16px;
+}
+
+.card {
+  outline: 2px solid transparent;
+
+  &[data-active] {
+    outline-color: #000000;
+  }
+}
+
+.marker {
+  background-color: #ffffff;
+  border: 2px solid #000000;
+  border-radius: 50%;
+  height: 14px;
+  transition: transform 0.1s;
+  width: 14px;
+
+  &[data-active] {
+    background-color: #000000;
+    transform: scale(1.5);
   }
 }
 
