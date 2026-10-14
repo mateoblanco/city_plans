@@ -1,4 +1,4 @@
-import type { Chip, SearchDebug } from "@/server/search";
+import type { Chip, IntentBar, SearchDebug } from "@/server/search";
 import { formatUsd } from "@/server/search/cost";
 import { DAY_NAMES } from "@/server/search/labels";
 import styles from "./SearchPage.module.scss";
@@ -7,6 +7,7 @@ type DebugPanelProps = {
   debug: SearchDebug;
   /** Todos los chips de la búsqueda (la UI sólo muestra los de la barra). */
   chips: Chip[];
+  bar: IntentBar;
 };
 
 const SOURCE_LABELS: Record<SearchDebug["source"], string> = {
@@ -22,12 +23,17 @@ const join = (values: string[]) => (values.length ? values.join(", ") : "—");
 const origin = ({ fromText, fromFilter }: Chip) => (fromText && fromFilter ? "texto + barra" : fromFilter ? "barra" : fromText ? "texto" : "—");
 
 /** Lo que interpretó la búsqueda en limpio: lo que no se ve en la barra (platos, preferencias, vibe…) incluido. */
-const Interpreted = ({ debug, chips }: DebugPanelProps) => {
+const Interpreted = ({ debug, chips, bar }: DebugPanelProps) => {
   const { interpretation: value, semanticText, source } = debug;
   const at = value.must.openAt;
   const openAt = at === null ? "—" : at === "now" ? "ahora" : `${at.day === null ? "hoy" : DAY_NAMES.es[at.day]}${at.time ? ` ${at.time}` : ""}`;
   const rows: [string, string][] = [
     ["Fuente", SOURCE_LABELS[source]],
+    ["Intención", bar.intent ? `${bar.intent.id} (${bar.intent.fromText ? "texto" : "URL"})` : "—"],
+    ["Intención del texto", bar.textIntent ?? "—"],
+    ["Votos", join(Object.entries(debug.intentVotes).map(([id, votes]) => `${id}: ${votes}`))],
+    ["Sub-filtros", join(bar.subs.filter((sub) => sub.active).map((sub) => `${sub.id} (${sub.fromText ? `texto: ${sub.removeKeys.join(", ")}` : "URL"})`))],
+    ["Extras", join(bar.extras.map((chip) => `${chip.kind}:${chip.id}`))],
     ["Platos", join(value.dishes.map((dish) => `${dish.name}${dish.relatedTags.length + dish.relatedCategories.length ? ` (relacionados: ${[...dish.relatedTags, ...dish.relatedCategories].join(", ")})` : ""}`))],
     ["Preferencias", join([...value.prefer.categories, ...value.prefer.tags])],
     ["Vibe", value.vibe ?? "—"],
@@ -63,7 +69,7 @@ const Json = ({ title, value }: { title: string; value: unknown }) => (
   </details>
 );
 
-const DebugPanel = ({ debug, chips }: DebugPanelProps) => {
+const DebugPanel = ({ debug, chips, bar }: DebugPanelProps) => {
   const { source, model, llmError, discarded, original, interpretation, nameMatches, semanticText, keywords } = debug;
 
   return (
@@ -77,7 +83,7 @@ const DebugPanel = ({ debug, chips }: DebugPanelProps) => {
               .map((call) => `${call.step} (${call.model}) ${call.cached ? "cache" : call.usd === null ? "sin dato" : formatUsd(call.usd)}${call.discarded ? ", descartado" : ""}`)
               .join(" · ")}
       </p>
-      <Interpreted debug={debug} chips={chips} />
+      <Interpreted debug={debug} chips={chips} bar={bar} />
       <Json title="Interpretación" value={{ source, model, llmError, discarded, original, interpretation, nameMatches, semanticText, keywords }} />
       <Json title="Intentos" value={debug.attempts} />
       <Json title="Rankings" value={debug.rankings} />

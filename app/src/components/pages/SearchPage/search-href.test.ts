@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addFilterHref, nearHref, removeChipHref, searchHref, setNeighborhoodHref } from "./search-href";
+import { addFilterHref, extraHref, intentHref, nearHref, removeChipHref, searchHref, setNeighborhoodHref, subHref, type BarRef } from "./search-href";
 
 describe("searchHref", () => {
   it("suma el chip a los remove que ya estaban, sin duplicar", () => {
@@ -16,7 +16,7 @@ describe("searchHref", () => {
   });
 
   it("sin texto queda sólo con los filtros", () => {
-    expect(searchHref({ q: "", f: "category:cafe,open:now" })).toBe("/search?f=category%3Acafe%2Copen%3Anow");
+    expect(searchHref({ q: "", f: "diet:vegan,open:now" })).toBe("/search?f=diet%3Avegan%2Copen%3Anow");
     expect(searchHref({ q: "" })).toBe("/search");
   });
 });
@@ -68,5 +68,60 @@ describe("chips y barra de filtros", () => {
 
   it("cerca mío redondea las coordenadas a 3 decimales", () => {
     expect(read(nearHref({ q: "café" }, -34.9058123, -56.1847999)).near).toBe("-34.906,-56.185");
+  });
+});
+
+describe("intención y sub-filtros", () => {
+  const empty: BarRef = { intent: null, textIntent: null, subs: [], extras: [], aliasKeys: [] };
+  // "cócteles y pizza en cordón" con Bares elegido por el texto.
+  const fromText: BarRef = {
+    intent: { id: "bars", fromText: true },
+    textIntent: "bars",
+    subs: [
+      { id: "cocktails", active: true, fromText: true, removeKeys: ["tag:classic_cocktails"] },
+      { id: "live_music", active: false, fromText: false, removeKeys: [] },
+    ],
+    extras: [{ kind: "dish", id: "pizza", fromText: true }],
+    aliasKeys: ["category:bar"],
+  };
+  const state = { q: "bares con cócteles y pizza", f: "neighborhood:CORDON,diet:vegan", near: "-34.905,-56.185" };
+
+  it("intent y sub van en la URL; sub sólo con intent", () => {
+    expect(searchHref({ q: "", intent: "bars", sub: "cocktails,live_music" })).toBe("/search?intent=bars&sub=cocktails%2Clive_music");
+    expect(searchHref({ q: "x", sub: "cocktails" })).toBe("/search?q=x");
+  });
+
+  it("cambiar de intención limpia los sub-filtros (de la URL y del texto) y conserva f y near", () => {
+    expect(read(intentHref({ ...state, intent: "bars", sub: "live_music" }, "cafes", fromText))).toEqual({
+      q: "bares con cócteles y pizza",
+      remove: "intent:bars,category:bar,tag:classic_cocktails,dish:pizza",
+      intent: "cafes",
+      f: "neighborhood:CORDON,diet:vegan",
+      near: "-34.905,-56.185",
+    });
+  });
+
+  it("apagar la intención activa vuelve a Todo", () => {
+    expect(read(intentHref({ q: "", intent: "bars", sub: "wine" }, null, { ...empty, intent: { id: "bars", fromText: false } }))).toEqual({});
+  });
+
+  it("sin intención previa, elegir una conserva los extras", () => {
+    const terraza: BarRef = { ...empty, extras: [{ kind: "tag", id: "terrace", fromText: true }] };
+    expect(read(intentHref({ q: "con terraza" }, "eat", terraza))).toEqual({ q: "con terraza", intent: "eat" });
+  });
+
+  it("prender un sub-filtro fija la intención del texto en la URL", () => {
+    expect(read(subHref(state, "live_music", fromText))).toMatchObject({ intent: "bars", sub: "live_music" });
+  });
+
+  it("apagar un sub-filtro del texto lo suma a remove; uno de la URL lo saca de sub", () => {
+    expect(read(subHref(state, "cocktails", fromText))).toMatchObject({ intent: "bars", remove: "tag:classic_cocktails" });
+    expect(read(subHref(state, "cocktails", fromText)).sub).toBeUndefined();
+    const fromUrl: BarRef = { ...empty, intent: { id: "bars", fromText: false }, subs: [{ id: "wine", active: true, fromText: false, removeKeys: [] }] };
+    expect(read(subHref({ q: "", intent: "bars", sub: "wine,beer" }, "wine", fromUrl))).toEqual({ intent: "bars", sub: "beer" });
+  });
+
+  it("quitar un extra usa remove y deja la intención fija", () => {
+    expect(read(extraHref(state, { kind: "dish", id: "pizza", fromText: true }, fromText))).toMatchObject({ intent: "bars", remove: "dish:pizza" });
   });
 });

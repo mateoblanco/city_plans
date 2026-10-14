@@ -11,6 +11,8 @@ import styles from "./SearchPage.module.scss";
 type SearchPageProps = {
   query: string;
   remove: string | null;
+  intent: string | null;
+  sub: string | null;
   filters: string | null;
   near: string | null;
   debug: boolean;
@@ -36,11 +38,11 @@ function cardScores(response: SearchResponse): Map<string, CardDebug> | null {
   );
 }
 
-const SearchPage = async ({ query, remove, filters, near, debug }: SearchPageProps) => {
-  const state: SearchUrl = { q: query, remove, f: filters, near, debug };
+const SearchPage = async ({ query, remove, intent, sub, filters, near, debug }: SearchPageProps) => {
+  const state: SearchUrl = { q: query, remove, intent, sub, f: filters, near, debug };
   let response: SearchResponse;
   try {
-    response = await searchPlaces(query, { remove, filters, near, debug });
+    response = await searchPlaces(query, { remove, filters, near, intent, sub, debug });
   } catch (error) {
     console.error("Falló la búsqueda", error);
     return (
@@ -54,8 +56,9 @@ const SearchPage = async ({ query, remove, filters, near, debug }: SearchPagePro
     );
   }
 
-  // La barra es el único lugar donde se ven y cambian los filtros (los detecte el texto o no). Platos,
-  // preferencias, vibe y lo que no está en la barra siguen ordenando, pero se cambian editando el texto.
+  // La barra es el único lugar donde se ven y cambian los filtros (los detecte el texto o no): intención,
+  // sub-filtros y lo que pidió el texto sin botón propio (platos, tags). Preferencias, vibe, precio, exclusiones
+  // y día/hora siguen ordenando o filtrando, pero se cambian editando el texto.
   const { interpreted, relaxed, results, needsLocation } = response;
   const has = results.filter((result) => result.matchLevel === "has");
   const maybe = results.filter((result) => result.matchLevel === "maybe");
@@ -68,7 +71,7 @@ const SearchPage = async ({ query, remove, filters, near, debug }: SearchPagePro
   return (
     <MapSync places={mapPlaces} userLocation={response.near}>
     <div className={styles.results}>
-      <FilterBar state={state} chips={interpreted.chips} needsLocation={needsLocation} />
+      <FilterBar state={state} chips={interpreted.chips} bar={response.bar} needsLocation={needsLocation} />
 
       {notices.length > 0 && (
         <div className={styles.notices}>
@@ -96,7 +99,7 @@ const SearchPage = async ({ query, remove, filters, near, debug }: SearchPagePro
         </>
       )}
 
-      {response.debug && <DebugPanel debug={response.debug} chips={interpreted.chips} />}
+      {response.debug && <DebugPanel debug={response.debug} chips={interpreted.chips} bar={response.bar} />}
     </div>
     </MapSync>
   );

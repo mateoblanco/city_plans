@@ -2,7 +2,7 @@ import Form from "next/form";
 
 type SearchProps = {
   defaultValue?: string;
-  /** Filtros de la barra y ubicación: escribir otra cosa no los borra. */
+  /** Filtros de la barra y ubicación: escribir otra cosa no los borra. La intención sí: la elige el texto nuevo. */
   filters?: string | null;
   near?: string | null;
 };

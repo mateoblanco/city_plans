@@ -148,6 +148,51 @@
   gap: 6px;
 }
 
+// Intenciones: pestañas; la activa subrayada.
+.intentRow {
+  border-bottom: 1px solid #dddddd;
+  display: flex;
+  gap: 16px;
+}
+
+.intent {
+  border-bottom: 2px solid transparent;
+  color: #555555;
+  font-size: 15px;
+  padding: 6px 0;
+  text-decoration: none;
+
+  &[data-active] {
+    border-bottom-color: #000000;
+    color: #000000;
+    font-weight: 600;
+  }
+}
+
+// "Más filtros": el panel se abre debajo, sobre la lista.
+.more {
+  position: relative;
+
+  > summary {
+    list-style: none;
+
+    &::-webkit-details-marker {
+      display: none;
+    }
+  }
+
+  > div {
+    background-color: #ffffff;
+    border: 1px solid #dddddd;
+    left: 0;
+    padding: 8px;
+    position: absolute;
+    top: calc(100% + 4px);
+    white-space: nowrap;
+    z-index: 2;
+  }
+}
+
 .filter {
   background: none;
   border: 1px solid #bbbbbb;

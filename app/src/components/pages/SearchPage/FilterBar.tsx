@@ -1,18 +1,20 @@
 import Link from "next/link";
-import { CATEGORIES, label } from "@shared/tags.ts";
+import { INTENT_IDS, INTENTS } from "@shared/intents.ts";
 import { neighborhoodDisplayName } from "@shared/neighborhood-names.ts";
-import { publishedNeighborhoods, type Chip } from "@/server/search";
+import { publishedNeighborhoods, type Chip, type IntentBar } from "@/server/search";
 import { DIET_KEYS } from "@/server/search/interpretation";
 import { dietLabel } from "@/server/search/labels";
 import NearMe from "./NearMe";
 import NeighborhoodSelect from "./NeighborhoodSelect";
-import { addFilterHref, removeChipHref, searchHref, setNeighborhoodHref, type SearchUrl } from "./search-href";
+import { addFilterHref, extraHref, intentHref, removeChipHref, searchHref, setNeighborhoodHref, subHref, type SearchUrl } from "./search-href";
 import styles from "./SearchPage.module.scss";
 
 type FilterBarProps = {
   state: SearchUrl;
   /** Chips de la búsqueda: la barra es otra vista de ellos (activo = hay chip, venga del texto o de la barra). */
   chips: Chip[];
+  /** Intención, sub-filtros y extras del texto. */
+  bar: IntentBar;
   needsLocation: boolean;
 };
 
@@ -29,7 +31,7 @@ const Toggle = ({ state, chips, kind, id, text }: { state: SearchUrl; chips: Chi
   );
 };
 
-const FilterBar = async ({ state, chips, needsLocation }: FilterBarProps) => {
+const FilterBar = async ({ state, chips, bar, needsLocation }: FilterBarProps) => {
   const activeNeighborhood = chips.find((chip) => chip.kind === "neighborhood")?.id ?? "";
   // Los barrios con lugares publicados, más el activo aunque no tenga ninguno ("cafés en Pocitos"): si no, el
   // select mostraría "Todos" con un barrio aplicado.
@@ -42,6 +44,9 @@ const FilterBar = async ({ state, chips, needsLocation }: FilterBarProps) => {
     ...neighborhoods.map(({ id }) => [id, setNeighborhoodHref(state, id, chips)]),
   ]);
   const toggle = { state, chips };
+  const activeDiets = chips.filter((chip) => chip.kind === "diet").length;
+  const activeIntent = bar.intent?.id ?? null;
+  const showSubs = bar.subs.length > 0 || bar.extras.length > 0;
 
   return (
     <nav className={styles.filterBar} aria-label="Filtros">
@@ -49,17 +54,59 @@ const FilterBar = async ({ state, chips, needsLocation }: FilterBarProps) => {
         <Toggle {...toggle} kind="openAt" id="now" text="Abierto ahora" />
         <NeighborhoodSelect options={neighborhoods} value={activeNeighborhood} hrefs={hrefs} />
         <NearMe state={state} active={Boolean(state.near)} offHref={searchHref({ ...state, near: null })} auto={needsLocation && !state.near} />
+        <details className={styles.more}>
+          <summary className={styles.filter} data-active={activeDiets > 0 || undefined}>
+            Más filtros{activeDiets > 0 ? ` · ${activeDiets}` : ""}
+          </summary>
+          <div className={styles.filterRow}>
+            {DIET_KEYS.map((key) => (
+              <Toggle key={key} {...toggle} kind="diet" id={key} text={dietLabel(key, "es")} />
+            ))}
+          </div>
+        </details>
       </div>
-      <div className={styles.filterRow}>
-        {Object.keys(CATEGORIES).map((id) => (
-          <Toggle key={id} {...toggle} kind="category" id={id} text={label(id, "es")} />
-        ))}
+      <div className={styles.intentRow} role="group" aria-label="Qué querés hacer">
+        {INTENT_IDS.map((id) => {
+          const active = id === activeIntent;
+          return (
+            <Link
+              key={id}
+              className={styles.intent}
+              data-active={active || undefined}
+              aria-current={active ? "true" : undefined}
+              href={intentHref(state, active ? null : id, bar)}
+            >
+              {INTENTS[id].label.es}
+            </Link>
+          );
+        })}
       </div>
-      <div className={styles.filterRow}>
-        {DIET_KEYS.map((key) => (
-          <Toggle key={key} {...toggle} kind="diet" id={key} text={dietLabel(key, "es")} />
-        ))}
-      </div>
+      {showSubs && (
+        <div className={styles.filterRow} role="group" aria-label="Sub-filtros">
+          {bar.subs.map((sub) => (
+            <Link
+              key={sub.id}
+              className={styles.filter}
+              data-active={sub.active || undefined}
+              href={subHref(state, sub.id, bar)}
+              aria-label={sub.active ? `Quitar filtro: ${sub.label}` : undefined}
+            >
+              {sub.active ? `${sub.label} ×` : sub.label}
+            </Link>
+          ))}
+          {bar.extras.map((chip) => (
+            <Link
+              key={`${chip.kind}:${chip.id}`}
+              className={styles.filter}
+              data-active
+              href={extraHref(state, chip, bar)}
+              aria-label={`Quitar filtro: ${chip.label}`}
+            >
+              {chip.label} ×
+            </Link>
+          ))}
+        </div>
+      )}
     </nav>
   );
 };
