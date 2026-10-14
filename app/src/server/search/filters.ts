@@ -1,15 +1,13 @@
-import { CATEGORIES } from '@shared/tags.ts'
 import { NEIGHBORHOOD_NAMES } from '@shared/neighborhood-names.ts'
 import { roundCoord } from './coords'
 import { DIET_KEYS, type DietKey, type Interpretation } from './interpretation'
 
 /**
- * Filtros de la barra (`f=open:now,category:cafe,diet:vegan,neighborhood:CORDON`). No son un sistema aparte:
- * se aplican sobre la interpretación y salen como los mismos chips que lo escrito.
+ * Filtros de la barra (`f=open:now,diet:vegan,neighborhood:CORDON`). No son un sistema aparte: se aplican sobre
+ * la interpretación y salen como los mismos chips que lo escrito. Las categorías van por la intención (intents.ts).
  */
 export type SearchFilters = {
   openNow: boolean
-  categories: string[]
   diet: DietKey[]
   /** Uno solo: reemplaza los barrios del texto. */
   neighborhood: string | null
@@ -17,10 +15,10 @@ export type SearchFilters = {
 
 export type LatLng = { lat: number; lng: number }
 
-export const emptyFilters = (): SearchFilters => ({ openNow: false, categories: [], diet: [], neighborhood: null })
+export const emptyFilters = (): SearchFilters => ({ openNow: false, diet: [], neighborhood: null })
 
 export const hasFilters = (filters: SearchFilters) =>
-  filters.openNow || filters.categories.length > 0 || filters.diet.length > 0 || filters.neighborhood !== null
+  filters.openNow || filters.diet.length > 0 || filters.neighborhood !== null
 
 /** Parsea `f`; descarta lo que no está en los catálogos. */
 export function parseFilters(raw: string | null | undefined): SearchFilters {
@@ -31,7 +29,6 @@ export function parseFilters(raw: string | null | undefined): SearchFilters {
     const kind = part.slice(0, index).trim()
     const id = part.slice(index + 1).trim()
     if (kind === 'open' && id === 'now') filters.openNow = true
-    else if (kind === 'category' && id in CATEGORIES && !filters.categories.includes(id)) filters.categories.push(id)
     else if (kind === 'diet' && (DIET_KEYS as readonly string[]).includes(id) && !filters.diet.includes(id as DietKey)) filters.diet.push(id as DietKey)
     else if (kind === 'neighborhood' && id in NEIGHBORHOOD_NAMES) filters.neighborhood = id
   }
@@ -50,12 +47,11 @@ export function parseNear(raw: string | null | undefined): LatLng | null {
 }
 
 /**
- * Suma los filtros a lo interpretado. Categorías y dieta se suman (las categorías ya son "cualquiera de");
- * "abierto ahora" y el barrio reemplazan lo del texto: si se contradicen, gana el filtro.
+ * Suma los filtros a lo interpretado. La dieta se suma; "abierto ahora" y el barrio reemplazan lo del texto:
+ * si se contradicen, gana el filtro.
  */
 export function applyFilters(value: Interpretation, filters: SearchFilters): Interpretation {
   const must = { ...value.must, diet: { ...value.must.diet } }
-  must.categories = [...new Set([...must.categories, ...filters.categories])]
   for (const key of filters.diet) must.diet[key] = true
   if (filters.openNow) must.openAt = 'now'
   if (filters.neighborhood) must.neighborhoods = [filters.neighborhood]
@@ -66,7 +62,6 @@ export function applyFilters(value: Interpretation, filters: SearchFilters): Int
 export function filterChipKeys(filters: SearchFilters): Set<string> {
   return new Set([
     ...(filters.openNow ? ['openAt:now'] : []),
-    ...filters.categories.map((id) => `category:${id}`),
     ...filters.diet.map((key) => `diet:${key}`),
     ...(filters.neighborhood ? [`neighborhood:${filters.neighborhood}`] : []),
   ])

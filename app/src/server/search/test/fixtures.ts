@@ -1,5 +1,6 @@
 import type { CandidateFilters, CandidateRow, NameMatch, ScoreInputs } from '../candidates'
 import { openStatus } from '../hours'
+import { matchesGroup } from '../intents'
 import type { LlmInterpretation } from '../interpretation'
 import type { SearchCache } from '../cache'
 import type { PlacesStore } from '../store'
@@ -50,6 +51,7 @@ export function fakeStore(places: CandidateRow[], names: NameMatch[] = []) {
       (!filters.openAt || openStatus(place.hours, filters.openAt).state !== 'closed') &&
       !filters.excludeCategories.some((id) => place.categories.includes(id)) &&
       !filters.excludeTags.some((id) => place.tags.includes(id)) &&
+      filters.groups.every((group) => matchesGroup(group, place)) &&
       (!filters.near || (place.distance ?? Infinity) <= filters.near.radiusM) &&
       (!filters.dishes.length || filters.dishMode === 'none' ||
         (filters.dishMode === 'related'

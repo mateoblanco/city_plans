@@ -8,6 +8,7 @@ import { neonPlacesStore } from './store'
 export type { SearchDebug, SearchResponse, SearchResult } from './search'
 export type { Chip } from './chips'
 export type { LatLng } from './filters'
+export type { IntentBar } from './intents'
 
 /** Búsqueda de lugares publicados; se puede llamar directo desde un server component. */
 export function searchPlaces(query: string, options: SearchOptions = {}): Promise<SearchResponse> {

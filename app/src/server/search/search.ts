@@ -9,6 +9,7 @@ import { buildChips, type Chip } from './chips'
 import { interpretWithDictionary } from './dictionary'
 import { dishTargetFor, type DishTarget } from './dishes'
 import { applyFilters, filterChipKeys, hasFilters, parseFilters, parseNear, type LatLng } from './filters'
+import { buildBar, emptyBar, intentGroups, parseIntent, resolveIntent, type IntentBar } from './intents'
 import { buildRankings, fuse, type Fused, type MatchLevel, type Rankings } from './fuse'
 import { montevideoNow, openStatus, resolveOpenAt, type Moment, type OpenState } from './hours'
 import {
@@ -28,8 +29,16 @@ import { canRelax, noMatchNotice, relax, RELAX_ORDER, relaxNotice, type NoticeKi
 import type { PlacesStore } from './store'
 
 export type SearchDeps = { store: PlacesStore; cache: SearchCache }
-/** filters: `f` de la URL (barra de filtros); near: `near=lat,lng` (cerca mío). */
-export type SearchOptions = { remove?: string | null; filters?: string | null; near?: string | null; debug?: boolean; now?: Date }
+/** filters: `f` de la URL (barra de filtros); near: `near=lat,lng` (cerca mío); intent / sub: intención y sub-filtros. */
+export type SearchOptions = {
+  remove?: string | null
+  filters?: string | null
+  near?: string | null
+  intent?: string | null
+  sub?: string | null
+  debug?: boolean
+  now?: Date
+}
 
 export type SearchResult = {
   id: string
@@ -53,6 +62,8 @@ export type SearchDebug = {
   llmError: string | null
   /** Ids o barrios que mandó el modelo y no existen. */
   discarded: string[]
+  /** Votos de cada intención según el texto (la que más tiene, sin empate, se elige sola). */
+  intentVotes: Partial<Record<string, number>>
   original: Interpretation
   interpretation: Interpretation
   nameMatches: NameMatch[]
@@ -82,6 +93,8 @@ export type SearchDebug = {
 export type SearchResponse = {
   query: string
   interpreted: { chips: Chip[] }
+  /** Intención, sub-filtros y lo que pidió el texto sin botón propio: lo que muestra la barra. */
+  bar: IntentBar
   results: SearchResult[]
   relaxed: { what: NoticeKind; message: string }[]
   /** Con cero resultados: los chips de dieta o exclude que hay que sacar para que aparezcan lugares. */
@@ -118,7 +131,7 @@ export function semanticTextFor(normalized: string, value: Interpretation, remov
   if (value.vibe) return value.vibe
   if (!removed) return normalized
   const parts = [
-    ...value.must.categories.map((id) => label(id)),
+    ...[...value.must.categories, ...value.prefer.categories].map((id) => label(id)),
     ...value.dishes.map((dish) => dish.name),
     ...[...value.must.tags, ...value.prefer.tags].map((id) => label(id)),
     ...value.must.neighborhoods.map((id) => neighborhoodDisplayName(id) ?? id),
@@ -132,6 +145,7 @@ export function filtersFor(
   dishes: DishTarget[],
   dishMode: DishMode = 'dish',
   near: CandidateFilters['near'] = null,
+  groups: CandidateFilters['groups'] = [],
 ): CandidateFilters {
   return {
     categories: value.must.categories,
@@ -145,6 +159,7 @@ export function filtersFor(
     dishes,
     dishMode,
     near,
+    groups,
   }
 }
 
@@ -159,21 +174,22 @@ export function strongNameMatch(matches: NameMatch[], query: string, structured:
 }
 
 /**
- * Qué impide encontrar lugares cuando ya se relajó todo: la dieta, los exclude o la combinación.
- * Con los dos en cero por separado (o los dos con lugares pero ninguno con ambos) se marcan los dos.
+ * Qué impide encontrar lugares cuando ya se relajó todo: la dieta, los exclude, la intención o la combinación.
+ * Se marcan los que dan cero por separado; si ninguno da cero, es la combinación y se marcan todos los pedidos.
  */
 async function blockingConditions(store: SearchDeps['store'], filters: CandidateFilters) {
   const hasDiet = filters.diet.length > 0
   const hasExclude = filters.excludeCategories.length + filters.excludeTags.length > 0
-  const none: CandidateFilters = { ...filters, diet: [], excludeCategories: [], excludeTags: [], dishes: [], dishMode: 'none' }
-  const [withDiet, withExclude] = await Promise.all([
+  const hasIntent = filters.groups.length > 0
+  const none: CandidateFilters = { ...filters, diet: [], excludeCategories: [], excludeTags: [], dishes: [], dishMode: 'none', groups: [] }
+  const [withDiet, withExclude, withIntent] = await Promise.all([
     hasDiet ? store.count({ ...none, diet: filters.diet }) : null,
     hasExclude ? store.count({ ...none, excludeCategories: filters.excludeCategories, excludeTags: filters.excludeTags }) : null,
+    hasIntent ? store.count({ ...none, groups: filters.groups }) : null,
   ])
-  const dietBlocks = withDiet === 0
-  const excludeBlocks = withExclude === 0
-  if (dietBlocks || excludeBlocks) return { diet: dietBlocks, exclude: excludeBlocks }
-  return { diet: hasDiet, exclude: hasExclude }
+  const blocks = { diet: withDiet === 0, exclude: withExclude === 0, intent: withIntent === 0 }
+  if (blocks.diet || blocks.exclude || blocks.intent) return blocks
+  return { diet: hasDiet, exclude: hasExclude, intent: hasIntent }
 }
 
 const elapsed = (start: number) => Math.round(performance.now() - start)
@@ -194,10 +210,11 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   const removals = parseRemove(options.remove)
   const filters = parseFilters(options.filters)
   const near = parseNear(options.near)
+  const intentUrl = parseIntent(options.intent, options.sub)
   const textless = !normalized
 
-  if (textless && !hasFilters(filters) && !near) {
-    return { query: rawQuery, interpreted: { chips: [] }, results: [], relaxed: [], suggestedRemovals: [], needsLocation: false, near: null }
+  if (textless && !hasFilters(filters) && !near && !intentUrl.intent) {
+    return { query: rawQuery, interpreted: { chips: [] }, bar: emptyBar(), results: [], relaxed: [], suggestedRemovals: [], needsLocation: false, near: null }
   }
 
   // El embedding de la consulta arranca ya: si no hay vibe ni chips quitados es el que se usa.
@@ -270,9 +287,11 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     timings.nameRetry = elapsed(step)
   }
 
-  // Lo escrito (cacheado por q) menos los chips quitados, más la barra de filtros: un solo modelo.
+  // Lo escrito (cacheado por q) menos los chips quitados, con la intención (de la URL o del texto) y la barra
+  // de filtros: un solo modelo.
   const fromText = applyRemove(original, removals)
-  const interpretation = applyFilters(fromText, filters)
+  const resolved = resolveIntent(fromText, intentUrl, removals)
+  const interpretation = applyFilters(resolved.interpretation, filters)
   if (removals.some((removal) => removal.kind === 'name')) pinned = null
 
   // 2. Embedding del texto semántico; si falla, se sigue sin el ranking semántico.
@@ -305,7 +324,13 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   // 3. Candidatos, relajando de a un paso mientras no haya ninguno.
   const relaxedSteps: RelaxStep[] = []
   const attempts: SearchDebug['attempts'] = []
-  const initial: SearchState = { interpretation, dishMode: 'dish', nearRadius: near ? SEARCH_CONFIG.near.radii[0] : null }
+  const initial: SearchState = {
+    interpretation,
+    dishMode: 'dish',
+    nearRadius: near ? SEARCH_CONFIG.near.radii[0] : null,
+    intent: resolved.intent,
+    subs: resolved.subs.map((sub) => sub.id),
+  }
   let state = initial
   const filtersOf = (value: SearchState) =>
     filtersFor(
@@ -314,6 +339,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       dishes,
       value.dishMode,
       near && value.nearRadius !== null ? { ...near, radiusM: value.nearRadius } : null,
+      intentGroups(value.intent, value.subs),
     )
   const fetchCandidates = async () => {
     const attemptStart = performance.now()
@@ -396,14 +422,20 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     const blocking = await blockingConditions(deps.store, filtersOf(state))
     const chips = chipsOf(buildChips(interpretation, today))
     suggestedRemovals = chips.filter((chip) => (blocking.diet && chip.kind === 'diet') || (blocking.exclude && chip.kind === 'exclude'))
-    relaxed.push(noMatchNotice(interpretation, blocking))
+    relaxed.push(noMatchNotice(interpretation, blocking, state.intent))
     timings.diagnose = elapsed(step)
   }
   timings.total = elapsed(started)
 
+  // Extras de la barra: lo que pidió el texto y no quedó representado por la intención ni sus sub-filtros.
+  const chips = chipsOf(buildChips(interpretation, today, near !== null))
+  const extras = chips.filter(
+    (chip) => chip.fromText && (chip.kind === 'category' || chip.kind === 'tag' || (chip.kind === 'dish' && !resolved.absorbedDishes.includes(chip.id))),
+  )
   const response: SearchResponse = {
     query: rawQuery,
-    interpreted: { chips: chipsOf(buildChips(interpretation, today, near !== null)) },
+    interpreted: { chips },
+    bar: buildBar(resolved, extras),
     results,
     relaxed,
     suggestedRemovals,
@@ -424,6 +456,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       model,
       llmError,
       discarded,
+      intentVotes: resolved.votes,
       original,
       interpretation,
       nameMatches,

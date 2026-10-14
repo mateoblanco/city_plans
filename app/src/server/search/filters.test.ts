@@ -4,16 +4,15 @@ import { emptyInterpretation } from './interpretation'
 import { distanceLabel } from './labels'
 
 describe('parseFilters', () => {
-  it('lee open, category, diet y neighborhood y descarta lo que no está en los catálogos', () => {
-    expect(parseFilters('open:now,category:cafe,category:bar,diet:vegan,neighborhood:CORDON')).toEqual({
+  it('lee open, diet y neighborhood y descarta lo que no está en los catálogos', () => {
+    expect(parseFilters('open:now,diet:vegan,neighborhood:CORDON')).toEqual({
       openNow: true,
-      categories: ['cafe', 'bar'],
       diet: ['vegan'],
       neighborhood: 'CORDON',
     })
-    expect(parseFilters('open:later,category:spaceship,diet:keto,neighborhood:NARNIA,tag:terrace,basura')).toEqual({
+    // Las categorías ya no son filtros de la barra: van por la intención.
+    expect(parseFilters('open:later,category:cafe,diet:keto,neighborhood:NARNIA,tag:terrace,basura')).toEqual({
       openNow: false,
-      categories: [],
       diet: [],
       neighborhood: null,
     })
@@ -21,9 +20,8 @@ describe('parseFilters', () => {
   })
 
   it('las claves de chip de los filtros coinciden con las de buildChips', () => {
-    expect([...filterChipKeys(parseFilters('open:now,category:cafe,diet:glutenFree,neighborhood:POCITOS'))]).toEqual([
+    expect([...filterChipKeys(parseFilters('open:now,diet:glutenFree,neighborhood:POCITOS'))]).toEqual([
       'openAt:now',
-      'category:cafe',
       'diet:glutenFree',
       'neighborhood:POCITOS',
     ])
@@ -52,9 +50,9 @@ describe('applyFilters', () => {
     return value
   }
 
-  it('suma categorías y dieta a lo interpretado del texto', () => {
-    const value = applyFilters(fromText(), parseFilters('category:bar,diet:vegan'))
-    expect(value.must.categories).toEqual(['pizzeria', 'bar'])
+  it('suma la dieta a lo interpretado del texto', () => {
+    const value = applyFilters(fromText(), parseFilters('diet:vegan'))
+    expect(value.must.categories).toEqual(['pizzeria'])
     expect(value.must.diet).toEqual({ vegetarian: true, vegan: true })
     expect(value.must.neighborhoods).toEqual(['POCITOS'])
   })
@@ -67,7 +65,7 @@ describe('applyFilters', () => {
 
   it('no modifica la interpretación original (la cacheada por q)', () => {
     const original = fromText()
-    applyFilters(original, parseFilters('diet:vegan,category:bar'))
+    applyFilters(original, parseFilters('diet:vegan,open:now'))
     expect(original.must.diet).toEqual({ vegetarian: true })
     expect(original.must.categories).toEqual(['pizzeria'])
   })

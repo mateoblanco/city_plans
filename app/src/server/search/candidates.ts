@@ -3,6 +3,7 @@ import { SEARCH_CONFIG } from './config'
 import type { DishTarget } from './dishes'
 import type { Hours, Moment } from './hours'
 import type { DietKey, Price } from './interpretation'
+import type { IntentMatch } from '@shared/intents.ts'
 
 /** Filtros duros: lo que un lugar tiene que cumplir para ser candidato. */
 export type CandidateFilters = {
@@ -23,6 +24,8 @@ export type CandidateFilters = {
   dishMode: DishMode
   /** Cerca mío: sólo lugares a menos de radiusM metros. */
   near: { lat: number; lng: number; radiusM: number } | null
+  /** Intención y sub-filtros: cada grupo es "cualquiera de" (categorías, tags, featured); entre grupos, "y". */
+  groups: IntentMatch[]
 }
 
 export type DishMode = 'dish' | 'related' | 'none'
@@ -101,6 +104,14 @@ export function openAtSql(moment: Moment): SQL {
   ))`
 }
 
+function groupSql(group: IntentMatch): SQL {
+  const options: SQL[] = []
+  if (group.categories?.length) options.push(sql`categories && ${textArray(group.categories)}`)
+  if (group.tags?.length) options.push(sql`tags && ${textArray(group.tags)}`)
+  if (group.featured) options.push(sql`featured`)
+  return options.length ? sql`(${sql.join(options, sql` or `)})` : sql`false`
+}
+
 const pointSql = ({ lat, lng }: { lat: number; lng: number }) => sql`ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)::geography`
 
 export function filterConditions(filters: CandidateFilters): SQL[] {
@@ -113,6 +124,7 @@ export function filterConditions(filters: CandidateFilters): SQL[] {
   if (filters.price.length) conditions.push(sql`(price = 'unknown' or price = any(${textArray(filters.price)}))`)
   if (filters.openAt) conditions.push(openAtSql(filters.openAt))
   if (filters.near) conditions.push(sql`ST_DWithin(location, ${pointSql(filters.near)}, ${filters.near.radiusM})`)
+  for (const group of filters.groups) conditions.push(groupSql(group))
   if (filters.excludeCategories.length) conditions.push(sql`not (categories && ${textArray(filters.excludeCategories)})`)
   if (filters.excludeTags.length) conditions.push(sql`not (tags && ${textArray(filters.excludeTags)})`)
   if (filters.dishes.length && filters.dishMode === 'related') {
