@@ -92,4 +92,16 @@ describe('SQL de candidatos', () => {
     expect(query.params).toContain('milanesa | napolitana')
     expect(query.params).toContain('abc')
   })
+
+  it('manda el embedding una sola vez y redondeado a 5 decimales', () => {
+    const query = dialect.sqlToQuery(
+      candidatesQuery(
+        { categories: [], tags: [], diet: [], neighborhoods: [], price: [], openAt: null, excludeCategories: [], excludeTags: [], dishes: [], dishMode: 'dish' },
+        { embedding: [0.0123456789, -0.98765432, 1e-7], keywords: [], name: null, origins: [], pinnedId: null },
+      ),
+    )
+    const vectors = query.params.filter((param) => typeof param === 'string' && param.startsWith('['))
+    expect(vectors).toEqual(['[0.01235,-0.98765,0]'])
+    expect(query.sql.match(/select v from query_vector/g)).toHaveLength(2)
+  })
 })

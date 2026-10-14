@@ -1,11 +1,28 @@
 import { label } from "@shared/tags.ts";
 import type { SearchResult } from "@/server/search";
 
+/** Sólo con ?debug=1: para ver dónde conviene cortar. percent es score / score del primer resultado. */
+export type CardDebug = { score: number; baseScore: number; multiplier: number; percent: number | null; pinned: boolean };
+
 type PlaceCardProps = {
   place: SearchResult;
+  debug?: CardDebug;
 };
 
-const PlaceCard = ({ place }: PlaceCardProps) => {
+const number = (value: number) => value.toLocaleString("es-UY", { maximumSignificantDigits: 3 });
+
+const debugLine = ({ score, baseScore, multiplier, percent, pinned }: CardDebug) =>
+  [
+    `puntaje ${number(score)}`,
+    `relevancia ${number(baseScore)}`,
+    `×${multiplier.toLocaleString("es-UY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    percent === null ? null : `${Math.round(percent * 100)} %`,
+    pinned ? "fijado" : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+const PlaceCard = ({ place, debug }: PlaceCardProps) => {
   // Los motivos ya incluyen el barrio y el horario, que acá tienen su propia línea.
   const reasons = place.reasons.filter((reason) => reason !== place.neighborhood && reason !== place.openStatus.label);
 
@@ -23,6 +40,7 @@ const PlaceCard = ({ place }: PlaceCardProps) => {
           ))}
         </ul>
       )}
+      {debug && <p style={{ fontFamily: "var(--font-geist-mono), monospace", fontSize: 12, color: "#555555" }}>{debugLine(debug)}</p>}
     </article>
   );
 };

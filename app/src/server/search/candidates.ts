@@ -130,10 +130,17 @@ export function filterConditions(filters: CandidateFilters): SQL[] {
   return conditions
 }
 
+/** 5 decimales: el error en el coseno es del orden de 1e-5, despreciable para ordenar. */
+export function vectorLiteral(embedding: number[]): string {
+  return `[${embedding.map((value) => Number(value.toFixed(5))).join(',')}]`
+}
+
 export function candidatesQuery(filters: CandidateFilters, scores: ScoreInputs): SQL {
   const conditions = filterConditions(filters)
   const matches = conditions.length ? sql.join(conditions, sql` and `) : sql`true`
-  const vector = scores.embedding ? sql`${JSON.stringify(scores.embedding)}::vector` : null
+  // El vector viaja una sola vez (CTE) y redondeado: así el request baja de ~58 KB a ~13 KB.
+  const vector = scores.embedding ? sql`(select v from query_vector)` : null
+  const withVector = scores.embedding ? sql`with query_vector as (select ${vectorLiteral(scores.embedding)}::vector as v) ` : sql``
   const tsQuery = scores.keywords.length ? scores.keywords.join(' | ') : null
   const nameExpression = sql`f_unaccent(lower(name))`
 
@@ -154,7 +161,7 @@ export function candidatesQuery(filters: CandidateFilters, scores: ScoreInputs):
   const pinned = scores.pinnedId ? sql` or id = ${scores.pinnedId}` : sql``
 
   return sql`
-    select id, slug, name, neighborhood_id as "neighborhoodId", categories, tags, signature, dishes,
+    ${withVector}select id, slug, name, neighborhood_id as "neighborhoodId", categories, tags, signature, dishes,
       json_build_object('vegan', diet_vegan, 'vegetarian', diet_vegetarian, 'glutenFree', diet_gluten_free) as diet,
       price, hours, prominence, featured,
       ST_Y(location::geometry) as lat, ST_X(location::geometry) as lng,

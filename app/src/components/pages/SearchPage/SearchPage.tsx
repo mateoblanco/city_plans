@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { CardDebug } from "@/components/PlaceCard/PlaceCard";
 import { searchPlaces, type Chip, type SearchResponse, type SearchResult } from "@/server/search";
 import DebugPanel from "./DebugPanel";
 import MapSync from "./MapSync";
@@ -16,13 +17,25 @@ type SearchPageProps = {
   debug: boolean;
 };
 
-const Places = ({ places }: { places: SearchResult[] }) => (
+const Places = ({ places, scores }: { places: SearchResult[]; scores: Map<string, CardDebug> | null }) => (
   <div className={styles.grid}>
     {places.map((place) => (
-      <ResultCard key={place.id} place={place} />
+      <ResultCard key={place.id} place={place} debug={scores?.get(place.id)} />
     ))}
   </div>
 );
+
+/** Con debug: puntajes de cada resultado y su porcentaje respecto del primero que se muestra. */
+function cardScores(response: SearchResponse): Map<string, CardDebug> | null {
+  if (!response.debug) return null;
+  const top = response.debug.results.find((result) => result.id === response.results[0]?.id)?.score ?? 0;
+  return new Map(
+    response.debug.results.map(({ id, score, baseScore, multiplier, pinned }) => [
+      id,
+      { score, baseScore, multiplier, pinned, percent: top > 0 ? score / top : null },
+    ]),
+  );
+}
 
 const SearchPage = async ({ query, remove, debug }: SearchPageProps) => {
   let response: SearchResponse;
@@ -46,6 +59,7 @@ const SearchPage = async ({ query, remove, debug }: SearchPageProps) => {
   const has = results.filter((result) => result.matchLevel === "has");
   const maybe = results.filter((result) => result.matchLevel === "maybe");
   const dishes = interpreted.chips.filter((chip) => chip.kind === "dish").map((chip) => chip.label);
+  const scores = cardScores(response);
   const notices = [...relaxed.map((notice) => notice.message), ...(needsLocation ? ["Pronto vas a poder buscar cerca tuyo."] : [])];
 
   const mapPlaces = results.map(({ id, name, lat, lng }) => ({ id, name, lat, lng }));
@@ -92,11 +106,11 @@ const SearchPage = async ({ query, remove, debug }: SearchPageProps) => {
         </div>
       ) : (
         <>
-          {has.length > 0 && <Places places={has} />}
+          {has.length > 0 && <Places places={has} scores={scores} />}
           {maybe.length > 0 && (
             <section className={styles.results}>
               <h2 className={styles.sectionTitle}>Puede que tengan {dishes.length ? dishes.join(" o ") : "lo que buscás"}</h2>
-              <Places places={maybe} />
+              <Places places={maybe} scores={scores} />
             </section>
           )}
         </>
