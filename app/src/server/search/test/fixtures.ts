@@ -94,18 +94,19 @@ export function llmOutput(overrides: Partial<LlmInterpretation> = {}): LlmInterp
   }
 }
 
-export function fakeCache(output: LlmInterpretation | Error = llmOutput()) {
+/** computedAt anterior a la búsqueda simula un acierto de cache. */
+export function fakeCache(output: LlmInterpretation | Error = llmOutput(), { cost = 0.001, computedAt }: { cost?: number | null; computedAt?: number } = {}) {
   const interpreted: string[] = []
   const embedded: string[] = []
   const cache: SearchCache = {
     async interpret(normalized) {
       interpreted.push(normalized)
       if (output instanceof Error) throw output
-      return { data: output, model: 'test-model' }
+      return { data: output, model: 'test-model', cost, computedAt: computedAt ?? Date.now() }
     },
     async embed(text) {
       embedded.push(text)
-      return [0.1, 0.2]
+      return { embedding: [0.1, 0.2], model: 'test-embedding', cost: cost === null ? null : cost / 100, computedAt: computedAt ?? Date.now() }
     },
   }
   return { cache, interpreted, embedded }

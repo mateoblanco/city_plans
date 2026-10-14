@@ -1,5 +1,6 @@
 import { embed } from 'ai'
 import { SEARCH_CONFIG } from './config'
+import { gatewayCost } from './cost'
 import { interpretWithLlm, type LlmResult } from './llm'
 
 /**
@@ -8,12 +9,16 @@ import { interpretWithLlm, type LlmResult } from './llm'
  */
 export type SearchCache = {
   interpret(normalized: string): Promise<LlmResult>
-  embed(text: string): Promise<number[]>
+  embed(text: string): Promise<EmbeddingResult>
 }
 
-export async function embedQuery(text: string): Promise<number[]> {
-  const { embedding } = await embed({ model: SEARCH_CONFIG.embeddingModel, value: text })
-  return embedding
+/** cost y computedAt como en LlmResult. */
+export type EmbeddingResult = { embedding: number[]; model: string; cost: number | null; computedAt: number }
+
+export async function embedQuery(text: string): Promise<EmbeddingResult> {
+  const model = SEARCH_CONFIG.embeddingModel
+  const { embedding, providerMetadata } = await embed({ model, value: text })
+  return { embedding, model, cost: gatewayCost(providerMetadata), computedAt: Date.now() }
 }
 
 export const uncached: SearchCache = { interpret: interpretWithLlm, embed: embedQuery }

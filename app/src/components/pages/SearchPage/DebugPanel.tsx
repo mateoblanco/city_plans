@@ -1,4 +1,5 @@
 import type { SearchDebug } from "@/server/search";
+import { formatUsd } from "@/server/search/cost";
 import styles from "./SearchPage.module.scss";
 
 type DebugPanelProps = {
@@ -17,7 +18,15 @@ const DebugPanel = ({ debug }: DebugPanelProps) => {
 
   return (
     <details className={styles.debug}>
-      <summary>Debug</summary>
+      <summary>Debug · {formatUsd(debug.cost.totalUsd)}</summary>
+      <p>
+        Costo:{" "}
+        {debug.cost.calls.length === 0
+          ? "sin llamadas pagas"
+          : debug.cost.calls
+              .map((call) => `${call.step} (${call.model}) ${call.cached ? "cache" : call.usd === null ? "sin dato" : formatUsd(call.usd)}`)
+              .join(" · ")}
+      </p>
       <Json title="Interpretación" value={{ source, model, llmError, discarded, original, interpretation, nameMatches, semanticText, keywords }} />
       <Json title="Intentos" value={debug.attempts} />
       <Json title="Rankings" value={debug.rankings} />

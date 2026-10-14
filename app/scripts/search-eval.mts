@@ -3,6 +3,7 @@
 import { neon } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
 import { memoryCache } from "../src/server/search/cache";
+import { formatUsd } from "../src/server/search/cost";
 import { runSearch } from "../src/server/search/search";
 import { neonPlacesStore } from "../src/server/search/store";
 
@@ -40,6 +41,8 @@ for (const query of queries.length ? queries : QUERIES) {
   const info = response.debug!;
   console.log(`\n━━ ${query}  [${info.source}${info.model ? ` · ${info.model}` : ""} · ${info.timings.total} ms]`);
   if (info.llmError) console.log(`  error del modelo: ${info.llmError}`);
+  const calls = info.cost.calls.map((call) => `${call.step} ${call.cached ? "cache" : call.usd === null ? "?" : formatUsd(call.usd)}`);
+  console.log(`  costo: ${formatUsd(info.cost.totalUsd)}${calls.length ? ` (${calls.join(", ")})` : ""}`);
   console.log(`  interpretación: ${compact(info.interpretation)}`);
   if (info.discarded.length) console.log(`  descartado: ${info.discarded.join(", ")}`);
   console.log(`  chips: ${response.interpreted.chips.map((chip) => `${chip.kind}:${chip.label}`).join(" | ") || "—"}`);

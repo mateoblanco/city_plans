@@ -2,6 +2,7 @@ import { generateText, Output } from 'ai'
 import { ALL_GROUPS, type TagGroup } from '@shared/tags.ts'
 import { NEIGHBORHOOD_NAMES } from '@shared/neighborhood-names.ts'
 import { SEARCH_CONFIG } from './config'
+import { gatewayCost } from './cost'
 import { LlmInterpretationSchema, type LlmInterpretation } from './interpretation'
 
 function catalog() {
@@ -51,7 +52,8 @@ ${catalog()}
 # Barrios
 ${Object.values(NEIGHBORHOOD_NAMES).join(', ')}`
 
-export type LlmResult = { data: LlmInterpretation; model: string }
+/** cost: lo que cobró el Gateway; computedAt: cuándo se llamó al modelo (si es anterior a la búsqueda, vino de la cache). */
+export type LlmResult = { data: LlmInterpretation; model: string; cost: number | null; computedAt: number }
 
 export async function interpretWithLlm(normalized: string): Promise<LlmResult> {
   const model = SEARCH_CONFIG.llm.model
@@ -63,5 +65,5 @@ export async function interpretWithLlm(normalized: string): Promise<LlmResult> {
     providerOptions: model.startsWith('anthropic/') ? { anthropic: { structuredOutputMode: 'outputFormat' } } : {},
     abortSignal: AbortSignal.timeout(SEARCH_CONFIG.llm.timeoutMs),
   })
-  return { data: result.output, model }
+  return { data: result.output, model, cost: gatewayCost(result.providerMetadata), computedAt: Date.now() }
 }

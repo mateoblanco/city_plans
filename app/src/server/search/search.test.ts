@@ -156,6 +156,24 @@ describe('runSearch', () => {
     expect(response.results.find((result) => result.id === 'cafe-rodo')?.reasons[0]).toBe('Recommended')
   })
 
+  it('debug suma lo que cobró el Gateway; lo que vino de la cache cuenta 0', async () => {
+    const { store } = fakeStore(places)
+    const fresh = await runSearch('algo rico para hoy', { store, cache: fakeCache(llmOutput(), { cost: 0.001 }).cache }, { now, debug: true })
+    expect(fresh.debug?.cost.calls).toEqual([
+      { step: 'embed', model: 'test-embedding', usd: 0.00001, cached: false },
+      { step: 'interpret', model: 'test-model', usd: 0.001, cached: false },
+    ])
+    expect(fresh.debug?.cost.totalUsd).toBeCloseTo(0.00101)
+
+    const cached = await runSearch('algo rico para hoy', { store, cache: fakeCache(llmOutput(), { cost: 0.001, computedAt: 0 }).cache }, { now, debug: true })
+    expect(cached.debug?.cost.calls.every((call) => call.cached)).toBe(true)
+    expect(cached.debug?.cost.totalUsd).toBe(0)
+
+    // El atajo no llama al modelo: sólo el embedding.
+    const shortcut = await runSearch('cafés en cordón', { store, cache: fakeCache().cache }, { now, debug: true })
+    expect(shortcut.debug?.cost.calls.map((call) => call.step)).toEqual(['embed'])
+  })
+
   it('usa el modelo cuando el atajo no alcanza y valida lo que devuelve', async () => {
     const { store } = fakeStore(places)
     const { cache, interpreted } = fakeCache(llmOutput({ exclude: { categories: ['pizzeria'], tags: ['pizza', 'no_existe'] } }))

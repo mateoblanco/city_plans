@@ -2,8 +2,9 @@ import { findDef, label, normalize } from '@shared/tags.ts'
 import { neighborhoodDisplayName } from '@shared/neighborhood-names.ts'
 import centroids from '@shared/neighborhood-centroids.json'
 import { SEARCH_CONFIG } from './config'
-import type { SearchCache } from './cache'
+import type { EmbeddingResult, SearchCache } from './cache'
 import type { CandidateFilters, DishMode, NameMatch, ScoreInputs } from './candidates'
+import { summarizeCost, type CostEntry, type SearchCost } from './cost'
 import { buildChips, type Chip } from './chips'
 import { interpretWithDictionary } from './dictionary'
 import { dishTargetFor, type DishTarget } from './dishes'
@@ -69,6 +70,8 @@ export type SearchDebug = {
     pinned: boolean
   }[]
   timings: Record<string, number>
+  /** Lo que costó esta búsqueda en el AI Gateway (lo que vino de la cache cuenta 0). */
+  cost: SearchCost
 }
 
 export type SearchResponse = {
@@ -164,6 +167,12 @@ const errorMessage = (error: unknown) => (error instanceof Error ? error.message
 
 export async function runSearch(rawQuery: string, deps: SearchDeps, options: SearchOptions = {}): Promise<SearchResponse> {
   const started = performance.now()
+  const startedAt = Date.now()
+  const costs: CostEntry[] = []
+  const priced = <T extends { model: string; cost: number | null; computedAt: number }>(step: CostEntry['step'], result: T) => {
+    costs.push({ step, model: result.model, usd: result.cost, cached: result.computedAt < startedAt })
+    return result
+  }
   const timings: Record<string, number> = {}
   const now = options.now ?? new Date()
   const today = montevideoNow(now).day
@@ -176,7 +185,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
 
   // El embedding de la consulta arranca ya: si no hay vibe ni chips quitados es el que se usa.
   const removed = removals.length > 0
-  const queryEmbedding = removed ? null : deps.cache.embed(normalized).catch(() => null)
+  const queryEmbedding = removed ? null : deps.cache.embed(normalized).then((result) => priced('embed', result)).catch(() => null)
 
   // 1. Interpretación: diccionario, nombre fuerte o modelo.
   let step = performance.now()
@@ -199,7 +208,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     original = { ...emptyInterpretation(), nameQuery: normalized }
   } else {
     try {
-      const llm = await deps.cache.interpret(normalized)
+      const llm = priced('interpret', await deps.cache.interpret(normalized))
       const validation = validateInterpretation(llm.data)
       source = 'llm'
       original = validation.interpretation
@@ -209,6 +218,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       // Sin modelo, la búsqueda sigue con nombre, palabras y embedding de la consulta.
       source = 'fallback'
       llmError = errorMessage(error)
+      costs.push({ step: 'interpret', model: SEARCH_CONFIG.llm.model, usd: null, cached: false })
       original = { ...emptyInterpretation(), nameQuery: normalized, needsLocation: mentionsNearMe(normalized), wantsBest: mentionsBest(normalized) }
     }
   }
@@ -230,10 +240,11 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   // 2. Embedding del texto semántico; si falla, se sigue sin el ranking semántico.
   step = performance.now()
   const semanticText = semanticTextFor(normalized, interpretation, removed)
-  const embedding =
+  const embedded: EmbeddingResult | null =
     semanticText === null ? null
     : semanticText === normalized && queryEmbedding ? await queryEmbedding
-    : await deps.cache.embed(semanticText).catch(() => null)
+    : await deps.cache.embed(semanticText).then((result) => priced('embed', result)).catch(() => null)
+  const embedding = embedded?.embedding ?? null
   timings.embed = elapsed(step)
 
   const dishes = interpretation.dishes.map(dishTargetFor)
@@ -344,6 +355,8 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     needsLocation: interpretation.needsLocation,
   }
   if (options.debug) {
+    // El embedding de la consulta se pagó aunque al final se usara el de la vibe.
+    await queryEmbedding
     const depth = SEARCH_CONFIG.debugDepth
     response.debug = {
       source,
@@ -377,6 +390,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
         pinned: item.pinned,
       })),
       timings,
+      cost: summarizeCost(costs),
     }
   }
   return response
