@@ -94,6 +94,12 @@ describe('resolveIntent', () => {
     expect(resolveIntent(read('pizzería'), none, []).interpretation.must.categories).toEqual(['pizzeria'])
   })
 
+  it('una preferencia que es un sub-filtro lo activa y sigue siendo preferencia', () => {
+    const resolved = resolveIntent(read('cafés para trabajar'), none, [])
+    expect(resolved.subs).toEqual([{ id: 'work', fromUrl: false, fromText: true, removeKeys: ['prefer:work'] }])
+    expect(resolved.interpretation.prefer.tags).toContain('work')
+  })
+
   it('un plato que es un sub-filtro lo activa y sigue siendo plato', () => {
     const resolved = resolveIntent(read('helado'), none, [])
     expect(resolved.subs.map((sub) => [sub.id, sub.removeKeys])).toEqual([['ice_cream', ['dish:helado']]])

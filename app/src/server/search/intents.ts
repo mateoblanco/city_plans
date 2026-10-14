@@ -124,6 +124,12 @@ export function resolveIntent(fromText: Interpretation, url: IntentUrl, removals
     }
     return !sub
   })
+  // Una preferencia que es un sub-filtro ("cafés para trabajar" → Para trabajar) también lo activa: la barra no
+  // puede mostrarlo apagado si el texto lo pidió. Sigue como preferencia; quitar el sub-filtro la quita.
+  for (const id of fromText.prefer.tags) {
+    const sub = subOf([], [id])
+    if (sub) fromTextSub(sub, `prefer:${id}`)
+  }
   const absorbedDishes = fromText.dishes.flatMap((dish) => {
     const sub = subOf(dish.relatedCategories, dish.relatedTags)
     if (!sub) return []
