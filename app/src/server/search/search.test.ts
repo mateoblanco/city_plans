@@ -296,8 +296,11 @@ describe('runSearch', () => {
     expect(calls[2].scores.origins).toHaveLength(1)
     // Las categorías no se relajan antes del último recurso.
     expect(calls[3].filters.categories).toEqual(['cafe'])
-    expect(response.relaxed.map((step) => step.what)).toEqual(['mustTags', 'neighborhood', 'openAt'])
-    expect(response.relaxed[0].message).toBe('No todos los lugares tienen música en vivo: pasó a ser una preferencia.')
+    // Que la música en vivo pase a ser preferencia no se avisa; el barrio y el horario sí, en lenguaje de usuario.
+    expect(response.relaxed).toEqual([
+      { what: 'neighborhood', message: 'No encontramos en Pocitos; estos están cerca.' },
+      { what: 'openAt', message: 'No hay nada abierto el lunes a las 23:00; te mostramos también los cerrados.' },
+    ])
     expect(response.results.map((result) => result.id).sort()).toEqual(['cafe-cordon', 'cafe-rodo'])
   })
 
@@ -309,13 +312,23 @@ describe('runSearch', () => {
     expect(response.results.map((result) => result.id)).toEqual(['cafe-rodo'])
   })
 
-  it('el aviso sólo nombra lo que de verdad no se cumple', async () => {
+  it('los avisos en inglés: plato con relacionados y barrio', async () => {
+    const withPeruvian = [...places, row({ id: 'peruano', categories: ['restaurant'], tags: ['peruvian'] })]
+    const { store } = fakeStore(withPeruvian)
+    const { cache } = fakeCache(llmOutput({ language: 'en', dishes: [{ name: 'ceviche', related: ['peruvian'] }] }))
+    const response = await runSearch('ceviche please', { store, cache }, { now })
+    expect(response.relaxed.map((step) => step.message)).toEqual(['No ceviche, but these have Peruvian cuisine.'])
+    const nearby = await runSearch('cafe in pocitos', { store: fakeStore(places).store, cache: fakeCache().cache }, { now })
+    expect(nearby.relaxed.map((step) => step.message)).toEqual(['Nothing in Pocitos; these are nearby.'])
+  })
+
+  it('un tag que pasa a preferencia no genera aviso', async () => {
     const withBoth = [...places, row({ id: 'cafe-terraza', categories: ['cafe'], tags: ['terrace'], neighborhoodId: 'POCITOS' })]
     // Nadie tiene terraza y música; el único con terraza está en Pocitos: sólo se avisa de la música.
     const { store } = fakeStore(withBoth)
     const response = await runSearch('cafe con terraza y musica en vivo en pocitos', { store, cache: fakeCache().cache }, { now })
     expect(response.results.map((result) => result.id)).toEqual(['cafe-terraza'])
-    expect(response.relaxed).toEqual([{ what: 'mustTags', message: 'No todos los lugares tienen música en vivo: pasó a ser una preferencia.' }])
+    expect(response.relaxed).toEqual([])
   })
 
   it('un plato que nadie tiene se busca por sus tags relacionados, con aviso', async () => {
@@ -327,7 +340,7 @@ describe('runSearch', () => {
     expect(calls.map((call) => call.filters.dishMode)).toEqual(['dish', 'related'])
     expect(response.results.map((result) => [result.id, result.matchLevel])).toEqual([['peruano', 'maybe']])
     expect(response.results[0].reasons[0]).toBe('Cocina peruana')
-    expect(response.relaxed).toEqual([{ what: 'dishRelated', message: 'No encontramos ceviche; estos tienen cocina peruana.' }])
+    expect(response.relaxed).toEqual([{ what: 'dishRelated', message: 'No hay ceviche, pero estos tienen cocina peruana.' }])
   })
 
   it('sin plato ni tags relacionados muestra resultados por similitud', async () => {
@@ -338,11 +351,14 @@ describe('runSearch', () => {
     expect(calls[2].filters.categories).toEqual([])
     expect(response.results).toHaveLength(places.length)
     expect(response.relaxed.map((step) => step.what)).toEqual(['dishRelated', 'similarity'])
-    expect(response.relaxed[0].message).toBe('No encontramos ceviche.')
+    expect(response.relaxed.map((step) => step.message)).toEqual([
+      'No hay ceviche; estos son los más parecidos.',
+      'No encontramos exactamente lo que buscás; estos son los más parecidos.',
+    ])
     expect(response.suggestedRemovals).toEqual([])
   })
 
-  it('nunca relaja la dieta ni los exclude; con cero dice qué bloquea y qué chips sacar', async () => {
+  it('nunca relaja la dieta ni los exclude; con cero dice qué bloquea y qué filtro sacar', async () => {
     const { store, calls } = fakeStore(places)
     const { cache } = fakeCache(
       llmOutput({
@@ -356,7 +372,9 @@ describe('runSearch', () => {
       expect(call.filters.diet).toEqual(['vegan', 'glutenFree'])
       expect(call.filters.excludeCategories).toEqual(['cafe'])
     }
-    expect(response.relaxed).toEqual([{ what: 'noMatch', message: 'No encontramos lugares con opciones veganas y sin TACC confirmadas.' }])
+    expect(response.relaxed).toEqual([
+      { what: 'noMatch', message: 'No encontramos lugares con opciones veganas y sin TACC confirmadas. Probá sacar Vegano o Sin TACC de los filtros.' },
+    ])
     expect(response.suggestedRemovals).toEqual([
       { kind: 'diet', id: 'vegan', label: 'Vegano', fromText: true, fromFilter: false },
       { kind: 'diet', id: 'glutenFree', label: 'Sin TACC', fromText: true, fromFilter: false },
@@ -429,12 +447,15 @@ describe('exclusiones', () => {
     expect(buildChips({ ...value, language: 'en' }, 1).find((chip) => chip.kind === 'exclude')?.label).toBe('Except restaurants')
   })
 
-  it('el aviso de cero resultados nombra lo excluido igual que los chips', () => {
+  it('el aviso de cero resultados nombra lo excluido y sugiere sacar la dieta de la barra', () => {
     expect(noMatchNotice(value, { diet: true, exclude: true }).message).toBe(
-      'No encontramos lugares con opciones veganas confirmadas, excepto restaurantes, bares y pizza.',
+      'No encontramos lugares con opciones veganas confirmadas que no sean restaurantes, bares ni pizza. Probá sacar Vegano de los filtros.',
     )
-    expect(noMatchNotice(value, { diet: false, exclude: true }).message).toBe('No encontramos lugares excepto restaurantes, bares y pizza.')
-    expect(noMatchNotice(value, { diet: true, exclude: false }).message).toBe('No encontramos lugares con opciones veganas confirmadas.')
+    expect(noMatchNotice(value, { diet: false, exclude: true }).message).toBe('No encontramos lugares que no sean restaurantes, bares ni pizza.')
+    expect(noMatchNotice(value, { diet: true, exclude: false }).message).toBe('No encontramos lugares con opciones veganas confirmadas. Probá sacar Vegano de los filtros.')
+    expect(noMatchNotice({ ...value, language: 'en' }, { diet: true, exclude: false }).message).toBe(
+      "We couldn't find places with confirmed vegan options. Try removing Vegan from the filters.",
+    )
   })
 })
 
@@ -515,12 +536,12 @@ describe('barra de filtros y cerca mío', () => {
     expect(calls.map((call) => call.filters.near?.radiusM)).toEqual([1500, 3000])
     expect(ids(at3)).toEqual(['cafe-famoso'])
     expect(at3.results[0].reasons).toContain('a 2,5 km')
-    expect(at3.relaxed.map((notice) => notice.message)).toEqual(['No encontramos lugares a menos de 1,5 km: te mostramos hasta 3 km.'])
+    expect(at3.relaxed.map((notice) => notice.message)).toEqual(['No encontramos a menos de 1,5 km; estos están a hasta 3 km.'])
 
     const onlyFar = fakeStore(far.filter((place) => place.id !== 'cafe-famoso'))
     const at5 = await runSearch('', { store: onlyFar.store, cache: fakeCache().cache }, { now, filters: 'category:cafe', near: '-34.9,-56.18' })
     expect(onlyFar.calls.map((call) => call.filters.near?.radiusM)).toEqual([1500, 3000, 5000])
-    expect(at5.relaxed.map((notice) => notice.message)).toEqual(['No encontramos lugares a menos de 1,5 km: te mostramos hasta 5 km.'])
+    expect(at5.relaxed.map((notice) => notice.message)).toEqual(['No encontramos a menos de 1,5 km; estos están a hasta 5 km.'])
   })
 
   it('"café cerca mío" sin ubicación pide la ubicación y busca igual', async () => {

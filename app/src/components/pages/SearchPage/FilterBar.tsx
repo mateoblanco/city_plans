@@ -30,10 +30,13 @@ const Toggle = ({ state, chips, kind, id, text }: { state: SearchUrl; chips: Chi
 };
 
 const FilterBar = async ({ state, chips, needsLocation }: FilterBarProps) => {
-  const neighborhoods = (await publishedNeighborhoods().catch(() => [] as string[]))
+  const activeNeighborhood = chips.find((chip) => chip.kind === "neighborhood")?.id ?? "";
+  // Los barrios con lugares publicados, más el activo aunque no tenga ninguno ("cafés en Pocitos"): si no, el
+  // select mostraría "Todos" con un barrio aplicado.
+  const published = await publishedNeighborhoods().catch(() => [] as string[]);
+  const neighborhoods = [...new Set([...published, ...(activeNeighborhood ? [activeNeighborhood] : [])])]
     .map((id) => ({ id, label: neighborhoodDisplayName(id) ?? id }))
     .sort((a, b) => a.label.localeCompare(b.label, "es"));
-  const activeNeighborhood = chips.find((chip) => chip.kind === "neighborhood")?.id ?? "";
   const hrefs = Object.fromEntries([
     ["", setNeighborhoodHref(state, null, chips)],
     ...neighborhoods.map(({ id }) => [id, setNeighborhoodHref(state, id, chips)]),

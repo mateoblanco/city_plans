@@ -1,16 +1,12 @@
 import Link from "next/link";
 import type { CardDebug } from "@/components/PlaceCard/PlaceCard";
-import { searchPlaces, type Chip, type SearchResponse, type SearchResult } from "@/server/search";
+import { searchPlaces, type SearchResponse, type SearchResult } from "@/server/search";
 import DebugPanel from "./DebugPanel";
 import FilterBar from "./FilterBar";
 import MapSync from "./MapSync";
 import ResultCard from "./ResultCard";
-import { removeChipHref, searchHref, type SearchUrl } from "./search-href";
+import { searchHref, type SearchUrl } from "./search-href";
 import styles from "./SearchPage.module.scss";
-
-/** "Quitar: excepto restaurantes", "Quitar: sin TACC"; los nombres propios (barrios, lugares) quedan como están. */
-const removeText = ({ kind, label }: Chip) =>
-  `Quitar: ${kind === "diet" || kind === "exclude" ? `${label.charAt(0).toLowerCase()}${label.slice(1)}` : label}`;
 
 type SearchPageProps = {
   query: string;
@@ -58,8 +54,9 @@ const SearchPage = async ({ query, remove, filters, near, debug }: SearchPagePro
     );
   }
 
-  const { interpreted, relaxed, results, suggestedRemovals, needsLocation } = response;
-  const removeHref = (chip: Chip) => removeChipHref(state, chip);
+  // La barra es el único lugar donde se ven y cambian los filtros (los detecte el texto o no). Platos,
+  // preferencias, vibe y lo que no está en la barra siguen ordenando, pero se cambian editando el texto.
+  const { interpreted, relaxed, results, needsLocation } = response;
   const has = results.filter((result) => result.matchLevel === "has");
   const maybe = results.filter((result) => result.matchLevel === "maybe");
   const dishes = interpreted.chips.filter((chip) => chip.kind === "dish").map((chip) => chip.label);
@@ -72,18 +69,6 @@ const SearchPage = async ({ query, remove, filters, near, debug }: SearchPagePro
     <MapSync places={mapPlaces} userLocation={response.near}>
     <div className={styles.results}>
       <FilterBar state={state} chips={interpreted.chips} needsLocation={needsLocation} />
-
-      {interpreted.chips.length > 0 && (
-        <ul className={styles.chips} aria-label="Lo que entendimos">
-          {interpreted.chips.map((chip) => (
-            <li key={`${chip.kind}:${chip.id}`}>
-              <Link className={styles.chip} href={removeHref(chip)} aria-label={removeText(chip)}>
-                {chip.label} ×
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
 
       {notices.length > 0 && (
         <div className={styles.notices}>
@@ -98,17 +83,6 @@ const SearchPage = async ({ query, remove, filters, near, debug }: SearchPagePro
       {results.length === 0 ? (
         <div className={styles.empty}>
           {relaxed.length === 0 && <p>No encontramos lugares para esta búsqueda.</p>}
-          {suggestedRemovals.length > 0 && (
-            <ul className={styles.chips}>
-              {suggestedRemovals.map((chip) => (
-                <li key={`${chip.kind}:${chip.id}`}>
-                  <Link className={styles.chip} href={removeHref(chip)}>
-                    {removeText(chip)}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
         </div>
       ) : (
         <>
@@ -122,7 +96,7 @@ const SearchPage = async ({ query, remove, filters, near, debug }: SearchPagePro
         </>
       )}
 
-      {response.debug && <DebugPanel debug={response.debug} />}
+      {response.debug && <DebugPanel debug={response.debug} chips={interpreted.chips} />}
     </div>
     </MapSync>
   );

@@ -1,11 +1,10 @@
-import { label } from '@shared/tags.ts'
 import { SEARCH_CONFIG } from './config'
 import { neighborhoodDisplayName } from '@shared/neighborhood-names.ts'
 import type { CandidateRow, DishMode } from './candidates'
 import { hasBroaderRelated, relatedLabel, type DishTarget } from './dishes'
 import { openStatus, type Moment } from './hours'
 import { DIET_KEYS, type DietKey, type Interpretation, type Lang } from './interpretation'
-import { distanceText, excludedTerm } from './labels'
+import { DAY_NAMES, dietLabel, distanceText, excludedTerm } from './labels'
 
 // Orden fijo: los tags de must primero porque sus datos están incompletos; el barrio después
 // porque para la persona pesa más. similarity es el último recurso.
@@ -82,18 +81,8 @@ export function relaxNotice(step: RelaxStep, context: NoticeContext): { what: No
   const es = lang === 'es'
   const { rows } = context
 
-  if (step === 'mustTags') {
-    const missing = value.must.tags.filter((id) => rows.some((row) => !row.tags.includes(id)))
-    if (!missing.length) return null
-    const names = list(missing.map((id) => label(id, lang).toLowerCase()), lang)
-    const plural = missing.length > 1
-    return {
-      what: step,
-      message: es
-        ? `No todos los lugares tienen ${names}: ${plural ? 'pasaron a ser preferencias' : 'pasó a ser una preferencia'}.`
-        : `Not every place has ${names}: ${plural ? 'they are now preferences' : 'it is now a preference'}.`,
-    }
-  }
+  // Un tag obligatorio que pasa a preferencia no se avisa: sigue ordenando y no está en la barra.
+  if (step === 'mustTags') return null
 
   if (step === 'dishRelated') {
     const dishes = list(context.dishes.map((target) => target.dish), lang, es ? 'ni' : 'or')
@@ -101,13 +90,12 @@ export function relaxNotice(step: RelaxStep, context: NoticeContext): { what: No
     const present = relatedIds.filter((id) => rows.some((row) => row.tags.includes(id) || row.categories.includes(id)))
     const neighborhoods = context.after.interpretation.must.neighborhoods
     const where = neighborhoods.length ? ` ${es ? 'en' : 'in'} ${neighborhoodNames(neighborhoods, lang)}` : ''
-    const labels = list(present.map((id) => relatedLabel(id, lang).toLowerCase()), lang, es ? 'o' : 'or')
-    return {
-      what: step,
-      message: es
-        ? `No encontramos ${dishes}${where}${labels ? `; estos tienen ${labels}` : ''}.`
-        : `We couldn't find ${dishes}${where}${labels ? `; these have ${labels}` : ''}.`,
-    }
+    // En inglés los gentilicios van con mayúscula ("Peruvian cuisine"): sólo se pasa a minúscula en español.
+    const labels = list(present.map((id) => (es ? relatedLabel(id, lang).toLowerCase() : relatedLabel(id, lang))), lang, es ? 'o' : 'or')
+    const message = labels
+      ? es ? `No hay ${dishes}${where}, pero estos tienen ${labels}.` : `No ${dishes}${where}, but these have ${labels}.`
+      : es ? `No hay ${dishes}${where}; estos son los más parecidos.` : `No ${dishes}${where}; these are the closest matches.`
+    return { what: step, message }
   }
 
   // Un solo aviso por la ampliación del radio, del radio inicial al último que se usó.
@@ -118,7 +106,7 @@ export function relaxNotice(step: RelaxStep, context: NoticeContext): { what: No
     const [from, to] = [distanceText(previous, lang), distanceText(context.after.nearRadius ?? RADII[RADII.length - 1], lang)]
     return {
       what: step,
-      message: es ? `No encontramos lugares a menos de ${from}: te mostramos hasta ${to}.` : `Nothing within ${from}: showing places up to ${to} away.`,
+      message: es ? `No encontramos a menos de ${from}; estos están a hasta ${to}.` : `Nothing within ${from}; these are up to ${to} away.`,
     }
   }
 
@@ -126,24 +114,31 @@ export function relaxNotice(step: RelaxStep, context: NoticeContext): { what: No
     const wanted = value.must.neighborhoods
     if (!rows.some((row) => !wanted.includes(row.neighborhoodId))) return null
     const names = neighborhoodNames(wanted, lang)
-    return {
-      what: step,
-      message: es
-        ? `Ningún lugar en ${names} cumple todo lo que pediste: te mostramos lugares cercanos.`
-        : `Nothing in ${names} matches everything you asked for: showing places nearby.`,
-    }
+    return { what: step, message: es ? `No encontramos en ${names}; estos están cerca.` : `Nothing in ${names}; these are nearby.` }
   }
 
   if (step === 'openAt') {
     const moment = context.moment
     if (!moment || !rows.some((row) => openStatus(row.hours, moment).state === 'closed')) return null
-    return { what: step, message: es ? 'No hay lugares abiertos en ese horario: te mostramos todos.' : 'Nothing open at that time: showing all places.' }
+    const when = whenText(value.must.openAt === 'now' ? 'now' : moment, lang)
+    return {
+      what: step,
+      message: es ? `No hay nada abierto ${when}; te mostramos también los cerrados.` : `Nothing open ${when}; showing closed places too.`,
+    }
   }
 
   return {
     what: step,
-    message: es ? 'No encontramos lugares que cumplan todo: te mostramos los más parecidos.' : "We couldn't find places matching everything: showing the closest matches.",
+    message: es ? 'No encontramos exactamente lo que buscás; estos son los más parecidos.' : "We couldn't find exactly what you're looking for; these are the closest matches.",
   }
+}
+
+/** "ahora", "el domingo", "el domingo a las 21:00" / "now", "on Sunday at 21:00". */
+function whenText(moment: Moment | 'now', lang: Lang) {
+  const es = lang === 'es'
+  if (moment === 'now') return es ? 'ahora' : 'now'
+  const day = es ? `el ${DAY_NAMES.es[moment.day]}` : `on ${DAY_NAMES.en[moment.day]}`
+  return moment.time ? `${day} ${es ? 'a las' : 'at'} ${moment.time}` : day
 }
 
 const DIET_WORDS: Record<Lang, Record<DietKey, string>> = {
@@ -151,16 +146,22 @@ const DIET_WORDS: Record<Lang, Record<DietKey, string>> = {
   en: { vegan: 'vegan', vegetarian: 'vegetarian', glutenFree: 'gluten-free' },
 }
 
-/** Aviso cuando ni el último recurso encuentra nada: nombra la dieta y/o los exclude que bloquean. */
+/**
+ * Aviso cuando ni el último recurso encuentra nada: nombra la dieta y/o los exclude que bloquean. La dieta está
+ * en la barra de filtros, así que se sugiere sacarla de ahí; los exclude sólo se cambian editando el texto.
+ */
 export function noMatchNotice(value: Interpretation, blocking: { diet: boolean; exclude: boolean }) {
   const lang = value.language
   const es = lang === 'es'
-  const diet = blocking.diet ? DIET_KEYS.filter((key) => value.must.diet[key]).map((key) => DIET_WORDS[lang][key]) : []
+  const dietKeys = blocking.diet ? DIET_KEYS.filter((key) => value.must.diet[key]) : []
+  const diet = dietKeys.map((key) => DIET_WORDS[lang][key])
   const excluded = blocking.exclude ? [...value.exclude.categories, ...value.exclude.tags].map((id) => excludedTerm(id, lang)) : []
   const withDiet = diet.length ? (es ? ` con opciones ${list(diet, lang)} confirmadas` : ` with confirmed ${list(diet, lang)} options`) : ''
-  const except = excluded.length ? `${diet.length ? ',' : ''} ${es ? 'excepto' : 'except'} ${list(excluded, lang)}` : ''
-  const message = withDiet || except
-    ? es ? `No encontramos lugares${withDiet}${except}.` : `We couldn't find places${withDiet}${except}.`
+  const notExcluded = excluded.length ? (es ? ` que no sean ${list(excluded, lang, 'ni')}` : ` that aren't ${list(excluded, lang, 'or')}`) : ''
+  const filters = list(dietKeys.map((key) => dietLabel(key, lang)), lang, es ? 'o' : 'or')
+  const hint = filters ? (es ? ` Probá sacar ${filters} de los filtros.` : ` Try removing ${filters} from the filters.`) : ''
+  const message = withDiet || notExcluded
+    ? es ? `No encontramos lugares${withDiet}${notExcluded}.${hint}` : `We couldn't find places${withDiet}${notExcluded}.${hint}`
     : es ? 'Todavía no hay lugares publicados.' : 'There are no published places yet.'
   return { what: 'noMatch' as const, message }
 }
