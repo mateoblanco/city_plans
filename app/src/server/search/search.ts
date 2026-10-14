@@ -25,6 +25,7 @@ import {
 import { openStateLabel } from './labels'
 import { normalizeQuery, queryWords } from './normalize'
 import { buildReasons } from './reasons'
+import { relevanceCut, type Relevance } from './relevance'
 import { canRelax, noMatchNotice, relax, RELAX_ORDER, relaxNotice, type NoticeKind, type RelaxStep, type SearchState } from './relax'
 import type { PlacesStore } from './store'
 
@@ -84,7 +85,13 @@ export type SearchDebug = {
     positionWithoutQuality: number
     matchLevel: MatchLevel
     pinned: boolean
+    /** Similitud semántica con la consulta (coseno); null sin embedding. */
+    similarity: number | null
+    /** Por qué pasó el corte por relevancia, o por qué se cortó (los cortados van al final). */
+    relevance: Relevance
   }[]
+  /** Corte por relevancia: la similitud más alta y desde dónde se corta; null si no hubo embedding. */
+  relevance: { best: number; threshold: number; gap: number } | null
   timings: Record<string, number>
   /** Lo que costó esta búsqueda en el AI Gateway (lo que vino de la cache cuenta 0). */
   cost: SearchCost
@@ -119,17 +126,43 @@ function termWords(id: string): string[] {
   return [definition.label.es, definition.label.en, ...definition.synonyms.es, ...definition.synonyms.en].flatMap((name) => normalize(name).split(' '))
 }
 
-export function keywordsFor(normalized: string, value: Interpretation, removed: boolean): string[] {
+/** Qué cambió del texto: chips quitados (sus palabras se sacan de la consulta) y si la consulta la resolvió el diccionario. */
+export type TextEdits = { removed: boolean; removedWords: Set<string>; shortcut: boolean }
+
+/** Palabras de un chip quitado del texto ("Pizza ×" → pizza), para no seguir buscándolo por embedding ni keyword. */
+export function removedWordsOf(removals: { kind: string; id: string }[]): Set<string> {
+  return new Set(
+    removals.flatMap(({ kind, id }) => {
+      if (kind === 'category' || kind === 'tag' || kind === 'prefer') return termWords(id)
+      if (kind === 'dish') return queryWords(normalize(id))
+      if (kind === 'neighborhood') return queryWords(normalize(neighborhoodDisplayName(id) ?? id))
+      return []
+    }),
+  )
+}
+
+export function keywordsFor(normalized: string, value: Interpretation, edits: TextEdits): string[] {
   const excluded = new Set([...value.exclude.categories, ...value.exclude.tags].flatMap(termWords))
-  const fromQuery = removed ? [] : queryWords(normalized)
+  // Con el atajo, la consulta es lo que pidió la persona (menos lo quitado); con el modelo y chips quitados, sólo los platos.
+  const fromQuery = edits.removed && !edits.shortcut ? [] : queryWords(normalized).filter((word) => !edits.removedWords.has(word))
   const words = [...value.dishes.flatMap((dish) => queryWords(normalize(dish.name))), ...fromQuery]
   return [...new Set(words)].filter((word) => word.length > 1 && !STOPWORDS.has(word) && !excluded.has(word))
 }
 
-/** Texto para el embedding: la vibe; si se quitaron chips, lo que quedó; si no, la consulta. */
-export function semanticTextFor(normalized: string, value: Interpretation, removed: boolean): string | null {
+/**
+ * Texto para el embedding: la vibe; con el atajo, la consulta sin las palabras de los chips quitados; con el modelo
+ * y chips quitados, lo que quedó (labels); si no, la consulta.
+ */
+export function semanticTextFor(normalized: string, value: Interpretation, edits: TextEdits): string | null {
   if (value.vibe) return value.vibe
-  if (!removed) return normalized
+  if (!edits.removed) return normalized
+  if (edits.shortcut) {
+    const words = normalized.split(' ').filter((word) => word && !edits.removedWords.has(word))
+    // Sin las palabras vacías que quedaron colgando ("cafés con terraza en cordón" − terraza, cordón → "cafes").
+    while (words.length && STOPWORDS.has(words[words.length - 1])) words.pop()
+    while (words.length && STOPWORDS.has(words[0])) words.shift()
+    return words.length ? words.join(' ') : null
+  }
   const parts = [
     ...[...value.must.categories, ...value.prefer.categories].map((id) => label(id)),
     ...value.dishes.map((dish) => dish.name),
@@ -217,8 +250,9 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     return { query: rawQuery, interpreted: { chips: [] }, bar: emptyBar(), results: [], relaxed: [], suggestedRemovals: [], needsLocation: false, near: null }
   }
 
-  // El embedding de la consulta arranca ya: si no hay vibe ni chips quitados es el que se usa.
-  const removed = removals.length > 0
+  // El embedding de la consulta arranca ya: si no hay vibe ni chips quitados es el que se usa. Quitar la
+  // intención no cambia el texto.
+  const removed = removals.some((removal) => removal.kind !== 'intent')
   const queryEmbedding = removed || textless ? null : deps.cache.embed(normalized).then((result) => priced('embed', result)).catch(() => null)
 
   // 1. Interpretación: diccionario, nombre fuerte o modelo. Sin texto, sólo los filtros.
@@ -296,7 +330,8 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
 
   // 2. Embedding del texto semántico; si falla, se sigue sin el ranking semántico.
   step = performance.now()
-  const semanticText = textless ? null : semanticTextFor(normalized, interpretation, removed)
+  const edits: TextEdits = { removed, removedWords: removedWordsOf(removals), shortcut: source === 'shortcut' }
+  const semanticText = textless ? null : semanticTextFor(normalized, interpretation, edits)
   const embedded: EmbeddingResult | null =
     semanticText === null ? null
     : semanticText === normalized && queryEmbedding ? await queryEmbedding
@@ -305,7 +340,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   timings.embed = elapsed(step)
 
   const dishes = interpretation.dishes.map(dishTargetFor)
-  const keywords = keywordsFor(normalized, interpretation, removed)
+  const keywords = keywordsFor(normalized, interpretation, edits)
   const scores: ScoreInputs = {
     embedding,
     keywords,
@@ -365,15 +400,20 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   const openAtMoment = resolveOpenAt(current.must.openAt, now)
   const relatedTags = state.dishMode === 'related' ? dishes.flatMap((target) => target.related.tags) : dishes.flatMap((target) => (target.tag ? [target.tag] : []))
   const rankings = buildRankings(rows, textless)
-  const fused = fuse(rows, rankings, {
+  const requestedCategories = [...current.must.categories, ...current.prefer.categories]
+  const requestedTags = [...current.must.tags, ...current.prefer.tags, ...relatedTags]
+  const allFused = fuse(rows, rankings, {
     pinnedId: pinned?.id ?? null,
     dishes,
-    categories: [...current.must.categories, ...current.prefer.categories],
-    requestedTags: [...current.must.tags, ...current.prefer.tags, ...relatedTags],
+    categories: requestedCategories,
+    requestedTags,
     preferTags: current.prefer.tags,
     openAt: openAtMoment,
     wantsBest: current.wantsBest,
-  }).slice(0, SEARCH_CONFIG.maxResults)
+  })
+  // Corte por relevancia antes del tope: lo que se corta deja lugar a otros.
+  const cut = relevanceCut(allFused, { hasEmbedding: embedding !== null, categories: requestedCategories, tags: requestedTags, hasDishes: dishes.length > 0 })
+  const fused = cut.kept.slice(0, SEARCH_CONFIG.maxResults)
   timings.fuse = elapsed(step)
 
   // 5. Respuesta.
@@ -471,7 +511,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
         distance: rankings.distance.slice(0, depth),
         quality: rankings.quality.slice(0, depth),
       },
-      results: fused.map((item) => ({
+      results: [...fused, ...cut.cut].map((item) => ({
         id: item.row.id,
         name: item.row.name,
         rrf: item.rrf,
@@ -484,7 +524,10 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
         positionWithoutQuality: item.positionWithoutQuality,
         matchLevel: item.matchLevel,
         pinned: item.pinned,
+        similarity: item.row.semantic,
+        relevance: cut.relevance.get(item.row.id)!,
       })),
+      relevance: cut.summary,
       timings,
       cost: summarizeCost(costs),
     }

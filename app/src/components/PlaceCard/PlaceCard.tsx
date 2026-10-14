@@ -1,8 +1,19 @@
 import { label } from "@shared/tags.ts";
 import type { SearchResult } from "@/server/search";
+import type { KeptBy } from "@/server/search/relevance";
 
-/** Sólo con ?debug=1: para ver dónde conviene cortar. percent es score / score del primer resultado. */
-export type CardDebug = { score: number; baseScore: number; multiplier: number; percent: number | null; pinned: boolean };
+/** Sólo con ?debug=1: puntajes, similitud semántica con la consulta y por qué pasó el corte por relevancia. */
+export type CardDebug = { score: number; baseScore: number; multiplier: number; similarity: number | null; keptBy: KeptBy | null; pinned: boolean };
+
+const KEPT_LABELS: Record<KeptBy, string> = {
+  pinned: "por nombre",
+  category: "por categoría",
+  tag: "por tag",
+  dish: "por plato",
+  keyword: "por keyword",
+  similar: "por similitud",
+  "no-similarity": "sin similitud",
+};
 
 type PlaceCardProps = {
   place: SearchResult;
@@ -11,12 +22,13 @@ type PlaceCardProps = {
 
 const number = (value: number) => value.toLocaleString("es-UY", { maximumSignificantDigits: 3 });
 
-const debugLine = ({ score, baseScore, multiplier, percent, pinned }: CardDebug) =>
+const debugLine = ({ score, baseScore, multiplier, similarity, keptBy, pinned }: CardDebug) =>
   [
     `puntaje ${number(score)}`,
     `relevancia ${number(baseScore)}`,
     `×${multiplier.toLocaleString("es-UY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-    percent === null ? null : `${Math.round(percent * 100)} %`,
+    similarity === null ? null : `sim ${similarity.toLocaleString("es-UY", { minimumFractionDigits: 3, maximumFractionDigits: 3 })}`,
+    keptBy && keptBy !== "pinned" ? KEPT_LABELS[keptBy] : null,
     pinned ? "fijado" : null,
   ]
     .filter(Boolean)

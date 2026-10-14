@@ -407,9 +407,36 @@ describe('runSearch', () => {
     expect(response.bar.intent?.id).toBe('cafes')
     expect(calls[0].filters.tags).toEqual([])
     expect(calls[0].filters.neighborhoods).toEqual([])
-    // El embedding usa lo que quedó, no la consulta original.
-    expect(embedded).toEqual(['Café'])
+    // Atajo: el embedding usa la consulta sin las palabras de lo quitado.
+    expect(embedded).toEqual(['cafes'])
+    expect(calls[0].scores.keywords).toEqual(['cafes'])
     expect(response.results.map((result) => result.id).sort()).toEqual(['cafe-cordon', 'cafe-rodo'])
+  })
+
+  it('atajo con un plato quitado: la consulta sin el plato para embedding y keywords', async () => {
+    const { store, calls } = fakeStore(places)
+    const { cache, embedded } = fakeCache()
+    const response = await runSearch('pizza en cordon', { store, cache }, { now, remove: 'dish:pizza', debug: true })
+    expect(response.debug!.source).toBe('shortcut')
+    expect(embedded).toEqual(['cordon'])
+    expect(calls[0].scores.keywords).toEqual(['cordon'])
+  })
+
+  it('corte por relevancia: debug muestra la similitud y por qué se cortó', async () => {
+    const quiet = fakeCache(llmOutput({ vibe: 'lugar tranquilo para charlar', prefer: { categories: [], tags: ['quiet'] } })).cache
+    const rows = [
+      row({ id: 'parecido', semantic: 0.45 }),
+      row({ id: 'lejos', semantic: 0.3 }),
+      row({ id: 'lejos-tranquilo', semantic: 0.3, tags: ['quiet'] }),
+      row({ id: 'lejos-con-palabra', semantic: 0.2, keyword: 0.1 }),
+    ]
+    const response = await runSearch('algo tranqui para charlar', { store: fakeStore(rows).store, cache: quiet }, { now, debug: true })
+    expect(response.results.map((result) => result.id).sort()).toEqual(['lejos-con-palabra', 'lejos-tranquilo', 'parecido'])
+    expect(response.debug!.relevance).toEqual({ best: 0.45, threshold: 0.37, gap: 0.08 })
+    const cut = response.debug!.results.at(-1)!
+    expect(cut).toMatchObject({ id: 'lejos', similarity: 0.3 })
+    expect(cut.relevance).toEqual({ cut: true, reason: 'similitud 0,300 < 0,370 (mejor 0,450 − 0,08), sin coincidencia explícita' })
+    expect(response.debug!.results.find((result) => result.id === 'lejos-tranquilo')!.relevance).toEqual({ kept: 'tag' })
   })
 
   it('responde en inglés y pide ubicación con "near me"', async () => {

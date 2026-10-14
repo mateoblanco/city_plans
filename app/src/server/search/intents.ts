@@ -16,11 +16,9 @@ export type IntentBar = {
   subs: { id: string; label: string; active: boolean; fromText: boolean; removeKeys: string[] }[]
   /** Lo que pidió el texto y no es un sub-filtro (platos, tags, categorías que no son la intención). */
   extras: Chip[]
-  /** Claves de las categorías que la intención absorbió ("bares" → Bares): al dejar la intención se quitan. */
-  aliasKeys: string[]
 }
 
-export const emptyBar = (): IntentBar => ({ intent: null, textIntent: null, subs: [], extras: [], aliasKeys: [] })
+export const emptyBar = (): IntentBar => ({ intent: null, textIntent: null, subs: [], extras: [] })
 
 const def = (id: IntentId): IntentDef => INTENTS[id]
 
@@ -190,7 +188,6 @@ export function buildBar(resolved: ResolvedIntent, extras: Chip[]): IntentBar {
         }))
       : [],
     extras,
-    aliasKeys: resolved.aliasKeys,
   }
 }
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { INTENTS, type IntentDef, type IntentMatch } from '@shared/intents.ts'
 import { CATEGORIES, TAG_IDS } from '@shared/tags.ts'
+import { intentHref } from '@/components/pages/SearchPage/search-href'
 import { candidatesQuery } from './candidates'
 import { interpretWithDictionary } from './dictionary'
 import { detectIntent, intentGroups, parseIntent, resolveIntent } from './intents'
@@ -176,5 +177,40 @@ describe('búsqueda con intención', () => {
     expect(noMatchNotice(value, { diet: true, exclude: false, intent: false }, 'cafes').message).toBe(
       'No encontramos cafés con opciones veganas confirmadas. Probá sacar Vegano de los filtros.',
     )
+  })
+})
+
+describe('"bar con amigos"', () => {
+  const places = [
+    row({ id: 'bar', categories: ['bar'], tags: ['groups'] }),
+    row({ id: 'resto-bar', categories: ['restaurant', 'bar'] }),
+    row({ id: 'heladeria', categories: ['ice_cream_shop'], tags: ['groups'] }),
+    row({ id: 'cafe', categories: ['cafe'], tags: ['groups'] }),
+  ]
+  const ids = (response: { results: { id: string }[] }) => response.results.map((result) => result.id).sort()
+
+  it('la categoría elige Bares y pasa a preferencia', async () => {
+    const response = await runSearch('bar con amigos', { store: fakeStore(places).store, cache: fakeCache().cache }, { now, debug: true })
+    expect(response.bar.intent).toEqual({ id: 'bars', fromText: true })
+    expect(response.debug!.interpretation.must.categories).toEqual([])
+    expect(response.debug!.interpretation.prefer.categories).toEqual(['bar'])
+    expect(ids(response)).toEqual(['bar', 'resto-bar'])
+  })
+
+  it('apagar Bares no pierde la categoría: queda obligatoria y como extra', async () => {
+    const first = await runSearch('bar con amigos', { store: fakeStore(places).store, cache: fakeCache().cache }, { now })
+    const href = new URL(intentHref({ q: 'bar con amigos' }, null, first.bar), 'http://x').searchParams
+    expect(href.get('remove')).toBe('intent:bars')
+
+    const { cache, embedded } = fakeCache()
+    const response = await runSearch('bar con amigos', { store: fakeStore(places).store, cache }, { now, remove: href.get('remove'), debug: true })
+    expect(response.bar.intent).toBeNull()
+    expect(response.debug!.interpretation.must.categories).toEqual(['bar'])
+    expect(response.bar.extras.map((chip) => `${chip.kind}:${chip.id}`)).toContain('category:bar')
+    expect(ids(response)).toEqual(['bar', 'resto-bar'])
+    // Quitar la intención no cambia el texto: se embebe la consulta y sus palabras van a keywords.
+    expect(response.debug!.semanticText).toBe('bar con amigos')
+    expect(embedded).toEqual(['bar con amigos'])
+    expect(response.debug!.keywords).toEqual(['bar', 'amigos'])
   })
 })

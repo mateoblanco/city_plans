@@ -23,7 +23,6 @@ export type BarRef = {
   textIntent: string | null;
   subs: { id: string; active: boolean; fromText: boolean; removeKeys: string[] }[];
   extras: ChipRef[];
-  aliasKeys: string[];
 };
 
 const list = (raw: string | null | undefined) =>
@@ -99,22 +98,25 @@ export function nearHref(state: SearchUrl, lat: number, lng: number): string {
   return searchHref({ ...state, near: `${roundCoord(lat)},${roundCoord(lng)}` });
 }
 
-/** Lo del texto que vive en la fila de sub-filtros: al dejar la intención se suma todo a remove. */
+/**
+ * Lo del texto que vive en la fila de sub-filtros: al dejar la intención se suma a remove. Las categorías no:
+ * "bar con amigos" sin Bares sigue siendo un bar (filtro obligatorio, extra "Bar ×" que se quita a mano).
+ */
 function textRow(bar: BarRef): string[] {
   return [
-    ...(bar.textIntent ? [`intent:${bar.textIntent}`] : []),
-    ...bar.aliasKeys,
     ...bar.subs.filter((sub) => sub.active && sub.fromText).flatMap((sub) => sub.removeKeys),
     ...(bar.intent ? bar.extras.filter((chip) => chip.fromText !== false).map((chip) => `${chip.kind}:${chip.id}`) : []),
-  ];
+  ].filter((key) => !key.startsWith("category:"));
 }
+
+const intentKeys = (bar: BarRef) => (bar.textIntent ? [`intent:${bar.textIntent}`] : []);
 
 /**
  * Elegir una intención (o null = "Todo"): limpia los sub-filtros de la anterior, vengan de la URL o del texto,
  * pero conserva barrio, abierto ahora, dietas (f) y cerca mío.
  */
 export function intentHref(state: SearchUrl, id: string | null, bar: BarRef): string {
-  return searchHref({ ...state, intent: id, sub: null, remove: [...list(state.remove), ...textRow(bar)].join(",") });
+  return searchHref({ ...state, intent: id, sub: null, remove: [...list(state.remove), ...intentKeys(bar), ...textRow(bar)].join(",") });
 }
 
 /**

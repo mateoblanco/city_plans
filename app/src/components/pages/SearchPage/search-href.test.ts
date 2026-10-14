@@ -72,7 +72,7 @@ describe("chips y barra de filtros", () => {
 });
 
 describe("intención y sub-filtros", () => {
-  const empty: BarRef = { intent: null, textIntent: null, subs: [], extras: [], aliasKeys: [] };
+  const empty: BarRef = { intent: null, textIntent: null, subs: [], extras: [] };
   // "cócteles y pizza en cordón" con Bares elegido por el texto.
   const fromText: BarRef = {
     intent: { id: "bars", fromText: true },
@@ -82,7 +82,6 @@ describe("intención y sub-filtros", () => {
       { id: "live_music", active: false, fromText: false, removeKeys: [] },
     ],
     extras: [{ kind: "dish", id: "pizza", fromText: true }],
-    aliasKeys: ["category:bar"],
   };
   const state = { q: "bares con cócteles y pizza", f: "neighborhood:CORDON,diet:vegan", near: "-34.905,-56.185" };
 
@@ -94,7 +93,8 @@ describe("intención y sub-filtros", () => {
   it("cambiar de intención limpia los sub-filtros (de la URL y del texto) y conserva f y near", () => {
     expect(read(intentHref({ ...state, intent: "bars", sub: "live_music" }, "cafes", fromText))).toEqual({
       q: "bares con cócteles y pizza",
-      remove: "intent:bars,category:bar,tag:classic_cocktails,dish:pizza",
+      // "bares" no se quita: la categoría vuelve a filtrar y se ve como extra.
+      remove: "intent:bars,tag:classic_cocktails,dish:pizza",
       intent: "cafes",
       f: "neighborhood:CORDON,diet:vegan",
       near: "-34.905,-56.185",
@@ -103,6 +103,18 @@ describe("intención y sub-filtros", () => {
 
   it("apagar la intención activa vuelve a Todo", () => {
     expect(read(intentHref({ q: "", intent: "bars", sub: "wine" }, null, { ...empty, intent: { id: "bars", fromText: false } }))).toEqual({});
+  });
+
+  it("apagar la intención del texto no pierde la categoría", () => {
+    // "bar con amigos" (o "boliche" → Para bailar, por categoría): sólo se quita la intención.
+    const bar: BarRef = {
+      ...empty,
+      intent: { id: "bars", fromText: true },
+      textIntent: "bars",
+      subs: [{ id: "dancing", active: true, fromText: true, removeKeys: ["category:night_club"] }],
+      extras: [{ kind: "category", id: "wine_bar", fromText: true }],
+    };
+    expect(read(intentHref({ q: "bar con amigos" }, null, bar))).toEqual({ q: "bar con amigos", remove: "intent:bars" });
   });
 
   it("sin intención previa, elegir una conserva los extras", () => {

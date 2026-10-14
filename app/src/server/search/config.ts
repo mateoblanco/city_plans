@@ -52,6 +52,14 @@ export const SEARCH_CONFIG = {
     best: { prominenceMin: 0.8, prominenceMax: 1.2, featured: 1.2 },
   },
 
+  /**
+   * Corte por relevancia con una señal absoluta: la similitud semántica (coseno contra el embedding de la
+   * consulta). El puntaje RRF no sirve para cortar porque depende sólo del puesto (el 20º siempre queda cerca
+   * del 76 % del primero). Se saca lo que quede más de maxSemanticGap por debajo del más parecido, salvo que
+   * coincida con algo explícito de la consulta (categoría, tag, plato o keyword) o esté fijado por nombre.
+   */
+  relevance: { maxSemanticGap: 0.08 },
+
   /** Cerca mío: radio inicial y cómo se amplía (en metros) si no hay resultados. */
   near: { radii: [1500, 3000, 5000] },
 

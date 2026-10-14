@@ -26,14 +26,13 @@ const Places = ({ places, scores }: { places: SearchResult[]; scores: Map<string
   </div>
 );
 
-/** Con debug: puntajes de cada resultado y su porcentaje respecto del primero que se muestra. */
+/** Con debug: puntajes de cada resultado, su similitud y por qué pasó el corte por relevancia. */
 function cardScores(response: SearchResponse): Map<string, CardDebug> | null {
   if (!response.debug) return null;
-  const top = response.debug.results.find((result) => result.id === response.results[0]?.id)?.score ?? 0;
   return new Map(
-    response.debug.results.map(({ id, score, baseScore, multiplier, pinned }) => [
+    response.debug.results.map(({ id, score, baseScore, multiplier, pinned, similarity, relevance }) => [
       id,
-      { score, baseScore, multiplier, pinned, percent: top > 0 ? score / top : null },
+      { score, baseScore, multiplier, pinned, similarity, keptBy: "kept" in relevance ? relevance.kept : null },
     ]),
   );
 }

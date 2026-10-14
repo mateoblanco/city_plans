@@ -38,6 +38,7 @@ const Interpreted = ({ debug, chips, bar }: DebugPanelProps) => {
     ["Preferencias", join([...value.prefer.categories, ...value.prefer.tags])],
     ["Vibe", value.vibe ?? "—"],
     ["Texto semántico", semanticText ?? "—"],
+    ["Keywords", join(debug.keywords)],
     ["Tags obligatorios", join(value.must.tags)],
     ["Categorías", join(value.must.categories)],
     ["Dieta", join(Object.entries(value.must.diet).filter(([, on]) => on).map(([key]) => key))],
@@ -69,6 +70,31 @@ const Json = ({ title, value }: { title: string; value: unknown }) => (
   </details>
 );
 
+const decimal = (value: number | null) => (value === null ? "—" : value.toLocaleString("es-UY", { minimumFractionDigits: 3, maximumFractionDigits: 3 }));
+
+/** Corte por relevancia: el umbral y lo que se sacó, con el motivo. */
+const Relevance = ({ debug }: { debug: SearchDebug }) => {
+  const cut = debug.results.flatMap((result) => ("cut" in result.relevance ? [{ ...result, reason: result.relevance.reason }] : []));
+  if (!debug.relevance) return <p>Corte por relevancia: sin embedding, no se corta.</p>;
+  return (
+    <div>
+      <p>
+        Corte por relevancia: mejor similitud {decimal(debug.relevance.best)}, se corta debajo de {decimal(debug.relevance.threshold)} sin coincidencia
+        explícita. {cut.length === 0 ? "No se cortó nada." : `Cortados (${cut.length}):`}
+      </p>
+      {cut.length > 0 && (
+        <ul>
+          {cut.map((result) => (
+            <li key={result.id}>
+              {result.name}: {result.reason}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+};
+
 const DebugPanel = ({ debug, chips, bar }: DebugPanelProps) => {
   const { source, model, llmError, discarded, original, interpretation, nameMatches, semanticText, keywords } = debug;
 
@@ -84,6 +110,7 @@ const DebugPanel = ({ debug, chips, bar }: DebugPanelProps) => {
               .join(" · ")}
       </p>
       <Interpreted debug={debug} chips={chips} bar={bar} />
+      <Relevance debug={debug} />
       <Json title="Interpretación" value={{ source, model, llmError, discarded, original, interpretation, nameMatches, semanticText, keywords }} />
       <Json title="Intentos" value={debug.attempts} />
       <Json title="Rankings" value={debug.rankings} />
