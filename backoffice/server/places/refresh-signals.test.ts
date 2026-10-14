@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ExaPlaceResponse, ExaPlaceResult } from '../../src/types/places.ts'
+import { computeProminence } from './prominence.ts'
 import { refreshSignals, type RefreshDeps, type SignalsRow } from './refresh-signals.ts'
 
 const row = (overrides: Partial<SignalsRow> = {}): SignalsRow => ({
   id: 'uuid-1', googlePlaceId: 'g-1', name: 'El Palenque', instagram: 'elpalenque', website: 'https://elpalenque.com.uy/',
-  editorialMentions: 0, listedOrAwarded: false, igFollowers: null, prominence: 0.125, ...overrides,
+  editorialMentions: 0, listedOrAwarded: false, igFollowers: null, prominence: computeProminence({ editorialMentions: 0, listedOrAwarded: false, igFollowers: null }), ...overrides,
 })
 
 const exa = (results: ExaPlaceResult[]): ExaPlaceResponse => ({
@@ -35,7 +36,7 @@ describe('refreshSignals', () => {
     expect(d.searchPlace).toHaveBeenCalledWith('El Palenque')
     expect(d.scrapeInstagram).toHaveBeenCalledWith('https://www.instagram.com/elpalenque/')
     expect(result).toMatchObject({ status: 'changed', chain: false, editorialHosts: ['elpais.com.uy'] })
-    expect(d.write).toHaveBeenCalledWith('uuid-1', { editorialMentions: 1, listedOrAwarded: true, igFollowers: 999, prominence: expect.closeTo(0.3 + 0.15 + 0.15) })
+    expect(d.write).toHaveBeenCalledWith('uuid-1', { editorialMentions: 1, listedOrAwarded: true, igFollowers: 999, prominence: expect.closeTo(computeProminence({ editorialMentions: 1, listedOrAwarded: true, igFollowers: 999 })) })
   })
 
   it('en dry-run calcula sin escribir', async () => {

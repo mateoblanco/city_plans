@@ -6,7 +6,7 @@ export type ProminenceSignals = {
 }
 
 // Pesos de cada término; suman 1. Si cambian, `yarn prominence:recompute` actualiza lo guardado.
-export const PROMINENCE_WEIGHTS = { editorial: 0.6, instagram: 0.25, listed: 0.15 } as const
+export const PROMINENCE_WEIGHTS = { editorial: 0.2, instagram: 0.7, listed: 0.1 } as const
 // Desde 2 fuentes editoriales distintas el término editorial ya vale 1 (Exa trae 5 resultados y
 // pocos lugares superan 2 notas reales).
 export const EDITORIAL_CAP = 2

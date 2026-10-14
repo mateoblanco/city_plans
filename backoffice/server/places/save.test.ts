@@ -81,7 +81,7 @@ describe('savePlaces', () => {
     await savePlaces([ok(), ok({ googlePlaceId: 'place-2' })], { store, embed: vectors })
 
     expect(updated[0].values).toMatchObject({ editorialMentions: 2, listedOrAwarded: true, igFollowers: 999 })
-    expect(updated[0].values.prominence).toBeCloseTo(0.9)
+    expect(updated[0].values.prominence).toBeCloseTo(computeProminence(draft().signals))
     expect(updated[0].values).not.toHaveProperty('featured')
     expect(inserted[0]).not.toHaveProperty('featured')
   })
@@ -104,7 +104,7 @@ describe('savePlaces', () => {
 
     expect(results[0].action).toBe('created')
     expect(inserted[0]).toMatchObject({ editorialMentions: 0, listedOrAwarded: false, igFollowers: null })
-    expect(inserted[0].prominence).toBeCloseTo(0.125)
+    expect(inserted[0].prominence).toBeCloseTo(computeProminence({ editorialMentions: 0, listedOrAwarded: false, igFollowers: null }))
   })
 
   it('re-embebe un existente cuyo texto cambió', async () => {

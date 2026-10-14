@@ -3,12 +3,13 @@ import { computeProminence, stableSignals } from './prominence.ts'
 
 describe('computeProminence', () => {
   it('sin señales vale sólo el término neutro de Instagram', () => {
-    expect(computeProminence({ editorialMentions: 0, listedOrAwarded: false, igFollowers: null })).toBeCloseTo(0.125)
+    expect(computeProminence({ editorialMentions: 0, listedOrAwarded: false, igFollowers: null })).toBeCloseTo(0.35)
   })
 
   it('llega a 1 con los topes alcanzados y no se pasa', () => {
     expect(computeProminence({ editorialMentions: 5, listedOrAwarded: true, igFollowers: 99_999 })).toBeCloseTo(1)
-    expect(computeProminence({ editorialMentions: 12, listedOrAwarded: true, igFollowers: 5_000_000 })).toBe(1)
+    expect(computeProminence({ editorialMentions: 12, listedOrAwarded: true, igFollowers: 5_000_000 })).toBeCloseTo(1)
+    expect(computeProminence({ editorialMentions: 12, listedOrAwarded: true, igFollowers: 5_000_000 })).toBeLessThanOrEqual(1)
   })
 
   it('sin dato de Instagram es mejor que 0 seguidores y peor que muchos', () => {
@@ -19,8 +20,8 @@ describe('computeProminence', () => {
   })
 
   it('suma cada término con su peso', () => {
-    // 0.6 × 1/2 + 0.25 × log10(1000)/5 + 0.15
-    expect(computeProminence({ editorialMentions: 1, listedOrAwarded: true, igFollowers: 999 })).toBeCloseTo(0.3 + 0.15 + 0.15)
+    // 0.2 × 1/2 + 0.7 × log10(1000)/5 + 0.1
+    expect(computeProminence({ editorialMentions: 1, listedOrAwarded: true, igFollowers: 999 })).toBeCloseTo(0.1 + 0.42 + 0.1)
     // Desde 2 menciones el término editorial ya está al tope.
     expect(computeProminence({ editorialMentions: 3, listedOrAwarded: false, igFollowers: null }))
       .toBe(computeProminence({ editorialMentions: 2, listedOrAwarded: false, igFollowers: null }))

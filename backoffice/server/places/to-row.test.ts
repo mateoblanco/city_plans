@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { draft } from './test-fixtures.ts'
+import { computeProminence } from './prominence.ts'
 import { toRow } from './to-row.ts'
 
 describe('toRow', () => {
@@ -39,7 +40,7 @@ describe('toRow', () => {
       editorialMentions: 2,
       listedOrAwarded: true,
       igFollowers: 999,
-      prominence: expect.closeTo(0.9),
+      prominence: expect.closeTo(computeProminence(draft().signals)),
       embeddingText: 'El Palenque. Ciudad Vieja, Montevideo. Dentro de Mercado del Puerto',
       keywordText: 'El Palenque. Ciudad Vieja. Mercado del Puerto. Parrilla',
     })
