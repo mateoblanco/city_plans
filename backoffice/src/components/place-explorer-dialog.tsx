@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertCircle, LoaderCircle, RotateCcw } from 'lucide-react'
+import { PlaceTagsEvidence } from '@/components/place-tags-evidence'
+import { SavePlaceButton } from '@/components/save-place-button'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -78,13 +80,13 @@ export function PlaceExplorerDialog({ place, onClose }: PlaceExplorerDialogProps
     setStates((current) => ({ ...current, [source]: state }))
   }, [])
 
-  const loadExtraction = useCallback(async (placeId: string, name: string, seedCategory: PlaceSummary['seedCategory'], refresh = false) => {
+  const loadExtraction = useCallback(async (placeId: string, seedCategories: PlaceSummary['seedCategories']) => {
     controllers.current.get('extract')?.abort()
     const controller = new AbortController()
     controllers.current.set('extract', controller)
     setExtraction({ status: 'loading' })
     try {
-      const data = await extractPlace(placeId, { name, seedCategory, refresh }, controller.signal)
+      const data = await extractPlace({ googlePlaceId: placeId, seedCategories }, controller.signal)
       setExtraction({ status: 'success', data })
     } catch (error) {
       if (controller.signal.aborted) return
@@ -116,7 +118,7 @@ export function PlaceExplorerDialog({ place, onClose }: PlaceExplorerDialogProps
     const controller = new AbortController()
     controllers.current.set('google', controller)
     void loadExa(selectedPlace.name)
-    void loadExtraction(selectedPlace.placeId, selectedPlace.name, selectedPlace.seedCategory)
+    void loadExtraction(selectedPlace.placeId, selectedPlace.seedCategories)
     try {
       const data = await getGooglePlaceDetails(selectedPlace.placeId, controller.signal)
       setAnchor(data.anchor)
@@ -153,9 +155,12 @@ export function PlaceExplorerDialog({ place, onClose }: PlaceExplorerDialogProps
       >
         <DialogHeader className="border-b px-5 py-4 pr-14">
           <DialogTitle>Información multi-fuente</DialogTitle>
-          <DialogDescription>
-            {place?.name}. Google es exacto; las demás fuentes son coincidencias estimadas.
-          </DialogDescription>
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <DialogDescription>
+              {place?.name}. Google es exacto; las demás fuentes son coincidencias estimadas.
+            </DialogDescription>
+            <SavePlaceButton result={extraction.status === 'success' ? extraction.data ?? null : null} />
+          </div>
         </DialogHeader>
 
         <div
@@ -264,7 +269,7 @@ export function PlaceExplorerDialog({ place, onClose }: PlaceExplorerDialogProps
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  if (activeSource === 'info') void loadExtraction(place.placeId, place.name, place.seedCategory, true)
+                  if (activeSource === 'info') void loadExtraction(place.placeId, place.seedCategories)
                   else if (activeSource === 'google') void loadGoogle(place)
                   else if (activeSource === 'exa') void loadExa(place.name, true)
                 }}
@@ -277,14 +282,17 @@ export function PlaceExplorerDialog({ place, onClose }: PlaceExplorerDialogProps
           </div>
 
           {isInfoTab ? (
-            <div className="min-h-72 w-full flex-1 overflow-auto rounded-xl border bg-[#111315] p-4 font-mono text-xs leading-5 text-[#e5e7eb]">
-              <pre className="whitespace-pre-wrap">
-                {extraction.data
-                  ? JSON.stringify(extraction.data, null, 2)
-                  : extraction.status === 'error'
-                    ? '// No se pudo generar el borrador. Podés reintentar.'
-                    : '// Generando borrador desde Google, Exa e Instagram…'}
-              </pre>
+            <div className="flex min-h-72 w-full flex-1 flex-col gap-3 overflow-auto">
+              {extraction.data?.status === 'ok' && <PlaceTagsEvidence place={extraction.data.place} />}
+              <div className="w-full rounded-xl border bg-[#111315] p-4 font-mono text-xs leading-5 text-[#e5e7eb]">
+                <pre className="whitespace-pre-wrap">
+                  {extraction.data
+                    ? JSON.stringify(extraction.data, null, 2)
+                    : extraction.status === 'error'
+                      ? '// No se pudo generar el borrador. Podés reintentar.'
+                      : '// Generando borrador desde Google, Exa e Instagram…'}
+                </pre>
+              </div>
             </div>
           ) : (
             <pre className="min-h-72 w-full min-w-0 flex-1 overflow-auto rounded-xl border bg-[#111315] p-4 font-mono text-xs leading-5 text-[#e5e7eb]">

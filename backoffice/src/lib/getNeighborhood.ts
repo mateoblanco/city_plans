@@ -16,3 +16,9 @@ export function getNeighborhood(lat: number, lng: number) {
 }
 
 // Ejemplo: getBarrio(-34.9086, -56.2085) → "Ciudad Vieja"
+
+export const NEIGHBORHOOD_IDS: readonly string[] = barrios.features.map((barrio) => barrio.properties.barrio)
+
+export function getNeighborhoodFeature(neighborhoodId: string) {
+  return barrios.features.find((barrio) => barrio.properties.barrio === neighborhoodId) ?? null
+}

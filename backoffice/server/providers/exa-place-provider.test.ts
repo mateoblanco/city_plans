@@ -108,14 +108,32 @@ describe('ExaPlaceSearchProvider', () => {
     await expect(provider.searchPlace('Demorondanga Bar')).rejects.toMatchObject({ kind })
   })
 
-  it('rechaza una respuesta que no cumple el schema estructurado', async () => {
-    const provider = new ExaPlaceSearchProvider('exa-test-key', {
-      search: vi.fn().mockResolvedValue({ requestId: 'exa-request-1', results: [] }),
-    })
+  it('rechaza una respuesta que no cumple el schema estructurado después de 2 reintentos', async () => {
+    const search = vi.fn().mockResolvedValue({ requestId: 'exa-request-1', results: [] })
+    const provider = new ExaPlaceSearchProvider('exa-test-key', { search })
 
     await expect(provider.searchPlace('Demorondanga Bar')).rejects.toMatchObject({
       kind: 'upstream',
       message: 'Exa devolvió una respuesta estructurada inválida.',
     })
+    expect(search).toHaveBeenCalledTimes(3)
+  })
+
+  it('reintenta una salida estructurada inválida y devuelve la primera válida', async () => {
+    const search = vi.fn()
+      .mockResolvedValueOnce({ requestId: 'exa-request-1', results: [] })
+      .mockResolvedValueOnce(exaResult())
+    const provider = new ExaPlaceSearchProvider('exa-test-key', { search })
+
+    await expect(provider.searchPlace('Demorondanga Bar')).resolves.toMatchObject({ requestId: 'exa-request-1', results: exaResult().results })
+    expect(search).toHaveBeenCalledTimes(2)
+  })
+
+  it('no reintenta un error de la API', async () => {
+    const search = vi.fn().mockRejectedValue({ statusCode: 429 })
+    const provider = new ExaPlaceSearchProvider('exa-test-key', { search })
+
+    await expect(provider.searchPlace('Demorondanga Bar')).rejects.toMatchObject({ kind: 'quota' })
+    expect(search).toHaveBeenCalledOnce()
   })
 })

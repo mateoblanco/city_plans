@@ -1,46 +1,76 @@
 import { APICallError, generateText, Output } from 'ai'
+import { findPhoneNumbersInText, parsePhoneNumberFromString, type PhoneNumber } from 'libphonenumber-js/max'
 import { z } from 'zod'
 import {
   CATEGORIES,
   type CategoryId,
+  ATMOSPHERE,
   CUISINES,
   DRINKS,
   FEATURES,
   FOODS,
   GOOD_FOR,
   MOMENTS,
+  OFFERS,
+  type TagGroupName,
+  type TagId,
   buildEmbeddingText,
   buildKeywordText,
-  ids,
+  findDef,
+  groupOf,
 } from '../../src/data/tags.ts'
 import { PlaceDraft } from '../../src/data/place-schema.ts'
 import { getNeighborhood } from '../../src/lib/getNeighborhood.ts'
 import { neighborhoodDisplayName } from '../../src/data/neighborhood-names.ts'
 import type {
   ExaPlaceResponse,
+  ExaPlaceResult,
   GooglePlaceDetailsResponse,
   InstagramAuditCandidate,
   PlaceEnrichmentDraft,
   PlaceEnrichmentResponse,
   PlaceExtractionCost,
   PlaceExtractionPerformance,
+  PlaceReview,
+  PlaceReviewAnomaly,
 } from '../../src/types/places.ts'
+import { brandFromGoogleName, brandSearchTerm } from './brand-name.ts'
+import { editorialSignals } from './editorial-sources.ts'
+import {
+  BLOCKED_HOSTS,
+  DEFAULT_RESERVATION_HOSTS,
+  DELIVERY_HOSTS,
+  DIRECTORY_HOSTS,
+  EXA_SUMMARY_URL,
+  LINK_AGGREGATOR_HOSTS,
+  canonical,
+  hasPhrase,
+  hostedBy,
+  hostname,
+  matchesPlaceDomain,
+} from './source-hosts.ts'
 import { PlacesProviderError } from './places-provider.ts'
+import { withServiceLimit } from './service-limits.ts'
 import type { TransitInfo } from './montevideo-bus-provider.ts'
 import type { ExaPlaceProvider } from './exa-place-provider.ts'
 import type { ApifyInstagramProvider, InstagramProfileData } from './apify-instagram-provider.ts'
 import type { PlaywrightWebsiteScraper, WebsitePageData } from './website-scraper.ts'
 
-const MODEL = 'gpt-5-mini' as const
+const DEFAULT_EXTRACTION_MODEL = 'anthropic/claude-sonnet-5.5'
 const MAX_CHARS_PER_SOURCE = 6_000
-const BLOCKED_HOSTS = ['google.com', 'goo.gl', 'maps.app.goo.gl', 'corner.inc', 'exa.ai', 'facebook.com', 'foursquare.com']
-const DIRECTORY_HOSTS = ['opina.com.uy', 'linkedin.com', 'tripadvisor', 'restaurantguru', 'yelp.com', 'wanderlog.com', 'saliracomer.com', 'laguiadelociouruguay.com']
-const APPROXIMATE_HOURS = /\b(typically|generally|usually|approximately|aproximadamente|suele|en general)\b/i
+const MAX_FACTS = 40
+const MAX_HIGHLIGHTS = 8
+const MAX_DISHES = 15
+const MAX_SIGNATURE = 3
+// Servicios y logística no definen a un lugar: nunca van en signature.
+const SIGNATURE_EXCLUDED = new Set(['delivery', 'takeaway', 'wifi', 'outlets', 'accessible', 'pet_friendly', 'menu_of_the_day'])
+// Momentos: sólo si el lugar se define por ese momento (un lugar de brunch).
+const SIGNATURE_MOMENTS = new Set(['lunch', 'dinner', 'breakfast', 'brunch', 'afternoon_snack'])
+export { DEFAULT_RESERVATION_HOSTS }
 
 export type SourceKind = 'web' | 'instagram' | 'reservations' | 'directory' | 'exa'
 export type SourceTrust = 'official' | 'third_party'
 type HoursSlot = { day: number; opens: string; closes: string | null }
-type HoursRange = { days: string; opens: string; closes: string | null }
 export type Source = {
   id: string
   kind: SourceKind
@@ -48,98 +78,200 @@ export type Source = {
   url: string
   text: string
   links?: string[]
-  hoursRaw?: string
-  hoursSlots?: HoursRange[]
-  menu?: string[]
-  exaDescription?: string
-  exaKnowsBeforeYouGo?: string
+  /** Título de la página (resultados de Exa): sólo para clasificar fuentes editoriales. */
+  title?: string
 }
 type SourceCandidate = Omit<Source, 'kind' | 'trust'> & { kind: SourceKind | 'blocked'; trust?: SourceTrust }
 type SourceContext = { name: string; websiteUrl?: string | null; instagramUrls?: string[] }
-type Target = Omit<PlaceEnrichmentDraft, 'categories' | 'moments' | 'cuisines' | 'foods' | 'drinks' | 'features' | 'goodFor' | 'dietary' | 'price' | 'reservations' | 'outdoorSeating' | 'hours' | 'contact' | 'highlights' | 'description' | 'embeddingText' | 'keywordText'>
+// Nombre y dirección de Google: sólo para buscar e identificar el local, nunca para guardar.
+type Target = Omit<PlaceEnrichmentDraft, 'name' | 'address' | 'categories' | 'tags' | 'dietary' | 'price' | 'reservations' | 'hours' | 'contact' | 'highlights' | 'description' | 'locatedIn' | 'placeFacts' | 'signals' | 'dishes' | 'signature' | 'embeddingText' | 'keywordText'> & { name: string; address: string }
 
 const DietLevel = z.enum(['unknown', 'no', 'has_options', 'fully'])
-const TriState = z.enum(['unknown', 'yes', 'no'])
+const FactKind = z.enum(['food', 'drink', 'feature', 'hours', 'dietary', 'price', 'reservations', 'contact', 'other'])
 
+const TagGroupField = z.enum(['categories', 'moments', 'cuisines', 'foods', 'drinks', 'features', 'atmosphere', 'goodFor', 'offers'])
+
+// Una sola lista de { group, id, facts }: cada categoría o tag cita los facts que lo respaldan.
+// Sin enums de ids, .max() ni regex: con la salida estructurada nativa, ocho listas o cientos
+// de enums hacen la gramática demasiado grande, y un valor fuera de rango tiraría abajo todo
+// el llamado. Los ids, topes y formatos se validan en postProcess.
 export const PlaceExtraction = z.object({
-  categories: z.array(z.enum(ids(CATEGORIES))),
-  moments: z.array(z.enum(ids(MOMENTS))),
-  cuisines: z.array(z.enum(ids(CUISINES))).max(3),
-  foods: z.array(z.enum(ids(FOODS))),
-  drinks: z.array(z.enum(ids(DRINKS))),
-  features: z.array(z.enum(ids(FEATURES))),
-  goodFor: z.array(z.enum(ids(GOOD_FOR))),
+  // Cada fact tiene un id (F1, F2…) y todas las citas usan ese id, no la posición.
+  facts: z.array(z.object({ id: z.string(), text: z.string(), sourceId: z.string(), kind: FactKind, proposedTag: z.string().nullable() })),
+  tags: z.array(z.object({ group: TagGroupField, id: z.string(), facts: z.array(z.string()) })),
   dietary: z.object({ vegan: DietLevel, vegetarian: DietLevel, glutenFree: DietLevel }),
   price: z.enum(['unknown', 'low', 'moderate', 'high', 'very_high']),
   reservations: z.enum(['unknown', 'no_reservations', 'accepts', 'recommended']),
-  outdoorSeating: TriState,
   hours: z.object({
     raw: z.string().nullable(),
     display: z.object({ es: z.string(), en: z.string() }).nullable(),
-    ranges: z.array(z.object({
-      days: z.string(),
-      opens: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
-      closes: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable(),
+    blocks: z.array(z.object({
+      days: z.array(z.number().int()),
+      opens: z.string(),
+      closes: z.string().nullable(),
     })),
   }),
+  // "" = sin dato. Strings y no nullable para que entre la gramática; postProcess los pasa a null.
   contact: z.object({
-    phone: z.string().nullable(),
-    whatsapp: z.string().nullable(),
-    instagram: z.string().nullable(),
-    website: z.string().nullable(),
-    menuUrl: z.string().nullable(),
-    reservationUrl: z.string().nullable(),
+    phone: z.string(),
+    whatsapp: z.string(),
+    instagram: z.string(),
+    website: z.string(),
+    menuUrl: z.string(),
+    reservationUrl: z.string(),
   }),
-  highlights: z.array(z.object({ es: z.string(), en: z.string() })).max(8),
+  highlights: z.array(z.object({ es: z.string(), en: z.string(), facts: z.array(z.string()) })),
+  // Platos y signature como strings simples: postProcess valida el respaldo, los ids y los topes.
+  dishes: z.array(z.string()),
+  signature: z.array(z.string()),
   description: z.object({ es: z.string(), en: z.string() }),
-  evidence: z.array(z.object({ field: z.string(), sourceId: z.string(), quote: z.string().max(500).nullable() })),
+  // Nombre y dirección según las fuentes, con sus facts en support; "" si ninguna fuente los dice.
+  // Strings simples y no nullable: cada nullable suma una rama a la gramática, que ya está al límite.
+  name: z.string(),
+  address: z.string(),
+  // Lugar que contiene al local; sus facts van en support con field locatedIn. Un string y no un
+  // objeto: el objeto nullable agranda la gramática del output estructurado y Anthropic la rechaza.
+  locatedIn: z.string().nullable(),
+  // Respaldo de los campos que no son tags: dietary, price, reservations, hours y contact.
+  support: z.array(z.object({ field: z.string(), facts: z.array(z.string()) })),
+  // Lo que el modelo no supo encasillar; el tope se aplica en reviewExtraction.
+  doubts: z.array(z.string()),
 })
 
 export type PlaceExtraction = z.infer<typeof PlaceExtraction>
+type Contact = PlaceEnrichmentDraft['contact']
+
+/** El contacto del modelo usa "" para "sin dato"; el resto del pipeline usa null. */
+function contactFromModel(contact: PlaceExtraction['contact']): Contact {
+  const value = (text: string) => text.trim() || null
+  return {
+    phone: value(contact.phone),
+    whatsapp: value(contact.whatsapp),
+    instagram: value(contact.instagram),
+    website: value(contact.website),
+    menuUrl: value(contact.menuUrl),
+    reservationUrl: value(contact.reservationUrl),
+  }
+}
+
+// Segunda búsqueda de horarios (cadenas): sólo hours, con los mismos blocks.
+export const HoursRetryExtraction = z.object({
+  facts: z.array(z.object({ id: z.string(), text: z.string(), sourceId: z.string() })),
+  raw: z.string().nullable(),
+  blocks: z.array(z.object({
+    days: z.array(z.number().int()),
+    opens: z.string(),
+    closes: z.string().nullable(),
+  })),
+  otherBranchHours: z.boolean(),
+})
+
+export type HoursRetryExtraction = z.infer<typeof HoursRetryExtraction>
+
+export const HOURS_RETRY_PROMPT = `Buscás el horario de UNA sucursal en Montevideo. Devolvé sólo horarios.
+- Solo usá horarios que correspondan a la sucursal de esta dirección. Si la fuente lista varias sucursales, elegí la que coincide con la dirección. Si no podés confirmar la sucursal, devolvé vacío.
+- facts: los hechos de horario que usaste, cada uno con id (H1, H2…), text (una frase corta en español) y sourceId (el id de la fuente).
+- raw: el texto del horario tal como aparece en la fuente, o null.
+- blocks: lista de { days, opens, closes }: days son los días (0 = domingo … 6 = sábado); opens y closes en HH:MM; closes null si no hay hora de cierre. Dos turnos el mismo día son dos bloques. Si cierra después de medianoche, closes es la hora del día siguiente. Nunca estimes ni inventes horas.
+- otherBranchHours: true si las fuentes traen horarios de otras sucursales de la marca que no son la de esta dirección; si no, false.
+- Vacío es facts [], raw null y blocks [].`
 
 export type PlaceExtractor = {
   readonly configured: boolean
-  extract(placeId: string, request: { name: string; seedCategory: CategoryId; refresh?: boolean }): Promise<PlaceEnrichmentResponse>
+  extract(placeId: string, request: PlaceExtractionRequest): Promise<PlaceEnrichmentResponse>
+}
+
+export type PlaceExtractionRequest = {
+  seedCategories: CategoryId[]
+  /** Si no llega, se calcula con las coordenadas de Google. */
+  neighborhoodId?: string
+}
+
+export type ExtractionReasoning = 'low' | 'medium' | 'high'
+export type ExtractionModelConfig = { model: string; reasoning: ExtractionReasoning }
+
+export function extractionModelConfig(env: Record<string, string | undefined> = process.env): ExtractionModelConfig {
+  const reasoning = env.EXTRACTION_REASONING?.trim()
+  return {
+    model: env.EXTRACTION_MODEL?.trim() || DEFAULT_EXTRACTION_MODEL,
+    reasoning: reasoning === 'low' || reasoning === 'high' ? reasoning : 'medium',
+  }
+}
+
+export const DEFAULT_HOURS_MODEL = 'openai/gpt-5-mini'
+
+/** Modelo de la segunda búsqueda de horarios: una tarea corta, con un modelo más barato. */
+export function hoursModelConfig(env: Record<string, string | undefined> = process.env): ExtractionModelConfig {
+  return { model: env.HOURS_MODEL?.trim() || DEFAULT_HOURS_MODEL, reasoning: 'low' }
+}
+
+// Cada proveedor del gateway nombra distinto el esfuerzo de razonamiento.
+export function providerOptionsFor(config: ExtractionModelConfig): Record<string, Record<string, string>> {
+  const provider = config.model.split('/')[0]
+  if (provider === 'openai') return { openai: { reasoningEffort: config.reasoning } }
+  // outputFormat: salida estructurada nativa. Sin ella, el gateway cae a una tool no forzada
+  // y el modelo puede devolver enums con comillas de más, que Zod rechaza.
+  if (provider === 'anthropic') return { anthropic: { effort: config.reasoning, structuredOutputMode: 'outputFormat' } }
+  return {}
 }
 
 type DetailsProvider = { getDetails(placeId: string): Promise<GooglePlaceDetailsResponse> }
 type InstagramProvider = Pick<ApifyInstagramProvider, 'configured' | 'scrapeMany'>
 type WebsiteProvider = Pick<PlaywrightWebsiteScraper, 'configured' | 'scrape'>
 type TransitProvider = { findNearbyLines(latitude: number, longitude: number): Promise<TransitInfo> }
-type GeneratedExtraction = { data: PlaceExtraction; inputTokens: number | null; outputTokens: number | null }
-type GenerateExtraction = (target: Target, sources: Source[]) => Promise<PlaceExtraction | GeneratedExtraction>
+export type LlmUsage = {
+  inputTokens: number | null
+  /** Tokens de entrada leídos del cache. */
+  cachedInputTokens: number | null
+  /** Tokens de entrada escritos en el cache (Anthropic los cobra 1,25× la entrada). */
+  cacheWriteTokens?: number | null
+  outputTokens: number | null
+  gatewayCostUsd: number | null
+}
+type GeneratedExtraction = { data: PlaceExtraction } & Partial<LlmUsage>
+type GenerateExtraction = (target: Target, sources: Source[], config: ExtractionModelConfig) => Promise<PlaceExtraction | GeneratedExtraction>
+type GeneratedHours = { data: HoursRetryExtraction } & Partial<LlmUsage>
+type GenerateHours = (target: Target, sources: Source[], config: ExtractionModelConfig) => Promise<HoursRetryExtraction | GeneratedHours>
 
 type ExtractionCostRates = {
   googleDetailsRequestUsd: number
   exaSearchRequestUsd: number
   exaContentPageUsd: number
+  exaHighlightPageUsd: number
   instagramRunUsd: number
   scrapingRequestUsd: number
   transitRequestUsd: number
-  llmInputTokenUsd: number
-  llmOutputTokenUsd: number
 }
 
 type ExtractionCostUsage = {
   googleRequests: number
   exaRequests: number
   exaContentPages: number
+  exaHighlightPages: number
   instagramRequests: number
   scrapingRequests: number
   transitRequests: number
 }
 
 const DEFAULT_COST_RATES: ExtractionCostRates = {
-  // Precios de lista por evento: Google Place Details Enterprise + Atmosphere,
-  // Exa Search con contenido + highlights, y GPT-5 mini por token.
+  // Precios de lista por evento: Google Place Details Enterprise + Atmosphere
+  // y Exa Search con contenido + highlights.
   googleDetailsRequestUsd: 0.025,
   exaSearchRequestUsd: 0.007,
   exaContentPageUsd: 0.002,
+  // Sólo highlights, sin texto completo: la segunda búsqueda de horarios.
+  exaHighlightPageUsd: 0.001,
   instagramRunUsd: 0,
   scrapingRequestUsd: 0,
   transitRequestUsd: 0,
-  llmInputTokenUsd: 0.25 / 1_000_000,
-  llmOutputTokenUsd: 2 / 1_000_000,
+}
+
+// USD por millón de tokens, según el endpoint de modelos del AI Gateway.
+// cacheWrite: OpenAI no cobra la escritura del cache; Anthropic la cobra 1,25× la entrada.
+type LlmPrice = { input: number; cachedInput: number; cacheWrite: number; output: number }
+export const LLM_PRICES_PER_MILLION: Record<string, LlmPrice> = {
+  'openai/gpt-5-mini': { input: 0.25, cachedInput: 0.025, cacheWrite: 0.25, output: 2 },
+  'anthropic/claude-sonnet-5.5': { input: 2, cachedInput: 0.1, cacheWrite: 2.5, output: 10 },
 }
 
 function configuredCostRate(name: string, fallback: number): number {
@@ -152,56 +284,92 @@ function extractionCostRates(overrides: Partial<ExtractionCostRates> = {}): Extr
     googleDetailsRequestUsd: configuredCostRate('EXTRACTION_COST_GOOGLE_DETAILS_USD', overrides.googleDetailsRequestUsd ?? DEFAULT_COST_RATES.googleDetailsRequestUsd),
     exaSearchRequestUsd: configuredCostRate('EXTRACTION_COST_EXA_SEARCH_USD', overrides.exaSearchRequestUsd ?? DEFAULT_COST_RATES.exaSearchRequestUsd),
     exaContentPageUsd: configuredCostRate('EXTRACTION_COST_EXA_CONTENT_PAGE_USD', overrides.exaContentPageUsd ?? DEFAULT_COST_RATES.exaContentPageUsd),
+    exaHighlightPageUsd: configuredCostRate('EXTRACTION_COST_EXA_HIGHLIGHT_PAGE_USD', overrides.exaHighlightPageUsd ?? DEFAULT_COST_RATES.exaHighlightPageUsd),
     instagramRunUsd: configuredCostRate('EXTRACTION_COST_INSTAGRAM_RUN_USD', overrides.instagramRunUsd ?? DEFAULT_COST_RATES.instagramRunUsd),
     scrapingRequestUsd: configuredCostRate('EXTRACTION_COST_SCRAPING_REQUEST_USD', overrides.scrapingRequestUsd ?? DEFAULT_COST_RATES.scrapingRequestUsd),
     transitRequestUsd: configuredCostRate('EXTRACTION_COST_TRANSIT_REQUEST_USD', overrides.transitRequestUsd ?? DEFAULT_COST_RATES.transitRequestUsd),
-    llmInputTokenUsd: configuredCostRate('EXTRACTION_COST_LLM_INPUT_TOKEN_USD', overrides.llmInputTokenUsd ?? DEFAULT_COST_RATES.llmInputTokenUsd),
-    llmOutputTokenUsd: configuredCostRate('EXTRACTION_COST_LLM_OUTPUT_TOKEN_USD', overrides.llmOutputTokenUsd ?? DEFAULT_COST_RATES.llmOutputTokenUsd),
   }
 }
 
-export const SYSTEM_PROMPT = `Sos un curador de gastronomía de Montevideo. Devolvé un JSON estructurado y verificable sobre el local objetivo a partir de sus fuentes.
-
-REGLAS
-- Cada fuente indica si es OFICIAL (web o Instagram validado del local) o TERCEROS (Exa, directorios y reservas). Ante contradicciones para un mismo dato, gana la fuente OFICIAL.
-- foods y cuisines: incluílos SOLO si una fuente menciona un plato, ingrediente o tipo de cocina concreto. No deduzcas platos típicos por el tipo de local. Para cuisines, usá uruguayan como máximo si el contexto lo sostiene. Nunca agregues tags de comida sin mención explícita.
-- goodFor: la inferencia requiere señales claras. work sólo si se menciona wifi, enchufes, "para trabajar" o si es un café con mesas y horario diurno. Para los demás, usá señales explícitas de ambiente o propuesta.
-- features: se pueden inferir desde descripciones concretas, por ejemplo "patio compartido" => patio. features de espacio al aire libre: si cualquier fuente menciona patio, patio compartido, jardín, terraza, rooftop, vereda o mesas afuera (en español o inglés: patio, shared patio, garden, terrace, outdoor seating), agregá el feature correspondiente (patio, terrace o sidewalk) y poné outdoorSeating en "yes".
-- Inferencias guía: inferí un tag únicamente cuando una mención concreta de la fuente lo respalde. No uses ejemplos de platos, bebidas ni locales como datos de referencia.
-- Café de especialidad más wifi o trabajo => goodFor.work. Wine bar o coctelería cálida/íntima => first_date y after_office. Mesas grandes, picadas o para compartir => groups. Si es sólo café o bar sin cocina definida, cuisines queda vacío.
-- dietary NO se infiere: has_options o fully sólo si una fuente menciona explícitamente opciones veganas, vegetarianas o sin TACC/sin gluten. Si no, unknown. "no" solamente si la fuente lo dice explícitamente.
-- Ignorá otras ciudades, países y sucursales para horarios, teléfonos y features.
-- Ignorá contenido de tienda online: productos envasados, bolsas de café, suscripciones, insumos, merch, gift cards y sus precios. Solo te interesa lo que se consume en el local. Ni highlights ni la descripción pueden mencionar productos de la tienda online. Ignorá también reseñas y puntajes.
-- Usá solamente los tags permitidos. cuisines tiene máximo tres valores.
-- MOMENTS: brunch sólo si aparece literalmente “brunch”. afternoon_snack sólo si se menciona merienda o el lugar es café/panadería. Nunca devuelvas late_night: el código lo decide exclusivamente desde horarios.
-- FEATURES: open_kitchen sólo si se ve o menciona una cocina a la vista/abierta; bar_seating sólo si se puede comer en la barra, no por tener un bar para pedir bebidas.
-- dietary: has_options si hay opciones; fully solo si todo el local cumple. price solo con precios o evidencia explícita.
-- hours.raw conserva el texto de horarios exactamente como aparece en la fuente, sin reinterpretarlo; usá null si no hay texto. hours.display es una versión natural y concisa del mismo raw en español e inglés; usá null si raw es null. hours.ranges usa objetos { days, opens, closes }: days conserva el rango publicado (por ejemplo "Tue-Sun"), opens/closes usan HH:MM y closes puede ser null si falta el cierre. Nunca devuelvas horarios día por día: el código expande cada rango. Convertí formatos de 12/24 horas, español/inglés y rangos como todos los días, de martes a domingo o lun a vie. Dos turnos requieren dos rangos; trasnoche cierra con la hora del día siguiente. Los horarios pueden venir en muchos formatos. Reconocé y convertí todos, por ejemplo:
-  - "Every day, 12:00 PM - 01:00 AM" → los 7 días, opens 12:00, closes 01:00
-  - "Mon-Fri 9:00-18:00" → lunes a viernes, opens 09:00, closes 18:00
-  - "Lunes a viernes de 9 a 18" → lunes a viernes, opens 09:00, closes 18:00
-  - "Mar a Dom 19 a 02 hs" → martes a domingo, opens 19:00, closes 02:00
-  - Tablas día por día (ej. "Lunes | 2–8 p.m.", "Martes | 8 a.m.–8 p.m.") → una entrada por día con su horario
-  - "Cerrado" o "Closed" en un día → ese día no lleva entrada
-  Los horarios del resumen de Exa (campo open_hours) son válidos: usalos si no hay horarios en la web o el Instagram del local. Si la fuente usa “typically”, “generally”, “usually”, “approximately”, “aproximadamente”, “suele” o “en general”, no cargues horarios.
-- description.es: 2-3 frases rioplatenses, cercanas y sin exagerar. description.en: la misma idea en inglés natural. No copies las fuentes.
-- highlights son platos o tragos concretos y cortos mencionados en menú, web o Instagram; nunca productos de tienda online. Devolvé cada uno como { es, en }. highlights.es siempre en español, aunque la fuente esté en otro idioma: usá el nombre conocido en español cuando exista (por ejemplo, “Galician pie” → “Pastel gallego”, “Feira octopus” → “Pulpo a la feira”, “Padrón peppers” → “Pimientos de Padrón”). highlights.en siempre en inglés. Priorizá los que ayudan a decidir. Para nombres locales sin traducción real, conservá el mismo nombre en en; si hace falta, sumá sólo en en una aclaración breve entre paréntesis.
-- website es exclusivamente la web propia del local. Links de reservas, delivery, WhatsApp o Linktree van al campo de contacto que corresponda, nunca a website.
-- evidence debe incluir una entrada por cada tag, momento, highlight, horario y dato de contacto informado, usando field con el path del dato (por ejemplo moments.brunch, contact.website, hours.raw u hours.slots.0) y el id de la fuente que lo respalda. Para una inferencia, citá el fragmento contextual que la hace razonable. quote debe ser un fragmento textual literal de la fuente, en su idioma original, de hasta 15 palabras; nunca traduzcas ni parafrasees.
-- Las etiquetas sueltas de un directorio, como “Tags: Brunch” o “Categories: X”, no son evidencia válida de moments, goodFor ni features.
-- Si las fuentes no parecen ser del local, no uses su información. La descripción debe ser de 2-3 frases: qué es, qué se come y toma, ambiente y mejor momento; no menciones horarios ni empresas o terceros irrelevantes.`
-
-export const DEFAULT_RESERVATION_HOSTS = ['meitre.com', 'dinnerin', 'tablesapp', 'covermanager', 'resy', 'opentable'] as const
-const LINK_AGGREGATOR_HOSTS = ['linktr.ee', 'beacons.ai', 'solo.to', 'campsite.bio']
-
-function hostname(value: string | null) {
-  try { return value ? new URL(value).hostname.toLowerCase().replace(/^www\./, '') : null } catch { return null }
+// Las variables EXTRACTION_COST_LLM_* siguen pisando el precio de la tabla.
+function llmPrice(model: string): LlmPrice | null {
+  const known = LLM_PRICES_PER_MILLION[model]
+  const input = Number(process.env.EXTRACTION_COST_LLM_INPUT_TOKEN_USD)
+  const output = Number(process.env.EXTRACTION_COST_LLM_OUTPUT_TOKEN_USD)
+  if (Number.isFinite(input) && input >= 0 && Number.isFinite(output) && output >= 0 && process.env.EXTRACTION_COST_LLM_INPUT_TOKEN_USD && process.env.EXTRACTION_COST_LLM_OUTPUT_TOKEN_USD) {
+    return { input: input * 1_000_000, cachedInput: known?.cachedInput ?? input * 1_000_000, cacheWrite: known?.cacheWrite ?? input * 1_000_000, output: output * 1_000_000 }
+  }
+  return known ?? null
 }
 
-function hostedBy(value: string | null, hosts: readonly string[]) {
-  const host = hostname(value)
-  return Boolean(host && hosts.some((item) => host === item || host.endsWith(`.${item}`)))
-}
+const ALLOWED_TAG_GROUPS = { categories: CATEGORIES, moments: MOMENTS, cuisines: CUISINES, foods: FOODS, drinks: DRINKS, features: FEATURES, atmosphere: ATMOSPHERE, goodFor: GOOD_FOR, offers: OFFERS } as const
+
+export const SYSTEM_PROMPT = `Sos un curador de gastronomía de Montevideo. A partir de las fuentes, devolvé un JSON sobre el local objetivo. Trabajá en dos pasos y en este orden.
+
+PASO 1 — facts
+- facts es la lista de hechos concretos que dicen las fuentes sobre el local objetivo. Cada fact tiene id (F1, F2, F3… en orden, sin repetir), text (una frase corta en español), sourceId (el id de la fuente de donde sale) y kind: food, drink, feature, hours, dietary, price, reservations, contact u other.
+- El text de cada fact va siempre en español, aunque la fuente esté en otro idioma. Traducí los nombres de platos y productos al nombre habitual en Uruguay ("Spanish omelette" → "tortilla de papas", "burger" → "hamburguesa"). El nombre propio del local no se traduce.
+- Máximo 40 facts, de una frase corta cada uno. Priorizá los que sirven para tags, horarios, dietary y la descripción.
+- Sólo hechos del local objetivo: ignorá otras sucursales, otras ciudades y otros países, aunque compartan nombre o cuenta (por ejemplo, un Instagram de otro país).
+- Ignorá el contenido de tienda online: productos envasados, bolsas de café, suscripciones, insumos, merch, gift cards y sus precios. Ignorá también reseñas y puntajes.
+- Las etiquetas sueltas de un directorio ("Tags: Brunch", "Categories: X") no son hechos.
+- Nada inventado ni deducido sin base. Cada fuente indica si es OFICIAL (web o Instagram validado del local) o TERCEROS; si se contradicen, gana la OFICIAL.
+
+PASO 2 — el resto del JSON, sólo a partir de facts
+- tags es una lista de { group, id, facts } con las categorías y los tags del local: group es categories, moments, cuisines, foods, drinks, features, atmosphere, goodFor u offers; id es uno de los ids permitidos de ese grupo (ver IDS PERMITIDOS); facts son los ids de los facts que lo respaldan (por ejemplo ["F3", "F7"]).
+- support respalda los demás datos: una entrada { field, facts }, con los ids de los facts, para cada uno que completes, con field exactamente igual a uno de estos: dietary.vegan, dietary.vegetarian, dietary.glutenFree, price, reservations, hours, contact.phone, contact.whatsapp, contact.instagram, contact.website, contact.menuUrl, contact.reservationUrl, locatedIn, name, address.
+- Lo que no cite un fact se descarta.
+- proposedTag: en cada fact que no cites en ningún tag ni support, completá proposedTag: el id existente que debería haberse usado, un id nuevo en snake_case si ningún tag encaja, o null. proposedTag es null solo para anécdotas, historia de la marca, nombre o dirección del local, datos de contacto, medios de pago o información de otras sucursales. Si el fact describe comida, bebida, actividades o características del lugar, proponé un tag existente o uno nuevo. En los facts citados, null.
+- Platos y bebidas concretos nunca van con proposedTag null: mapealos al tag más cercano (tapas o platos pequeños → tapas, y además picada si mencionan tablas, fiambres o quesos para compartir; postres dulces → desserts; jugos o licuados → smoothies; yogur, tostadas o similares → breakfast).
+- Cada tag tiene que corresponder a al menos un fact. No pongas tags sin un fact que los respalde. Usá solamente los ids permitidos.
+- Inferí tags razonables a partir de los facts. Ejemplo inventado: "pasan música con DJs los viernes y se llena a la salida de la oficina" → dj, after_office; "ideal para trabajar con la compu" → work. Pero foods, cuisines y dietary sólo con menciones explícitas: nunca deduzcas platos, tipo de cocina ni opciones dietarias por el tipo de local. cuisines tiene máximo tres valores.
+- cuisines sólo si es el estilo principal del lugar o una parte relevante de la carta, nunca por un plato suelto: una parrilla que tiene una pasta no es italian. Además, una cocina necesita un fact que la nombre ("cocina italiana", "comida mexicana"); si ningún fact la nombra, no la pongas.
+- features, goodFor y atmosphere también necesitan un fact que nombre el tag con palabras de esa idea ("tiene terraza", "ideal para ir en grupo", "ambiente acogedor"). El RESUMEN ESTRUCTURADO DE EXA no alcanza solo para features, goodFor, offers ni atmosphere: necesitan un fact de otra fuente.
+- atmosphere (quiet, lively, cozy, elegant) sólo con un fact que describa el ambiente del lugar.
+- Los facts de fuentes de terceros son válidos para tags de comida, bebida, características y momentos. Solo dietary necesita una mención explícita, y si una fuente oficial contradice a un tercero, gana la oficial.
+- Platos concretos siempre se mapean a un tag: cortes de carne o achuras → grilled_meat; pescados, mariscos o arroces con mariscos → seafood; pastas rellenas o caseras → pasta; flan, panqueques u otros postres → desserts; bowls o ensaladas → salads; huevos o tostadas → breakfast. Variedad de cervezas → craft_beer o draft_beer. Transmisiones deportivas → el tag de pantallas para fútbol (watch_football).
+- Si hay facts de bebidas, tiene que haber al menos un tag de bebida. Una mención genérica de tragos o cócteles → classic_cocktails. Tragos propios de la casa, de autor, o cócteles con una base especial (ej. a base de vino) → signature_cocktails.
+- moments: no devuelvas late_night; lo decide el código con los horarios.
+- features: open_kitchen sólo si se menciona una cocina a la vista o abierta; bar_seating sólo si se puede comer en la barra, no por tener una barra para pedir bebidas. delivery y takeaway sólo para comida del local, nunca envíos de una tienda online.
+- Distinguí espacios al aire libre: patio = espacio interno o trasero; terrace = terraza o azotea elevada; sidewalk = mesas en la vereda. No los uses como sinónimos.
+- Usá patio, terrace o sidewalk solo si la fuente dice explícitamente patio, terraza/azotea o vereda. Si solo dice al aire libre o mesas afuera sin detalle, usá outdoor.
+- Sesiones de discos o escucha de vinilos → vinyl.
+- Si una fuente dice que solo se paga en efectivo, usá cash_only.
+- Jams, toques o bandas → live_music además de events. Libros o actividades para chicos → kids_friendly.
+- Sillas altas, menú infantil, juegos o espacio para chicos → kids_friendly.
+- dishes: platos concretos de comida que aparecen en los facts, en español, en minúscula y con el nombre normalizado, sin artículos ni conectores sobrantes ("milanesas a la napolitana" → "milanesa napolitana"; "chivito al pan canadiense" → "chivito canadiense"). Cada plato tiene que estar en el texto de un fact. Máximo 15. Nada de bebidas, productos de tienda online ni categorías genéricas (comida casera, minutas).
+- signature: hasta 3 ids de los tags que ya pusiste y que mejor definen al lugar (por qué es conocido), de cualquier grupo salvo categories. Tienen que estar en tags. Nunca servicios o logística (delivery, takeaway, wifi, outlets, accessible, pet_friendly, menu_of_the_day). Momentos (lunch, dinner, breakfast, brunch, afternoon_snack) sólo si el lugar se define por ese momento, por ejemplo un lugar de brunch.
+- offers: sólo promociones o formatos concretos (merienda para dos, menú del día o ejecutivo, tenedor libre, happy hour).
+- dietary no se infiere: has_options si un fact menciona opciones veganas, vegetarianas o sin TACC; fully sólo con una frase inequívoca de que todo el local cumple; "no" sólo si se dice explícitamente; si no, unknown. Si el menú menciona queso, huevo, manteca, leche o crema que no sean veganos, vegan no puede ser fully.
+- Una versión vegetal explícita de un plato (de soja, de seitán, veggie, de lentejas) cuenta como vegetarian has_options.
+- price sólo con precios o una mención explícita. reservations sólo con un fact que lo diga.
+- Cada campo de contact va con "" si las fuentes no lo dicen.
+- contact.website es exclusivamente la web propia del local. Los links de reservas, delivery, WhatsApp o Linktree van a su campo, nunca a website.
+- Si las fuentes dicen que el local está dentro de otro lugar (shopping, mercado, galería, hotel, museo, polo gastronómico), completá locatedIn con el nombre de ese lugar. Si no lo dicen claramente, null. No lo deduzcas solo de la dirección.
+- Si completás locatedIn, citá en support los facts que lo dicen, con field locatedIn.
+- name es el nombre de la marca tal como lo escriben las fuentes, sin la sucursal (barrio, shopping, "sucursal X"). Citá en support, con field name, los facts que lo dicen. Si ninguna fuente lo nombra, "". El Nombre de LOCAL OBJETIVO sirve para identificar el local, no es una fuente.
+- address es la dirección del local tal como aparece en una fuente, con su support (field address). Si ninguna fuente la trae, "". No copies la Dirección de LOCAL OBJETIVO.
+
+HORARIOS
+- Si hay un horario en una fuente OFICIAL, usá sólo ese para raw y blocks: no lo completes ni lo mezcles con horarios de TERCEROS (por ejemplo, no tomes una hora de cierre de un directorio).
+- Si el horario aparece en una sola fuente de terceros y ninguna otra lo contradice, usalo (source third_party).
+- Si las fuentes de horarios se contradicen: gana la oficial; si la web oficial y el Instagram oficial difieren, gana Instagram. Si no hay oficial, gana el horario en el que coinciden más fuentes; si hay empate, gana el que trae días y horas de cierre completos. Dejá los horarios vacíos si no podés aplicar ninguno de estos criterios.
+- Cuando apliques un desempate, anotá en doubts cuál criterio usaste (por ejemplo: «Horario: ganó Instagram oficial sobre la web»).
+- hours.raw conserva el texto del horario de una sola fuente, tal como aparece, sin reinterpretarlo; null si no hay o si la fuente dice que no está disponible.
+- hours.blocks es una lista de { days, opens, closes }: days son los días a los que aplica el bloque (0 = domingo … 6 = sábado); opens y closes van en HH:MM.
+- Interpretá cualquier formato de horario en español o inglés (rangos, abreviaturas de una letra, "a partir de", "todos los días", tablas, varios turnos). Si no hay hora de cierre, closes es null. Nunca estimes ni inventes horas que no estén en las fuentes.
+- Dos turnos el mismo día son dos bloques. Si cierra después de medianoche, closes es la hora del día siguiente (por ejemplo 01:00). Un día cerrado no lleva bloque.
+- Si la fuente usa "typically", "generally", "usually", "approximately", "aproximadamente", "suele" o "en general", no cargues bloques.
+- hours.display sólo hace falta si hay raw pero no podés armar bloques: no agregues ningún dato que no esté en raw.
+
+HIGHLIGHTS Y DESCRIPCIÓN
+- highlights son platos o tragos concretos y cortos que aparecen en los facts; nunca productos de tienda online. Cada uno es { es, en, facts }: facts son los ids de los facts donde aparece; es siempre en español aunque la fuente esté en otro idioma (usá el nombre conocido en español si existe); en siempre en inglés. Para nombres locales sin traducción, conservá el nombre y, si hace falta, agregá sólo en en una aclaración breve entre paréntesis.
+- description.es: 2-3 frases en rioplatense, cercanas y sin exagerar, con palabras propias: qué es el lugar, su ambiente y por qué es conocido. Puede nombrar los platos o bebidas característicos, pero no enumerar la carta. Sin horarios y sin mencionar empresas ni terceros irrelevantes. description.en: la misma idea en inglés natural.
+- La descripción sólo puede mencionar cosas que estén en facts, y todo lo que mencione tiene que estar en los tags: si decís DJ → dj; tragos o cócteles → classic_cocktails o signature_cocktails; after office → after_office; celebraciones → celebration; patio → patio. No menciones nada que no hayas tagueado.
+- doubts: anotá en doubts lo que no supiste resolver (máx. 5). No inventes dudas.
+
+IDS PERMITIDOS
+${(Object.entries(ALLOWED_TAG_GROUPS) as [string, Record<string, unknown>][]).map(([group, definitions]) => `- ${group}: ${Object.keys(definitions).join(', ')}`).join('\n')}`
 
 function normalizedUrl(value: string): string | null {
   try {
@@ -213,8 +381,12 @@ function normalizedUrl(value: string): string | null {
   }
 }
 
+// Un "handle" con extensión de archivo (entradas.html, logo.png) sale de un link roto, no de un perfil.
+const FILE_LIKE_HANDLE = /\.(?:html?|php|aspx?|jsp|cgi|png|jpe?g|gif|webp|svg|pdf|xml|json|js|css)$/i
+
 function instagramProfileUrl(value: string): string | null {
   const candidate = value.trim()
+  if (FILE_LIKE_HANDLE.test(candidate.replace(/\/+$/, ''))) return null
   if (/^@?[a-z0-9._]{1,30}$/i.test(candidate)) {
     const handle = candidate.replace(/^@/, '').toLowerCase()
     return `https://www.instagram.com/${handle}/`
@@ -234,38 +406,41 @@ function instagramHandle(value: string): string | null {
   return instagramProfileUrl(value)?.split('/').filter(Boolean).at(-1) ?? null
 }
 
-function canonical(value: string): string {
-  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-}
-
 function samePlaceName(expected: string, actual: string): boolean {
   const left = canonical(expected).replace(/[^a-z0-9]+/g, ' ').trim()
   const right = canonical(actual).replace(/[^a-z0-9]+/g, ' ').trim()
   return Boolean(left && right && (left === right || left.length >= 5 && right.includes(left) || right.length >= 5 && left.includes(right)))
 }
 
-function instagramProfileMatches(details: GooglePlaceDetailsResponse, profile: InstagramProfileData): boolean {
+const GENERIC_NAME_WORDS = new Set(['bar', 'cafe', 'resto', 'restaurante', 'restaurant', 'the', 'los', 'las', 'del', 'club', 'casa'])
+
+/** Alguna palabra propia de la marca (3+ letras, no genérica) aparece en el texto. */
+function sharesBrandWord(brand: string, text: string) {
+  const haystack = ` ${canonical(text).replace(/[^a-z0-9]+/g, ' ')} `
+  return canonical(brand).split(/[^a-z0-9]+/).some((word) => word.length >= 3 && !GENERIC_NAME_WORDS.has(word) && haystack.includes(` ${word} `))
+}
+
+function instagramProfileMatches(details: GooglePlaceDetailsResponse, profile: InstagramProfileData, websiteUrl: string | null): boolean {
   const values = [profile.url, profile.name, profile.bio, ...profile.links, ...(profile.posts ?? [])]
   const normalized = canonical(values.join(' '))
   if (/\bbrasil\b|\bbrazil\b|\bargentina\b|\bbuenos aires\b|\.br\b|\.ar\b/.test(normalized)) return false
-  const hasName = samePlaceName(details.anchor.name, profile.name)
+  const hasName = samePlaceName(brandFromGoogleName(details.anchor.name), profile.name)
   const hasLocalSignal = /\bmontevideo\b|\buruguay\b|\buru\b|\b(?:uy|mvd)\b/.test(normalized)
   const addressNumbers = canonical(details.anchor.address).match(/\b\d{2,}\b/g) ?? []
   const hasAddress = addressNumbers.some((number) => new RegExp(`\\b${number}\\b`).test(normalized))
-  const officialHost = hostname(details.websiteUri)
-  const hasWebsiteCrossLink = Boolean(officialHost && !instagramProfileUrl(details.websiteUri ?? '') && profile.links.some((link) => hostname(link) === officialHost))
-  return hasName && (hasLocalSignal || hasAddress || hasWebsiteCrossLink)
+  const officialHost = hostname(websiteUrl)
+  const hasWebsiteCrossLink = Boolean(officialHost && !instagramProfileUrl(websiteUrl ?? '') && profile.links.some((link) => hostname(link) === officialHost))
+  if (hasName && (hasLocalSignal || hasAddress || hasWebsiteCrossLink)) return true
+  // Nombre corto o distinto ("SUMI" para "Sumi Sushi"): alcanza con una palabra de la marca en el
+  // nombre o el handle si la bio trae la dirección del local o su teléfono.
+  const bio = [profile.bio, ...(profile.posts ?? [])].join('\n')
+  const googlePhone = normalizeUruguayPhone(details.phoneNumber ?? null)
+  const hasPhone = Boolean(googlePhone && phonesInText(bio).map(normalizeUruguayPhone).includes(googlePhone))
+  return sharesBrandWord(brandFromGoogleName(details.anchor.name), `${profile.name} ${profile.url}`) &&
+    (mentionsAddress(bio, details.anchor.address) || hasPhone)
 }
 
-function matchesPlaceDomain(host: string, name: string): boolean {
-  const hostValue = canonical(host).replace(/[^a-z0-9]/g, '')
-  const nameValue = canonical(name).replace(/[^a-z0-9]/g, '')
-  if (nameValue.length >= 5 && hostValue.includes(nameValue)) return true
-  const words = canonical(name).split(/[^a-z0-9]+/).filter((word) => word.length >= 4)
-  return words.length > 0 && words.every((word) => hostValue.includes(word))
-}
-
-export function classifyContact(contact: PlaceExtraction['contact']) {
+export function classifyContact(contact: Contact) {
   const normalized = { ...contact }
   if (normalized.website && /^https?:\/\/(?:wa\.me|api\.whatsapp\.com|web\.whatsapp\.com)\//i.test(normalized.website)) {
     normalized.whatsapp ??= normalized.website
@@ -299,6 +474,19 @@ export function classifySource(url: string, context: SourceContext): SourceKind 
   if (knownWebsite === host) return 'web'
   if (DIRECTORY_HOSTS.some((directory) => host === directory || host.endsWith(`.${directory}`) || host.split('.').includes(directory))) return 'directory'
   return matchesPlaceDomain(host, context.name) ? 'web' : 'directory'
+}
+
+// Dominios de otros países (".com.br", ".ar"…). ".co" no: lo usan directorios uruguayos.
+const FOREIGN_TLDS = new Set(['br', 'ar', 'cl', 'py', 'pe', 'bo', 'mx', 'es', 'ec', 've', 'ph', 'pt', 'it', 'fr', 'de', 'uk', 'au', 'ca', 'us'])
+// Señales de dirección de otro país: ciudades, CEP brasileño o prefijos telefónicos de Brasil y Argentina.
+const FOREIGN_ADDRESS = /\b(?:porto alegre|sao paulo|rio de janeiro|florianopolis|curitiba|buenos aires|santiago de chile|asuncion)\b|\b\d{5}-\d{3}\b|\+\s?5[45]\b/
+
+/** Fuente de otro país: dominio extranjero, o dirección extranjera sin ninguna mención de Uruguay o Montevideo. */
+export function isForeignSource(url: string, text: string): boolean {
+  const host = hostname(url)
+  if (host && FOREIGN_TLDS.has(host.split('.').at(-1)!)) return true
+  const normalized = canonical(text)
+  return FOREIGN_ADDRESS.test(normalized) && !/\b(?:uruguay|montevideo)\b/.test(normalized)
 }
 
 export function filterSources(sources: SourceCandidate[]): Source[] {
@@ -352,56 +540,36 @@ export function deduplicateSourceText(sources: Source[]): { sources: Source[]; s
   }
 }
 
-export type ParsedHours = { raw: string | null; slots: HoursSlot[]; sourceId: string; trust: SourceTrust }
+const HH_MM = /^([01]\d|2[0-3]):[0-5]\d$/
 
-const DAY_NAMES: Record<string, number> = {
-  sun: 0, sunday: 0, dom: 0, domingo: 0,
-  mon: 1, monday: 1, lun: 1, lunes: 1,
-  tue: 2, tues: 2, tuesday: 2, mar: 2, martes: 2,
-  wed: 3, wednesday: 3, mie: 3, miercoles: 3,
-  thu: 4, thur: 4, thurs: 4, thursday: 4, jue: 4, jueves: 4,
-  fri: 5, friday: 5, vie: 5, viernes: 5,
-  sat: 6, saturday: 6, sab: 6, sabado: 6,
+// Acepta "9:00" y "24:00", que el modelo a veces devuelve, y descarta el resto de los formatos.
+function normalizedTime(value: string | null): string | null {
+  const match = value?.trim().match(/^(\d{1,2}):(\d{2})$/)
+  if (!match) return null
+  const time = `${match[1].padStart(2, '0')}:${match[2]}`
+  if (time === '24:00') return '00:00'
+  return HH_MM.test(time) ? time : null
 }
 
-const UNAVAILABLE_HOURS = new Set([
-  'not available',
-  'n/a',
-  'na',
-  'no disponible',
-  'horario no disponible',
-  'horarios no disponibles',
-  'sin horario disponible',
-])
+type HoursBlock = PlaceExtraction['hours']['blocks'][number]
 
-function isUnavailableHours(value: string | null | undefined) {
-  return Boolean(value && UNAVAILABLE_HOURS.has(canonical(value).replace(/\./g, '').replace(/\s+/g, ' ').trim()))
-}
-
-export function daysFromRange(value: string): number[] {
-  const normalized = canonical(value).replace(/\./g, '').replace(/\s+/g, ' ').trim()
-  if (/^(every day|daily|todos? los dias)$/.test(normalized)) return [0, 1, 2, 3, 4, 5, 6]
-  const match = normalized.match(/^([a-z]+)\s*(?:-|–|—|to|a)\s*([a-z]+)$/)
-  if (match) {
-    const start = DAY_NAMES[match[1]]
-    const end = DAY_NAMES[match[2]]
-    if (start === undefined || end === undefined) return []
-    const days: number[] = []
-    let day = start
-    do {
-      days.push(day)
-      day = (day + 1) % 7
-    } while (day !== (end + 1) % 7)
-    return days
+/** Valida los bloques del modelo y los convierte en un slot por día por bloque. Un bloque inválido se descarta entero. */
+export function slotsFromBlocks(blocks: HoursBlock[]): HoursSlot[] {
+  const seen = new Set<string>()
+  const slots: HoursSlot[] = []
+  for (const block of blocks) {
+    const opens = normalizedTime(block.opens)
+    const closes = block.closes === null ? null : normalizedTime(block.closes)
+    const validDays = block.days.length > 0 && block.days.every((day) => Number.isInteger(day) && day >= 0 && day <= 6)
+    if (!opens || (block.closes !== null && !closes) || !validDays) continue
+    for (const day of block.days) {
+      const key = `${day}:${opens}:${closes ?? ''}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      slots.push({ day, opens, closes })
+    }
   }
-  const day = DAY_NAMES[normalized]
-  return day === undefined ? [] : [day]
-}
-
-export function expandHourRanges(ranges: HoursRange[]): HoursSlot[] {
-  return ranges.flatMap(({ days, opens, closes }) =>
-    daysFromRange(days).map((day) => ({ day, opens, closes })),
-  )
+  return slots.sort((left, right) => left.day - right.day || left.opens.localeCompare(right.opens))
 }
 
 const DISPLAY_DAY_ORDER = [1, 2, 3, 4, 5, 6, 0] as const
@@ -454,76 +622,19 @@ function displayFromSlots(slots: HoursSlot[]): { es: string; en: string } | null
   }
   if (groups.length === 0) return null
   const format = (language: 'es' | 'en') => groups
-    .map((group) => `${displayDayRange(group.days, language)}: ${displayPeriods(group.slots, language)}`)
+    .map((group) => {
+      const days = displayDayRange(group.days, language)
+      // Sin hora de cierre: "Todos los días desde las 18:00" / "Every day from 18:00".
+      if (group.slots.length === 1 && group.slots[0].closes === null) {
+        return language === 'es' ? `${days} desde las ${group.slots[0].opens}` : `${days} from ${group.slots[0].opens}`
+      }
+      return `${days}: ${displayPeriods(group.slots, language)}`
+    })
     .join('; ')
   return { es: format('es'), en: format('en') }
 }
 
-function parseMeridiemTime(value: string): string | null {
-  const match = value.trim().match(/^(\d{1,2})(?:(?::|\.)(\d{2}))?\s*(?:h(?:s|rs|oras?)?\.?)?\s*(AM|PM|a\.\s*m\.|p\.\s*m\.)?$/i)
-  if (!match) return null
-  let hours = Number(match[1])
-  const minutes = Number(match[2] ?? '0')
-  const meridiem = match[3]?.replace(/\W/g, '').toUpperCase()
-  if (minutes > 59 || hours > 23 || hours < 0) return null
-  if (meridiem) {
-    if (hours < 1 || hours > 12) return null
-    if (meridiem === 'PM' && hours !== 12) hours += 12
-    if (meridiem === 'AM' && hours === 12) hours = 0
-  }
-  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
-}
-
-type HoursParseContext = { city: string; address: string }
-
-const DAILY_HOURS_PATTERN = /(?:([^:\n]+):\s*)?(?:every day|daily|todos? los d[ií]as)\s*(?:[:,]?\s*(?:de\s*)?)?(\d{1,2}(?:(?::|\.)\d{2})?\s*(?:h(?:s|rs|oras?)?\.?)?\s*(?:a\.\s*m\.|p\.\s*m\.|am|pm)?)\s*(?:-|–|—|a|to)\s*(\d{1,2}(?:(?::|\.)\d{2})?\s*(?:h(?:s|rs|oras?)?\.?)?\s*(?:a\.\s*m\.|p\.\s*m\.|am|pm)?)/gi
-
-function isLocationPrefix(value: string) {
-  return !/\b(?:horarios?|hours?|opening hours?)\b/i.test(value)
-}
-
-function matchesHoursLocation(value: string, context: HoursParseContext) {
-  const prefix = canonical(value)
-  const candidates = [context.city, context.address].map(canonical)
-  return candidates.some((candidate) => candidate.length > 1 && (prefix.includes(candidate) || candidate.includes(prefix)))
-}
-
-export function parseExplicitHours(sources: Source[], context?: HoursParseContext): ParsedHours[] {
-  const parsed: ParsedHours[] = []
-  for (const source of sources) {
-    if (isUnavailableHours(source.hoursRaw)) continue
-    const rawIsApproximate = Boolean(source.hoursRaw && APPROXIMATE_HOURS.test(source.hoursRaw))
-    if (!rawIsApproximate && source.hoursSlots && source.hoursSlots.length > 0) {
-      const slots = expandHourRanges(source.hoursSlots)
-      if (slots.length > 0) {
-        parsed.push({ raw: source.hoursRaw?.trim() || null, slots, sourceId: source.id, trust: source.trust })
-        continue
-      }
-    }
-    if (source.hoursRaw?.trim()) {
-      parsed.push({ raw: source.hoursRaw.trim(), slots: [], sourceId: source.id, trust: source.trust })
-    }
-    for (const line of source.text.split(/\r?\n/)) {
-      if (APPROXIMATE_HOURS.test(line)) continue
-      for (const match of line.matchAll(DAILY_HOURS_PATTERN)) {
-        const prefix = match[1]?.trim()
-        if (context && prefix && isLocationPrefix(prefix) && !matchesHoursLocation(prefix, context)) continue
-        const opens = parseMeridiemTime(match[2])
-        const closes = parseMeridiemTime(match[3])
-        if (!opens || !closes) continue
-        parsed.push({
-          raw: match[0].trim(),
-          slots: [0, 1, 2, 3, 4, 5, 6].map((day) => ({ day, opens, closes })),
-          sourceId: source.id,
-          trust: source.trust,
-        })
-      }
-    }
-  }
-  return parsed
-}
-
-function sourceFromExa(exa: ExaPlaceResponse): SourceCandidate[] {
+function sourceFromExa(exa: Pick<ExaPlaceResponse, 'results'>): SourceCandidate[] {
   return exa.results.map((result) => ({
     id: '',
     // El contenido vino de Exa aunque la URL apunte a una web propia: se trata
@@ -531,6 +642,7 @@ function sourceFromExa(exa: ExaPlaceResponse): SourceCandidate[] {
     kind: isBlockedSource(result.url) ? 'blocked' : 'exa',
     trust: 'third_party',
     url: result.url,
+    title: result.title,
     text: result.text?.trim() || result.highlights.join('\n'),
     links: result.extras?.links,
   }))
@@ -542,7 +654,7 @@ function sourceFromExaSummary(exa: ExaPlaceResponse): SourceCandidate {
     id: '',
     kind: 'exa',
     trust: 'third_party',
-    url: 'https://exa.ai/',
+    url: EXA_SUMMARY_URL,
     text: [
       'RESUMEN ESTRUCTURADO DE EXA',
       `Descripción: ${content.description}`,
@@ -553,11 +665,6 @@ function sourceFromExaSummary(exa: ExaPlaceResponse): SourceCandidate {
       `Antes de ir: ${content.knows_before_you_go}`,
       content.menu.length ? `Menú:\n${content.menu.join('\n')}` : '',
     ].filter(Boolean).join('\n'),
-    hoursRaw: content.open_hours_raw,
-    hoursSlots: content.open_hours,
-    menu: content.menu,
-    exaDescription: content.description,
-    exaKnowsBeforeYouGo: content.knows_before_you_go,
   }
 }
 
@@ -572,26 +679,54 @@ function sourceFromWebsite(page: WebsitePageData): SourceCandidate {
   }
 }
 
-function instagramCandidates(details: GooglePlaceDetailsResponse, exa: ExaPlaceResponse | null): string[] {
+const MAX_DIRECTED_INSTAGRAM_HANDLES = 5
+// Agregadores que publican perfiles de Instagram en la URL (viralist.ai/instagram/creators/<handle>).
+const INSTAGRAM_AGGREGATOR_PATH = /\/instagram\/(?:[a-z-]+\/)?([a-z0-9._]{1,30})\/?$/i
+
+/** Handles de la búsqueda dirigida a Instagram: URLs de instagram.com, de agregadores y links a perfiles en el texto. */
+export function instagramHandlesFromResults(results: Pick<ExaPlaceResult, 'url' | 'text' | 'highlights'>[]): string[] {
+  const handles = results.flatMap((result) => {
+    const text = result.text ?? result.highlights.join('\n')
+    let aggregated: string | null = null
+    try {
+      const url = new URL(result.url)
+      if (!/(?:^|\.)instagram\.com$/i.test(url.hostname)) aggregated = INSTAGRAM_AGGREGATOR_PATH.exec(url.pathname)?.[1] ?? null
+    } catch { /* URL inválida */ }
+    return [
+      instagramHandle(result.url),
+      aggregated && instagramHandle(aggregated),
+      ...(text.match(/instagram\.com\/[A-Za-z0-9._]{1,30}/gi) ?? []).map(instagramHandle),
+    ]
+  }).filter((handle): handle is string => Boolean(handle))
+  return [...new Set(handles)].slice(0, MAX_DIRECTED_INSTAGRAM_HANDLES)
+}
+
+function instagramCandidates(details: GooglePlaceDetailsResponse, exa: ExaPlaceResponse | null, websiteLinks: string[] = [], directedHandles: string[] = []): string[] {
   const instagramFromContactInfo = (value: string) => {
     const urls = value.match(/(?:https?:\/\/)?(?:www\.)?instagram\.com\/[A-Za-z0-9._]{1,30}\/?/gi) ?? []
-    const labeledHandles = [...value.matchAll(/instagram\s*[:-]?\s*@?([A-Za-z0-9._]{1,30})/gi)].map((match) => `@${match[1]}`)
-    return [...urls, ...labeledHandles]
+    // Cualquier @handle, con o sin la etiqueta "Instagram" (el resumen a veces lo pone como Email).
+    const handles = instagramMentions(value).map((handle) => `@${handle}`)
+    return [...urls, ...handles]
   }
   const values = [
     details.websiteUri ?? '',
     ...instagramFromContactInfo(exa?.output.content.contact_info ?? ''),
     ...(exa?.results.flatMap((result) => [result.url, ...(result.extras?.links ?? [])]) ?? []),
+    ...websiteLinks,
+    ...directedHandles,
   ]
   return [...new Set(values.map(instagramProfileUrl).filter((value): value is string => Boolean(value)))]
 }
 
 type InstagramValidation = { profile: InstagramProfileData | null; candidates: InstagramAuditCandidate[] }
+export type ProminenceSourceSignals = { editorialMentions: number; listedOrAwarded: boolean; instagramFollowers: number | null }
+const NO_PROMINENCE_SIGNALS: ProminenceSourceSignals = { editorialMentions: 0, listedOrAwarded: false, instagramFollowers: null }
 
 async function validatedInstagram(
   provider: InstagramProvider | undefined,
   details: GooglePlaceDetailsResponse,
   candidates: string[],
+  websiteUrl: string | null = details.websiteUri ?? null,
 ): Promise<InstagramValidation> {
   const handles = candidates.map(instagramHandle).filter((handle): handle is string => Boolean(handle))
   if (candidates.length === 0) return { profile: null, candidates: [] }
@@ -601,7 +736,7 @@ async function validatedInstagram(
   }
   let profiles: InstagramProfileData[]
   try {
-    profiles = await provider.scrapeMany(candidates)
+    profiles = await withServiceLimit('apify', () => provider.scrapeMany(candidates))
   } catch {
     return {
       profile: null,
@@ -612,7 +747,7 @@ async function validatedInstagram(
   const accepted = profiles.flatMap((profile) => {
     const profileUrl = instagramProfileUrl(profile.url)
     if (!profileUrl || !requestedProfiles.has(profileUrl)) return []
-    if (!instagramProfileMatches(details, profile)) return []
+    if (!instagramProfileMatches(details, profile, websiteUrl)) return []
     return [{ ...profile, url: profileUrl }]
   })
   const unique = new Map(accepted.flatMap((profile) => {
@@ -651,138 +786,140 @@ function prompt(target: Target, sources: Source[]) {
   return `LOCAL OBJETIVO\nNombre: ${target.name}\nDirección: ${target.address}\nBarrio: ${target.neighborhoodId ?? 'No identificado'}, Montevideo, Uruguay\nCoordenadas: ${target.coordinates.lat}, ${target.coordinates.lng}\n\nFUENTES\n${sourceBlocks}\n\nExtraé información útil y razonable a partir de las fuentes, respetando su prioridad.`
 }
 
-async function generatePlaceExtraction(target: Target, sources: Source[]) {
-  const result = await generateText({
-    model: `openai/${MODEL}`,
-    output: Output.object({ schema: PlaceExtraction }),
-    system: SYSTEM_PROMPT,
-    prompt: prompt(target, sources),
-    temperature: 0,
-    providerOptions: { openai: { reasoningEffort: 'low' } },
-  })
+/**
+ * Request del llamado principal. El prompt de sistema es igual para todos los lugares: se marca
+ * para el cache de Anthropic (OpenAI cachea solo el prefijo y ignora la opción).
+ */
+export function mainExtractionRequest(target: Target, sources: Source[], config: ExtractionModelConfig) {
   return {
-    data: result.output,
-    inputTokens: result.usage?.inputTokens ?? null,
-    outputTokens: result.usage?.outputTokens ?? null,
+    model: config.model,
+    output: Output.object({ schema: PlaceExtraction }),
+    system: {
+      role: 'system' as const,
+      content: SYSTEM_PROMPT,
+      providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } },
+    },
+    prompt: prompt(target, sources),
+    providerOptions: providerOptionsFor(config),
   }
 }
 
-function generatedData(value: PlaceExtraction | GeneratedExtraction): GeneratedExtraction {
-  return 'data' in value ? value : { data: value, inputTokens: null, outputTokens: null }
+type UsageResult = { usage?: { inputTokens?: number; outputTokens?: number; inputTokenDetails?: { cacheReadTokens?: number; cacheWriteTokens?: number } }; providerMetadata?: Record<string, unknown> }
+
+function usageFrom(result: UsageResult): LlmUsage {
+  const gatewayCost = Number((result.providerMetadata?.gateway as { cost?: unknown } | undefined)?.cost)
+  return {
+    inputTokens: result.usage?.inputTokens ?? null,
+    cachedInputTokens: result.usage?.inputTokenDetails?.cacheReadTokens ?? null,
+    cacheWriteTokens: result.usage?.inputTokenDetails?.cacheWriteTokens ?? null,
+    outputTokens: result.usage?.outputTokens ?? null,
+    gatewayCostUsd: Number.isFinite(gatewayCost) ? gatewayCost : null,
+  }
+}
+
+async function generatePlaceExtraction(target: Target, sources: Source[], config: ExtractionModelConfig): Promise<GeneratedExtraction> {
+  const result = await generateText(mainExtractionRequest(target, sources, config))
+  return { data: result.output, ...usageFrom(result) }
+}
+
+async function generateHoursRetry(target: Target, sources: Source[], config: ExtractionModelConfig): Promise<GeneratedHours> {
+  const sourceBlocks = sources.map((source) => `<source id="${source.id}" url="${source.url}">\n${source.text.slice(0, MAX_CHARS_PER_SOURCE)}\n</source>`).join('\n\n')
+  const result = await generateText({
+    model: config.model,
+    output: Output.object({ schema: HoursRetryExtraction }),
+    system: HOURS_RETRY_PROMPT,
+    prompt: `LOCAL OBJETIVO\nNombre: ${target.name}\nDirección: ${target.address}\n\nFUENTES\n${sourceBlocks}`,
+    providerOptions: providerOptionsFor(config),
+  })
+  return { data: result.output, ...usageFrom(result) }
+}
+
+function generatedData(value: PlaceExtraction | GeneratedExtraction): { data: PlaceExtraction } & LlmUsage {
+  const generated = 'data' in value ? value : { data: value }
+  return {
+    data: generated.data,
+    inputTokens: generated.inputTokens ?? null,
+    cachedInputTokens: generated.cachedInputTokens ?? null,
+    cacheWriteTokens: generated.cacheWriteTokens ?? null,
+    outputTokens: generated.outputTokens ?? null,
+    gatewayCostUsd: generated.gatewayCostUsd ?? null,
+  }
 }
 
 function addUnique<T extends string>(values: T[], value: T) {
   if (!values.includes(value)) values.push(value)
 }
 
-function hasPhrase(text: string, phrase: string) {
-  const words = (value: string) => canonical(value).replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim()
-  const haystack = ` ${words(text)} `
-  const needle = words(phrase)
-  return needle.length > 1 && haystack.includes(` ${needle} `)
+/** Una cocina se acepta sólo si algún texto la nombra: su label o un sinónimo de tags.ts, sin acentos. */
+/**
+ * Un tag puede ir en signature salvo servicios y logística. Un momento sólo si define al lugar:
+ * lo nombra el nombre o la primera oración de la descripción, la que dice qué es el lugar.
+ */
+export function signatureAllowed(id: string, name: string, description: string) {
+  if (SIGNATURE_EXCLUDED.has(id)) return false
+  if (!SIGNATURE_MOMENTS.has(id)) return true
+  const definition = `${name}. ${description.split(/(?<=\.)\s/)[0] ?? ''}`
+  const moment = MOMENTS[id as keyof typeof MOMENTS]
+  return [moment.label.es, ...moment.synonyms.es].some((phrase) => hasPhrase(definition, phrase))
 }
 
-function retainSourceMentionedTags<T extends string>(
-  values: T[],
-  definitions: Record<T, { label: { es: string; en: string }; synonyms: { es: string[]; en: string[] } }>,
-  text: string,
-) {
-  return values.filter((id) => {
-    const definition = definitions[id]
-    return tagTerms(definition).some((term) => hasPhrase(text, term))
-  })
+export function cuisineMentioned(id: string, texts: string[]) {
+  return Object.hasOwn(CUISINES, id) && tagMentioned(id, texts)
 }
 
-function tagTerms(definition: { label: { es: string; en: string }; synonyms: { es: string[]; en: string[] } }) {
-  return [definition.label.es, definition.label.en, ...definition.synonyms.es, ...definition.synonyms.en]
+/** Algún texto contiene el label o un sinónimo del tag (es o en), como frase completa y sin acentos. */
+export function tagMentioned(id: string, texts: string[]) {
+  const definition = findDef(id)
+  if (!definition) return false
+  const phrases = [definition.label.es, definition.label.en, ...definition.synonyms.es, ...definition.synonyms.en]
+  return texts.some((text) => phrases.some((phrase) => hasPhrase(text, phrase)))
 }
 
-type ProcessedExtraction = Omit<PlaceExtraction, 'hours'> & {
+// El resumen de Exa no alcanza solo para estos grupos: es donde inventa (accesible, pet friendly…).
+const NOT_FROM_EXA_SUMMARY_GROUPS = new Set(['features', 'goodFor', 'offers', 'atmosphere'])
+// Estos grupos además necesitan un fact que nombre el tag, como las cocinas.
+const MENTION_REQUIRED_GROUPS = new Set(['features', 'goodFor', 'atmosphere'])
+
+// Palabras que no cuentan para respaldar un plato: "milanesas a la napolitana" respalda "milanesa napolitana".
+const DISH_STOPWORDS = new Set(['a', 'la', 'las', 'el', 'los', 'de', 'del', 'con', 'al', 'y'])
+
+/** Palabras significativas sin acentos, con singular y plural igualados (milanesas → milanesa, panes → pan). */
+function dishWords(value: string) {
+  return canonical(value).split(/[^a-z0-9]+/).filter((word) => word && !DISH_STOPWORDS.has(word))
+    .map((word) => word.length > 3 ? word.replace(/s$/, '').replace(/e$/, '') : word)
+}
+
+/** Un plato está respaldado si todas sus palabras significativas aparecen en el texto del fact. */
+export function dishSupportedBy(dish: string, factText: string) {
+  const needed = dishWords(dish)
+  const available = new Set(dishWords(factText))
+  return needed.length > 0 && needed.every((word) => available.has(word))
+}
+
+// El esquema del LLM pide los grupos por separado; el post-proceso los une en tags.
+const LLM_TAG_GROUPS = ['moments', 'cuisines', 'foods', 'drinks', 'features', 'atmosphere', 'goodFor', 'offers'] as const satisfies readonly TagGroupName[]
+// El código los calcula desde los horarios: un proposedTag no los aplica.
+const HOURS_DERIVED_TAGS = new Set(['late_night', 'breakfast', 'lunch', 'dinner'])
+const MAX_CUISINES = 3
+
+type ProcessedExtraction = Omit<PlaceExtraction, 'hours' | 'facts' | 'support' | 'tags' | 'highlights' | 'doubts' | 'locatedIn' | 'name' | 'address' | 'dishes' | 'signature' | 'contact'> & {
+  contact: Contact
+  name: string
+  address: string | null
+  locatedIn: string | null
+  highlights: { es: string; en: string }[]
+  categories: CategoryId[]
+  tags: TagId[]
   hours: { raw: string | null; display: { es: string; en: string } | null; slots: HoursSlot[] }
 }
 
-const AMBIGUOUS_FOOD_SYNONYMS = new Set(['carne', 'carnes'])
-
-function spanishFoodTerms(definition: typeof FOODS[keyof typeof FOODS]) {
-  return [definition.label.es, ...definition.synonyms.es]
-    .filter((term) => !AMBIGUOUS_FOOD_SYNONYMS.has(canonical(term)))
+function tagsOfGroup(tags: TagId[], group: TagGroupName) {
+  return tags.filter((id) => groupOf(id) === group)
 }
 
-function appendFoodsFromExaMenus(result: Pick<ProcessedExtraction, 'foods'>, sources: Source[]) {
-  const menuItems = sources
-    .filter((source) => source.kind === 'exa')
-    .flatMap((source) => source.menu ?? [])
-  for (const [id, definition] of Object.entries(FOODS) as [keyof typeof FOODS, typeof FOODS[keyof typeof FOODS]][]) {
-    const terms = [...spanishFoodTerms(definition), definition.label.en, ...definition.synonyms.en]
-    if (menuItems.some((item) => terms.some((term) => hasPhrase(item, term)))) addUnique(result.foods, id)
-  }
-}
-
-function appendCuisinesFromExa(result: Pick<ProcessedExtraction, 'cuisines'>, sources: Source[]) {
-  const exaCuisines: (keyof typeof CUISINES)[] = []
-  for (const source of sources) {
-    if (source.kind !== 'exa') continue
-    for (const text of [source.exaDescription, ...(source.menu ?? [])]) {
-      if (!text) continue
-      for (const [id, definition] of Object.entries(CUISINES) as [keyof typeof CUISINES, typeof CUISINES[keyof typeof CUISINES]][]) {
-        if (tagTerms(definition).some((term) => hasPhrase(text, term))) addUnique(exaCuisines, id)
-      }
-    }
-  }
-  if (exaCuisines.length > 0) {
-    result.cuisines = [...exaCuisines, ...result.cuisines.filter((id) => !exaCuisines.includes(id))].slice(0, 3)
-  }
-}
-
-const AMBIGUOUS_DRINK_SYNONYMS = new Set(['canilla', 'barra', 'copas', 'after', 'tragos', 'cerveza'])
-const SIGNATURE_COCKTAIL_SIGNALS = ['cocktail bar', 'bar de tragos', 'bar de cócteles', 'craft cocktails', 'coctelería de autor', 'tragos de autor']
-
-function drinkTerms(definition: typeof DRINKS[keyof typeof DRINKS]) {
-  return tagTerms(definition).filter((term) => !AMBIGUOUS_DRINK_SYNONYMS.has(canonical(term)))
-}
-
-function withoutSignatureCocktailSignals(text: string) {
-  return SIGNATURE_COCKTAIL_SIGNALS.reduce(
-    (remaining, signal) => remaining.replaceAll(canonical(signal), ' '),
-    canonical(text),
-  )
-}
-
-function appendDrinksFromTexts(result: Pick<ProcessedExtraction, 'drinks'>, texts: string[]) {
-  for (const text of texts) {
-    const classicText = withoutSignatureCocktailSignals(text)
-    for (const [id, definition] of Object.entries(DRINKS) as [keyof typeof DRINKS, typeof DRINKS[keyof typeof DRINKS]][]) {
-      const searchableText = id === 'classic_cocktails' ? classicText : text
-      if (drinkTerms(definition).some((term) => hasPhrase(searchableText, term))) addUnique(result.drinks, id)
-    }
-  }
-}
-
-function appendDrinksFromExaAndHighlights(result: Pick<ProcessedExtraction, 'drinks' | 'highlights'>, sources: Source[]) {
-  const exaTexts = sources
-    .filter((source) => source.kind === 'exa')
-    .flatMap((source) => [source.exaDescription, source.exaKnowsBeforeYouGo, ...(source.menu ?? [])])
-    .filter((text): text is string => Boolean(text))
-  appendDrinksFromTexts(result, exaTexts)
-  appendDrinksFromTexts(result, result.highlights.flatMap((highlight) => [highlight.es, highlight.en]))
-}
-
-const AMBIGUOUS_FEATURE_SYNONYMS = new Set(['barra'])
-
-function featureTerms(definition: typeof FEATURES[keyof typeof FEATURES]) {
-  return tagTerms(definition).filter((term) => !AMBIGUOUS_FEATURE_SYNONYMS.has(canonical(term)))
-}
-
-function appendFeaturesFromExa(result: Pick<ProcessedExtraction, 'features'>, sources: Source[]) {
-  const exaTexts = sources
-    .filter((source) => source.kind === 'exa')
-    .flatMap((source) => [source.exaDescription, source.exaKnowsBeforeYouGo, ...(source.menu ?? [])])
-    .filter((text): text is string => Boolean(text))
-  for (const text of exaTexts) {
-    for (const [id, definition] of Object.entries(FEATURES) as [keyof typeof FEATURES, typeof FEATURES[keyof typeof FEATURES]][]) {
-      if (featureTerms(definition).some((term) => hasPhrase(text, term))) addUnique(result.features, id)
-    }
-  }
+function capCuisines(tags: TagId[]) {
+  const keep = new Set(tagsOfGroup(tags, 'cuisines').slice(0, MAX_CUISINES))
+  return tags.filter((id) => groupOf(id) !== 'cuisines' || keep.has(id))
 }
 
 function applyRestaurantCategoryImplication(result: Pick<ProcessedExtraction, 'categories'>) {
@@ -791,75 +928,14 @@ function applyRestaurantCategoryImplication(result: Pick<ProcessedExtraction, 'c
   }
 }
 
-function appendCategoryFoodsAndCuisines(result: Pick<ProcessedExtraction, 'categories' | 'foods' | 'cuisines'>) {
+function appendCategoryFoodsAndCuisines(result: Pick<ProcessedExtraction, 'categories' | 'tags'>) {
   if (result.categories.includes('grill')) {
-    addUnique(result.foods, 'grilled_meat')
-    addUnique(result.cuisines, 'uruguayan')
+    addUnique(result.tags, 'grilled_meat')
+    addUnique(result.tags, 'uruguayan')
   }
-  if (result.categories.includes('pizzeria')) addUnique(result.foods, 'pizza')
-  if (result.categories.includes('chiviteria')) addUnique(result.foods, 'chivito')
-  if (result.categories.includes('ice_cream_shop')) addUnique(result.foods, 'ice_cream')
-}
-
-function appendFoodsFromSpanishHighlights(result: Pick<ProcessedExtraction, 'foods' | 'highlights'>) {
-  for (const [id, definition] of Object.entries(FOODS) as [keyof typeof FOODS, typeof FOODS[keyof typeof FOODS]][]) {
-    const terms = spanishFoodTerms(definition)
-    if (result.highlights.some((highlight) => terms.some((term) => hasPhrase(highlight.es, term)))) addUnique(result.foods, id)
-  }
-}
-
-const FULLY_VEGETARIAN_SIGNALS = ['restaurante vegetariano', 'vegetarian restaurant', '100% vegetariano', 'restaurante vegano y vegetariano', 'vegan and vegetarian']
-const VEGAN_OPTIONS_SIGNALS = ['vegano y vegetariano', 'vegan and vegetarian', 'opciones veganas']
-const FULLY_VEGAN_SIGNALS = ['100% vegano', '100% vegan', 'todo vegano', 'totalmente vegano', 'plant-based restaurant']
-const VEGAN_RESTAURANT_SIGNAL = 'restaurante vegano'
-const NON_VEGAN_CHEESE_TERMS = ['queso', 'cheese']
-const VEGAN_CHEESE_PHRASES = ['queso vegano', 'vegan cheese']
-const NON_VEGAN_INGREDIENT_TERMS = ['huevo', 'egg', 'manteca', 'butter', 'leche', 'milk', 'miel', 'honey', 'crema', 'cream']
-
-function hasNonVeganIngredient(value: string) {
-  const withoutVeganCheese = VEGAN_CHEESE_PHRASES.reduce(
-    (text, phrase) => text.replaceAll(phrase, ''),
-    canonical(value),
-  )
-  const nonVeganCheese = NON_VEGAN_CHEESE_TERMS.some((term) => hasPhrase(withoutVeganCheese, term))
-  return nonVeganCheese || NON_VEGAN_INGREDIENT_TERMS.some((term) => hasPhrase(value, term))
-}
-
-function applyDietaryVenueRules(result: Pick<ProcessedExtraction, 'dietary' | 'foods' | 'highlights'>, sources: Source[]) {
-  const text = sources.map((source) => source.text).join('\n')
-  const vegetarianFully = FULLY_VEGETARIAN_SIGNALS.some((signal) => hasPhrase(text, signal))
-  const veganOptions = VEGAN_OPTIONS_SIGNALS.some((signal) => hasPhrase(text, signal))
-  const veganRestaurantOnly = hasPhrase(text, VEGAN_RESTAURANT_SIGNAL) &&
-    !hasPhrase(text, 'vegetariano') && !hasPhrase(text, 'vegetarian')
-  const veganFully = FULLY_VEGAN_SIGNALS.some((signal) => hasPhrase(text, signal)) || veganRestaurantOnly
-
-  if (vegetarianFully) result.dietary.vegetarian = 'fully'
-  if (veganFully) result.dietary.vegan = 'fully'
-  else if (veganOptions || result.dietary.vegan === 'fully') result.dietary.vegan = 'has_options'
-  if (result.dietary.vegan === 'fully') result.dietary.vegetarian = 'fully'
-
-  const menuItems = sources.filter((source) => source.kind === 'exa').flatMap((source) => source.menu ?? [])
-  if (result.dietary.vegan === 'fully' && [...menuItems, ...result.highlights.flatMap((highlight) => [highlight.es, highlight.en])].some(hasNonVeganIngredient)) {
-    result.dietary.vegan = 'has_options'
-  }
-  if (result.dietary.vegan === 'fully' || result.dietary.vegetarian === 'fully') {
-    result.foods = result.foods.filter((food) => food !== 'grilled_meat')
-  }
-}
-
-const RESERVATION_TERMS = ['reserva', 'reservas', 'reservation', 'reservations']
-const NEGATIVE_RESERVATION_PHRASES = [
-  'sin reserva',
-  'sin reservas',
-  'no se acepta reserva',
-  'no se aceptan reservas',
-  'no reservations',
-  'reservations not accepted',
-]
-
-function hasReservationSignal(text: string) {
-  return RESERVATION_TERMS.some((term) => hasPhrase(text, term)) &&
-    !NEGATIVE_RESERVATION_PHRASES.some((phrase) => hasPhrase(text, phrase))
+  if (result.categories.includes('pizzeria')) addUnique(result.tags, 'pizza')
+  if (result.categories.includes('chiviteria')) addUnique(result.tags, 'chivito')
+  if (result.categories.includes('ice_cream_shop')) addUnique(result.tags, 'ice_cream')
 }
 
 function minutes(value: string) {
@@ -875,17 +951,6 @@ function isOpenAt(hours: HoursSlot[], at: number) {
     return closes > opens ? opens <= at && at <= closes : opens <= at || at <= closes
   })
 }
-
-const DETERMINISTIC_CATEGORY_SIGNALS: readonly [string, CategoryId][] = [
-  ['wine bar', 'wine_bar'],
-  ['bar de vinos', 'wine_bar'],
-  ['vinoteca', 'wine_bar'],
-  ['cervecería', 'brewery'],
-  ['brewpub', 'brewery'],
-  ['taproom', 'brewery'],
-  ['cafetería', 'cafe'],
-  ['coffee shop', 'cafe'],
-]
 
 type PriceTier = PlaceExtraction['price']
 type PriceCandidate = { value: number; trust: SourceTrust }
@@ -960,95 +1025,59 @@ function deterministicPrice(sources: Source[]): PriceTier | null {
   return 'very_high'
 }
 
-function applyConsistencyRules(result: ProcessedExtraction, sources: Source[]) {
-  const allText = sources.map((source) => source.text).join('\n')
-  for (const [phrase, category] of DETERMINISTIC_CATEGORY_SIGNALS) {
-    if (hasPhrase(allText, phrase)) addUnique(result.categories, category)
+// Coherencia dietaria: no depende de palabras, sólo de los niveles ya validados.
+function applyDietaryCoherence(result: Pick<ProcessedExtraction, 'dietary' | 'tags'>) {
+  if (result.dietary.vegan === 'fully') result.dietary.vegetarian = 'fully'
+  if (result.dietary.vegan === 'fully' || result.dietary.vegetarian === 'fully') {
+    result.tags = result.tags.filter((tag) => tag !== 'grilled_meat')
   }
+}
+
+// Reglas que no dependen de palabras: categorías, horarios y dietary.
+function applyConsistencyRules(result: ProcessedExtraction) {
   // restaurant debe estar presente antes de las reglas de moments que dependen de ella.
   applyRestaurantCategoryImplication(result)
-  result.foods = retainSourceMentionedTags(result.foods, FOODS, allText)
-  result.cuisines = retainSourceMentionedTags(result.cuisines, CUISINES, allText)
   appendCategoryFoodsAndCuisines(result)
-  appendCuisinesFromExa(result, sources)
-  appendFoodsFromExaMenus(result, sources)
-  appendFoodsFromSpanishHighlights(result)
-  appendDrinksFromExaAndHighlights(result, sources)
-  appendFeaturesFromExa(result, sources)
-  if (result.categories.includes('bar') && SIGNATURE_COCKTAIL_SIGNALS.some((signal) => hasPhrase(allText, signal))) {
-    addUnique(result.drinks, 'signature_cocktails')
-    addUnique(result.drinks, 'classic_cocktails')
-  }
-  if (sources.some((source) => hasReservationSignal(source.text))) result.reservations = 'accepts'
-  applyDietaryVenueRules(result, sources)
-  if (hasPhrase(allText, 'platitos') || hasPhrase(allText, 'para compartir') || hasPhrase(allText, 'tablas')) addUnique(result.foods, 'picada')
-  const outdoorFeatures = ['terrace', 'patio', 'sidewalk'] as const
-  // La evidencia textual directa de un patio debe sobrevivir aunque el modelo
-  // no haya emitido el feature ni outdoorSeating.
-  if (hasPhrase(allText, 'patio') || hasPhrase(allText, 'shared patio')) {
-    addUnique(result.features, 'patio')
-    result.outdoorSeating = 'yes'
-  } else if (result.features.some((feature) => outdoorFeatures.includes(feature as typeof outdoorFeatures[number]))) {
-    result.outdoorSeating = 'yes'
-  }
-
   if (result.categories.includes('wine_bar')) {
-    addUnique(result.drinks, 'wine')
-    addUnique(result.moments, 'drinks')
+    addUnique(result.tags, 'wine')
+    addUnique(result.tags, 'drinks')
   }
-  if (result.categories.some((category) => category === 'bar' || category === 'brewery')) {
-    addUnique(result.moments, 'drinks')
-  }
-  if (result.categories.includes('brewery')) {
-    addUnique(result.drinks, hasPhrase(allText, 'cerveza artesanal') || hasPhrase(allText, 'craft beer') ? 'craft_beer' : 'draft_beer')
-  }
-  if (result.categories.includes('cafe') && (hasPhrase(allText, 'café de especialidad') || hasPhrase(allText, 'specialty coffee'))) {
-    addUnique(result.drinks, 'specialty_coffee')
-  }
+  if (result.categories.some((category) => category === 'bar' || category === 'brewery')) addUnique(result.tags, 'drinks')
+  applyDietaryCoherence(result)
 
-  const workSignal = hasPhrase(allText, 'wifi') || hasPhrase(allText, 'enchufes') || hasPhrase(allText, 'para trabajar') ||
-    result.categories.includes('cafe') && result.hours.slots.some((entry) => minutes(entry.opens) < 18 * 60) && hasPhrase(allText, 'mesas')
-  if (!workSignal) result.goodFor = result.goodFor.filter((value) => value !== 'work')
-
-  const isCafeOrBakery = result.categories.some((category) => category === 'cafe' || category === 'bakery')
-  if (isCafeOrBakery) {
-    addUnique(result.moments, 'breakfast')
-    addUnique(result.moments, 'afternoon_snack')
+  const slots = result.hours.slots
+  if (result.categories.some((category) => category === 'cafe' || category === 'bakery')) {
+    addUnique(result.tags, 'breakfast')
+    addUnique(result.tags, 'afternoon_snack')
   }
-  if (result.categories.includes('restaurant') && result.hours.slots.some((entry) => minutes(entry.opens) < 10 * 60)) addUnique(result.moments, 'breakfast')
-  if (hasPhrase(allText, 'brunch')) addUnique(result.moments, 'brunch')
-  const hasMealFood = result.foods.some((food) => food !== 'picada' && food !== 'desserts')
-  if (hasMealFood && result.hours.slots.some((entry) => minutes(entry.opens) <= 13 * 60)) addUnique(result.moments, 'lunch')
-  const rawDinnerSignal = [result.hours.raw ?? ''].some((value) => [
-    'noche', 'cena', 'dinner', 'última copa',
-  ].some((phrase) => hasPhrase(value, phrase)))
-  if (hasMealFood && (isOpenAt(result.hours.slots, 21 * 60) || rawDinnerSignal)) addUnique(result.moments, 'dinner')
   const isRestaurant = result.categories.includes('restaurant')
-  if (isRestaurant && (result.hours.slots.some((entry) => minutes(entry.opens) < 13 * 60) || isOpenAt(result.hours.slots, 13 * 60 + 30))) {
-    addUnique(result.moments, 'lunch')
-  }
-  if (isRestaurant && isOpenAt(result.hours.slots, 21 * 60 + 30)) addUnique(result.moments, 'dinner')
-  const hasUnpublishedClose = result.hours.slots.length === 0 || result.hours.slots.some((entry) => entry.closes === null)
-  const dinnerSignal = [result.hours.raw ?? '', allText].some((value) => [
-    'noche', 'cena', 'dinner', 'última copa', 'until late',
-  ].some((phrase) => hasPhrase(value, phrase)))
-  if (isRestaurant && hasUnpublishedClose && dinnerSignal) addUnique(result.moments, 'dinner')
-  if (result.hours.slots.some((entry) => {
+  if (isRestaurant && slots.some((entry) => minutes(entry.opens) < 10 * 60)) addUnique(result.tags, 'breakfast')
+  const hasMealFood = tagsOfGroup(result.tags, 'foods').some((food) => food !== 'picada' && food !== 'desserts')
+  if (hasMealFood && slots.some((entry) => minutes(entry.opens) <= 13 * 60)) addUnique(result.tags, 'lunch')
+  if (hasMealFood && isOpenAt(slots, 21 * 60)) addUnique(result.tags, 'dinner')
+  if (isRestaurant && (slots.some((entry) => minutes(entry.opens) < 13 * 60) || isOpenAt(slots, 13 * 60 + 30))) addUnique(result.tags, 'lunch')
+  if (isRestaurant && isOpenAt(slots, 21 * 60 + 30)) addUnique(result.tags, 'dinner')
+  if (slots.some((entry) => {
     if (!entry.closes) return false
     const closes = minutes(entry.closes)
     return closes >= 2 * 60 && closes <= 6 * 60
-  })) addUnique(result.moments, 'late_night')
+  })) addUnique(result.tags, 'late_night')
 }
 
+// Fijos y celulares: libphonenumber también da por válidos números cortos (UAN) como "2110".
+const PHONE_TYPES = new Set(['FIXED_LINE', 'MOBILE', 'FIXED_LINE_OR_MOBILE'])
+const isUruguayPhone = (phone: PhoneNumber | undefined): phone is PhoneNumber =>
+  phone?.country === 'UY' && phone.isValid() && PHONE_TYPES.has(phone.getType() ?? '')
+
+/** Fijo o celular válido de Uruguay según libphonenumber, en formato internacional; null si no lo es. */
 function normalizeUruguayPhone(value: string | null) {
   if (!value) return null
-  let digits = value.replace(/\D/g, '')
-  if (digits.startsWith('00598')) digits = digits.slice(5)
-  else if (digits.startsWith('598')) digits = digits.slice(3)
-  if (digits.length === 9 && digits.startsWith('0')) digits = digits.slice(1)
-  if (/^2\d{7}$/.test(digits)) return `+598 ${digits.slice(0, 4)} ${digits.slice(4)}`
-  if (/^9\d{7}$/.test(digits)) return `+598 ${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5)}`
-  return null
+  const raw = value.trim().replace(/^tel:/i, '')
+  const digits = raw.replace(/\D/g, '')
+  // "598…" o "00598…" sin el +: libphonenumber lo tomaría como número nacional.
+  const candidate = /^(?:00)?598\d{8}$/.test(digits) && !raw.startsWith('+') ? `+${digits.replace(/^00/, '')}` : raw
+  const phone = parsePhoneNumberFromString(candidate, 'UY')
+  return isUruguayPhone(phone) ? phone.formatInternational() : null
 }
 
 function whatsappNumber(value: string | null) {
@@ -1075,7 +1104,7 @@ function httpsUrl(value: string | null) {
   }
 }
 
-function normalizeContact(contact: PlaceExtraction['contact']) {
+function normalizeContact(contact: Contact) {
   const normalizedInstagram = contact.instagram?.replace(/^@/, '').trim().toLowerCase() || null
   const instagram = contact.instagram ? instagramHandle(contact.instagram) ?? normalizedInstagram : null
   return {
@@ -1091,7 +1120,7 @@ function normalizeContact(contact: PlaceExtraction['contact']) {
 
 const SOCIAL_HOSTS = ['instagram.com', 'instagr.am', 'facebook.com', 'tiktok.com', 'x.com', 'twitter.com', 'linkedin.com', 'youtube.com']
 
-export type DeterministicContact = Partial<Pick<PlaceExtraction['contact'], 'phone' | 'instagram' | 'website' | 'reservationUrl'>>
+export type DeterministicContact = Partial<Pick<PlaceExtraction['contact'], 'phone' | 'instagram' | 'reservationUrl'>>
 
 function linksInText(value: string): string[] {
   return value.match(/https?:\/\/[^\s<>"')\]]+/gi)?.map((link) => link.replace(/[.,;:!?]+$/, '')) ?? []
@@ -1103,6 +1132,34 @@ function sourceLinks(source: Source): string[] {
 
 function isSocialUrl(value: string) {
   return hostedBy(value, SOCIAL_HOSTS)
+}
+
+/** Web propia scrapeable: ni Instagram ni otra red, ni reservas ni agregador de links. */
+function isOwnWebsite(url: string, reservationHosts: readonly string[]) {
+  return !instagramProfileUrl(url) && !hostedBy(url, reservationHosts) && !isSocialUrl(url) && !hostedBy(url, LINK_AGGREGATOR_HOSTS)
+}
+
+/** Home de la primera URL cuyo dominio lleva el nombre de la marca (no directorios, redes ni reservas). */
+export function brandWebsite(urls: string[], brand: string, reservationHosts: readonly string[] = DEFAULT_RESERVATION_HOSTS): string | null {
+  for (const url of urls) {
+    if (classifySource(url, { name: brand }) !== 'web' || !isOwnWebsite(url, reservationHosts)) continue
+    return `https://${new URL(url).host}/`
+  }
+  return null
+}
+
+/** Home (https://dominio/) de la web oficial scrapeada; null si no hay o si es red social, reservas o agregador. */
+export function officialWebsiteHome(sources: Source[]): string | null {
+  for (const source of sources) {
+    if (source.kind !== 'web' || source.trust !== 'official') continue
+    if (isSocialUrl(source.url) || hostedBy(source.url, DEFAULT_RESERVATION_HOSTS) || hostedBy(source.url, LINK_AGGREGATOR_HOSTS)) continue
+    try {
+      return `https://${new URL(source.url).host}/`
+    } catch {
+      continue
+    }
+  }
+  return null
 }
 
 function instagramMentions(value: string): string[] {
@@ -1154,217 +1211,481 @@ function preferredInstagramHandle(name: string, sources: Source[], extraLinks: s
   return scored[0]?.score >= 0.55 ? scored[0].handle : null
 }
 
-function phonesInText(value: string): string[] {
-  return value.match(/(?:\+|00)?\s*(?:598\s*)?(?:0\s*)?[29](?:[\s().-]*\d){7}\b/g) ?? []
+/** Primer teléfono uruguayo que aparece en el texto o los links de las fuentes. */
+function firstSourcePhone(sources: Source[]): string | null {
+  return sources
+    // De los links, sólo tel: y WhatsApp: cualquier otra URL puede tener dígitos que no son un teléfono.
+    .flatMap((source) => [...phonesInText(source.text), ...sourceLinks(source).filter((link) => /^tel:/i.test(link) || whatsappNumber(link) !== link).map(whatsappNumber)])
+    .map(normalizeUruguayPhone)
+    .find((value): value is string => Boolean(value)) ?? null
 }
 
+function phonesInText(value: string): string[] {
+  return findPhoneNumbersInText(value, 'UY')
+    .filter(({ number }) => isUruguayPhone(number))
+    .map(({ number }) => number.number)
+}
+
+/**
+ * Contacto que sale directo del texto y los links de las fuentes. Nada de Google: su web y su
+ * teléfono no se guardan. La marca (nombre de Google sin sucursal) sólo se usa para elegir entre handles de Instagram.
+ */
 export function resolveDeterministicContact(
   details: GooglePlaceDetailsResponse,
   sources: Source[],
   reservationHosts: readonly string[] = DEFAULT_RESERVATION_HOSTS,
 ): DeterministicContact {
-  const googleWebsite = details.websiteUri ? httpsUrl(details.websiteUri) : null
-  const googleReservation = googleWebsite && hostedBy(googleWebsite, reservationHosts) ? googleWebsite : null
-  const reservationUrl = googleReservation ?? sources
+  const reservationUrl = sources
     .flatMap(sourceLinks)
     .map(httpsUrl)
     .find((url): url is string => Boolean(url && hostedBy(url, reservationHosts))) ?? null
-  const website = googleWebsite && !googleReservation && !isSocialUrl(googleWebsite) &&
-    !hostedBy(googleWebsite, LINK_AGGREGATOR_HOSTS) &&
-    !/^https:\/\/(?:wa\.me|api\.whatsapp\.com|web\.whatsapp\.com)\//i.test(googleWebsite)
-    ? googleWebsite
-    : undefined
-  const phone = normalizeUruguayPhone(details.phoneNumber ?? null) ?? sources
-    .flatMap((source) => [...phonesInText(source.text), ...sourceLinks(source)])
-    .map(normalizeUruguayPhone)
-    .find((value): value is string => Boolean(value)) ?? null
-  const instagram = preferredInstagramHandle(details.anchor.name, sources, details.websiteUri ? [details.websiteUri] : [])
+  const phone = firstSourcePhone(sources)
+  const instagram = preferredInstagramHandle(brandFromGoogleName(details.anchor.name), sources)
   return {
-    ...(website ? { website } : googleReservation ? { website: null } : {}),
     ...(reservationUrl ? { reservationUrl } : {}),
     ...(instagram ? { instagram } : {}),
     ...(phone ? { phone } : {}),
   }
 }
 
+type ValidFact = { id: string; text: string; kind: PlaceExtraction['facts'][number]['kind']; source: Source }
+
+// El modelo a veces cita "hours.blocks.0" o "hours.raw": todo eso respalda hours.
+function canonicalSupportField(field: string) {
+  const trimmed = field.trim()
+  return trimmed === 'hours' || trimmed.startsWith('hours.') ? 'hours' : trimmed
+}
+
+type TaggedItem = PlaceExtraction['tags'][number]
+
 export function postProcess(
   target: Target,
   data: PlaceExtraction,
-  context: { sources?: Source[]; seedCategory?: CategoryId; categoryFallback?: string[]; parsedHours?: ParsedHours[]; deterministicContact?: DeterministicContact } = {},
+  context: { sources?: Source[]; seedCategories?: CategoryId[]; categoryFallback?: string[]; deterministicContact?: DeterministicContact; prominenceSignals?: ProminenceSourceSignals } = {},
 ): PlaceEnrichmentDraft {
   const sources = context.sources ?? []
   const sourcesById = new Map(sources.map((source) => [source.id, source]))
-  const result = structuredClone(data)
-  const clipQuote = (quote: string | null) => quote?.trim().split(/\s+/).filter(Boolean).slice(0, 15).join(' ') ?? null
-  const normalizedText = (value: string) => canonical(value).replace(/\s+/g, ' ').trim()
-  const textForModel = (source: Source) => source.text.slice(0, MAX_CHARS_PER_SOURCE)
-  const quoteInSource = (quote: string, source: Source) => normalizedText(textForModel(source)).includes(normalizedText(quote))
-  const approximateHours = (quote: string, source: Source) => {
-    const text = textForModel(source)
-    const normalized = normalizedText(text)
-    const index = normalized.indexOf(normalizedText(quote))
-    const passage = index >= 0 ? normalized.slice(Math.max(0, index - 180), index + normalizedText(quote).length + 180) : normalized
-    return APPROXIMATE_HOURS.test(passage)
-  }
+  const result = { ...structuredClone(data), contact: contactFromModel(data.contact) }
+
+  // Facts: id sin repetir, fuente existente y texto, hasta MAX_FACTS.
+  const seenFactIds = new Set<string>()
+  const facts: ValidFact[] = result.facts.slice(0, MAX_FACTS).flatMap((fact) => {
+    const id = fact.id.trim()
+    const source = sourcesById.get(fact.sourceId)
+    if (!id || seenFactIds.has(id) || !source || !fact.text.trim()) return []
+    seenFactIds.add(id)
+    return [{ id, text: fact.text.trim(), kind: fact.kind, source }]
+  })
+  const factsById = new Map(facts.map((fact) => [fact.id, fact]))
+  const validCitations = (ids: string[]) => [...new Set(ids.map((id) => id.trim()).filter((id) => factsById.has(id)))]
 
   const movedReservation = Boolean(result.contact.website && hostedBy(result.contact.website, DEFAULT_RESERVATION_HOSTS) && !result.contact.reservationUrl)
   const movedWhatsapp = Boolean(result.contact.website && /^https?:\/\/(?:wa\.me|api\.whatsapp\.com|web\.whatsapp\.com)\//i.test(result.contact.website) && !result.contact.whatsapp)
   result.contact = classifyContact(result.contact)
-  const validEvidence = data.evidence.flatMap((item) => {
-    const field = movedReservation && item.field === 'contact.website'
+  // Support: cada campo queda con los facts válidos que lo respaldan.
+  const support = new Map<string, string[]>()
+  for (const item of result.support) {
+    const canonicalField = canonicalSupportField(item.field)
+    const field = movedReservation && canonicalField === 'contact.website'
       ? 'contact.reservationUrl'
-      : movedWhatsapp && item.field === 'contact.website'
+      : movedWhatsapp && canonicalField === 'contact.website'
         ? 'contact.whatsapp'
-        : item.field
-    const source = sourcesById.get(item.sourceId)
-    const quote = clipQuote(item.quote)
-    if (!source || !quote || !quoteInSource(quote, source)) return []
-    if (field.startsWith('hours.') && approximateHours(quote, source)) return []
-    return [{ ...item, field, quote }]
-  })
+        : canonicalField
+    const cited = validCitations(item.facts)
+    if (cited.length > 0) support.set(field, [...new Set([...(support.get(field) ?? []), ...cited])])
+  }
+  // Un proposedTag que ya existe en tags.ts se aplica citando su fact: si el tag ya está, el fact
+  // se suma a sus citas; si no, se agrega. Nunca dietary ni los momentos que salen de los horarios.
+  for (const fact of facts) {
+    const id = result.facts.find((item) => item.id.trim() === fact.id)?.proposedTag?.trim()
+    const group = id ? groupOf(id) : null
+    if (!id || !group || HOURS_DERIVED_TAGS.has(id)) continue
+    if (group !== 'categories' && !(LLM_TAG_GROUPS as readonly string[]).includes(group)) continue
+    const existing = result.tags.find((item) => item.group === group && item.id === id)
+    if (existing) {
+      if (!existing.facts.includes(fact.id)) existing.facts.push(fact.id)
+    } else {
+      result.tags.push({ group: group as TaggedItem['group'], id, facts: [fact.id] })
+    }
+  }
+  // Cada tag trae sus propios facts: se registran como support de `${grupo}.${id}`.
+  // Object.hasOwn y no `in`: un id como "constructor" no puede pasar por tag.
+  const knownTag = (item: TaggedItem) => Object.hasOwn(ALLOWED_TAG_GROUPS, item.group) && Object.hasOwn(ALLOWED_TAG_GROUPS[item.group], item.id)
+  for (const item of result.tags) {
+    const cited = validCitations(item.facts)
+    const field = `${item.group}.${item.id}`
+    if (cited.length > 0 && knownTag(item)) support.set(field, [...new Set([...(support.get(field) ?? []), ...cited])])
+  }
+  const verifiedFields = new Set<string>()
+  const supported = (field: string) => support.has(field) || verifiedFields.has(field)
+
+  // Cadenas: horario, teléfono, dirección y features físicos sólo si todas sus fuentes hablan de
+  // esta sucursal (dirección o barrio). Web, Instagram, categorías, platos, descripción, dieta y precio son de la marca.
+  const chain = isChainBranch(target, sources)
+  const branchFact = (fact: ValidFact) => mentionsBranch(fact.source, target)
+  const branchOnly = (field: string) => {
+    const cited = (support.get(field) ?? []).map((id) => factsById.get(id)!)
+    return !chain || (cited.length > 0 && cited.every(branchFact))
+  }
 
   const trustedInstagram = sources.filter((source) => source.kind === 'instagram' && source.trust === 'official')
   if (trustedInstagram.length === 1) {
     const handle = instagramProfileUrl(trustedInstagram[0].url)?.split('/').filter(Boolean).at(-1) ?? null
     if (handle) {
       result.contact.instagram = handle
-      if (!validEvidence.some((item) => item.field === 'contact.instagram')) {
-        validEvidence.push({ field: 'contact.instagram', sourceId: trustedInstagram[0].id, quote: `Handle: ${handle}` })
-      }
+      verifiedFields.add('contact.instagram')
     }
   }
 
-  const supported = (field: string) => validEvidence.some((item) => item.field === field)
-  const retainTags = <T extends string>(values: T[], field: string): T[] => values.filter((value) => supported(`${field}.${value}`))
-  // Las categorías válidas del LLM y la semilla se conservan; las reglas de
-  // consistencia sólo pueden agregar categorías, nunca quitarlas.
-  if (context.seedCategory) addUnique(result.categories, context.seedCategory)
-  result.moments = retainTags(result.moments, 'moments')
-  result.cuisines = retainTags(result.cuisines, 'cuisines')
-  result.foods = retainTags(result.foods, 'foods')
-  result.drinks = retainTags(result.drinks, 'drinks')
-  result.features = retainTags(result.features, 'features')
-  result.goodFor = retainTags(result.goodFor, 'goodFor')
-  result.highlights = result.highlights.filter((highlight) =>
-    sources.some((source) => hasPhrase(source.text, highlight.es) || hasPhrase(source.text, highlight.en)),
-  )
-  // late_night jamás se toma del modelo: depende exclusivamente de cierres normalizados.
-  result.moments = result.moments.filter((moment) => moment !== 'late_night')
-  type HourCandidate = { raw?: string | null; slot?: HoursSlot; sourceId: string; trust: SourceTrust }
-  const rawEvidence = validEvidence.find((item) => item.field === 'hours.raw')
-  const rawSource = rawEvidence && sourcesById.get(rawEvidence.sourceId)
-  const modelRaw = result.hours.raw?.trim() || null
-  const modelDisplay = result.hours.display
-  const rawMatchesSource = Boolean(modelRaw && !isUnavailableHours(modelRaw) && rawSource && normalizedText(textForModel(rawSource)).includes(normalizedText(modelRaw)))
-  const hourCandidates: HourCandidate[] = [
-    ...(rawMatchesSource && rawEvidence && rawSource
-      ? [{ raw: modelRaw!, sourceId: rawSource.id, trust: rawSource.trust }]
-      : []),
-    ...result.hours.ranges.flatMap((range, index) => {
-      const evidence = validEvidence.find((item) => item.field === `hours.ranges.${index}`)
-      const source = evidence && sourcesById.get(evidence.sourceId)
-      return source
-        ? expandHourRanges([range]).map((slot) => ({ slot, sourceId: source.id, trust: source.trust }))
-        : []
-    }),
-    ...(context.parsedHours ?? []).flatMap(({ raw, slots, sourceId, trust }) => [
-      ...(raw ? [{ raw, sourceId, trust }] : []),
-      ...slots.map((slot) => ({ slot, sourceId, trust })),
-    ]),
-  ]
-  // Cualquier horario oficial domina el conjunto completo; no se completa con terceros.
-  const selectedTrust: SourceTrust | null = hourCandidates.some((item) => item.trust === 'official')
-    ? 'official'
-    : hourCandidates.length > 0
-      ? 'third_party'
-      : null
-  const seenHours = new Set<string>()
-  const selectedSlots = hourCandidates
-    .filter((item): item is HourCandidate & { slot: HoursSlot } => item.trust === selectedTrust && Boolean(item.slot))
-    .flatMap((item) => {
-      const key = `${item.slot.day}:${item.slot.opens}:${item.slot.closes ?? ''}`
-      if (seenHours.has(key)) return []
-      seenHours.add(key)
-      return [item]
+  // La semilla siempre queda; las categorías del modelo necesitan un fact.
+  // Sólo ids conocidos del grupo y con al menos un fact válido.
+  const retainTags = <T extends string>(group: keyof typeof ALLOWED_TAG_GROUPS): T[] =>
+    [...new Set(result.tags.filter((item) => item.group === group && knownTag(item) && supported(`${group}.${item.id}`)).map((item) => item.id))] as T[]
+  const categories = retainTags<CategoryId>('categories')
+  const factTexts = facts.map((fact) => fact.text)
+  // Facts que arma el código desde el texto de una fuente (ids C1, C2…), para que el tag tenga respaldo auditable.
+  const addCodeFact = (field: string, text: string, source: Source) => {
+    let index = 1
+    while (factsById.has(`C${index}`)) index += 1
+    const fact: ValidFact = { id: `C${index}`, text: text.trim().slice(0, 200), kind: 'feature', source }
+    facts.push(fact)
+    factsById.set(fact.id, fact)
+    support.set(field, [...(support.get(field) ?? []), fact.id])
+  }
+  // Un tag que el modelo sólo respaldó con el resumen de Exa se queda si una fuente real (web,
+  // Instagram, páginas de Exa) lo nombra: la línea que lo nombra pasa a ser su respaldo.
+  const backedBySourceText = (id: string, field: string) => {
+    for (const source of sources) {
+      if (source.url === EXA_SUMMARY_URL) continue
+      const line = source.text.split(/\n|(?<=\.)\s/).find((part) => tagMentioned(id, [part]))
+      if (!line) continue
+      addCodeFact(field, line, source)
+      return true
+    }
+    return false
+  }
+  for (const seedCategory of context.seedCategories ?? []) addUnique(categories, seedCategory)
+  const tags: TagId[] = [...new Set<TagId>([
+    // late_night jamás se toma del modelo: depende exclusivamente de los horarios.
+    ...retainTags<TagId>('moments').filter((moment) => moment !== 'late_night'),
+    ...LLM_TAG_GROUPS.filter((group) => group !== 'moments').flatMap((group) => retainTags<TagId>(group)),
+  // Una cocina del modelo necesita un fact que la nombre; reviewExtraction anota las descartadas.
+  ].filter((id) => groupOf(id) !== 'cuisines' || cuisineMentioned(id, factTexts))
+  // FEATURES, GOOD_FOR, OFFERS y ATMOSPHERE necesitan un fact que no sea del resumen de Exa; FEATURES,
+  // GOOD_FOR y ATMOSPHERE, además, uno de esos facts tiene que nombrar el tag (label o sinónimo).
+    .filter((id) => {
+      const group = groupOf(id)
+      if (!group || !NOT_FROM_EXA_SUMMARY_GROUPS.has(group)) return true
+      const eligible = (support.get(`${group}.${id}`) ?? []).map((factId) => factsById.get(factId)!).filter((fact) => fact.source.url !== EXA_SUMMARY_URL)
+      if (eligible.length === 0) return backedBySourceText(id, `${group}.${id}`)
+      return !MENTION_REQUIRED_GROUPS.has(group) || tagMentioned(id, eligible.map((fact) => fact.text))
     })
-    .sort((left, right) => left.slot.day - right.slot.day || left.slot.opens.localeCompare(right.slot.opens))
-  const selectedSlotSources = new Set(selectedSlots.map((item) => item.sourceId))
-  const rawCandidate = hourCandidates.find((item) => item.trust === selectedTrust && item.raw && selectedSlotSources.has(item.sourceId))
-    ?? hourCandidates.find((item) => item.trust === selectedTrust && item.raw)
-  const hoursUnavailable = isUnavailableHours(rawCandidate?.raw)
+  // En una cadena, un feature físico necesita un fact de una fuente que hable de esta sucursal.
+    .filter((id) => !chain || !BRANCH_FEATURES.has(id) || (support.get(`features.${id}`) ?? []).some((factId) => branchFact(factsById.get(factId)!))))]
+  // Un highlight tiene que citar un fact válido y aparecer en alguna fuente, en español o en inglés.
+  const highlights = result.highlights
+    .filter((highlight) => validCitations(highlight.facts).length > 0 &&
+      sources.some((source) => hasPhrase(source.text, highlight.es) || hasPhrase(source.text, highlight.en)))
+    .map(({ es, en }) => ({ es, en }))
+    .slice(0, MAX_HIGHLIGHTS)
+  // Un plato queda si un mismo fact válido lo respalda; se guarda en minúscula y sin repetir.
+  const seenDishes = new Set<string>()
+  const dishes = result.dishes.flatMap((raw) => {
+    const dish = raw.trim().replace(/\s+/g, ' ').toLowerCase()
+    const key = dishWords(dish).join(' ')
+    if (!key || seenDishes.has(key) || !facts.some((fact) => dishSupportedBy(dish, fact.text))) return []
+    seenDishes.add(key)
+    return [dish]
+  }).slice(0, MAX_DISHES)
+
+  // Horarios: el modelo interpreta, el código valida bloques y decide la confianza por la fuente del fact.
+  const hoursFacts = branchOnly('hours') ? (support.get('hours') ?? []).map((id) => factsById.get(id)!).filter(Boolean) : []
+  const slots = hoursFacts.length > 0 ? slotsFromBlocks(result.hours.blocks) : []
+  const raw = hoursFacts.length > 0 ? result.hours.raw?.trim() || null : null
+  const hoursSource: SourceTrust | null = slots.length > 0 || raw
+    ? hoursFacts.some((fact) => fact.source.trust === 'official') ? 'official' : 'third_party'
+    : null
+
+  // Nombre: la marca (nombre de Google sin sucursal) si alguna fuente la nombra; el resumen de Exa
+  // no cuenta porque sale de una búsqueda con ese nombre. Si no, el del modelo con su support.
+  const brand = brandFromGoogleName(target.name)
+  const brandConfirmed = sources.some((source) => source.url !== EXA_SUMMARY_URL && hasPhrase(source.text, brand))
+  // Nombre del modelo y dirección: con support y escritos tal cual en alguna fuente citada. Nunca los de Google.
+  const sourcedText = (field: 'name' | 'address') => {
+    const value = result[field].trim()
+    const citedSources = (support.get(field) ?? []).map((id) => factsById.get(id)!.source)
+    return value && citedSources.some((source) => hasPhrase(source.text, value)) ? value : null
+  }
+
+  // En una cadena la dirección además tiene que ser la de esta sucursal, no la de otra de la misma fuente.
+  const address = sourcedText('address')
   const processed: ProcessedExtraction = {
-    ...result,
-    hours: hoursUnavailable
-    ? { raw: null, display: null, slots: [] }
-    : {
-      raw: rawCandidate?.raw ?? null,
-      display: null,
-      slots: selectedSlots.map((item) => item.slot),
-    },
+    name: brandConfirmed ? brand : sourcedText('name') ?? '',
+    address: address && branchOnly('address') && (!chain || mentionsAddress(address, target.address)) ? address : null,
+    categories,
+    tags,
+    dietary: result.dietary,
+    price: result.price,
+    reservations: result.reservations,
+    hours: { raw, display: null, slots },
+    contact: result.contact,
+    highlights,
+    description: result.description,
+    // Sólo con un fact en support: ese support también saca sus facts de los unmapped.
+    locatedIn: supported('locatedIn') ? result.locatedIn?.trim() || null : null,
   }
   for (const field of ['vegan', 'vegetarian', 'glutenFree'] as const) {
-    const path = `dietary.${field}`
-    if (processed.dietary[field] !== 'unknown') {
-      if (!supported(path)) processed.dietary[field] = 'unknown'
-    }
+    if (processed.dietary[field] !== 'unknown' && !supported(`dietary.${field}`)) processed.dietary[field] = 'unknown'
   }
-  for (const field of ['price', 'reservations', 'outdoorSeating'] as const) {
-    if (processed[field] !== 'unknown') {
-      if (!supported(field)) processed[field] = 'unknown'
-    }
+  for (const field of ['price', 'reservations'] as const) {
+    if (processed[field] !== 'unknown' && !supported(field)) processed[field] = 'unknown'
   }
   // Un precio por persona publicado en las fuentes tiene precedencia sobre la
   // clasificación del modelo, incluso cuando el modelo no lo haya citado.
   processed.price = deterministicPrice(sources) ?? processed.price
   for (const field of ['phone', 'whatsapp', 'instagram', 'website', 'menuUrl', 'reservationUrl'] as const) {
-    const path = `contact.${field}`
-    if (processed.contact[field]) {
-      if (!supported(path)) processed.contact[field] = null
-    }
+    if (processed.contact[field] && !supported(`contact.${field}`)) processed.contact[field] = null
+  }
+  for (const field of ['phone', 'whatsapp'] as const) {
+    if (processed.contact[field] && !branchOnly(`contact.${field}`)) processed.contact[field] = null
   }
 
   processed.contact = normalizeContact(processed.contact)
   if (context.deterministicContact) {
-    processed.contact = normalizeContact({ ...processed.contact, ...context.deterministicContact })
+    // El teléfono del modelo, con su support, gana; el que aparece en el texto de las fuentes es respaldo.
+    // En una cadena, el teléfono de respaldo sólo de fuentes que hablan de esta sucursal.
+    const { phone: anyPhone, ...deterministic } = context.deterministicContact
+    const phone = chain ? firstSourcePhone(sources.filter((source) => mentionsBranch(source, target))) : anyPhone
+    processed.contact = normalizeContact({ ...processed.contact, ...deterministic, phone: processed.contact.phone ?? phone ?? null })
   }
+  // La web que el modelo respalda con un fact gana; si no hay, la home de la web oficial scrapeada.
+  processed.contact.website ??= officialWebsiteHome(sources)
   if (processed.contact.reservationUrl && (processed.reservations === 'unknown' || processed.reservations === 'no_reservations')) {
     processed.reservations = 'accepts'
   }
 
-  applyConsistencyRules(processed, sources)
+  // Delivery: la página del local (nombra la marca) en Rappi o PedidosYa alcanza, aunque ningún fact lo diga.
+  const deliveryPage = sources.find((source) => hostedBy(source.url, DELIVERY_HOSTS) && hasPhrase(source.text, brand))
+  if (deliveryPage && !processed.tags.includes('delivery')) {
+    processed.tags.push('delivery')
+    addCodeFact('features.delivery', `Tiene página de pedidos en ${hostname(deliveryPage.url)}`, deliveryPage)
+  }
+
+  applyConsistencyRules(processed)
+  processed.tags = capCuisines(processed.tags)
+  // signature: ids que quedaron en tags, sin repetir y hasta 3. El resto se descarta.
+  const finalTags = new Set<string>(processed.tags)
+  const signature = [...new Set(result.signature.map((id) => id.trim()))]
+    .filter((id): id is TagId => finalTags.has(id) && signatureAllowed(id, processed.name, processed.description.es))
+    .slice(0, MAX_SIGNATURE)
   if (processed.categories.length === 0) {
     processed.categories = (context.categoryFallback ?? []).filter((id): id is keyof typeof CATEGORIES => id in CATEGORIES)
   }
 
   const normalizedHours = {
-    ...processed.hours,
-    display: (rawCandidate && rawCandidate.raw === modelRaw && rawCandidate.sourceId === rawSource?.id
-      ? modelDisplay
-      : null) ?? displayFromSlots(processed.hours.slots),
-    status: processed.hours.slots.length > 0
-      ? processed.hours.slots.every((slot) => slot.closes !== null) ? 'exact' as const : 'partial' as const
-      : processed.hours.raw ? 'vague' as const : 'none' as const,
-    source: hoursUnavailable ? null : selectedTrust,
+    raw: processed.hours.raw,
+    slots: processed.hours.slots,
+    // Con slots, display siempre sale del código. Sólo un horario vague (raw sin slots) usa el display del modelo.
+    display: slots.length > 0 ? displayFromSlots(slots) : raw ? result.hours.display : null,
+    status: slots.length > 0
+      ? slots.every((slot) => slot.closes !== null) ? 'exact' as const : 'partial' as const
+      : raw ? 'vague' as const : 'none' as const,
+    source: hoursSource,
+    // Sin slots, la UI muestra el horario de Google en vivo. extractFrom lo afina tras la segunda búsqueda.
+    missingReason: slots.length > 0 ? null : chain ? 'chain_branch_not_found' as const : 'no_data' as const,
   }
 
-  const tags = [...processed.categories, ...processed.moments, ...processed.cuisines, ...processed.foods, ...processed.drinks, ...processed.features, ...processed.goodFor,
+  const supportsByFact = new Map<string, string[]>()
+  for (const [field, ids] of support) {
+    for (const id of ids) supportsByFact.set(id, [...(supportsByFact.get(id) ?? []), field])
+  }
+  const placeFacts = facts.map((fact) => ({
+    id: fact.id,
+    text: fact.text,
+    kind: fact.kind,
+    sourceId: fact.source.id,
+    sourceUrl: fact.source.url,
+    trust: fact.source.trust,
+    supports: supportsByFact.get(fact.id) ?? [],
+  }))
+
+  // Los facts no entran en el texto de búsqueda: sólo nombre, barrio, descripción, tags y highlights.
+  const searchTags = [...processed.categories, ...processed.tags,
     ...(processed.dietary.vegan === 'has_options' || processed.dietary.vegan === 'fully' ? ['vegan'] : []),
     ...(processed.dietary.vegetarian === 'has_options' || processed.dietary.vegetarian === 'fully' ? ['vegetarian'] : []),
     ...(processed.dietary.glutenFree === 'has_options' || processed.dietary.glutenFree === 'fully' ? ['gluten_free'] : [])]
   const searchInput = {
-    name: target.name,
+    name: processed.name,
     neighborhood: neighborhoodDisplayName(target.neighborhoodId) ?? 'Montevideo',
     description: processed.description,
-    tags: [...new Set(tags)],
+    locatedIn: processed.locatedIn,
+    tags: [...new Set(searchTags)],
     highlights: processed.highlights,
+    dishes,
+    signature,
+  }
+  // Seguidores de una sucursal de cadena: son de la marca y no dicen nada de este local.
+  const prominence = context.prominenceSignals ?? NO_PROMINENCE_SIGNALS
+  const signals = {
+    editorialMentions: prominence.editorialMentions,
+    listedOrAwarded: prominence.listedOrAwarded,
+    igFollowers: chain ? null : prominence.instagramFollowers,
   }
   return PlaceDraft.parse({
     ...target,
     ...processed,
     hours: normalizedHours,
+    dishes,
+    signature,
+    placeFacts,
+    signals,
     embeddingText: buildEmbeddingText(searchInput),
     keywordText: buildKeywordText(searchInput),
   })
+}
+
+/**
+ * Suma el horario de la segunda búsqueda a la extracción: facts H al principio (no los corta
+ * MAX_FACTS), hours reemplazado y support de hours sólo con esos facts. postProcess valida todo.
+ */
+export function withRecoveredHours(data: PlaceExtraction, retry: HoursRetryExtraction, sources: Source[]): PlaceExtraction {
+  const sourceIds = new Set(sources.map((source) => source.id))
+  const facts = retry.facts
+    .filter((fact) => sourceIds.has(fact.sourceId) && fact.text.trim())
+    .map((fact, index) => ({ id: `H${index + 1}`, text: fact.text, sourceId: fact.sourceId, kind: 'hours' as const, proposedTag: null }))
+  return {
+    ...data,
+    facts: [...facts, ...data.facts],
+    hours: { raw: retry.raw, display: null, blocks: facts.length > 0 ? retry.blocks : [] },
+    support: [
+      ...data.support.filter((item) => canonicalSupportField(item.field) !== 'hours'),
+      ...(facts.length > 0 ? [{ field: 'hours', facts: facts.map((fact) => fact.id) }] : []),
+    ],
+  }
+}
+
+/**
+ * La fuente nombra la sucursal: aparece el número de puerta de la dirección o, si no tiene
+ * número, todas las palabras de la calle.
+ */
+// Features que dependen del local físico: en una cadena varían de una sucursal a otra.
+const BRANCH_FEATURES = new Set<string>(['terrace', 'sidewalk', 'patio', 'sea_view', 'kids_area', 'accessible', 'pool_table'])
+const MULTI_BRANCH_TEXT = /\b(?:sucursales|nuestros locales|nuestras tiendas|todos los locales|otros locales|otras sucursales)\b/
+const MULTI_BRANCH_PATH = /\/(?:store|stores|locales|sucursales|tiendas)\//
+
+/** Sucursal de una cadena: la marca no es el nombre de Google o alguna fuente muestra varias sucursales. */
+export function isChainBranch(target: Pick<Target, 'name'>, sources: Source[]): boolean {
+  const words = (value: string) => canonical(value).replace(/[^a-z0-9]+/g, ' ').trim()
+  if (words(brandFromGoogleName(target.name)) !== words(target.name)) return true
+  return sources.some((source) => {
+    let path = ''
+    try { path = new URL(source.url).pathname.toLowerCase() } catch { /* URL inválida: sólo el texto */ }
+    return MULTI_BRANCH_TEXT.test(canonical(source.text)) || MULTI_BRANCH_PATH.test(path)
+  })
+}
+
+/**
+ * La fuente habla de esta sucursal: menciona su dirección o su barrio. El resumen de Exa no
+ * cuenta: en una cadena junta datos de varias sucursales.
+ */
+export function mentionsBranch(source: Source, target: Pick<Target, 'address' | 'neighborhoodId'>): boolean {
+  if (source.url === EXA_SUMMARY_URL) return false
+  const neighborhood = neighborhoodDisplayName(target.neighborhoodId ?? null)
+  return mentionsAddress(source.text, target.address) || Boolean(neighborhood && hasPhrase(source.text, neighborhood))
+}
+
+export function mentionsAddress(text: string, address: string): boolean {
+  const street = canonical(address.split(',')[0] ?? '')
+  const haystack = ` ${canonical(text).replace(/[^a-z0-9]+/g, ' ')} `
+  const number = street.match(/\b\d{2,5}\b/)?.[0]
+  if (number) return haystack.includes(` ${number} `)
+  const words = street.split(/[^a-z0-9]+/).filter((word) => word.length >= 4)
+  return words.length > 0 && words.every((word) => haystack.includes(` ${word} `))
+}
+
+const MAX_DOUBTS = 5
+export const MISSING_NAME_DOUBT = 'Nombre: ninguna fuente confirma el nombre del local; no se puede guardar.'
+const DAY_LABELS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb']
+
+/**
+ * Lo que el pipeline no resolvió en un lugar, para el reporte del lote. No modifica el borrador.
+ * Un fact queda sin mapear si ningún tag, campo, horario ni highlight conservado lo cita.
+ */
+export function reviewExtraction(
+  place: PlaceEnrichmentDraft,
+  data: PlaceExtraction,
+  hoursRetry: PlaceReview['hoursRetry'] = { attempted: false, recovered: false, costUsd: 0 },
+): PlaceReview {
+  const keptHighlights = new Set(place.highlights.map((highlight) => highlight.es))
+  const citedByHighlights = new Set(data.highlights
+    .filter((highlight) => keptHighlights.has(highlight.es))
+    .flatMap((highlight) => highlight.facts.map((id) => id.trim())))
+  const proposedTags = new Map(data.facts.map((fact) => [fact.id.trim(), proposedTagFrom(fact.proposedTag)]))
+  const unmappedFacts = place.placeFacts
+    .filter((fact) => fact.supports.length === 0 && !citedByHighlights.has(fact.id))
+    .map(({ id, text }) => ({ id, text, proposedTag: proposedTags.get(id) ?? null }))
+
+  // Sin nombre de las fuentes el lugar no se puede guardar: el aviso va primero para que el tope no lo corte.
+  const doubts = [...new Set([
+    ...(place.name.trim() ? [] : [MISSING_NAME_DOUBT]),
+    ...data.doubts.map((doubt) => doubt.trim()).filter(Boolean),
+  ])].slice(0, MAX_DOUBTS)
+
+  const anomalies: PlaceReviewAnomaly[] = []
+  const { hours, categories, tags, dietary, contact } = place
+  if (hours.status === 'vague' || hours.status === 'none') {
+    anomalies.push({ type: 'hours_vague', detail: hours.raw ? `${hours.status}: ${hours.raw}` : hours.status })
+  }
+  const openEnded = hours.slots.filter((slot) => slot.closes === null)
+  if (openEnded.length > 0) {
+    anomalies.push({ type: 'hours_no_close', detail: openEnded.map((slot) => `${DAY_LABELS[slot.day]} desde ${slot.opens}`).join(', ') })
+  }
+  const barCategory = categories.find((category) => category === 'bar' || category === 'brewery' || category === 'wine_bar')
+  if (barCategory && !tags.some((tag) => groupOf(tag) === 'drinks')) {
+    anomalies.push({ type: 'bar_without_drinks', detail: barCategory })
+  }
+  if (categories.includes('restaurant') && !tags.some((tag) => groupOf(tag) === 'foods')) {
+    anomalies.push({ type: 'restaurant_without_food', detail: 'restaurant' })
+  }
+  const fully = (['vegan', 'vegetarian', 'glutenFree'] as const).filter((field) => dietary[field] === 'fully')
+  if (fully.length > 0) anomalies.push({ type: 'dietary_fully', detail: fully.join(', ') })
+  if (!contact.instagram && !contact.website) anomalies.push({ type: 'no_contact', detail: 'sin instagram ni website' })
+  // Cocinas que el modelo propuso (por tag o proposedTag) y que postProcess descartó porque ningún fact las nombra.
+  const proposedCuisines = [
+    ...data.tags.filter((item) => item.group === 'cuisines').map((item) => item.id.trim()),
+    ...data.facts.map((fact) => fact.proposedTag?.trim() ?? '').filter((id) => groupOf(id) === 'cuisines'),
+  ]
+  const factTexts = place.placeFacts.map((fact) => fact.text)
+  const unmentioned = [...new Set(proposedCuisines)]
+    .filter((id) => Object.hasOwn(CUISINES, id) && !tags.includes(id) && !cuisineMentioned(id, factTexts))
+  if (unmentioned.length > 0) anomalies.push({ type: 'cuisine_unmentioned', detail: unmentioned.join(', ') })
+
+  return { unmappedFacts, doubts, anomalies, hoursRetry }
+}
+
+// Un id existente de tags.ts o uno nuevo en snake_case; cualquier otra cosa cuenta como null.
+function proposedTagFrom(value: string | null | undefined): string | null {
+  const id = value?.trim() ?? ''
+  return /^[a-z][a-z0-9_]{2,39}$/.test(id) ? id : null
+}
+
+// Resumen del error y de sus causas para la consola: nombre, status, mensaje y el cuerpo de la
+// respuesta recortado. Nunca el request, que lleva el prompt con las fuentes.
+function errorChain(error: unknown) {
+  const chain: { name: string; statusCode?: number; type?: string; message: string; responseBody?: string }[] = []
+  let current: unknown = error
+  while (current instanceof Error && chain.length < 4) {
+    const details = current as Error & { statusCode?: unknown; type?: unknown; responseBody?: unknown }
+    chain.push({
+      name: details.name,
+      ...(typeof details.statusCode === 'number' ? { statusCode: details.statusCode } : {}),
+      ...(typeof details.type === 'string' ? { type: details.type } : {}),
+      message: details.message.slice(0, 500),
+      ...(typeof details.responseBody === 'string' ? { responseBody: details.responseBody.slice(0, 500) } : {}),
+    })
+    current = details.cause
+  }
+  return chain
 }
 
 function apiFailure(error: unknown): PlacesProviderError {
@@ -1381,14 +1702,14 @@ function instagramAudit(
   candidates: string[],
   validation: InstagramValidation,
   contactHandle: string | null = null,
-  data?: PlaceExtraction,
+  placeFacts: PlaceEnrichmentDraft['placeFacts'] = [],
   sources: Source[] = [],
 ) {
-  const selectedSource = data?.evidence.find((item) => item.field === 'contact.instagram')
-  const source = selectedSource && sources.find((item) => item.id === selectedSource.sourceId)
+  const selectedFact = placeFacts.find((fact) => fact.supports.includes('contact.instagram'))
+  const source = selectedFact && sources.find((item) => item.id === selectedFact.sourceId)
   const origin = validation.profile && contactHandle === instagramHandle(validation.profile.url)
     ? 'official_profile' as const
-    : source?.kind === 'exa' && source.url === 'https://exa.ai/'
+    : source?.kind === 'exa' && source.url === EXA_SUMMARY_URL
       ? 'exa_summary' as const
       : source?.kind === 'exa'
         ? 'exa_result' as const
@@ -1415,55 +1736,101 @@ function roundUsd(value: number): number {
 function extractionCost(
   rates: ExtractionCostRates,
   usage: ExtractionCostUsage,
-  inputTokens: number | null,
-  outputTokens: number | null,
+  model: string,
+  llm: LlmUsage | null,
+  hoursRetry: { model: string; usage: LlmUsage } | null = null,
 ): PlaceExtractionCost {
   const googleCost = usage.googleRequests * rates.googleDetailsRequestUsd
-  const exaCost = usage.exaRequests * rates.exaSearchRequestUsd + usage.exaContentPages * rates.exaContentPageUsd
+  const exaCost = usage.exaRequests * rates.exaSearchRequestUsd + usage.exaContentPages * rates.exaContentPageUsd +
+    usage.exaHighlightPages * rates.exaHighlightPageUsd
   const instagramCost = usage.instagramRequests * rates.instagramRunUsd
   const scrapingCost = usage.scrapingRequests * rates.scrapingRequestUsd
   const transitCost = usage.transitRequests * rates.transitRequestUsd
-  const inputCost = (inputTokens ?? 0) * rates.llmInputTokenUsd
-  const outputCost = (outputTokens ?? 0) * rates.llmOutputTokenUsd
+  const price = llm ? llmPrice(model) : null
+  const { inputCost, outputCost } = llmUsageCost(model, llm)
   const llmCost = inputCost + outputCost
+  const hoursRetryCost = hoursRetry ? llmUsageCost(hoursRetry.model, hoursRetry.usage) : null
+  const hoursRetryUsd = hoursRetryCost ? hoursRetryCost.inputCost + hoursRetryCost.outputCost : 0
 
   return {
     currency: 'USD',
-    estimated: true,
-    totalUsd: roundUsd(googleCost + exaCost + instagramCost + scrapingCost + transitCost + llmCost),
+    // Las tarifas de Google y Exa son de lista; el LLM es real si hay precio y uso.
+    estimated: !(price && llm?.inputTokens !== null && llm?.outputTokens !== null),
+    totalUsd: roundUsd(googleCost + exaCost + instagramCost + scrapingCost + transitCost + llmCost + hoursRetryUsd),
     providers: {
       google: { requests: usage.googleRequests, costUsd: roundUsd(googleCost) },
-      exa: { requests: usage.exaRequests, contentPages: usage.exaContentPages, costUsd: roundUsd(exaCost) },
+      exa: { requests: usage.exaRequests, contentPages: usage.exaContentPages, highlightPages: usage.exaHighlightPages, costUsd: roundUsd(exaCost) },
       instagram: { requests: usage.instagramRequests, costUsd: roundUsd(instagramCost) },
       scraping: { requests: usage.scrapingRequests, costUsd: roundUsd(scrapingCost) },
       transit: { requests: usage.transitRequests, costUsd: roundUsd(transitCost) },
       llm: {
-        inputTokens,
-        outputTokens,
+        model,
+        inputTokens: llm?.inputTokens ?? null,
+        cachedInputTokens: llm?.cachedInputTokens ?? null,
+        cacheWriteTokens: llm?.cacheWriteTokens ?? null,
+        outputTokens: llm?.outputTokens ?? null,
+        gatewayCostUsd: llm?.gatewayCostUsd ?? null,
         inputCostUsd: roundUsd(inputCost),
         outputCostUsd: roundUsd(outputCost),
         costUsd: roundUsd(llmCost),
       },
+      ...(hoursRetry ? {
+        hoursRetry: {
+          model: hoursRetry.model,
+          inputTokens: hoursRetry.usage.inputTokens,
+          outputTokens: hoursRetry.usage.outputTokens,
+          costUsd: roundUsd(hoursRetryUsd),
+        },
+      } : {}),
     },
   }
 }
 
+// Costo real: tokens que devuelve el AI SDK por el precio conocido del modelo. inputTokens
+// incluye lo leído y lo escrito en cache: cada parte se cobra a su precio.
+export function llmUsageCost(model: string, llm: LlmUsage | null) {
+  const price = llm ? llmPrice(model) : null
+  const cacheRead = llm?.cachedInputTokens ?? 0
+  const cacheWrite = llm?.cacheWriteTokens ?? 0
+  const inputCost = price && llm
+    ? (Math.max(0, (llm.inputTokens ?? 0) - cacheRead - cacheWrite) * price.input + cacheRead * price.cachedInput + cacheWrite * price.cacheWrite) / 1_000_000
+    : 0
+  const outputCost = price && llm ? (llm.outputTokens ?? 0) * price.output / 1_000_000 : 0
+  return { inputCost, outputCost }
+}
+
 function extractionPerformance(
-  startedAt: number,
+  totalMs: number,
   timings: Record<string, number>,
   sourceText: SourceTextStats,
-  inputTokens: number | null,
-  outputTokens: number | null,
+  llm: LlmUsage | null,
   cost: PlaceExtractionCost,
 ): PlaceExtractionPerformance {
   return {
-    totalMs: Math.round(performance.now() - startedAt),
+    totalMs: Math.round(totalMs),
     stepsMs: timings,
     sourceText,
-    inputTokens,
-    outputTokens,
+    inputTokens: llm?.inputTokens ?? null,
+    outputTokens: llm?.outputTokens ?? null,
     costUsd: cost,
   }
+}
+
+/** Fuentes ya buscadas de un lugar. Se pueden pasar varias veces a extractFrom con distintos modelos. */
+export type CollectedSources = {
+  placeId: string
+  request: PlaceExtractionRequest
+  target: Target
+  sources: Source[]
+  sourceText: SourceTextStats
+  deterministicContact: DeterministicContact
+  instagramCandidates: string[]
+  instagramValidation: InstagramValidation
+  /** Menciones editoriales y seguidores, de las mismas fuentes; postProcess decide igFollowers. */
+  prominenceSignals?: ProminenceSourceSignals
+  costUsage: ExtractionCostUsage
+  timings: Record<string, number>
+  elapsedMs: number
 }
 
 export class PlaceExtractionService implements PlaceExtractor {
@@ -1474,11 +1841,13 @@ export class PlaceExtractionService implements PlaceExtractor {
   private readonly website?: WebsiteProvider
   private readonly transit?: TransitProvider
   private readonly generate: GenerateExtraction
+  private readonly generateHours: GenerateHours
   private readonly costRates: ExtractionCostRates
   private readonly reservationHosts: readonly string[]
-  private readonly cache = new Map<string, Promise<PlaceEnrichmentResponse>>()
+  private readonly modelConfig: ExtractionModelConfig
+  private readonly hoursModel: ExtractionModelConfig
 
-  constructor(config: { apiKey?: string; details: DetailsProvider; exa?: ExaPlaceProvider; instagram?: InstagramProvider; website?: WebsiteProvider; transit?: TransitProvider; generate?: GenerateExtraction; costRates?: Partial<ExtractionCostRates>; reservationHosts?: readonly string[] }) {
+  constructor(config: { apiKey?: string; details: DetailsProvider; exa?: ExaPlaceProvider; instagram?: InstagramProvider; website?: WebsiteProvider; transit?: TransitProvider; generate?: GenerateExtraction; generateHours?: GenerateHours; costRates?: Partial<ExtractionCostRates>; reservationHosts?: readonly string[]; model?: ExtractionModelConfig; hoursModel?: ExtractionModelConfig }) {
     this.configured = Boolean(config.apiKey?.trim())
     this.details = config.details
     this.exa = config.exa
@@ -1486,34 +1855,30 @@ export class PlaceExtractionService implements PlaceExtractor {
     this.website = config.website
     this.transit = config.transit
     this.generate = config.generate ?? generatePlaceExtraction
+    this.generateHours = config.generateHours ?? generateHoursRetry
     this.costRates = extractionCostRates(config.costRates)
     this.reservationHosts = config.reservationHosts ?? DEFAULT_RESERVATION_HOSTS
+    this.modelConfig = config.model ?? extractionModelConfig()
+    this.hoursModel = config.hoursModel ?? hoursModelConfig()
   }
 
-  async extract(placeId: string, request: { name: string; seedCategory: CategoryId; refresh?: boolean }): Promise<PlaceEnrichmentResponse> {
+  // Sin cache ni estado: cada llamada corre el pipeline completo.
+  async extract(placeId: string, request: PlaceExtractionRequest): Promise<PlaceEnrichmentResponse> {
     if (!this.configured) throw new PlacesProviderError('configuration', 'Falta configurar AI_GATEWAY_API_KEY en .env.local.')
-    const cacheKey = `${placeId}:${canonical(request.name).replace(/\s+/g, ' ').trim()}:${request.seedCategory}`
-    if (request.refresh) this.cache.delete(cacheKey)
-    const cached = this.cache.get(cacheKey)
-    if (cached) return cached
-    const pending = this.run(placeId, request).catch((error) => { this.cache.delete(cacheKey); throw error })
-    this.cache.set(cacheKey, pending)
-    if (this.cache.size > 100) this.cache.delete(this.cache.keys().next().value as string)
-    return pending
+    return this.extractFrom(await this.collectSources(placeId, request))
   }
 
-  private async run(placeId: string, request: { name: string; seedCategory: CategoryId; refresh?: boolean }): Promise<PlaceEnrichmentResponse> {
+  /** Google, Exa, scraping, Instagram y buses: todo lo que no es el LLM. */
+  async collectSources(placeId: string, request: PlaceExtractionRequest): Promise<CollectedSources> {
     const startedAt = performance.now()
     const timings: Record<string, number> = {}
     let sourceCount = 0
     let sourceCharacters = 0
-    let sourceText: SourceTextStats = {
-      beforeChars: 0, afterChars: 0, estimatedInputTokensBefore: 0, estimatedInputTokensAfter: 0, estimatedInputTokensSaved: 0,
-    }
     const costUsage: ExtractionCostUsage = {
       googleRequests: 0,
       exaRequests: 0,
       exaContentPages: 0,
+      exaHighlightPages: 0,
       instagramRequests: 0,
       scrapingRequests: 0,
       transitRequests: 0,
@@ -1528,8 +1893,19 @@ export class PlaceExtractionService implements PlaceExtractor {
     }
     try {
       const detailsPromise = timed('google', () => this.details.getDetails(placeId))
+      // El request no trae nombre: Exa busca con la marca (nombre de Google sin sucursal) y el tipo de
+      // lugar de Google, para no mezclar homónimos; el provider agrega Montevideo.
+      const searchTerm = (details: GooglePlaceDetailsResponse) => brandSearchTerm(brandFromGoogleName(details.anchor.name), details.placeType)
       const exaPromise = this.exa?.configured
-        ? timed('exa', () => this.exa!.searchPlace(request.name, { refresh: request.refresh })).catch(() => null)
+        ? detailsPromise
+          .then((details) => timed('exa', () => withServiceLimit('exa', () => this.exa!.searchPlace(searchTerm(details)))))
+          .catch(() => null)
+        : Promise.resolve(null)
+      // Búsqueda dirigida a Instagram con la marca: sólo propone handles, que después valida Apify.
+      const instagramSearchPromise = this.exa?.configured && this.exa.searchText
+        ? detailsPromise
+          .then((details) => timed('exaInstagram', () => withServiceLimit('exa', () => this.exa!.searchText!(`${searchTerm(details)} Montevideo instagram`))))
+          .catch(() => null)
         : Promise.resolve(null)
       const transitPromise = timed('transit', () => detailsPromise
         .then((details) => this.transit
@@ -1538,33 +1914,49 @@ export class PlaceExtractionService implements PlaceExtractor {
         .catch(() => ({ status: 'unavailable' as const, lines: [] })))
       const details = await detailsPromise
       costUsage.googleRequests = 1
-      if (!samePlaceName(request.name, details.anchor.name)) {
-        throw new PlacesProviderError('validation', 'El nombre enviado no coincide con el lugar de Google Places.')
-      }
       const coordinates = {
         lat: details.anchor.latitude,
         lng: details.anchor.longitude,
         source: 'google' as const,
         fetchedAt: new Date().toISOString(),
       }
-      const neighborhood = getNeighborhood(coordinates.lat, coordinates.lng)
-      const websitePromise = this.website?.configured && details.websiteUri && !instagramProfileUrl(details.websiteUri) &&
-        !hostedBy(details.websiteUri, this.reservationHosts) && !isSocialUrl(details.websiteUri) &&
-        !hostedBy(details.websiteUri, LINK_AGGREGATOR_HOSTS)
-        ? timed('scraping', () => this.website!.scrape(details.websiteUri as string)).catch(() => null)
+      const neighborhood = request.neighborhoodId
+        ? { neighborhoodId: request.neighborhoodId }
+        : getNeighborhood(coordinates.lat, coordinates.lng)
+      const scrapeWebsite = (url: string | null) => this.website?.configured && url
+        ? timed('scraping', () => this.website!.scrape(url)).catch(() => null)
         : Promise.resolve(null)
+      const brand = brandFromGoogleName(details.anchor.name)
+      const googleWebsite = details.websiteUri && isOwnWebsite(details.websiteUri, this.reservationHosts) ? details.websiteUri : null
+      let websitePromise = scrapeWebsite(googleWebsite)
       const exa = await exaPromise
+      // Sin web propia en Google (pasa en sucursales de cadenas): la web de la marca que traiga Exa.
+      let websiteUrl = googleWebsite ?? (exa ? brandWebsite(exa.results.map((result) => result.url), brand, this.reservationHosts) : null)
+      if (!googleWebsite && websiteUrl) websitePromise = scrapeWebsite(websiteUrl)
       if (exa) {
         costUsage.exaRequests = 1
         costUsage.exaContentPages = exa.results.length
       }
-      const candidates = instagramCandidates(details, exa)
+      // Los links de la web oficial también proponen el Instagram, así que Instagram espera a la web.
+      let website = await websitePromise
+      const instagramSearch = await instagramSearchPromise
+      if (instagramSearch) {
+        costUsage.exaRequests += 1
+        costUsage.exaHighlightPages += instagramSearch.results.length
+      }
+      const directedHandles = instagramSearch ? instagramHandlesFromResults(instagramSearch.results) : []
+      const candidates = instagramCandidates(details, exa, website ? [...website.instagramUrls, ...(website.links ?? [])] : [], directedHandles)
       if (this.instagram?.configured && candidates.length > 0) costUsage.instagramRequests = 1
-      const instagramValidation = await timed('instagram', () => validatedInstagram(this.instagram, details, candidates))
+      const instagramValidation = await timed('instagram', () => validatedInstagram(this.instagram, details, candidates, websiteUrl))
       const profile = instagramValidation.profile
-      const website = await websitePromise
+      // Y al revés: sin web todavía, la que enlaza el Instagram validado si su dominio lleva la marca.
+      if (!websiteUrl && profile) {
+        websiteUrl = brandWebsite(profile.links, brand, this.reservationHosts)
+        website = await scrapeWebsite(websiteUrl)
+      }
       if (website) costUsage.scrapingRequests = 1
-      const exaCandidates = exa ? sourceFromExa(exa) : []
+      // Las páginas de otros países (otra marca con el mismo nombre) no son fuentes del local.
+      const exaCandidates = exa ? sourceFromExa(exa).filter((source) => !isForeignSource(source.url, source.text)) : []
       const exaSummary = exa ? sourceFromExaSummary(exa) : null
       const instagramSource = profile ? sourceFromInstagram(profile) : null
       const blockedUrls = [...new Set(exaCandidates
@@ -1578,6 +1970,13 @@ export class PlaceExtractionService implements PlaceExtractor {
         ...(exaSummary ? filterSources([exaSummary]).map((source) => ({ source, origin: 'exa' as const })) : []),
         ...filterSources(exaCandidates).map((source) => ({ source, origin: 'exa' as const })),
       ]
+      // Antes de deduplicar el texto: una nota cuyas líneas ya aparecieron en otra fuente igual cuenta.
+      const editorial = editorialSignals(exaCandidates.filter((source) => source.kind !== 'blocked'), { brand, websiteUrl })
+      const prominenceSignals: ProminenceSourceSignals = {
+        editorialMentions: editorial.editorialMentions,
+        listedOrAwarded: editorial.listedOrAwarded,
+        instagramFollowers: profile?.followers ?? null,
+      }
       const seenUrls = new Set<string>()
       const used = staged.filter(({ source }) => {
         // La misma URL puede llegar como resultado resumido de Exa y como
@@ -1589,68 +1988,39 @@ export class PlaceExtractionService implements PlaceExtractor {
       })
       const deduplicated = deduplicateSourceText(reindexSources(used.map(({ source }) => source)))
       const sources = deduplicated.sources
-      const deterministicContact = resolveDeterministicContact(details, sources, this.reservationHosts)
-      sourceText = deduplicated.stats
       sourceCount = sources.length
       sourceCharacters = sources.reduce((total, source) => total + source.text.slice(0, MAX_CHARS_PER_SOURCE).length, 0)
-      const baseTarget = {
-        name: details.anchor.name,
-        address: details.anchor.address,
-        coordinates,
-        ...neighborhood,
-        city: 'Montevideo' as const,
-        googlePlaceId: placeId,
-      }
-      if (sources.length === 0) {
-        const transit = await transitPromise
-        if (this.transit) costUsage.transitRequests = 1
-        const target: Target = { ...baseTarget, transit }
-        return {
-          source: 'openai', status: 'no_sources', model: MODEL,
-          sourceAudit: instagramAudit(candidates, instagramValidation),
-          performance: extractionPerformance(
-            startedAt,
-            timings,
-            sourceText,
-            null,
-            null,
-            extractionCost(this.costRates, costUsage, null, null),
-          ),
-          target,
-        }
-      }
-      const promptTarget: Target = { ...baseTarget, transit: { status: 'unavailable', lines: [] } }
-      const [generated, transit] = await Promise.all([timed('llm', () => this.generate(promptTarget, sources)), transitPromise])
+      const transit = await transitPromise
       if (this.transit) costUsage.transitRequests = 1
-      const { data, inputTokens, outputTokens } = generatedData(generated)
-      const target: Target = { ...baseTarget, transit }
-      const place = postProcess(target, data, {
-        sources,
-        seedCategory: request.seedCategory,
-        parsedHours: parseExplicitHours(sources, { city: target.city, address: target.address }),
-        deterministicContact,
-        categoryFallback: [],
-      })
       return {
-        source: 'openai', status: 'ok', model: MODEL,
-        sourceAudit: instagramAudit(candidates, instagramValidation, place.contact.instagram, data, sources),
-        performance: extractionPerformance(
-          startedAt,
-          timings,
-          sourceText,
-          inputTokens,
-          outputTokens,
-          extractionCost(this.costRates, costUsage, inputTokens, outputTokens),
-        ),
-        place,
+        placeId,
+        request,
+        target: {
+          name: details.anchor.name,
+          address: details.anchor.address,
+          coordinates,
+          ...neighborhood,
+          city: 'Montevideo' as const,
+          googlePlaceId: placeId,
+          transit,
+        },
+        sources,
+        sourceText: deduplicated.stats,
+        deterministicContact: resolveDeterministicContact(details, sources, this.reservationHosts),
+        instagramCandidates: candidates,
+        instagramValidation,
+        prominenceSignals,
+        costUsage,
+        timings,
+        elapsedMs: performance.now() - startedAt,
       }
     } catch (error) {
+      console.error(JSON.stringify({ event: 'place_extraction_error', stage: 'sources', placeId, error: errorChain(error) }))
       throw apiFailure(error)
     } finally {
       console.info(JSON.stringify({
-        event: 'place_extraction_timing',
+        event: 'place_extraction_sources_timing',
         placeId,
-        name: request.name,
         totalMs: Math.round(performance.now() - startedAt),
         timingsMs: timings,
         sourceCount,
@@ -1659,4 +2029,139 @@ export class PlaceExtractionService implements PlaceExtractor {
     }
   }
 
+  /**
+   * Una búsqueda de Exa dirigida a la sucursal (sólo highlights) y un llamado corto, con el
+   * modelo de HOURS_MODEL, que devuelve sólo hours. El modelo ve sólo las fuentes nuevas,
+   * numeradas a continuación de las del lugar.
+   */
+  private async retryHours(target: Target, sources: Source[], timings: Record<string, number>) {
+    const startedAt = performance.now()
+    const query = `${target.name} ${target.address} horario`
+    const results = [await withServiceLimit('exa', () => this.exa!.searchText!(query)).catch(() => null)]
+    const exaRequests = results.filter(Boolean).length
+    const exaHighlightPages = results.reduce((total, result) => total + (result?.results.length ?? 0), 0)
+    const seenUrls = new Set(sources.map((source) => normalizedUrl(source.url) ?? source.url))
+    const newSources = filterSources(results.flatMap((result) => result ? sourceFromExa(result) : []))
+      .filter((source) => {
+        const key = normalizedUrl(source.url) ?? source.url
+        if (seenUrls.has(key)) return false
+        seenUrls.add(key)
+        return true
+      })
+      .map((source, index) => ({ ...source, id: `S${sources.length + index + 1}` }))
+    let usage: LlmUsage | null = null
+    let extraction: HoursRetryExtraction | null = null
+    if (newSources.length > 0) {
+      const generated = await withServiceLimit('llm', () => this.generateHours(target, newSources, this.hoursModel))
+      const value = 'data' in generated ? generated : { data: generated }
+      extraction = value.data
+      usage = {
+        inputTokens: value.inputTokens ?? null,
+        cachedInputTokens: value.cachedInputTokens ?? null,
+        cacheWriteTokens: value.cacheWriteTokens ?? null,
+        outputTokens: value.outputTokens ?? null,
+        gatewayCostUsd: value.gatewayCostUsd ?? null,
+      }
+    }
+    timings.hoursRetry = Math.round(performance.now() - startedAt)
+    return { exaRequests, exaHighlightPages, sources: newSources, extraction, usage }
+  }
+
+  /** LLM + post-proceso sobre fuentes ya buscadas. No vuelve a consultar Google, Exa ni Instagram. */
+  async extractFrom(collected: CollectedSources, config: ExtractionModelConfig = this.modelConfig): Promise<PlaceEnrichmentResponse> {
+    const startedAt = performance.now()
+    const timings = { ...collected.timings }
+    const { target, sources } = collected
+    try {
+      if (sources.length === 0) {
+        return {
+          source: 'llm', status: 'no_sources', model: config.model,
+          sourceAudit: instagramAudit(collected.instagramCandidates, collected.instagramValidation),
+          performance: extractionPerformance(
+            collected.elapsedMs, timings, collected.sourceText, null,
+            extractionCost(this.costRates, collected.costUsage, config.model, null),
+          ),
+          target,
+        }
+      }
+      // El modelo no necesita las líneas de buses para extraer.
+      const promptTarget: Target = { ...target, transit: { status: 'unavailable', lines: [] } }
+      // El tiempo del LLM no incluye la espera en la cola de concurrencia.
+      const generated = await withServiceLimit('llm', async () => {
+        const llmStartedAt = performance.now()
+        try {
+          return await this.generate(promptTarget, sources, config)
+        } finally {
+          timings.llm = Math.round(performance.now() - llmStartedAt)
+        }
+      })
+      const { data: extracted, ...usage } = generatedData(generated)
+      const context = {
+        seedCategories: collected.request.seedCategories,
+        deterministicContact: collected.deterministicContact,
+        prominenceSignals: collected.prominenceSignals,
+        categoryFallback: [],
+      }
+      let data = extracted
+      let allSources = sources
+      let place = postProcess(target, data, { ...context, sources })
+
+      // Sin horario usable (típico de cadenas): segunda búsqueda dirigida a la sucursal.
+      const costUsage = { ...collected.costUsage }
+      let hoursRetryUsage: LlmUsage | null = null
+      const hoursRetry = { attempted: false, recovered: false, costUsd: 0 }
+      if (place.hours.slots.length === 0 && this.exa?.configured && this.exa.searchText) {
+        const retry = await this.retryHours(promptTarget, sources, timings)
+        hoursRetry.attempted = true
+        costUsage.exaRequests += retry.exaRequests
+        costUsage.exaHighlightPages += retry.exaHighlightPages
+        hoursRetryUsage = retry.usage
+        hoursRetry.costUsd = roundUsd(retry.exaRequests * this.costRates.exaSearchRequestUsd +
+          retry.exaHighlightPages * this.costRates.exaHighlightPageUsd +
+          (retry.usage ? Object.values(llmUsageCost(this.hoursModel.model, retry.usage)).reduce((sum, value) => sum + value, 0) : 0))
+        // Sólo cuentan los facts cuya fuente menciona la dirección del local: el modelo barato
+        // a veces toma el horario de otra sucursal aunque el prompt lo prohíba.
+        const branchFacts = retry.extraction?.facts.filter((fact) => {
+          const source = retry.sources.find((item) => item.id === fact.sourceId)
+          return Boolean(source && mentionsAddress(source.text, target.address))
+        }) ?? []
+        if (retry.extraction && branchFacts.length > 0) {
+          const merged = withRecoveredHours(data, { ...retry.extraction, facts: branchFacts }, retry.sources)
+          const recoveredSources = [...sources, ...retry.sources]
+          const recovered = postProcess(target, merged, { ...context, sources: recoveredSources })
+          if (recovered.hours.slots.length > 0) {
+            data = merged
+            allSources = recoveredSources
+            place = recovered
+            hoursRetry.recovered = true
+          }
+        }
+        if (!hoursRetry.recovered && retry.extraction?.otherBranchHours) {
+          place = { ...place, hours: { ...place.hours, missingReason: 'chain_branch_not_found' } }
+        }
+      }
+      return {
+        source: 'llm', status: 'ok', model: config.model,
+        review: reviewExtraction(place, data, hoursRetry),
+        sourceAudit: instagramAudit(collected.instagramCandidates, collected.instagramValidation, place.contact.instagram, place.placeFacts, allSources),
+        performance: extractionPerformance(
+          collected.elapsedMs + (performance.now() - startedAt), timings, collected.sourceText, usage,
+          extractionCost(this.costRates, costUsage, config.model, usage, hoursRetryUsage ? { model: this.hoursModel.model, usage: hoursRetryUsage } : null),
+        ),
+        place,
+      }
+    } catch (error) {
+      console.error(JSON.stringify({ event: 'place_extraction_error', stage: 'llm', placeId: collected.placeId, model: config.model, error: errorChain(error) }))
+      throw apiFailure(error)
+    } finally {
+      console.info(JSON.stringify({
+        event: 'place_extraction_timing',
+        placeId: collected.placeId,
+        model: config.model,
+        totalMs: Math.round(collected.elapsedMs + (performance.now() - startedAt)),
+        timingsMs: timings,
+        sourceCount: sources.length,
+      }))
+    }
+  }
 }

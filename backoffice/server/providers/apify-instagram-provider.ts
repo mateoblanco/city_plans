@@ -6,6 +6,8 @@ export type InstagramProfileData = {
   bio: string
   links: string[]
   posts?: string[]
+  /** Seguidores del perfil, si Apify los informa. */
+  followers?: number
 }
 
 type ApifyProfile = {
@@ -17,6 +19,7 @@ type ApifyProfile = {
   externalUrls?: unknown
   latestPosts?: unknown
   posts?: unknown
+  followersCount?: unknown
 }
 
 function usernameFromUrl(profileUrl: string): string {
@@ -138,12 +141,14 @@ export class ApifyInstagramProvider {
       ].filter(Boolean)
 
       const posts = [...new Set([...postCaptions(profile.latestPosts), ...postCaptions(profile.posts)])]
+      const followers = profile.followersCount
       return [{
         url: profileUrl,
         name: stringValue(profile.fullName) || username,
         bio: stringValue(profile.biography),
         links: [...new Set(links)],
         ...(posts.length > 0 ? { posts } : {}),
+        ...(typeof followers === 'number' && Number.isInteger(followers) && followers >= 0 ? { followers } : {}),
       }]
     })
   }

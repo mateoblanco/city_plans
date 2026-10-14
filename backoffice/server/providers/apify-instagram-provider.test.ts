@@ -36,6 +36,19 @@ describe('ApifyInstagramProvider', () => {
     })
   })
 
+  it('lee los seguidores del perfil e ignora valores que no son un entero', async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify([
+      { username: 'cafe.uno', fullName: 'Café Uno', followersCount: 12_345 },
+      { username: 'cafe.dos', fullName: 'Café Dos', followersCount: '12k' },
+    ]), { status: 200 }))
+    const provider = new ApifyInstagramProvider({ token: 'secret' }, fetcher)
+
+    const [uno, dos] = await provider.scrapeMany(['https://www.instagram.com/cafe.uno/', 'https://www.instagram.com/cafe.dos/'])
+
+    expect(uno.followers).toBe(12_345)
+    expect(dos).not.toHaveProperty('followers')
+  })
+
   it('informa configuración, autorización y cuota sin filtrar secretos', async () => {
     await expect(
       new ApifyInstagramProvider({}).scrape('https://instagram.com/cafe/'),

@@ -34,6 +34,7 @@ type GooglePlace = {
 
 type GooglePlaceDetails = {
   displayName?: GoogleLocalizedText
+  primaryTypeDisplayName?: GoogleLocalizedText
   formattedAddress?: string
   websiteUri?: string
   internationalPhoneNumber?: string
@@ -137,7 +138,7 @@ export class GooglePlacesProvider implements PlacesProvider {
           googleMapsUri:
             place.googleMapsUri ??
             `https://www.google.com/maps/search/?api=1&query_place_id=${encodeURIComponent(placeId)}`,
-          seedCategory,
+          seedCategories: [seedCategory],
         },
       ]
     })
@@ -161,6 +162,27 @@ export class GooglePlacesProvider implements PlacesProvider {
       this.detailsCache.delete(this.detailsCache.keys().next().value as string)
     }
     return request
+  }
+
+  /**
+   * Sólo el tipo de lugar en español (primaryTypeDisplayName), para armar consultas sin pedir
+   * los detalles completos. null si Google no tiene tipo.
+   */
+  async getPlaceType(placeId: string): Promise<string | null> {
+    let response: Response
+    try {
+      const url = new URL(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`)
+      url.searchParams.set('languageCode', 'es')
+      url.searchParams.set('regionCode', 'UY')
+      response = await this.fetcher(url, {
+        headers: { 'X-Goog-Api-Key': this.apiKey, 'X-Goog-FieldMask': 'primaryTypeDisplayName' },
+      })
+    } catch (error) {
+      throw new PlacesProviderError('upstream', 'No se pudo conectar con Google Places.', { cause: error })
+    }
+    if (!response.ok) await throwGoogleError(response)
+    const payload = (await response.json()) as Pick<GooglePlaceDetails, 'primaryTypeDisplayName'>
+    return payload.primaryTypeDisplayName?.text?.trim() || null
   }
 
   private async fetchDetails(placeId: string): Promise<GooglePlaceDetailsResponse> {
@@ -216,6 +238,7 @@ export class GooglePlacesProvider implements PlacesProvider {
       },
       websiteUri: payload.websiteUri?.trim() || null,
       phoneNumber: payload.internationalPhoneNumber?.trim() || payload.nationalPhoneNumber?.trim() || null,
+      placeType: payload.primaryTypeDisplayName?.text?.trim() || null,
       data: payload as JsonValue,
       attribution: 'Google Maps',
     }

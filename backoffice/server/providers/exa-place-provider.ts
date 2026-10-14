@@ -1,6 +1,6 @@
 import { Exa, ExaError, type DeepOutputSchema, type RegularSearchOptions } from 'exa-js'
 import { z } from 'zod'
-import type { ExaPlaceResponse, JsonValue } from '../../src/types/places.ts'
+import type { ExaPlaceResponse, ExaPlaceResult, JsonValue } from '../../src/types/places.ts'
 import { PlacesProviderError, type ProviderErrorKind } from './places-provider.ts'
 
 type ExaSearchClient = {
@@ -38,7 +38,7 @@ const searchResponseSchema = z.object({
   }),
 })
 
-export const EXA_PLACE_OUTPUT_SCHEMA: DeepOutputSchema & { description: string } = {
+export const EXA_PLACE_OUTPUT_SCHEMA = {
   description: 'Schema describing a place or venue, including its details, hours, and menu',
   type: 'object',
   required: [
@@ -93,7 +93,7 @@ export const EXA_PLACE_OUTPUT_SCHEMA: DeepOutputSchema & { description: string }
       },
     },
   },
-}
+} satisfies DeepOutputSchema & { description: string }
 
 export const EXA_PLACE_SEARCH_OPTIONS: RegularSearchOptions = {
   // Priorizamos fuentes de alta señal: menos resultados también reduce el
@@ -109,9 +109,30 @@ export const EXA_PLACE_SEARCH_OPTIONS: RegularSearchOptions = {
   },
 }
 
+// Búsqueda dirigida, sin resumen estructurado ni texto completo: sólo los highlights de
+// cada resultado sobre el horario, que es lo único que se busca.
+export const EXA_TEXT_SEARCH_OPTIONS: RegularSearchOptions = {
+  numResults: 5,
+  stream: false,
+  type: 'auto',
+  contents: {
+    // Que los highlights traigan la dirección: el horario sólo se acepta si nombra la sucursal.
+    highlights: { query: 'dirección y horario de atención de la sucursal' },
+  },
+}
+
+export const EXA_INVALID_OUTPUT_RETRIES = 2
+
+const textSearchResponseSchema = z.object({
+  requestId: z.string(),
+  results: z.array(exaResultSchema),
+})
+
 export interface ExaPlaceProvider {
   readonly configured: boolean
   searchPlace(name: string, request?: { refresh?: boolean }): Promise<ExaPlaceResponse>
+  /** Búsqueda dirigida con la consulta tal cual (sólo highlights), por ejemplo para el horario de una sucursal. */
+  searchText?(query: string): Promise<{ query: string; results: ExaPlaceResult[]; requestId: string }>
 }
 
 function errorKind(error: unknown): ProviderErrorKind {
@@ -154,6 +175,21 @@ export class ExaPlaceSearchProvider implements ExaPlaceProvider {
     return pending
   }
 
+  async searchText(query: string): Promise<{ query: string; results: ExaPlaceResult[]; requestId: string }> {
+    if (!this.client) {
+      throw new PlacesProviderError('configuration', 'Falta configurar EXA_API_KEY en .env.local.')
+    }
+    let result: unknown
+    try {
+      result = await this.client.search(query, EXA_TEXT_SEARCH_OPTIONS)
+    } catch (error) {
+      throw new PlacesProviderError(errorKind(error), 'Exa no pudo completar la consulta.', { cause: error })
+    }
+    const parsed = textSearchResponseSchema.safeParse(result)
+    if (!parsed.success) throw new PlacesProviderError('upstream', 'Exa devolvió una respuesta inválida.')
+    return { query, results: parsed.data.results, requestId: parsed.data.requestId }
+  }
+
   private async runSearch(name: string): Promise<ExaPlaceResponse> {
     if (!this.client) {
       throw new PlacesProviderError(
@@ -163,19 +199,23 @@ export class ExaPlaceSearchProvider implements ExaPlaceProvider {
     }
 
     const query = `${name}, Montevideo, Uruguay`
-    let result: unknown
-    try {
-      result = await this.client.search(query, EXA_PLACE_SEARCH_OPTIONS)
-    } catch (error) {
-      throw new PlacesProviderError(
-        errorKind(error),
-        'Exa no pudo completar la consulta.',
-        { cause: error },
-      )
+    // La salida estructurada de Exa cambia entre llamadas y a veces no valida (un horario mal
+    // formado, por ejemplo): se reintenta hasta EXA_INVALID_OUTPUT_RETRIES veces antes de fallar.
+    let parsed: ReturnType<typeof searchResponseSchema.safeParse> | null = null
+    for (let attempt = 0; attempt <= EXA_INVALID_OUTPUT_RETRIES && !parsed?.success; attempt += 1) {
+      let result: unknown
+      try {
+        result = await this.client.search(query, EXA_PLACE_SEARCH_OPTIONS)
+      } catch (error) {
+        throw new PlacesProviderError(
+          errorKind(error),
+          'Exa no pudo completar la consulta.',
+          { cause: error },
+        )
+      }
+      parsed = searchResponseSchema.safeParse(result)
     }
-
-    const parsed = searchResponseSchema.safeParse(result)
-    if (!parsed.success) {
+    if (!parsed?.success) {
       throw new PlacesProviderError(
         'upstream',
         'Exa devolvió una respuesta estructurada inválida.',

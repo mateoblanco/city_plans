@@ -1,0 +1,250 @@
+{
+  "CASAVALLE": {
+    "lat": -34.830736,
+    "lng": -56.169498
+  },
+  "MANGA TOLEDO CHICO": {
+    "lat": -34.768678,
+    "lng": -56.146281
+  },
+  "SAYAGO": {
+    "lat": -34.834569,
+    "lng": -56.212961
+  },
+  "JACINTO VERA": {
+    "lat": -34.875461,
+    "lng": -56.170769
+  },
+  "AGUADA": {
+    "lat": -34.891182,
+    "lng": -56.188512
+  },
+  "COLON SURESTE ABAYUBA": {
+    "lat": -34.766265,
+    "lng": -56.199348
+  },
+  "VILLA GARCIA MANGA RURAL": {
+    "lat": -34.79272,
+    "lng": -56.079547
+  },
+  "CIUDAD VIEJA": {
+    "lat": -34.904188,
+    "lng": -56.205332
+  },
+  "PIEDRAS BLANCAS": {
+    "lat": -34.823982,
+    "lng": -56.141054
+  },
+  "PEÃ‘AROL LAVALLEJA": {
+    "lat": -34.824303,
+    "lng": -56.19785
+  },
+  "PARQUE RODO": {
+    "lat": -34.912534,
+    "lng": -56.16713
+  },
+  "TRES CRUCES": {
+    "lat": -34.894516,
+    "lng": -56.165873
+  },
+  "PRADO NUEVA SAVONA": {
+    "lat": -34.862137,
+    "lng": -56.205154
+  },
+  "ITUZAINGO": {
+    "lat": -34.847884,
+    "lng": -56.144516
+  },
+  "LAS ACACIAS": {
+    "lat": -34.841618,
+    "lng": -56.160724
+  },
+  "LA COMERCIAL": {
+    "lat": -34.887303,
+    "lng": -56.169875
+  },
+  "BELVEDERE": {
+    "lat": -34.849042,
+    "lng": -56.224037
+  },
+  "LA PALOMA TOMKINSON": {
+    "lat": -34.858627,
+    "lng": -56.269245
+  },
+  "BRAZO ORIENTAL": {
+    "lat": -34.863339,
+    "lng": -56.179662
+  },
+  "VILLA ESPAÃ‘OLA": {
+    "lat": -34.863269,
+    "lng": -56.144672
+  },
+  "MANGA": {
+    "lat": -34.811252,
+    "lng": -56.148039
+  },
+  "TRES OMBUES PBLO VICTORIA": {
+    "lat": -34.859157,
+    "lng": -56.240989
+  },
+  "POCITOS": {
+    "lat": -34.908774,
+    "lng": -56.150691
+  },
+  "MALVIN NORTE": {
+    "lat": -34.878394,
+    "lng": -56.119063
+  },
+  "LA TEJA": {
+    "lat": -34.868639,
+    "lng": -56.229405
+  },
+  "FIGURITA": {
+    "lat": -34.877263,
+    "lng": -56.177247
+  },
+  "CARRASCO NORTE": {
+    "lat": -34.873984,
+    "lng": -56.067349
+  },
+  "ATAHUALPA": {
+    "lat": -34.865477,
+    "lng": -56.189601
+  },
+  "CASTRO CASTELLANOS": {
+    "lat": -34.856799,
+    "lng": -56.158321
+  },
+  "UNION": {
+    "lat": -34.878271,
+    "lng": -56.138528
+  },
+  "CARRASCO": {
+    "lat": -34.883687,
+    "lng": -56.05625
+  },
+  "VILLA MUÃ‘OZ RETIRO": {
+    "lat": -34.888038,
+    "lng": -56.178048
+  },
+  "PUNTA GORDA": {
+    "lat": -34.890481,
+    "lng": -56.08146
+  },
+  "CERRO": {
+    "lat": -34.883504,
+    "lng": -56.254264
+  },
+  "BAÃ‘ADOS DE CARRASCO": {
+    "lat": -34.837009,
+    "lng": -56.078562
+  },
+  "BUCEO": {
+    "lat": -34.8962,
+    "lng": -56.128875
+  },
+  "MALVIN": {
+    "lat": -34.890863,
+    "lng": -56.105891
+  },
+  "MAROÃ‘AS PARQUE GUARANI": {
+    "lat": -34.863701,
+    "lng": -56.123658
+  },
+  "FLOR DE MAROÃ‘AS": {
+    "lat": -34.851032,
+    "lng": -56.124766
+  },
+  "PQUE BATLLE VILLA DOLORES": {
+    "lat": -34.895639,
+    "lng": -56.149961
+  },
+  "CENTRO": {
+    "lat": -34.904126,
+    "lng": -56.192182
+  },
+  "CERRITO": {
+    "lat": -34.853844,
+    "lng": -56.171022
+  },
+  "REDUCTO": {
+    "lat": -34.877791,
+    "lng": -56.187779
+  },
+  "BARRIO SUR": {
+    "lat": -34.911509,
+    "lng": -56.189546
+  },
+  "CONCILIACION": {
+    "lat": -34.82368,
+    "lng": -56.236935
+  },
+  "LAS CANTERAS": {
+    "lat": -34.870978,
+    "lng": -56.103943
+  },
+  "PUNTA CARRETAS": {
+    "lat": -34.922079,
+    "lng": -56.160865
+  },
+  "PUNTA RIELES BELLA ITALIA": {
+    "lat": -34.823865,
+    "lng": -56.102413
+  },
+  "JARDINES DEL HIPODROMO": {
+    "lat": -34.837353,
+    "lng": -56.133592
+  },
+  "MERCADO MODELO Y BOLIVAR": {
+    "lat": -34.868908,
+    "lng": -56.159682
+  },
+  "LARRAÃ‘AGA": {
+    "lat": -34.879702,
+    "lng": -56.16143
+  },
+  "CORDON": {
+    "lat": -34.901981,
+    "lng": -56.175881
+  },
+  "NUEVO PARIS": {
+    "lat": -34.840372,
+    "lng": -56.24479
+  },
+  "PASO DE LA ARENA": {
+    "lat": -34.824251,
+    "lng": -56.343108
+  },
+  "LEZICA MELILLA": {
+    "lat": -34.764391,
+    "lng": -56.293799
+  },
+  "AIRES PUROS": {
+    "lat": -34.85176,
+    "lng": -56.187912
+  },
+  "PALERMO": {
+    "lat": -34.911418,
+    "lng": -56.178526
+  },
+  "PASO DE LAS DURANAS": {
+    "lat": -34.847663,
+    "lng": -56.203774
+  },
+  "CASABO PAJAS BLANCAS": {
+    "lat": -34.871147,
+    "lng": -56.312216
+  },
+  "LA BLANQUEADA": {
+    "lat": -34.887416,
+    "lng": -56.153189
+  },
+  "CAPURRO BELLA VISTA": {
+    "lat": -34.875044,
+    "lng": -56.205985
+  },
+  "COLON CENTRO Y NOROESTE": {
+    "lat": -34.799586,
+    "lng": -56.229766
+  }
+}
