@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { createContext, use, useState, type ReactNode } from "react";
-import type { MapPlace } from "./SearchMap";
+import type { LatLng, MapPlace } from "./SearchMap";
 import styles from "./SearchPage.module.scss";
 
 type HoverState = { hoveredId: string | null; setHoveredId: (id: string | null) => void };
@@ -18,11 +18,13 @@ export const cardId = (id: string) => `place-${id}`;
 
 type MapSyncProps = {
   places: MapPlace[];
+  /** Cerca mío: la ubicación (redondeada) con la que se buscó. */
+  userLocation?: LatLng | null;
   children: ReactNode;
 };
 
 /** Estado compartido entre la lista (children, renderizada en el server) y el mapa. */
-const MapSync = ({ places, children }: MapSyncProps) => {
+const MapSync = ({ places, userLocation = null, children }: MapSyncProps) => {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   const select = (id: string) => {
@@ -34,7 +36,7 @@ const MapSync = ({ places, children }: MapSyncProps) => {
     <HoverContext value={{ hoveredId, setHoveredId }}>
       {children}
       <aside className={styles.map} aria-label="Mapa de resultados">
-        <SearchMap places={places} hoveredId={hoveredId} onHover={setHoveredId} onSelect={select} />
+        <SearchMap places={places} userLocation={userLocation} hoveredId={hoveredId} onHover={setHoveredId} onSelect={select} />
       </aside>
     </HoverContext>
   );

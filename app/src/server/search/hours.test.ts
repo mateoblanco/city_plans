@@ -76,7 +76,7 @@ describe('SQL de candidatos', () => {
   it('aplica sólo los filtros pedidos y pasa los arrays como parámetros', () => {
     const query = dialect.sqlToQuery(
       candidatesQuery(
-        { categories: ['cafe'], tags: ['terrace'], diet: ['vegan'], neighborhoods: [], price: [], openAt: null, excludeCategories: [], excludeTags: ['pizza'], dishes: [dishTarget('milanesa napolitana')], dishMode: 'dish' },
+        { categories: ['cafe'], tags: ['terrace'], diet: ['vegan'], neighborhoods: [], price: [], openAt: null, excludeCategories: [], excludeTags: ['pizza'], dishes: [dishTarget('milanesa napolitana')], dishMode: 'dish', near: null },
         { embedding: [0.1, 0.2], keywords: ['milanesa', 'napolitana'], name: 'cafe', origins: [], pinnedId: 'abc' },
       ),
     )
@@ -96,12 +96,26 @@ describe('SQL de candidatos', () => {
   it('manda el embedding una sola vez y redondeado a 5 decimales', () => {
     const query = dialect.sqlToQuery(
       candidatesQuery(
-        { categories: [], tags: [], diet: [], neighborhoods: [], price: [], openAt: null, excludeCategories: [], excludeTags: [], dishes: [], dishMode: 'dish' },
+        { categories: [], tags: [], diet: [], neighborhoods: [], price: [], openAt: null, excludeCategories: [], excludeTags: [], dishes: [], dishMode: 'dish', near: null },
         { embedding: [0.0123456789, -0.98765432, 1e-7], keywords: [], name: null, origins: [], pinnedId: null },
       ),
     )
     const vectors = query.params.filter((param) => typeof param === 'string' && param.startsWith('['))
     expect(vectors).toEqual(['[0.01235,-0.98765,0]'])
     expect(query.sql.match(/select v from query_vector/g)).toHaveLength(2)
+  })
+
+  it('cerca mío filtra por radio y mide la distancia desde la persona', () => {
+    const point = { lat: -34.905, lng: -56.185 }
+    const query = dialect.sqlToQuery(
+      candidatesQuery(
+        { categories: [], tags: [], diet: [], neighborhoods: [], price: [], openAt: null, excludeCategories: [], excludeTags: [], dishes: [], dishMode: 'dish', near: { ...point, radiusM: 1500 } },
+        { embedding: null, keywords: [], name: null, origins: [point], pinnedId: null },
+      ),
+    )
+    expect(query.sql).toContain('ST_DWithin(location, ST_SetSRID(ST_MakePoint($')
+    expect(query.sql).toContain('ST_Distance(location, ST_SetSRID(ST_MakePoint($')
+    // ST_MakePoint(lng, lat): primero la longitud.
+    expect(query.params.slice(0, 3)).toEqual([-56.185, -34.905, 1500])
   })
 })

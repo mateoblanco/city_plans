@@ -2,9 +2,10 @@ import Link from "next/link";
 import type { CardDebug } from "@/components/PlaceCard/PlaceCard";
 import { searchPlaces, type Chip, type SearchResponse, type SearchResult } from "@/server/search";
 import DebugPanel from "./DebugPanel";
+import FilterBar from "./FilterBar";
 import MapSync from "./MapSync";
 import ResultCard from "./ResultCard";
-import { searchHref } from "./search-href";
+import { removeChipHref, searchHref, type SearchUrl } from "./search-href";
 import styles from "./SearchPage.module.scss";
 
 /** "Quitar: excepto restaurantes", "Quitar: sin TACC"; los nombres propios (barrios, lugares) quedan como están. */
@@ -14,6 +15,8 @@ const removeText = ({ kind, label }: Chip) =>
 type SearchPageProps = {
   query: string;
   remove: string | null;
+  filters: string | null;
+  near: string | null;
   debug: boolean;
 };
 
@@ -37,16 +40,17 @@ function cardScores(response: SearchResponse): Map<string, CardDebug> | null {
   );
 }
 
-const SearchPage = async ({ query, remove, debug }: SearchPageProps) => {
+const SearchPage = async ({ query, remove, filters, near, debug }: SearchPageProps) => {
+  const state: SearchUrl = { q: query, remove, f: filters, near, debug };
   let response: SearchResponse;
   try {
-    response = await searchPlaces(query, { remove, debug });
+    response = await searchPlaces(query, { remove, filters, near, debug });
   } catch (error) {
     console.error("Falló la búsqueda", error);
     return (
       <div className={styles.empty} role="alert">
         <p>No pudimos completar la búsqueda.</p>
-        <Link href={searchHref({ q: query, remove, debug })} prefetch={false}>
+        <Link href={searchHref(state)} prefetch={false}>
           Reintentar
         </Link>
         <div className={styles.map} />
@@ -55,18 +59,20 @@ const SearchPage = async ({ query, remove, debug }: SearchPageProps) => {
   }
 
   const { interpreted, relaxed, results, suggestedRemovals, needsLocation } = response;
-  const removeHref = (chip: { kind: string; id: string }) => searchHref({ q: query, remove, add: chip, debug });
+  const removeHref = (chip: Chip) => removeChipHref(state, chip);
   const has = results.filter((result) => result.matchLevel === "has");
   const maybe = results.filter((result) => result.matchLevel === "maybe");
   const dishes = interpreted.chips.filter((chip) => chip.kind === "dish").map((chip) => chip.label);
   const scores = cardScores(response);
-  const notices = [...relaxed.map((notice) => notice.message), ...(needsLocation ? ["Pronto vas a poder buscar cerca tuyo."] : [])];
+  const notices = relaxed.map((notice) => notice.message);
 
   const mapPlaces = results.map(({ id, name, lat, lng }) => ({ id, name, lat, lng }));
 
   return (
-    <MapSync places={mapPlaces}>
+    <MapSync places={mapPlaces} userLocation={response.near}>
     <div className={styles.results}>
+      <FilterBar state={state} chips={interpreted.chips} needsLocation={needsLocation} />
+
       {interpreted.chips.length > 0 && (
         <ul className={styles.chips} aria-label="Lo que entendimos">
           {interpreted.chips.map((chip) => (

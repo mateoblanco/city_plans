@@ -8,6 +8,7 @@ import { summarizeCost, type CostEntry, type SearchCost } from './cost'
 import { buildChips, type Chip } from './chips'
 import { interpretWithDictionary } from './dictionary'
 import { dishTargetFor, type DishTarget } from './dishes'
+import { applyFilters, filterChipKeys, hasFilters, parseFilters, parseNear, type LatLng } from './filters'
 import { buildRankings, fuse, type Fused, type MatchLevel, type Rankings } from './fuse'
 import { montevideoNow, openStatus, resolveOpenAt, type Moment, type OpenState } from './hours'
 import {
@@ -27,7 +28,8 @@ import { canRelax, noMatchNotice, relax, RELAX_ORDER, relaxNotice, type NoticeKi
 import type { PlacesStore } from './store'
 
 export type SearchDeps = { store: PlacesStore; cache: SearchCache }
-export type SearchOptions = { remove?: string | null; debug?: boolean; now?: Date }
+/** filters: `f` de la URL (barra de filtros); near: `near=lat,lng` (cerca mío). */
+export type SearchOptions = { remove?: string | null; filters?: string | null; near?: string | null; debug?: boolean; now?: Date }
 
 export type SearchResult = {
   id: string
@@ -42,7 +44,8 @@ export type SearchResult = {
   matchLevel: MatchLevel
 }
 
-export type InterpretationSource = 'shortcut' | 'name' | 'llm' | 'fallback'
+/** filters: sin texto, sólo con la barra de filtros o cerca mío (sin modelo ni embedding). */
+export type InterpretationSource = 'shortcut' | 'name' | 'llm' | 'fallback' | 'filters'
 
 export type SearchDebug = {
   source: InterpretationSource
@@ -84,6 +87,8 @@ export type SearchResponse = {
   /** Con cero resultados: los chips de dieta o exclude que hay que sacar para que aparezcan lugares. */
   suggestedRemovals: Chip[]
   needsLocation: boolean
+  /** Ubicación con la que se buscó (ya redondeada), para el mapa. */
+  near: LatLng | null
   debug?: SearchDebug
 }
 
@@ -121,7 +126,13 @@ export function semanticTextFor(normalized: string, value: Interpretation, remov
   return parts.length ? parts.join(', ') : null
 }
 
-export function filtersFor(value: Interpretation, moment: Moment | null, dishes: DishTarget[], dishMode: DishMode = 'dish'): CandidateFilters {
+export function filtersFor(
+  value: Interpretation,
+  moment: Moment | null,
+  dishes: DishTarget[],
+  dishMode: DishMode = 'dish',
+  near: CandidateFilters['near'] = null,
+): CandidateFilters {
   return {
     categories: value.must.categories,
     tags: value.must.tags,
@@ -133,6 +144,7 @@ export function filtersFor(value: Interpretation, moment: Moment | null, dishes:
     excludeTags: value.exclude.tags,
     dishes,
     dishMode,
+    near,
   }
 }
 
@@ -180,19 +192,22 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   const today = montevideoNow(now).day
   const normalized = normalizeQuery(rawQuery)
   const removals = parseRemove(options.remove)
+  const filters = parseFilters(options.filters)
+  const near = parseNear(options.near)
+  const textless = !normalized
 
-  if (!normalized) {
-    return { query: rawQuery, interpreted: { chips: [] }, results: [], relaxed: [], suggestedRemovals: [], needsLocation: false }
+  if (textless && !hasFilters(filters) && !near) {
+    return { query: rawQuery, interpreted: { chips: [] }, results: [], relaxed: [], suggestedRemovals: [], needsLocation: false, near: null }
   }
 
   // El embedding de la consulta arranca ya: si no hay vibe ni chips quitados es el que se usa.
   const removed = removals.length > 0
-  const queryEmbedding = removed ? null : deps.cache.embed(normalized).then((result) => priced('embed', result)).catch(() => null)
+  const queryEmbedding = removed || textless ? null : deps.cache.embed(normalized).then((result) => priced('embed', result)).catch(() => null)
 
-  // 1. Interpretación: diccionario, nombre fuerte o modelo.
+  // 1. Interpretación: diccionario, nombre fuerte o modelo. Sin texto, sólo los filtros.
   let step = performance.now()
-  const dictionary = interpretWithDictionary(normalized)
-  let nameMatches = await deps.store.nameMatches(normalized).catch(() => [] as NameMatch[])
+  const dictionary = textless ? null : interpretWithDictionary(normalized)
+  let nameMatches = textless ? [] : await deps.store.nameMatches(normalized).catch(() => [] as NameMatch[])
   let pinned = strongNameMatch(nameMatches, normalized, dictionary !== null)
   timings.shortcut = elapsed(step)
 
@@ -202,7 +217,10 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   let model: string | null = null
   let llmError: string | null = null
   step = performance.now()
-  if (dictionary) {
+  if (textless) {
+    source = 'filters'
+    original = emptyInterpretation()
+  } else if (dictionary) {
     source = 'shortcut'
     original = dictionary
   } else if (pinned) {
@@ -236,12 +254,14 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     timings.nameRetry = elapsed(step)
   }
 
-  const interpretation = applyRemove(original, removals)
+  // Lo escrito (cacheado por q) menos los chips quitados, más la barra de filtros: un solo modelo.
+  const fromText = applyRemove(original, removals)
+  const interpretation = applyFilters(fromText, filters)
   if (removals.some((removal) => removal.kind === 'name')) pinned = null
 
   // 2. Embedding del texto semántico; si falla, se sigue sin el ranking semántico.
   step = performance.now()
-  const semanticText = semanticTextFor(normalized, interpretation, removed)
+  const semanticText = textless ? null : semanticTextFor(normalized, interpretation, removed)
   const embedded: EmbeddingResult | null =
     semanticText === null ? null
     : semanticText === normalized && queryEmbedding ? await queryEmbedding
@@ -254,16 +274,31 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   const scores: ScoreInputs = {
     embedding,
     keywords,
-    name: nameQuery ?? normalized,
-    origins: [],
+    name: nameQuery ?? (normalized || null),
+    // Con cerca mío, la distancia se mide desde la persona y entra al ranking desde el primer intento.
+    origins: near ? [near] : [],
     pinnedId: pinned?.id ?? null,
   }
+
+  // De dónde sale cada chip: del texto, de la barra o de los dos (así se sabe cómo apagarlo).
+  const textKeys = new Set(buildChips(fromText, today).map((chip) => `${chip.kind}:${chip.id}`))
+  const filterKeys = filterChipKeys(filters)
+  const chipsOf = (chips: Chip[]) =>
+    chips.map((chip) => ({ ...chip, fromText: textKeys.has(`${chip.kind}:${chip.id}`), fromFilter: filterKeys.has(`${chip.kind}:${chip.id}`) }))
 
   // 3. Candidatos, relajando de a un paso mientras no haya ninguno.
   const relaxedSteps: RelaxStep[] = []
   const attempts: SearchDebug['attempts'] = []
-  let state: SearchState = { interpretation, dishMode: 'dish' }
-  const filtersOf = (value: SearchState) => filtersFor(value.interpretation, resolveOpenAt(value.interpretation.must.openAt, now), dishes, value.dishMode)
+  const initial: SearchState = { interpretation, dishMode: 'dish', nearRadius: near ? SEARCH_CONFIG.near.radii[0] : null }
+  let state = initial
+  const filtersOf = (value: SearchState) =>
+    filtersFor(
+      value.interpretation,
+      resolveOpenAt(value.interpretation.must.openAt, now),
+      dishes,
+      value.dishMode,
+      near && value.nearRadius !== null ? { ...near, radiusM: value.nearRadius } : null,
+    )
   const fetchCandidates = async () => {
     const attemptStart = performance.now()
     const result = await deps.store.candidates(filtersOf(state), scores)
@@ -273,7 +308,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   let rows = await fetchCandidates()
   for (const relaxStep of RELAX_ORDER) {
     if (rows.some((row) => row.matchesFilters) || !canRelax(state, relaxStep, dishes)) continue
-    if (relaxStep === 'neighborhood') {
+    if (relaxStep === 'neighborhood' && !near) {
       scores.origins = state.interpretation.must.neighborhoods.flatMap((id) => (CENTROIDS[id] ? [CENTROIDS[id]] : []))
     }
     state = relax(state, relaxStep)
@@ -287,7 +322,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   step = performance.now()
   const openAtMoment = resolveOpenAt(current.must.openAt, now)
   const relatedTags = state.dishMode === 'related' ? dishes.flatMap((target) => target.related.tags) : dishes.flatMap((target) => (target.tag ? [target.tag] : []))
-  const rankings = buildRankings(rows)
+  const rankings = buildRankings(rows, textless)
   const fused = fuse(rows, rankings, {
     pinnedId: pinned?.id ?? null,
     dishes,
@@ -312,7 +347,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       categories: item.row.categories,
       lat: item.row.lat,
       lng: item.row.lng,
-      reasons: buildReasons(item, { interpretation: current, dishes, dishMode: state.dishMode, moment, isNow, open }),
+      reasons: buildReasons(item, { interpretation: current, dishes, dishMode: state.dishMode, moment, isNow, open, near: near !== null }),
       openStatus: {
         state: open.state,
         closesAt: open.state === 'open' ? open.closesAt : null,
@@ -325,7 +360,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   // Avisos: cada paso se arma con el estado previo y sólo si algún resultado no cumple lo relajado.
   const shownRows = fused.filter((item) => !item.pinned).map((item) => item.row)
   const relaxed: SearchResponse['relaxed'] = []
-  let before: SearchState = { interpretation, dishMode: 'dish' }
+  let before = initial
   for (const relaxStep of relaxedSteps) {
     const notice = relaxNotice(relaxStep, {
       before,
@@ -343,7 +378,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   if (shownRows.length === 0) {
     step = performance.now()
     const blocking = await blockingConditions(deps.store, filtersOf(state))
-    const chips = buildChips(interpretation, today)
+    const chips = chipsOf(buildChips(interpretation, today))
     suggestedRemovals = chips.filter((chip) => (blocking.diet && chip.kind === 'diet') || (blocking.exclude && chip.kind === 'exclude'))
     relaxed.push(noMatchNotice(interpretation, blocking))
     timings.diagnose = elapsed(step)
@@ -352,11 +387,12 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
 
   const response: SearchResponse = {
     query: rawQuery,
-    interpreted: { chips: buildChips(interpretation, today) },
+    interpreted: { chips: chipsOf(buildChips(interpretation, today, near !== null)) },
     results,
     relaxed,
     suggestedRemovals,
     needsLocation: interpretation.needsLocation,
+    near,
   }
   if (options.debug) {
     // El embedding de la consulta se pagó aunque al final se usara el de la vibe.
@@ -378,6 +414,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
         keyword: rankings.keyword.slice(0, depth),
         name: rankings.name.slice(0, depth),
         distance: rankings.distance.slice(0, depth),
+        quality: rankings.quality.slice(0, depth),
       },
       results: fused.map((item) => ({
         id: item.row.id,

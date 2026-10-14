@@ -51,12 +51,14 @@ function ranked(rows: CandidateRow[], value: (row: CandidateRow) => number | nul
     .slice(0, SEARCH_CONFIG.rankingDepth)
 }
 
-export function buildRankings(rows: CandidateRow[]): Rankings {
+/** withQuality: búsqueda sin texto, donde el orden sale de la calidad (featured primero, después prominence). */
+export function buildRankings(rows: CandidateRow[], withQuality = false): Rankings {
   return {
     semantic: ranked(rows, (row) => row.semantic, 'desc'),
     keyword: ranked(rows, (row) => (row.keyword > 0 ? row.keyword : null), 'desc'),
     name: ranked(rows, (row) => (row.nameScore >= SEARCH_CONFIG.name.minForRanking ? row.nameScore : null), 'desc'),
     distance: ranked(rows, (row) => row.distance, 'asc'),
+    quality: withQuality ? ranked(rows, (row) => (row.featured ? 1 : 0) + (Number(row.prominence) || 0), 'desc') : [],
   }
 }
 

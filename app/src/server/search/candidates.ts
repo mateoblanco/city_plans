@@ -21,6 +21,8 @@ export type CandidateFilters = {
    * none: sin filtro de plato (último recurso por similitud).
    */
   dishMode: DishMode
+  /** Cerca mío: sólo lugares a menos de radiusM metros. */
+  near: { lat: number; lng: number; radiusM: number } | null
 }
 
 export type DishMode = 'dish' | 'related' | 'none'
@@ -32,7 +34,7 @@ export type ScoreInputs = {
   keywords: string[]
   /** Consulta de nombre ya normalizada (minúscula, sin acentos). */
   name: string | null
-  /** Centros de barrio para ordenar por distancia cuando se relajó el barrio. */
+  /** Desde dónde se mide la distancia: la ubicación de la persona o los centros de barrio al relajarlo. */
   origins: { lat: number; lng: number }[]
   /** Lugar fijado por nombre: entra aunque no cumpla los filtros. */
   pinnedId: string | null
@@ -99,6 +101,8 @@ export function openAtSql(moment: Moment): SQL {
   ))`
 }
 
+const pointSql = ({ lat, lng }: { lat: number; lng: number }) => sql`ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)::geography`
+
 export function filterConditions(filters: CandidateFilters): SQL[] {
   const conditions: SQL[] = []
   if (filters.categories.length) conditions.push(sql`categories && ${textArray(filters.categories)}`)
@@ -108,6 +112,7 @@ export function filterConditions(filters: CandidateFilters): SQL[] {
   // Precio desconocido no excluye: sólo afuera los que tienen otro precio conocido.
   if (filters.price.length) conditions.push(sql`(price = 'unknown' or price = any(${textArray(filters.price)}))`)
   if (filters.openAt) conditions.push(openAtSql(filters.openAt))
+  if (filters.near) conditions.push(sql`ST_DWithin(location, ${pointSql(filters.near)}, ${filters.near.radiusM})`)
   if (filters.excludeCategories.length) conditions.push(sql`not (categories && ${textArray(filters.excludeCategories)})`)
   if (filters.excludeTags.length) conditions.push(sql`not (tags && ${textArray(filters.excludeTags)})`)
   if (filters.dishes.length && filters.dishMode === 'related') {
@@ -151,7 +156,7 @@ export function candidatesQuery(filters: CandidateFilters, scores: ScoreInputs):
     : sql`0::real`
   const distance = scores.origins.length
     ? sql`least(${sql.join(
-        scores.origins.map(({ lat, lng }) => sql`ST_Distance(location, ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)::geography)`),
+        scores.origins.map((origin) => sql`ST_Distance(location, ${pointSql(origin)})`),
         sql`, `,
       )})`
     : sql`null::float`
@@ -195,4 +200,9 @@ export function nameMatchQuery(name: string, limit = 3): SQL {
     where status = 'published' and (${expression} % ${name} or ${name} <% ${expression})
     order by greatest(similarity(${expression}, ${name}), word_similarity(${name}, ${expression})) desc
     limit ${limit}`
+}
+
+/** Barrios con al menos un lugar publicado, para el filtro de la barra. */
+export function neighborhoodsQuery(): SQL {
+  return sql`select distinct neighborhood_id as id from places where status = 'published' order by 1`
 }

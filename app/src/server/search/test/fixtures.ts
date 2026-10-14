@@ -50,6 +50,7 @@ export function fakeStore(places: CandidateRow[], names: NameMatch[] = []) {
       (!filters.openAt || openStatus(place.hours, filters.openAt).state !== 'closed') &&
       !filters.excludeCategories.some((id) => place.categories.includes(id)) &&
       !filters.excludeTags.some((id) => place.tags.includes(id)) &&
+      (!filters.near || (place.distance ?? Infinity) <= filters.near.radiusM) &&
       (!filters.dishes.length || filters.dishMode === 'none' ||
         (filters.dishMode === 'related'
           ? filters.dishes.some((target) => target.related.tags.some((id) => place.tags.includes(id)) || target.related.categories.some((id) => place.categories.includes(id)))
@@ -76,6 +77,9 @@ export function fakeStore(places: CandidateRow[], names: NameMatch[] = []) {
     },
     async count(filters) {
       return places.filter((place) => matches(place, filters)).length
+    },
+    async neighborhoods() {
+      return [...new Set(places.map((place) => place.neighborhoodId))].sort()
     },
   }
   return { store, calls }

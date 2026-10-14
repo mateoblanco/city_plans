@@ -204,7 +204,7 @@ export function tidy(value: Interpretation): Interpretation {
   return { ...value, must, prefer, exclude, dishes: [...dishes.values()] }
 }
 
-export const REMOVABLE_KINDS = ['name', 'category', 'tag', 'prefer', 'exclude', 'diet', 'neighborhood', 'price', 'openAt', 'dish', 'vibe'] as const
+export const REMOVABLE_KINDS = ['name', 'category', 'tag', 'prefer', 'exclude', 'diet', 'neighborhood', 'price', 'openAt', 'dish', 'vibe', 'near'] as const
 export type ChipKind = (typeof REMOVABLE_KINDS)[number]
 
 /** Parsea `remove=tag:terrace,neighborhood:POCITOS`; ignora lo que no tenga forma kind:id. */

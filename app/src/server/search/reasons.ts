@@ -5,7 +5,7 @@ import { relatedLabel, type DishTarget } from './dishes'
 import type { Fused } from './fuse'
 import type { Moment, OpenState } from './hours'
 import { DIET_KEYS, type Interpretation } from './interpretation'
-import { dietLevelLabel, openStateLabel } from './labels'
+import { dietLevelLabel, distanceLabel, openStateLabel } from './labels'
 
 export type ReasonContext = {
   interpretation: Interpretation
@@ -15,6 +15,8 @@ export type ReasonContext = {
   moment: Moment
   isNow: boolean
   open: OpenState
+  /** Con "cerca mío": la distancia va entre los motivos. */
+  near: boolean
 }
 
 /** Motivos de un resultado, armados desde los datos y en el idioma de la consulta. */
@@ -48,6 +50,7 @@ export function buildReasons(item: Fused, context: ReasonContext): string[] {
   for (const id of row.categories) if (wantedCategories.includes(id)) reasons.push(label(id, lang))
   for (const id of row.tags) if (wantedTags.includes(id)) reasons.push(label(id, lang))
 
+  if (context.near && row.distance !== null) reasons.push(distanceLabel(row.distance, lang))
   reasons.push(openStateLabel(context.open, lang, context.moment, context.isNow))
   const neighborhood = neighborhoodDisplayName(row.neighborhoodId)
   if (neighborhood) reasons.push(neighborhood)

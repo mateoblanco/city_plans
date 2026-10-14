@@ -1,10 +1,11 @@
 "use client";
 
 import { AdvancedMarker, APIProvider, Map, useMap } from "@vis.gl/react-google-maps";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import styles from "./SearchPage.module.scss";
 
-export type MapPlace = { id: string; name: string; lat: number; lng: number };
+export type LatLng = { lat: number; lng: number };
+export type MapPlace = LatLng & { id: string; name: string };
 
 const MONTEVIDEO = { lat: -34.9011, lng: -56.1645 };
 const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -12,13 +13,14 @@ const MAP_ID = process.env.NEXT_PUBLIC_GOOGLE_MAP_ID;
 
 type SearchMapProps = {
   places: MapPlace[];
+  userLocation: LatLng | null;
   hoveredId: string | null;
   onHover: (id: string | null) => void;
   onSelect: (id: string) => void;
 };
 
-/** Encuadra todos los marcadores al llegar resultados; sin resultados, Montevideo. */
-const FitBounds = ({ places }: { places: MapPlace[] }) => {
+/** Encuadra todos los marcadores (y la ubicación de la persona) al llegar resultados; sin nada, Montevideo. */
+const FitBounds = ({ places }: { places: LatLng[] }) => {
   const map = useMap();
 
   useEffect(() => {
@@ -39,7 +41,9 @@ const FitBounds = ({ places }: { places: MapPlace[] }) => {
   return null;
 };
 
-const SearchMap = ({ places, hoveredId, onHover, onSelect }: SearchMapProps) => {
+const SearchMap = ({ places, userLocation, hoveredId, onHover, onSelect }: SearchMapProps) => {
+  const points = useMemo(() => (userLocation ? [...places, userLocation] : places), [places, userLocation]);
+
   if (!API_KEY) return <p className={styles.mapMessage}>Mapa no disponible</p>;
 
   return (
@@ -61,7 +65,12 @@ const SearchMap = ({ places, hoveredId, onHover, onSelect }: SearchMapProps) => 
             </AdvancedMarker>
           );
         })}
-        <FitBounds places={places} />
+        {userLocation && (
+          <AdvancedMarker position={userLocation} title="Tu ubicación" zIndex={2}>
+            <div className={styles.userMarker} />
+          </AdvancedMarker>
+        )}
+        <FitBounds places={points} />
       </Map>
     </APIProvider>
   );

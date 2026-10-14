@@ -1,22 +1,29 @@
 import { label } from '@shared/tags.ts'
+import { SEARCH_CONFIG } from './config'
 import { neighborhoodDisplayName } from '@shared/neighborhood-names.ts'
 import type { CandidateRow, DishMode } from './candidates'
 import { hasBroaderRelated, relatedLabel, type DishTarget } from './dishes'
 import { openStatus, type Moment } from './hours'
 import { DIET_KEYS, type DietKey, type Interpretation, type Lang } from './interpretation'
-import { excludedTerm } from './labels'
+import { distanceText, excludedTerm } from './labels'
 
 // Orden fijo: los tags de must primero porque sus datos están incompletos; el barrio después
 // porque para la persona pesa más. similarity es el último recurso.
 // Nunca se relajan la dieta ni los exclude.
-export const RELAX_ORDER = ['mustTags', 'dishRelated', 'neighborhood', 'openAt', 'similarity'] as const
+// Con "cerca mío", el radio se amplía (1,5 → 3 → 5 km) antes de soltar el barrio o el horario.
+export const RELAX_ORDER = ['mustTags', 'dishRelated', 'radius', 'radiusMax', 'neighborhood', 'openAt', 'similarity'] as const
 export type RelaxStep = (typeof RELAX_ORDER)[number]
 export type NoticeKind = RelaxStep | 'noMatch'
 
-export type SearchState = { interpretation: Interpretation; dishMode: DishMode }
+/** nearRadius: radio de "cerca mío" en metros; null sin ubicación o cuando ya no filtra. */
+export type SearchState = { interpretation: Interpretation; dishMode: DishMode; nearRadius: number | null }
 
-export function canRelax({ interpretation: value, dishMode }: SearchState, step: RelaxStep, dishes: DishTarget[]) {
+const RADII = SEARCH_CONFIG.near.radii
+const NEXT_RADIUS = { radius: RADII[1], radiusMax: RADII[2] } as const
+
+export function canRelax({ interpretation: value, dishMode, nearRadius }: SearchState, step: RelaxStep, dishes: DishTarget[]) {
   const { must } = value
+  if (step === 'radius' || step === 'radiusMax') return nearRadius !== null && nearRadius < NEXT_RADIUS[step]
   if (step === 'mustTags') return must.tags.length > 0
   if (step === 'dishRelated') return dishMode === 'dish' && dishes.some(hasBroaderRelated)
   if (step === 'neighborhood') return must.neighborhoods.length > 0
@@ -24,7 +31,8 @@ export function canRelax({ interpretation: value, dishMode }: SearchState, step:
   return (
     (dishes.length > 0 && dishMode !== 'none') ||
     must.categories.length + must.tags.length + must.neighborhoods.length + must.price.length > 0 ||
-    must.openAt !== null
+    must.openAt !== null ||
+    nearRadius !== null
   )
 }
 
@@ -33,11 +41,13 @@ export function relax(state: SearchState, step: RelaxStep): SearchState {
   const mustTagsToPrefer = { ...value.prefer, tags: [...new Set([...value.prefer.tags, ...value.must.tags])] }
   if (step === 'mustTags') return { ...state, interpretation: { ...value, must: { ...value.must, tags: [] }, prefer: mustTagsToPrefer } }
   if (step === 'dishRelated') return { ...state, dishMode: 'related' }
+  if (step === 'radius' || step === 'radiusMax') return { ...state, nearRadius: NEXT_RADIUS[step] }
   if (step === 'neighborhood') return { ...state, interpretation: { ...value, must: { ...value.must, neighborhoods: [] } } }
   if (step === 'openAt') return { ...state, interpretation: { ...value, must: { ...value.must, openAt: null } } }
-  // similarity: sólo quedan la dieta y los exclude; lo pedido sigue sumando como preferencia.
+  // similarity: sólo quedan la dieta y los exclude; lo pedido sigue sumando como preferencia y la distancia ordena.
   return {
     dishMode: 'none',
+    nearRadius: null,
     interpretation: {
       ...value,
       must: { ...value.must, categories: [], tags: [], neighborhoods: [], price: [], openAt: null },
@@ -97,6 +107,18 @@ export function relaxNotice(step: RelaxStep, context: NoticeContext): { what: No
       message: es
         ? `No encontramos ${dishes}${where}${labels ? `; estos tienen ${labels}` : ''}.`
         : `We couldn't find ${dishes}${where}${labels ? `; these have ${labels}` : ''}.`,
+    }
+  }
+
+  // Un solo aviso por la ampliación del radio, del radio inicial al último que se usó.
+  if (step === 'radiusMax') return null
+  if (step === 'radius') {
+    const previous = context.before.nearRadius
+    if (previous === null || !rows.some((row) => row.distance !== null && row.distance > previous)) return null
+    const [from, to] = [distanceText(previous, lang), distanceText(context.after.nearRadius ?? RADII[RADII.length - 1], lang)]
+    return {
+      what: step,
+      message: es ? `No encontramos lugares a menos de ${from}: te mostramos hasta ${to}.` : `Nothing within ${from}: showing places up to ${to} away.`,
     }
   }
 

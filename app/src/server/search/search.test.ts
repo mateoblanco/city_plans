@@ -5,6 +5,7 @@ import { buildRankings, fuse, qualityMultiplier, reciprocalRankFusion, type Fuse
 import { buildChips } from './chips'
 import { emptyInterpretation } from './interpretation'
 import { noMatchNotice } from './relax'
+import { memoryCache } from './cache'
 import { runSearch } from './search'
 import { everyDay, fakeCache, fakeStore, llmOutput, row } from './test/fixtures'
 
@@ -21,6 +22,7 @@ describe('fusión', () => {
       keyword: [{ id: 'b', name: 'b', score: 0.5 }],
       name: [],
       distance: [],
+      quality: [],
     })
     expect(scores.get('a')).toBeCloseTo(1 / 61)
     expect(scores.get('b')).toBeCloseTo(1 / 62 + 1 / 61)
@@ -124,8 +126,8 @@ describe('runSearch', () => {
     expect(response.debug?.source).toBe('shortcut')
     expect(response.results.map((result) => result.id)).toEqual(['cafe-cordon'])
     expect(response.interpreted.chips).toEqual([
-      { kind: 'category', id: 'cafe', label: 'Café' },
-      { kind: 'neighborhood', id: 'CORDON', label: 'Cordón' },
+      { kind: 'category', id: 'cafe', label: 'Café', fromText: true, fromFilter: false },
+      { kind: 'neighborhood', id: 'CORDON', label: 'Cordón', fromText: true, fromFilter: false },
     ])
     expect(response.results[0].reasons).toEqual(['Café', 'Abierto · cierra 20:00', 'Cordón'])
   })
@@ -139,7 +141,7 @@ describe('runSearch', () => {
     expect(response.debug?.interpretation.wantsBest).toBe(true)
     expect(response.debug?.interpretation.unrecognized).toEqual([])
     expect(response.debug?.keywords).not.toContain('mejores')
-    expect(response.interpreted.chips).toEqual([{ kind: 'category', id: 'cafe', label: 'Café' }])
+    expect(response.interpreted.chips).toEqual([{ kind: 'category', id: 'cafe', label: 'Café', fromText: true, fromFilter: false }])
     const rodo = response.debug?.results.find((result) => result.id === 'cafe-rodo')
     expect(rodo).toMatchObject({ featured: true, prominence: 0 })
     expect(rodo?.multiplier).toBeCloseTo(SEARCH_CONFIG.quality.best.prominenceMin * SEARCH_CONFIG.quality.best.featured)
@@ -299,8 +301,8 @@ describe('runSearch', () => {
     }
     expect(response.relaxed).toEqual([{ what: 'noMatch', message: 'No encontramos lugares con opciones veganas y sin TACC confirmadas.' }])
     expect(response.suggestedRemovals).toEqual([
-      { kind: 'diet', id: 'vegan', label: 'Vegano' },
-      { kind: 'diet', id: 'glutenFree', label: 'Sin TACC' },
+      { kind: 'diet', id: 'vegan', label: 'Vegano', fromText: true, fromFilter: false },
+      { kind: 'diet', id: 'glutenFree', label: 'Sin TACC', fromText: true, fromFilter: false },
     ])
   })
 
@@ -376,5 +378,99 @@ describe('exclusiones', () => {
     )
     expect(noMatchNotice(value, { diet: false, exclude: true }).message).toBe('No encontramos lugares excepto restaurantes, bares y pizza.')
     expect(noMatchNotice(value, { diet: true, exclude: false }).message).toBe('No encontramos lugares con opciones veganas confirmadas.')
+  })
+})
+
+describe('barra de filtros y cerca mío', () => {
+  const places = [
+    row({ id: 'cafe-cordon', categories: ['cafe'], hours: everyDay('08:00', '20:00'), prominence: 0.3, distance: 400 }),
+    row({ id: 'cafe-famoso', categories: ['cafe'], hours: everyDay('08:00', '20:00'), prominence: 0.9, distance: 2500 }),
+    row({ id: 'cafe-sin-horario', categories: ['cafe'], prominence: 1, featured: true, distance: 4000 }),
+    row({ id: 'cafe-pocitos', neighborhoodId: 'POCITOS', categories: ['cafe'], hours: everyDay('08:00', '20:00') }),
+    row({ id: 'pizzeria-pocitos', neighborhoodId: 'POCITOS', categories: ['pizzeria'], tags: ['pizza'] }),
+    row({ id: 'pizzeria-cordon', categories: ['pizzeria'], tags: ['pizza'] }),
+  ]
+  const ids = (response: { results: { id: string }[] }) => response.results.map((result) => result.id)
+
+  it('los filtros se suman a lo interpretado sin volver a interpretar el texto', async () => {
+    const { store } = fakeStore(places)
+    const base = fakeCache(llmOutput({ must: { ...llmOutput().must, categories: ['pizzeria'] } }))
+    const cache = memoryCache(base.cache)
+    const plain = await runSearch('algo para ir con la familia', { store, cache }, { now })
+    const filtered = await runSearch('algo para ir con la familia', { store, cache }, { now, filters: 'neighborhood:CORDON' })
+    expect(base.interpreted).toEqual(['algo para ir con la familia'])
+    expect(ids(plain).sort()).toEqual(['pizzeria-cordon', 'pizzeria-pocitos'])
+    expect(ids(filtered)).toEqual(['pizzeria-cordon'])
+    expect(filtered.interpreted.chips).toEqual([
+      { kind: 'category', id: 'pizzeria', label: 'Pizzería', fromText: true, fromFilter: false },
+      { kind: 'neighborhood', id: 'CORDON', label: 'Cordón', fromText: false, fromFilter: true },
+    ])
+  })
+
+  it('si el texto dice un barrio y el filtro otro, gana el filtro', async () => {
+    const { store } = fakeStore(places)
+    const response = await runSearch('cafés en Pocitos', { store, cache: fakeCache().cache }, { now, filters: 'neighborhood:CORDON' })
+    expect(response.interpreted.chips.map((chip) => chip.id)).toEqual(['cafe', 'CORDON'])
+    expect(ids(response)).not.toContain('cafe-pocitos')
+  })
+
+  it('un chip que está en el texto y en la barra viene de los dos', async () => {
+    const { store } = fakeStore(places)
+    const response = await runSearch('cafés en Cordón', { store, cache: fakeCache().cache }, { now, filters: 'category:cafe' })
+    expect(response.interpreted.chips[0]).toEqual({ kind: 'category', id: 'cafe', label: 'Café', fromText: true, fromFilter: true })
+  })
+
+  it('sólo con filtros: sin modelo ni embedding, por calidad y con los de horario sin confirmar abajo', async () => {
+    const { store, calls } = fakeStore(places)
+    const { cache, interpreted, embedded } = fakeCache()
+    const response = await runSearch('', { store, cache }, { now, filters: 'category:cafe,open:now', debug: true })
+    expect(interpreted).toEqual([])
+    expect(embedded).toEqual([])
+    expect(response.debug?.source).toBe('filters')
+    expect(calls[0].scores).toMatchObject({ embedding: null, keywords: [], name: null })
+    expect(ids(response)).toEqual(['cafe-famoso', 'cafe-cordon', 'cafe-pocitos', 'cafe-sin-horario'])
+    expect(response.interpreted.chips.map((chip) => [chip.kind, chip.fromFilter])).toEqual([['category', true], ['openAt', true]])
+  })
+
+  it('sin texto ni filtros no busca nada', async () => {
+    const { store, calls } = fakeStore(places)
+    const response = await runSearch('', { store, cache: fakeCache().cache }, { now, filters: 'tag:inventado' })
+    expect(response.results).toEqual([])
+    expect(calls).toEqual([])
+  })
+
+  it('cerca mío: radio de 1,5 km, la distancia en los motivos y el chip', async () => {
+    const { store, calls } = fakeStore(places)
+    const response = await runSearch('', { store, cache: fakeCache().cache }, { now, filters: 'category:cafe', near: '-34.90512,-56.18471' })
+    expect(response.near).toEqual({ lat: -34.905, lng: -56.185 })
+    expect(calls[0].filters.near).toEqual({ lat: -34.905, lng: -56.185, radiusM: 1500 })
+    expect(calls[0].scores.origins).toEqual([{ lat: -34.905, lng: -56.185 }])
+    expect(ids(response)).toEqual(['cafe-cordon'])
+    expect(response.results[0].reasons).toContain('a 400 m')
+    expect(response.interpreted.chips.at(-1)).toEqual({ kind: 'near', id: 'me', label: 'Cerca mío', fromText: false, fromFilter: false })
+    expect(response.relaxed).toEqual([])
+  })
+
+  it('sin nada en 1,5 km amplía a 3 km y después a 5 km, avisando', async () => {
+    const far = places.filter((place) => place.id !== 'cafe-cordon')
+    const { store, calls } = fakeStore(far)
+    const at3 = await runSearch('', { store, cache: fakeCache().cache }, { now, filters: 'category:cafe', near: '-34.9,-56.18' })
+    expect(calls.map((call) => call.filters.near?.radiusM)).toEqual([1500, 3000])
+    expect(ids(at3)).toEqual(['cafe-famoso'])
+    expect(at3.results[0].reasons).toContain('a 2,5 km')
+    expect(at3.relaxed.map((notice) => notice.message)).toEqual(['No encontramos lugares a menos de 1,5 km: te mostramos hasta 3 km.'])
+
+    const onlyFar = fakeStore(far.filter((place) => place.id !== 'cafe-famoso'))
+    const at5 = await runSearch('', { store: onlyFar.store, cache: fakeCache().cache }, { now, filters: 'category:cafe', near: '-34.9,-56.18' })
+    expect(onlyFar.calls.map((call) => call.filters.near?.radiusM)).toEqual([1500, 3000, 5000])
+    expect(at5.relaxed.map((notice) => notice.message)).toEqual(['No encontramos lugares a menos de 1,5 km: te mostramos hasta 5 km.'])
+  })
+
+  it('"café cerca mío" sin ubicación pide la ubicación y busca igual', async () => {
+    const { store } = fakeStore(places)
+    const response = await runSearch('café cerca mío', { store, cache: fakeCache().cache }, { now })
+    expect(response.needsLocation).toBe(true)
+    expect(response.near).toBeNull()
+    expect(response.results.length).toBeGreaterThan(0)
   })
 })

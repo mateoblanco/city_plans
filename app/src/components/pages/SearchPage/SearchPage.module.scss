@@ -139,3 +139,48 @@
     opacity: 0.5;
   }
 }
+
+.filterBar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.filterRow {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.filter {
+  background: none;
+  border: 1px solid #bbbbbb;
+  border-radius: 999px;
+  color: inherit;
+  cursor: pointer;
+  display: inline-block;
+  font: inherit;
+  font-size: 13px;
+  padding: 3px 10px;
+  text-decoration: none;
+
+  &:hover {
+    background-color: #f2f2f2;
+  }
+
+  &[data-active] {
+    background-color: #000000;
+    border-color: #000000;
+    color: #ffffff;
+  }
+}
+
+.userMarker {
+  background-color: #1a73e8;
+  border: 3px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px #1a73e8;
+  height: 16px;
+  width: 16px;
+}

@@ -12,8 +12,11 @@ export const SEARCH_CONFIG = {
 
   rrf: {
     k: 60,
-    /** Peso de cada ranking dentro de la fusión. distance sólo existe al relajar el barrio. */
-    weights: { semantic: 1, keyword: 1, name: 1, distance: 2 },
+    /**
+     * Peso de cada ranking dentro de la fusión. distance existe con "cerca mío" o al relajar el barrio;
+     * quality (prominence, featured) sólo en búsquedas sin texto, que no tienen otro ranking.
+     */
+    weights: { semantic: 1, keyword: 1, name: 1, distance: 2, quality: 1 },
   },
 
   name: {
@@ -48,6 +51,9 @@ export const SEARCH_CONFIG = {
     /** Cuando la consulta pide lo mejor ("el mejor chivito", "best coffee", "top"). */
     best: { prominenceMin: 0.8, prominenceMax: 1.2, featured: 1.2 },
   },
+
+  /** Cerca mío: radio inicial y cómo se amplía (en metros) si no hay resultados. */
+  near: { radii: [1500, 3000, 5000] },
 
   llm: {
     model: process.env.SEARCH_MODEL?.trim() || 'anthropic/claude-haiku-5.5',

@@ -1,10 +1,12 @@
 import type { NeonHttpDatabase } from 'drizzle-orm/neon-http'
-import { candidatesQuery, countQuery, nameMatchQuery, type CandidateFilters, type CandidateRow, type NameMatch, type ScoreInputs } from './candidates'
+import { candidatesQuery, countQuery, nameMatchQuery, neighborhoodsQuery, type CandidateFilters, type CandidateRow, type NameMatch, type ScoreInputs } from './candidates'
 
 export type PlacesStore = {
   candidates(filters: CandidateFilters, scores: ScoreInputs): Promise<CandidateRow[]>
   nameMatches(name: string): Promise<NameMatch[]>
   count(filters: CandidateFilters): Promise<number>
+  /** Ids de barrio con al menos un lugar publicado. */
+  neighborhoods(): Promise<string[]>
 }
 
 export function neonPlacesStore(db: Pick<NeonHttpDatabase<Record<string, unknown>>, 'execute'>): PlacesStore {
@@ -20,6 +22,10 @@ export function neonPlacesStore(db: Pick<NeonHttpDatabase<Record<string, unknown
     async count(filters) {
       const { rows } = await db.execute(countQuery(filters))
       return Number((rows[0] as { count: number } | undefined)?.count ?? 0)
+    },
+    async neighborhoods() {
+      const { rows } = await db.execute(neighborhoodsQuery())
+      return (rows as { id: string }[]).map((row) => row.id)
     },
   }
 }

@@ -51,6 +51,18 @@ export function excludeLabel(id: string, lang: Lang) {
   return `${lang === 'es' ? 'Excepto' : 'Except'} ${excludedTerm(id, lang)}`
 }
 
+/** "400 m", "1,2 km": hasta 1 km de a 100 m; después en km con un decimal. */
+export function distanceText(meters: number, lang: Lang) {
+  if (meters < 950) return `${Math.max(100, Math.round(meters / 100) * 100)} m`
+  const km = Math.round(meters / 100) / 10
+  return `${km.toLocaleString(lang === 'es' ? 'es-UY' : 'en-US', { maximumFractionDigits: 1 })} km`
+}
+
+/** Motivo de un resultado con "cerca mío": "a 400 m" / "400 m away". */
+export function distanceLabel(meters: number, lang: Lang) {
+  return lang === 'es' ? `a ${distanceText(meters, lang)}` : `${distanceText(meters, lang)} away`
+}
+
 const capitalize = (value: string) => value.charAt(0).toUpperCase() + value.slice(1)
 
 export function momentLabel(moment: Moment | 'now', lang: Lang, today: number) {
