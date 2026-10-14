@@ -1,6 +1,7 @@
-import type { Chip, IntentBar, SearchDebug } from "@/server/search";
+import type { Chip, IntentBar, SearchDebug, SearchResponse } from "@/server/search";
 import { formatUsd } from "@/server/search/cost";
 import { DAY_NAMES } from "@/server/search/labels";
+import CopyResponse from "./CopyResponse";
 import styles from "./SearchPage.module.scss";
 
 type DebugPanelProps = {
@@ -8,6 +9,8 @@ type DebugPanelProps = {
   /** Todos los chips de la búsqueda (la UI sólo muestra los de la barra). */
   chips: Chip[];
   bar: IntentBar;
+  /** La respuesta entera, para "Copiar respuesta". */
+  response: SearchResponse;
 };
 
 const SOURCE_LABELS: Record<SearchDebug["source"], string> = {
@@ -23,7 +26,7 @@ const join = (values: string[]) => (values.length ? values.join(", ") : "—");
 const origin = ({ fromText, fromFilter }: Chip) => (fromText && fromFilter ? "texto + barra" : fromFilter ? "barra" : fromText ? "texto" : "—");
 
 /** Lo que interpretó la búsqueda en limpio: lo que no se ve en la barra (platos, preferencias, vibe…) incluido. */
-const Interpreted = ({ debug, chips, bar }: DebugPanelProps) => {
+const Interpreted = ({ debug, chips, bar }: Omit<DebugPanelProps, "response">) => {
   const { interpretation: value, semanticText, source } = debug;
   const at = value.must.openAt;
   const openAt = at === null ? "—" : at === "now" ? "ahora" : `${at.day === null ? "hoy" : DAY_NAMES.es[at.day]}${at.time ? ` ${at.time}` : ""}`;
@@ -97,12 +100,13 @@ const Relevance = ({ debug }: { debug: SearchDebug }) => {
   );
 };
 
-const DebugPanel = ({ debug, chips, bar }: DebugPanelProps) => {
+const DebugPanel = ({ debug, chips, bar, response }: DebugPanelProps) => {
   const { source, model, llmError, discarded, original, interpretation, nameMatches, semanticText, keywords } = debug;
 
   return (
     <details className={styles.debug} open>
       <summary>Debug · {formatUsd(debug.cost.totalUsd)}</summary>
+      <CopyResponse json={JSON.stringify(response)} />
       <p>
         Costo:{" "}
         {debug.cost.calls.length === 0

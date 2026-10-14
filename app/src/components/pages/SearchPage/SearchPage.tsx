@@ -98,7 +98,7 @@ const SearchPage = async ({ query, remove, intent, sub, filters, near, debug }: 
         </>
       )}
 
-      {response.debug && <DebugPanel debug={response.debug} chips={interpreted.chips} bar={response.bar} />}
+      {response.debug && <DebugPanel debug={response.debug} chips={interpreted.chips} bar={response.bar} response={response} />}
     </div>
     </MapSync>
   );
