@@ -205,18 +205,31 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   const queryEmbedding = removed || textless ? null : deps.cache.embed(normalized).then((result) => priced('embed', result)).catch(() => null)
 
   // 1. Interpretación: diccionario, nombre fuerte o modelo. Sin texto, sólo los filtros.
-  let step = performance.now()
+  // El atajo del diccionario es sincrónico; la búsqueda por nombre, el modelo y el embedding de la consulta
+  // (arriba) arrancan juntos porque no dependen entre sí. Si la consulta resulta ser un nombre fuerte, lo que
+  // devolvió el modelo se descarta (queda cacheado por q igual).
+  const parallelStart = performance.now()
+  const timed = <T,>(name: string, promise: Promise<T>) => promise.finally(() => (timings[name] = elapsed(parallelStart)))
   const dictionary = textless ? null : interpretWithDictionary(normalized)
-  let nameMatches = textless ? [] : await deps.store.nameMatches(normalized).catch(() => [] as NameMatch[])
+  const namesPromise = textless ? Promise.resolve([] as NameMatch[]) : timed('shortcut', deps.store.nameMatches(normalized).catch(() => [] as NameMatch[]))
+  const llmPromise =
+    textless || dictionary
+      ? null
+      : timed(
+          'interpret',
+          deps.cache.interpret(normalized).then(
+            (value) => ({ ok: true as const, value }),
+            (error: unknown) => ({ ok: false as const, error }),
+          ),
+        )
+  let nameMatches = await namesPromise
   let pinned = strongNameMatch(nameMatches, normalized, dictionary !== null)
-  timings.shortcut = elapsed(step)
 
   let source: InterpretationSource
   let original: Interpretation
   let discarded: string[] = []
   let model: string | null = null
   let llmError: string | null = null
-  step = performance.now()
   if (textless) {
     source = 'filters'
     original = emptyInterpretation()
@@ -227,27 +240,28 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     source = 'name'
     original = { ...emptyInterpretation(), nameQuery: normalized }
   } else {
-    try {
-      const llm = priced('interpret', await deps.cache.interpret(normalized))
-      const validation = validateInterpretation(llm.data)
+    const llm = await llmPromise!
+    if (llm.ok) {
+      const validation = validateInterpretation(priced('interpret', llm.value).data)
       source = 'llm'
       original = validation.interpretation
       discarded = validation.discarded
-      model = llm.model
-    } catch (error) {
+      model = llm.value.model
+    } else {
       // Sin modelo (timeout o error), la búsqueda sigue sin avisar: lo que el diccionario reconoce como filtros,
       // y el texto tal cual para el embedding, las palabras clave y el nombre.
       source = 'fallback'
-      llmError = errorMessage(error)
+      llmError = errorMessage(llm.error)
       costs.push({ step: 'interpret', model: SEARCH_CONFIG.llm.model, usd: null, cached: false })
       const partial = interpretWithDictionary(normalized, { partial: true }) ?? emptyInterpretation()
       original = { ...partial, needsLocation: partial.needsLocation || mentionsNearMe(normalized), wantsBest: partial.wantsBest || mentionsBest(normalized) }
     }
   }
-  timings.interpret = elapsed(step)
+  timings.parallel = elapsed(parallelStart)
 
   // El modelo puede corregir el nombre ("cardnal" → "cardinal").
   const nameQuery = original.nameQuery ? normalizeQuery(original.nameQuery) : null
+  let step = performance.now()
   if (!pinned && nameQuery && nameQuery !== normalized) {
     step = performance.now()
     const corrected = await deps.store.nameMatches(nameQuery).catch(() => [] as NameMatch[])
@@ -397,8 +411,13 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     near,
   }
   if (options.debug) {
-    // El embedding de la consulta se pagó aunque al final se usara el de la vibe.
+    // El embedding de la consulta se pagó aunque al final se usara el de la vibe, y el modelo aunque la
+    // consulta resultara ser un nombre.
     await queryEmbedding
+    if (llmPromise && (source === 'name' || source === 'shortcut')) {
+      const llm = await llmPromise
+      if (llm.ok) costs.push({ step: 'interpret', model: llm.value.model, usd: llm.value.cost, cached: llm.value.computedAt < startedAt, discarded: true })
+    }
     const depth = SEARCH_CONFIG.debugDepth
     response.debug = {
       source,

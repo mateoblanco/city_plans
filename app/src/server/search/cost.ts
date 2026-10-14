@@ -8,6 +8,8 @@ export type CostEntry = {
   usd: number | null
   /** Vino de la cache de Next: esta búsqueda no pagó nada. */
   cached: boolean
+  /** Se llamó en paralelo pero no se usó (la consulta era un nombre): se pagó igual. */
+  discarded?: boolean
 }
 
 export type SearchCost = { totalUsd: number; calls: CostEntry[] }

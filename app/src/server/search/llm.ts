@@ -55,17 +55,32 @@ ${Object.values(NEIGHBORHOOD_NAMES).join(', ')}`
 /** cost: lo que cobró el Gateway; computedAt: cuándo se llamó al modelo (si es anterior a la búsqueda, vino de la cache). */
 export type LlmResult = { data: LlmInterpretation; model: string; cost: number | null; computedAt: number }
 
-export async function interpretWithLlm(normalized: string): Promise<LlmResult> {
+/**
+ * Opciones de la llamada. El mensaje de sistema es fijo (instrucciones, catálogo de tags y barrios) y va con
+ * prompt caching por el AI Gateway; la consulta va en prompt, fuera de lo cacheado.
+ */
+export function interpretationRequest(normalized: string) {
   const model = SEARCH_CONFIG.llm.model
-  const result = await generateText({
+  const providerOptions: Record<string, { structuredOutputMode: string }> = model.startsWith('anthropic/') ? { anthropic: { structuredOutputMode: 'outputFormat' } } : {}
+  return {
     model,
     output: Output.object({ schema: LlmInterpretationSchema }),
-    system: { role: 'system', content: SYSTEM_PROMPT, providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } } },
+    system: {
+      role: 'system' as const,
+      content: SYSTEM_PROMPT,
+      providerOptions: { anthropic: { cacheControl: { type: 'ephemeral', ttl: SEARCH_CONFIG.llm.promptCacheTtl } } },
+    },
     prompt: `Consulta: ${normalized}`,
-    providerOptions: model.startsWith('anthropic/') ? { anthropic: { structuredOutputMode: 'outputFormat' } } : {},
+    providerOptions,
     // Sin razonamiento: la interpretación es una extracción a JSON y el razonamiento sólo sumaba segundos.
-    reasoning: 'none',
+    reasoning: 'none' as const,
     abortSignal: AbortSignal.timeout(SEARCH_CONFIG.llm.timeoutMs),
-  })
+  }
+}
+
+export async function interpretWithLlm(normalized: string): Promise<LlmResult> {
+  const request = interpretationRequest(normalized)
+  const result = await generateText(request)
+  const model = request.model
   return { data: result.output, model, cost: gatewayCost(result.providerMetadata), computedAt: Date.now() }
 }

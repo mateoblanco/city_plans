@@ -62,6 +62,11 @@ export const SEARCH_CONFIG = {
      * Si se vence, la búsqueda sigue con el diccionario parcial y el embedding del texto.
      */
     timeoutMs: 8000,
+    /**
+     * TTL del prompt caching del mensaje de sistema (instrucciones, tags y barrios, ~8.300 tokens).
+     * 1 h: escribir cuesta 1,5× más que con 5 min, pero con poco tráfico se reescribe mucho menos.
+     */
+    promptCacheTtl: '1h',
   },
   embeddingModel: 'openai/text-embedding-3-small',
 

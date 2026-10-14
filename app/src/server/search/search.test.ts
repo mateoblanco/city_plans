@@ -210,13 +210,57 @@ describe('runSearch', () => {
     expect(response.results.map((result) => result.id)).not.toContain('cafe-rodo')
   })
 
-  it('un nombre fuerte va primero y evita el modelo', async () => {
+  it('un nombre fuerte va primero: el modelo corrió en paralelo pero se descarta (y su costo cuenta)', async () => {
     const { store } = fakeStore(places, [{ id: 'bodegon', name: 'Bodegón', similarity: 0.9, wordSimilarity: 1 }])
-    const { cache, interpreted } = fakeCache()
+    const { cache, interpreted } = fakeCache(llmOutput({ must: { ...llmOutput().must, categories: ['pizzeria'] } }), { cost: 0.001 })
     const response = await runSearch('el mingus', { store, cache }, { now, debug: true })
-    expect(interpreted).toEqual([])
+    expect(interpreted).toEqual(['el mingus'])
     expect(response.debug?.source).toBe('name')
     expect(response.results[0].id).toBe('bodegon')
+    expect(response.interpreted.chips.map((chip) => chip.kind)).toEqual(['name'])
+    expect(response.debug?.cost.calls.find((call) => call.step === 'interpret')).toMatchObject({ usd: 0.001, discarded: true })
+  })
+
+  it('el nombre, el modelo y el embedding de la consulta arrancan juntos', async () => {
+    const started: string[] = []
+    let releaseNames: () => void = () => {}
+    const namesGate = new Promise<void>((resolve) => (releaseNames = resolve))
+    const base = fakeStore(places)
+    const store = {
+      ...base.store,
+      async nameMatches() {
+        started.push('names')
+        await namesGate
+        return []
+      },
+    }
+    const { cache: inner } = fakeCache()
+    const cache = {
+      async interpret(normalized: string) {
+        started.push('interpret')
+        // La búsqueda por nombre sigue esperando: sólo se libera cuando el modelo ya arrancó.
+        releaseNames()
+        return inner.interpret(normalized)
+      },
+      async embed(text: string) {
+        started.push(`embed:${text}`)
+        return inner.embed(text)
+      },
+    }
+    const response = await runSearch('algo rico para hoy', { store, cache }, { now, debug: true })
+    expect(response.debug?.source).toBe('llm')
+    expect(started.slice(0, 3).sort()).toEqual(['embed:algo rico para hoy', 'interpret', 'names'])
+    expect(response.debug?.timings).toHaveProperty('parallel')
+  })
+
+  it('el vibe distinto del texto se embebe aparte; sin vibe, un solo embedding', async () => {
+    const { store } = fakeStore(places)
+    const withVibe = fakeCache(llmOutput({ vibe: 'lugar tranquilo para leer' }))
+    await runSearch('algo tranqui pa leer', { store, cache: withVibe.cache }, { now })
+    expect(withVibe.embedded).toEqual(['algo tranqui pa leer', 'lugar tranquilo para leer'])
+    const plain = fakeCache(llmOutput())
+    await runSearch('algo rico para hoy', { store, cache: plain.cache }, { now })
+    expect(plain.embedded).toEqual(['algo rico para hoy'])
   })
 
   it('un nombre parecido no gana cuando el diccionario resolvió la consulta', async () => {

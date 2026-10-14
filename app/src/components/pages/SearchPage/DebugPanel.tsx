@@ -24,7 +24,7 @@ const DebugPanel = ({ debug }: DebugPanelProps) => {
         {debug.cost.calls.length === 0
           ? "sin llamadas pagas"
           : debug.cost.calls
-              .map((call) => `${call.step} (${call.model}) ${call.cached ? "cache" : call.usd === null ? "sin dato" : formatUsd(call.usd)}`)
+              .map((call) => `${call.step} (${call.model}) ${call.cached ? "cache" : call.usd === null ? "sin dato" : formatUsd(call.usd)}${call.discarded ? ", descartado" : ""}`)
               .join(" · ")}
       </p>
       <Json title="Interpretación" value={{ source, model, llmError, discarded, original, interpretation, nameMatches, semanticText, keywords }} />
