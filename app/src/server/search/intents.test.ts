@@ -30,6 +30,9 @@ describe('parseIntent', () => {
     expect(parseIntent('bars', 'cocktails,live_music,cocktails,breakfast')).toEqual({ intent: 'bars', subs: ['cocktails', 'live_music'] })
     expect(parseIntent('spaceship', 'cocktails')).toEqual({ intent: null, subs: [] })
     expect(parseIntent(null, 'cocktails')).toEqual({ intent: null, subs: [] })
+    // "Para comer" ya no existe en Cafés: un link viejo lo pierde y queda Brunch.
+    expect(parseIntent('cafes', 'to_eat,brunch')).toEqual({ intent: 'cafes', subs: ['brunch'] })
+    expect(Object.keys(INTENTS.cafes.subs)).toEqual(['specialty', 'pastries', 'brunch', 'work'])
   })
 })
 
@@ -144,7 +147,7 @@ describe('búsqueda con intención', () => {
     const { store, calls } = fakeStore(places)
     const response = await runSearch('', { store, cache: fakeCache().cache }, { now, intent: 'bars', sub: 'cocktails,live_music' })
     expect(calls.map((call) => call.filters.groups.length)).toEqual([3, 1])
-    expect(response.relaxed.map((notice) => notice.message)).toEqual(['No encontramos bares con cócteles y con música en vivo; estos tienen algo de eso.'])
+    expect(response.relaxed.map((notice) => notice.message)).toEqual(['No encontramos bares con tragos y con música en vivo; estos tienen algo de eso.'])
     // Los que tienen algo de lo pedido van primero.
     expect(response.results.slice(0, 2).map((result) => result.id).sort()).toEqual(['bar-cocteles', 'bar-musica'])
     expect(response.bar.subs.filter((sub) => sub.active).map((sub) => sub.id)).toEqual(['cocktails', 'live_music'])

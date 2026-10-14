@@ -6,7 +6,7 @@ import type { CategoryId, Lang, TagId } from './tags.ts'
  *
  * - aliases: categorías que en el texto significan la intención misma ("bares" → Bares). La intención las cubre.
  * - detect: tags que, escritos en el texto, también eligen la intención (además de los de sus sub-filtros).
- * - noun / sub.phrase: para los avisos ("No encontramos bares con cócteles y con música en vivo").
+ * - noun / sub.phrase: para los avisos ("No encontramos bares con tragos y con música en vivo").
  */
 export type IntentMatch = { categories?: CategoryId[]; tags?: TagId[]; featured?: boolean }
 
@@ -61,7 +61,7 @@ export const INTENTS = {
     subs: {
       specialty: sub('Especialidad', 'Specialty', 'de especialidad', 'with specialty coffee', { tags: ['specialty_coffee'] }),
       pastries: sub('Pastelería', 'Pastries', 'con pastelería', 'with pastries', { tags: ['pastries'] }),
-      to_eat: sub('Para comer', 'To eat', 'para comer', 'with food', { tags: ['brunch', 'lunch'] }),
+      brunch: sub('Brunch', 'Brunch', 'con brunch', 'serving brunch', { tags: ['brunch'] }),
       work: sub('Para trabajar', 'To work', 'para trabajar', 'to work from', { tags: ['work'] }),
     },
   },
@@ -72,7 +72,7 @@ export const INTENTS = {
     aliases: ['bar'],
     detect: ['drinks', 'late_night', 'happy_hour', 'after_office', 'vermouth', 'gin', 'whisky', 'cider', 'medio_y_medio'],
     subs: {
-      cocktails: sub('Cócteles', 'Cocktails', 'con cócteles', 'with cocktails', { tags: ['signature_cocktails', 'classic_cocktails'] }),
+      cocktails: sub('Tragos', 'Drinks', 'con tragos', 'with drinks', { tags: ['signature_cocktails', 'classic_cocktails'] }),
       wine: sub('Vinos', 'Wine', 'con vinos', 'with wine', { tags: ['wine'] }),
       beer: sub('Cerveza', 'Beer', 'con cerveza', 'with beer', { tags: ['craft_beer', 'draft_beer'] }),
       live_music: sub('Música en vivo', 'Live music', 'con música en vivo', 'with live music', { tags: ['live_music'] }),

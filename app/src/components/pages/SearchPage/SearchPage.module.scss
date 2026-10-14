@@ -148,27 +148,6 @@
   gap: 6px;
 }
 
-// Intenciones: pestañas; la activa subrayada.
-.intentRow {
-  border-bottom: 1px solid #dddddd;
-  display: flex;
-  gap: 16px;
-}
-
-.intent {
-  border-bottom: 2px solid transparent;
-  color: #555555;
-  font-size: 15px;
-  padding: 6px 0;
-  text-decoration: none;
-
-  &[data-active] {
-    border-bottom-color: #000000;
-    color: #000000;
-    font-weight: 600;
-  }
-}
-
 // "Más filtros": el panel se abre debajo, sobre la lista.
 .more {
   position: relative;

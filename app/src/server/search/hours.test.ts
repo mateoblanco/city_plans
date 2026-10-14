@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { candidatesQuery, openAtSql } from './candidates'
 import { dishTarget } from './dishes'
-import { montevideoNow, openStatus, resolveOpenAt, type Hours } from './hours'
+import { montevideoNow, nextOpening, openStatus, resolveOpenAt, type Hours } from './hours'
 import { openStateLabel } from './labels'
 
 const lateBar: Hours = { status: 'exact', slots: [{ day: 5, opens: '20:00', closes: '02:00' }] }
@@ -61,6 +61,52 @@ describe('openStatus', () => {
     expect(openStateLabel(open, 'en', { day: 5, time: '23:00' }, true)).toBe('Open · closes 02:00')
     expect(openStateLabel({ state: 'unconfirmed' }, 'es', { day: 5, time: null }, false)).toBe('Horario no confirmado')
     expect(openStateLabel(openStatus(lateBar, { day: 5, time: null }), 'es', { day: 5, time: null }, false)).toBe('Viernes: abre 20:00–02:00')
+  })
+})
+
+describe('nextOpening', () => {
+  const label = (hours: Hours, at: { day: number; time: string }, lang: 'es' | 'en' = 'es') =>
+    openStateLabel(openStatus(hours, at), lang, at, true, nextOpening(hours, at))
+
+  it('horario que cruza la medianoche', () => {
+    // Viernes 20:00–02:00.
+    expect(nextOpening(lateBar, { day: 5, time: '15:00' })).toEqual({ daysAhead: 0, day: 5, opens: '20:00' })
+    expect(label(lateBar, { day: 5, time: '15:00' })).toBe('Cerrado · Abre 20:00')
+    expect(label(lateBar, { day: 4, time: '22:00' })).toBe('Cerrado · Abre mañana 20:00')
+    // Sábado 03:00, ya cerró el turno del viernes: vuelve a abrir el viernes siguiente.
+    expect(label(lateBar, { day: 6, time: '03:00' })).toBe('Cerrado · Abre el viernes 20:00')
+    expect(label(lateBar, { day: 6, time: '03:00' }, 'en')).toBe('Closed · Opens Friday 20:00')
+    // Abierto a la 01:30 del sábado: no hay próxima apertura que mostrar.
+    expect(label(lateBar, { day: 6, time: '01:30' })).toBe('Abierto · cierra 02:00')
+  })
+
+  it('local que no abre ningún día: queda "Cerrado"', () => {
+    const never: Hours = { status: 'exact', slots: [] }
+    expect(nextOpening(never, { day: 1, time: '12:00' })).toBeNull()
+    expect(openStateLabel({ state: 'closed' }, 'es', { day: 1, time: '12:00' }, true, null)).toBe('Cerrado')
+    expect(openStateLabel({ state: 'closed' }, 'en', { day: 1, time: '12:00' }, true, null)).toBe('Closed')
+  })
+
+  it('día con dos turnos: después del mediodía abre a la tarde', () => {
+    const split: Hours = {
+      status: 'exact',
+      slots: [
+        { day: 1, opens: '19:00', closes: '23:00' },
+        { day: 1, opens: '12:00', closes: '15:00' },
+        { day: 2, opens: '09:00', closes: '15:00' },
+      ],
+    }
+    expect(label(split, { day: 1, time: '10:00' })).toBe('Cerrado · Abre 12:00')
+    expect(label(split, { day: 1, time: '16:00' })).toBe('Cerrado · Abre 19:00')
+    expect(label(split, { day: 1, time: '16:00' }, 'en')).toBe('Closed · Opens 19:00')
+    // Sin cero adelante.
+    expect(label(split, { day: 1, time: '23:30' })).toBe('Cerrado · Abre mañana 9:00')
+    expect(label(split, { day: 1, time: '23:30' }, 'en')).toBe('Closed · Opens tomorrow 9:00')
+  })
+
+  it('sin horario confiable no calcula; un día pedido sigue sin próxima apertura', () => {
+    expect(nextOpening({ status: 'vague', slots: lunch.slots }, { day: 0, time: '12:00' })).toBeNull()
+    expect(openStateLabel({ state: 'closed' }, 'es', { day: 4, time: '21:00' }, false, { daysAhead: 1, day: 5, opens: '20:00' })).toBe('Jueves 21:00: cerrado')
   })
 })
 

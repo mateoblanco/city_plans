@@ -3,7 +3,7 @@ import { neighborhoodDisplayName } from '@shared/neighborhood-names.ts'
 import type { DishMode } from './candidates'
 import { relatedLabel, type DishTarget } from './dishes'
 import type { Fused } from './fuse'
-import type { Moment, OpenState } from './hours'
+import type { Moment, NextOpening, OpenState } from './hours'
 import { DIET_KEYS, type Interpretation } from './interpretation'
 import { dietLevelLabel, distanceLabel, openStateLabel } from './labels'
 
@@ -15,6 +15,8 @@ export type ReasonContext = {
   moment: Moment
   isNow: boolean
   open: OpenState
+  /** Cerrado ahora: cuándo vuelve a abrir. */
+  next: NextOpening | null
   /** Con "cerca mío": la distancia va entre los motivos. */
   near: boolean
 }
@@ -51,7 +53,7 @@ export function buildReasons(item: Fused, context: ReasonContext): string[] {
   for (const id of row.tags) if (wantedTags.includes(id)) reasons.push(label(id, lang))
 
   if (context.near && row.distance !== null) reasons.push(distanceLabel(row.distance, lang))
-  reasons.push(openStateLabel(context.open, lang, context.moment, context.isNow))
+  reasons.push(openStateLabel(context.open, lang, context.moment, context.isNow, context.next))
   const neighborhood = neighborhoodDisplayName(row.neighborhoodId)
   if (neighborhood) reasons.push(neighborhood)
   return [...new Set(reasons)]

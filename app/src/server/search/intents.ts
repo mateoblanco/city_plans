@@ -90,7 +90,7 @@ export type ResolvedIntent = {
 /**
  * Intención final: la de la URL o, si no hay, la del texto (salvo que se haya quitado con `remove=intent:x`).
  * Con una intención elegida, lo que pidió el texto y le corresponde deja de ser un filtro suelto: un sub-filtro
- * se activa ("cócteles" → Cócteles) y una categoría alias queda cubierta ("bares" → Bares). Pasa a preferencia.
+ * se activa ("cócteles" → Tragos) y una categoría alias queda cubierta ("bares" → Bares). Pasa a preferencia.
  */
 export function resolveIntent(fromText: Interpretation, url: IntentUrl, removals: { kind: ChipKind; id: string }[]): ResolvedIntent {
   const detected = detectIntent(fromText)

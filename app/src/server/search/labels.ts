@@ -1,6 +1,6 @@
 import { label } from '@shared/tags.ts'
 import type { DietKey, Lang, Price } from './interpretation'
-import type { Moment, OpenState } from './hours'
+import type { Moment, NextOpening, OpenState } from './hours'
 
 export const DAY_NAMES: Record<Lang, string[]> = {
   es: ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'],
@@ -71,12 +71,31 @@ export function momentLabel(moment: Moment | 'now', lang: Lang, today: number) {
   return capitalize(moment.time ? `${day} ${moment.time}` : day)
 }
 
-/** "Abierto · cierra 23:00", "Horario no confirmado"; con prefijo de día si no es ahora. */
-export function openStateLabel(state: OpenState, lang: Lang, moment: Moment, isNow: boolean): string {
+/** "19:00", "9:00": sin el cero adelante. */
+const clock = (time: string) => time.replace(/^0(\d)/, '$1')
+
+/** "Abre 19:00", "Abre mañana 9:00", "Abre el lunes 12:00". */
+function opensLabel(next: NextOpening, lang: Lang) {
+  const es = lang === 'es'
+  const time = clock(next.opens)
+  if (next.daysAhead === 0) return es ? `Abre ${time}` : `Opens ${time}`
+  if (next.daysAhead === 1) return es ? `Abre mañana ${time}` : `Opens tomorrow ${time}`
+  return es ? `Abre el ${DAY_NAMES.es[next.day]} ${time}` : `Opens ${DAY_NAMES.en[next.day]} ${time}`
+}
+
+/**
+ * "Abierto · cierra 23:00", "Cerrado · Abre mañana 9:00", "Horario no confirmado"; con prefijo de día si no es
+ * ahora. `next` (próxima apertura) sólo se usa ahora.
+ */
+export function openStateLabel(state: OpenState, lang: Lang, moment: Moment, isNow: boolean, next: NextOpening | null = null): string {
   const es = lang === 'es'
   if (state.state === 'unconfirmed') return es ? 'Horario no confirmado' : 'Hours not confirmed'
   const prefix = isNow ? '' : `${capitalize(DAY_NAMES[lang][moment.day])}${moment.time ? ` ${moment.time}` : ''}: `
-  if (state.state === 'closed') return prefix + (es ? (isNow ? 'Cerrado ahora' : 'cerrado') : isNow ? 'Closed now' : 'closed')
+  if (state.state === 'closed') {
+    if (!isNow) return prefix + (es ? 'cerrado' : 'closed')
+    const closed = es ? 'Cerrado' : 'Closed'
+    return next ? `${closed} · ${opensLabel(next, lang)}` : closed
+  }
   if (moment.time === null && state.opensAt) {
     const range = state.closesAt ? `${state.opensAt}–${state.closesAt}` : `${es ? 'desde las' : 'from'} ${state.opensAt}`
     return prefix + (es ? `abre ${range}` : `open ${range}`)

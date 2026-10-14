@@ -11,7 +11,7 @@ import { dishTargetFor, type DishTarget } from './dishes'
 import { applyFilters, filterChipKeys, hasFilters, parseFilters, parseNear, type LatLng } from './filters'
 import { buildBar, emptyBar, intentGroups, parseIntent, resolveIntent, type IntentBar } from './intents'
 import { buildRankings, fuse, type Fused, type MatchLevel, type Rankings } from './fuse'
-import { montevideoNow, openStatus, resolveOpenAt, type Moment, type OpenState } from './hours'
+import { montevideoNow, nextOpening, openStatus, resolveOpenAt, type Moment, type OpenState } from './hours'
 import {
   applyRemove,
   DIET_KEYS,
@@ -381,6 +381,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   const isNow = current.must.openAt === null || current.must.openAt === 'now'
   const results = fused.map((item): SearchResult => {
     const open = item.open ?? openStatus(item.row.hours, moment)
+    const next = isNow && open.state === 'closed' && moment.time ? nextOpening(item.row.hours, { day: moment.day, time: moment.time }) : null
     return {
       id: item.row.id,
       slug: item.row.slug,
@@ -389,11 +390,11 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       categories: item.row.categories,
       lat: item.row.lat,
       lng: item.row.lng,
-      reasons: buildReasons(item, { interpretation: current, dishes, dishMode: state.dishMode, moment, isNow, open, near: near !== null }),
+      reasons: buildReasons(item, { interpretation: current, dishes, dishMode: state.dishMode, moment, isNow, open, next, near: near !== null }),
       openStatus: {
         state: open.state,
         closesAt: open.state === 'open' ? open.closesAt : null,
-        label: openStateLabel(open, interpretation.language, moment, isNow),
+        label: openStateLabel(open, interpretation.language, moment, isNow, next),
       },
       matchLevel: item.matchLevel,
     }

@@ -65,18 +65,20 @@ const FilterBar = async ({ state, chips, bar, needsLocation }: FilterBarProps) =
           </div>
         </details>
       </div>
-      <div className={styles.intentRow} role="group" aria-label="Qué querés hacer">
+      <div className={styles.filterRow} role="group" aria-label="Qué querés hacer">
         {INTENT_IDS.map((id) => {
           const active = id === activeIntent;
+          const text = INTENTS[id].label.es;
           return (
             <Link
               key={id}
-              className={styles.intent}
+              className={styles.filter}
               data-active={active || undefined}
               aria-current={active ? "true" : undefined}
+              aria-label={active ? `Quitar filtro: ${text}` : undefined}
               href={intentHref(state, active ? null : id, bar)}
             >
-              {INTENTS[id].label.es}
+              {active ? `${text} ×` : text}
             </Link>
           );
         })}
