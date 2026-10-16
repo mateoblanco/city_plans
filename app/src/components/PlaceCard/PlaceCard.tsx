@@ -15,11 +15,6 @@ const KEPT_LABELS: Record<KeptBy, string> = {
   "no-similarity": "sin similitud",
 };
 
-type PlaceCardProps = {
-  place: SearchResult;
-  debug?: CardDebug;
-};
-
 const number = (value: number) => value.toLocaleString("es-UY", { maximumSignificantDigits: 3 });
 
 const debugLine = ({ score, baseScore, multiplier, similarity, keptBy, pinned }: CardDebug) =>
@@ -34,17 +29,22 @@ const debugLine = ({ score, baseScore, multiplier, similarity, keptBy, pinned }:
     .filter(Boolean)
     .join(" · ");
 
-const PlaceCard = ({ place, debug }: PlaceCardProps) => {
+type Props = {
+  place: SearchResult;
+  debug?: CardDebug;
+};
+
+const PlaceCard = (props: Props) => {
   // Los motivos ya incluyen el barrio y el horario, que acá tienen su propia línea.
-  const reasons = place.reasons.filter((reason) => reason !== place.neighborhood && reason !== place.openStatus.label);
+  const reasons = props.place.reasons.filter((reason) => reason !== props.place.neighborhood && reason !== props.place.openStatus.label);
 
   return (
     <article style={{ border: "1px solid black", display: "flex", flexDirection: "column", gap: 6, padding: 12 }}>
-      <h3 style={{ fontSize: 16 }}>{place.name}</h3>
+      <h3 style={{ fontSize: 16 }}>{props.place.name}</h3>
       <p style={{ fontSize: 14 }}>
-        {[place.neighborhood, ...place.categories.map((id) => label(id, "es"))].join(" · ")}
+        {[props.place.neighborhood, ...props.place.categories.map((id) => label(id, "es"))].join(" · ")}
       </p>
-      <p style={{ fontSize: 14, color: place.openStatus.state === "open" ? "#1a7f37" : "#555555" }}>{place.openStatus.label}</p>
+      <p style={{ fontSize: 14, color: props.place.openStatus.state === "open" ? "#1a7f37" : "#555555" }}>{props.place.openStatus.label}</p>
       {reasons.length > 0 && (
         <ul style={{ fontSize: 13, color: "#555555", paddingLeft: 16 }}>
           {reasons.map((reason) => (
@@ -52,7 +52,7 @@ const PlaceCard = ({ place, debug }: PlaceCardProps) => {
           ))}
         </ul>
       )}
-      {debug && <p style={{ fontFamily: "var(--font-geist-mono), monospace", fontSize: 12, color: "#555555" }}>{debugLine(debug)}</p>}
+      {props.debug && <p style={{ fontFamily: "var(--font-geist-mono), monospace", fontSize: 12, color: "#555555" }}>{debugLine(props.debug)}</p>}
     </article>
   );
 };

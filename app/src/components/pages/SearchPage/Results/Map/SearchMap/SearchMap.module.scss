@@ -1,0 +1,28 @@
+.mapMessage {
+  color: #555555;
+  font-size: 14px;
+  padding: 16px;
+}
+
+.marker {
+  background-color: #ffffff;
+  border: 2px solid #000000;
+  border-radius: 50%;
+  height: 14px;
+  transition: transform 0.1s;
+  width: 14px;
+
+  &[data-active] {
+    background-color: #000000;
+    transform: scale(1.5);
+  }
+}
+
+.userMarker {
+  background-color: #1a73e8;
+  border: 3px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px #1a73e8;
+  height: 16px;
+  width: 16px;
+}

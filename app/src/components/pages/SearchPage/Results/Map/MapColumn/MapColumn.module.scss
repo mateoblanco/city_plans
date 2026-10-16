@@ -1,0 +1,9 @@
+.map {
+  // background-color: #e8e8e8;
+  height: calc(100vh - var(--header-offset));
+  position: fixed;
+  right: 0;
+  top: var(--header-offset);
+  width: 45%;
+  padding: 24px 48px 24px 0;
+}

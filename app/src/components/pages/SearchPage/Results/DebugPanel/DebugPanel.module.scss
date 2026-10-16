@@ -1,0 +1,32 @@
+.debug {
+  border-top: 1px solid #cccccc;
+  font-size: 12px;
+  padding-top: 12px;
+
+  pre {
+    background-color: #f5f5f5;
+    font-family: var(--font-geist-mono), monospace;
+    overflow-x: auto;
+    padding: 8px;
+  }
+
+  details details {
+    margin: 8px 0 0 12px;
+  }
+}
+
+.debugSummary {
+  display: grid;
+  gap: 2px;
+  margin: 8px 0;
+
+  div {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: 120px 1fr;
+  }
+
+  dt {
+    color: #555555;
+  }
+}

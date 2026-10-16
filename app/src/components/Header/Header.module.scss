@@ -1,0 +1,65 @@
+.header{
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    // min-height: en /search crece con la barra de filtros.
+    min-height: var(--header-height);
+    padding: 16px 48px;
+    background-color: #fff;
+    border-bottom: 1px solid #DFDFE1;
+    top: 0;
+    gap: 16px;
+    z-index: 1;
+    position: fixed;
+    width: 100%;
+}
+
+// Logo | centro | usuario: con 1fr a los costados el centro queda centrado de verdad.
+.top{
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 24px;
+    width: 100%;
+}
+
+.logo{
+    font-size:18px;
+    font-weight: 700;
+    justify-self: start;
+    text-decoration: none;
+}
+
+.center{
+    display: flex;
+    justify-content: center;
+}
+
+.user{
+    justify-self: end;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border: 1px solid #DFDFE1;
+    border-radius: 50%;
+    background-color: #fff;
+    color: inherit;
+    cursor: pointer;
+
+    &:hover {
+        background-color: #f2f2f2;
+    }
+}
+
+.bottom{
+    display: flex;
+    justify-content: center;
+    width: 100%;
+}
+
+// Alto real del header (lo mide HeaderOffset), en el flujo de la página.
+.spacer{
+    height: var(--header-offset);
+}

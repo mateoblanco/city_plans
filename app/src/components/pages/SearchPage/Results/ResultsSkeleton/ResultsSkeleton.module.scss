@@ -1,0 +1,39 @@
+// .results y .grid: el mismo layout que SearchResults, para que el skeleton ocupe lo mismo.
+.results {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px 48px 24px 48px;
+  width: 55%;
+}
+
+.grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.skeletonCard {
+  animation: pulse 1.2s ease-in-out infinite;
+  aspect-ratio: 1 / 1;
+  background-color: #eeeeee;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+.visuallyHidden {
+  clip: rect(0 0 0 0);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.5;
+  }
+}

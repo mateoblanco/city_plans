@@ -9,8 +9,8 @@ import { buildChips, type Chip } from './chips'
 import { interpretWithDictionary } from './dictionary'
 import { checkMust, intendedDiscards, reportMust, type Discard, type MustCheck } from './invariant'
 import { dishTargetFor, type DishTarget } from './dishes'
-import { applyFilters, filterChipKeys, hasFilters, parseFilters, parseNear, type LatLng } from './filters'
-import { buildBar, emptyBar, intentGroups, parseIntent, resolveIntent, type IntentBar } from './intents'
+import { applyFilters, filterChipKeys, parseFilters, parseNear, type LatLng } from './filters'
+import { buildBar, intentGroups, parseIntent, resolveIntent, type IntentBar } from './intents'
 import { buildRankings, fuse, type Fused, type MatchLevel, type Rankings } from './fuse'
 import { montevideoNow, nextOpening, openStatus, resolveOpenAt, type Moment, type OpenState } from './hours'
 import {
@@ -252,10 +252,6 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   const near = parseNear(options.near)
   const intentUrl = parseIntent(options.intent, options.sub)
   const textless = !normalized
-
-  if (textless && !hasFilters(filters) && !near && !intentUrl.intent) {
-    return { query: rawQuery, interpreted: { chips: [] }, bar: emptyBar(), results: [], relaxed: [], suggestedRemovals: [], needsLocation: false, near: null }
-  }
 
   // El embedding de la consulta arranca ya: si no hay vibe ni chips quitados es el que se usa. Quitar la
   // intención no cambia el texto.

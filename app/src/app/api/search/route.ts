@@ -23,8 +23,9 @@ export async function GET(request: NextRequest) {
     sub: searchParams.get("sub"),
     debug: searchParams.get("debug"),
   });
-  if (!parsed.success || (!parsed.data.q && !parsed.data.f && !parsed.data.near && !parsed.data.intent)) {
-    return Response.json({ error: "Falta la consulta (q) o los filtros (f, near, intent), o son demasiado largos." }, { status: 400 });
+  // Sin q ni filtros también es válido: trae todos los publicados, por calidad (como /search vacío).
+  if (!parsed.success) {
+    return Response.json({ error: "Algún parámetro es demasiado largo o no es válido." }, { status: 400 });
   }
 
   try {

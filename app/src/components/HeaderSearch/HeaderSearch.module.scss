@@ -1,0 +1,78 @@
+// Segunda fila del header: cada fila de filtros, centrada.
+.filterBar {
+  align-items: center;
+  display: flex;
+  // flex-direction: column;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  // padding-top: 8px;
+}
+
+// Sub-filtros y extras de la intención: en su propia línea, debajo de las intenciones.
+.subRow {
+  flex-basis: 100%;
+}
+
+.filterRow {
+  align-items: center;
+  display: flex;
+  // flex-wrap: wrap;
+  gap: 16px;
+  justify-content: center;
+}
+
+// "Más filtros": el panel se abre debajo, sobre la lista.
+.more {
+  position: relative;
+
+  > summary {
+    list-style: none;
+
+    &::-webkit-details-marker {
+      display: none;
+    }
+  }
+
+  > div {
+    background-color: #ffffff;
+    border: 1px solid #dddddd;
+    left: 0;
+    padding: 8px;
+    position: absolute;
+    top: calc(100% + 4px);
+    white-space: nowrap;
+    z-index: 2;
+  }
+}
+
+.filter {
+  background: none;
+  border: 1px solid #bbbbbb;
+  border-radius: 999px;
+  color: inherit;
+  cursor: pointer;
+  display: inline-block;
+  font: inherit;
+  font-size: 13px;
+  padding: 3px 10px;
+  text-decoration: none;
+
+  &:hover {
+    background-color: #f2f2f2;
+  }
+
+  &[data-active] {
+    background-color: #000000;
+    border-color: #000000;
+    color: #ffffff;
+  }
+}
+
+// Aviso de "Cerca mío" (permiso de ubicación denegado o sin soporte).
+.notice {
+  background-color: #f5f5f5;
+  color: #555555;
+  font-size: 14px;
+  padding: 8px 12px;
+}

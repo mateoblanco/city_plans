@@ -12,6 +12,7 @@
     "search:check": "tsx --conditions=react-server --env-file=.env.local scripts/search-eval.mts --check"
   },
   "dependencies": {
+    "@base-ui/react": "^1.9.0",
     "@neondatabase/serverless": "^1.2.0",
     "@vis.gl/react-google-maps": "^1.10.1",
     "ai": "^7.0.124",

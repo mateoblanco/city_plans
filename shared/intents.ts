@@ -31,14 +31,14 @@ const sub = (es: string, en: string, phraseEs: string, phraseEn: string, match: 
 })
 
 export const INTENTS = {
-  top: {
-    label: { es: 'Top picks', en: 'Top picks' },
-    noun: { es: 'top picks', en: 'top picks' },
-    match: { featured: true },
-    aliases: [],
-    detect: [],
-    subs: {},
-  },
+  // top: {
+  //   label: { es: 'Top picks', en: 'Top picks' },
+  //   noun: { es: 'top picks', en: 'top picks' },
+  //   match: { featured: true },
+  //   aliases: [],
+  //   detect: [],
+  //   subs: {},
+  // },
   eat: {
     label: { es: 'Comer', en: 'Eat' },
     noun: { es: 'lugares para comer', en: 'places to eat' },

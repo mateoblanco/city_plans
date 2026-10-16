@@ -1,10 +1,12 @@
-import Search from "@/components/Search/Search";
+import Header from "@/components/Header/Header";
+import HeroSearch from "./HeroSearch/HeroSearch";
 
 const HomePage = () => {
   return (
-    <div>
-      <Search />
-    </div>
+    <section>
+      <Header />
+      <HeroSearch />
+    </section>
   );
 };
 

@@ -1,15 +1,15 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Baskervville, Geist } from "next/font/google";
 import '@/styles/reset.scss';
 import '@/styles/global.scss';
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const baskervville = Baskervville({
+  variable: "--font-baskervville",
   subsets: ["latin"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const geist = Geist({
+  variable: "--font-geist",
   subsets: ["latin"],
 });
 
@@ -20,8 +20,12 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="es" className={`${geistSans.variable} ${geistMono.variable}`}>
-      <body>{children}</body>
+    <html lang="es" className={`${baskervville.variable} ${geist.variable}`}>
+      <body>
+        <main className="root">
+          {children}
+        </main>
+      </body>
     </html>
   );
 }

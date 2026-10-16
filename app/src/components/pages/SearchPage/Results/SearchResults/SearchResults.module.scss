@@ -1,0 +1,32 @@
+.results {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px 48px 24px 48px;
+  width: 55%;
+}
+
+.notices {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.notice {
+  background-color: #f5f5f5;
+  color: #555555;
+  font-size: 14px;
+  padding: 8px 12px;
+}
+
+.grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}

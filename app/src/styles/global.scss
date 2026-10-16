@@ -1,6 +1,3 @@
-:root {
-
-}
 
 *,
 *::after,
@@ -19,6 +16,10 @@
   
 html {
 	--scroll-behavior: smooth !important;
+	// Alto mínimo del header sticky.
+	--header-height: 56px;
+	// Alto real del header, medido por HeaderOffset: lo fijo debajo (el mapa de /search) arranca acá.
+	--header-offset: var(--header-height);
 
 	background-color: #ffffff;
 	box-sizing: border-box;
@@ -40,7 +41,7 @@ body {
 	background-color: #ffffff;
 	color: #000000;
 	font-feature-settings: 'liga' 1, 'calt' 1;
-	font-family: 'sans-serif';
+	font-family: var(--font-geist), 'sans-serif';
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
 	font-style: normal;

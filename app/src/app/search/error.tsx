@@ -2,13 +2,18 @@
 
 import Search from "@/components/Search/Search";
 
-const SearchError = ({ reset }: { error: Error & { digest?: string }; reset: () => void }) => {
+type Props = {
+  error: Error & { digest?: string };
+  reset: () => void;
+};
+
+const SearchError = (props: Props) => {
   return (
     <main>
       <Search />
       <div role="alert">
         <p>No pudimos completar la búsqueda.</p>
-        <button type="button" onClick={reset}>
+        <button type="button" onClick={props.reset}>
           Reintentar
         </button>
       </div>

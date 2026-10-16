@@ -1,0 +1,140 @@
+// Basado en el demo de Select de Base UI (v1.9.0, css-modules), en px y sin modo oscuro (la página es siempre clara).
+// El botón se ve como los demás filtros de la barra (.filter en HeaderSearch.module.scss): activo con un barrio elegido.
+
+.trigger {
+  align-items: center;
+  background: none;
+  border: 1px solid #bbbbbb;
+  border-radius: 999px;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 13px;
+  gap: 4px;
+  line-height: 1;
+  padding: 3px 6px 3px 10px;
+  user-select: none;
+  white-space: nowrap;
+  -webkit-user-select: none;
+
+  &:hover,
+  &[data-popup-open] {
+    background-color: #f2f2f2;
+  }
+
+  &[data-active] {
+    background-color: #000000;
+    border-color: #000000;
+    color: #ffffff;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #000000;
+    outline-offset: 2px;
+  }
+}
+
+.triggerIcon {
+  display: flex;
+}
+
+.icon {
+  display: block;
+}
+
+.positioner {
+  outline: none;
+  user-select: none;
+  z-index: 10;
+  -webkit-user-select: none;
+}
+
+.popup {
+  background-clip: padding-box;
+  background-color: #ffffff;
+  border: 1px solid #dddddd;
+  box-shadow: 4px 4px 0 rgb(0 0 0 / 12%);
+  box-sizing: border-box;
+  color: #000000;
+  min-width: var(--anchor-width);
+  outline: 0;
+  transform-origin: var(--transform-origin);
+  transition:
+    transform 100ms ease-out,
+    opacity 100ms ease-out;
+
+  &[data-starting-style],
+  &[data-ending-style] {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+.list {
+  box-sizing: border-box;
+  max-height: min(320px, var(--available-height));
+  overflow-y: auto;
+  padding-block: 4px;
+  position: relative;
+  scroll-padding-block: 24px;
+}
+
+.item {
+  align-items: center;
+  box-sizing: border-box;
+  cursor: default;
+  display: grid;
+  font-size: 13px;
+  gap: 8px;
+  grid-template-columns: 16px 1fr;
+  line-height: 20px;
+  outline: 0;
+  padding-block: 6px;
+  padding-left: 10px;
+  padding-right: 16px;
+  user-select: none;
+  -webkit-user-select: none;
+
+  &[data-highlighted] {
+    background-color: #000000;
+    color: #ffffff;
+  }
+}
+
+.itemIndicator {
+  grid-column-start: 1;
+}
+
+.itemText {
+  grid-column-start: 2;
+}
+
+.scrollArrow {
+  align-items: center;
+  background-color: #ffffff;
+  cursor: default;
+  display: flex;
+  font-size: 12px;
+  height: 16px;
+  justify-content: center;
+  text-align: center;
+  width: 100%;
+  z-index: 1;
+
+  &::before {
+    content: '';
+    height: 100%;
+    left: 0;
+    position: absolute;
+    width: 100%;
+  }
+
+  &[data-direction='up'] {
+    top: 0;
+  }
+
+  &[data-direction='down'] {
+    bottom: 0;
+  }
+}
