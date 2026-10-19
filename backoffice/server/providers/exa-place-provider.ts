@@ -2,6 +2,7 @@ import { Exa, ExaError, type DeepOutputSchema, type RegularSearchOptions } from 
 import { z } from 'zod'
 import type { ExaPlaceResponse, ExaPlaceResult, JsonValue } from '../../src/types/places.ts'
 import { PlacesProviderError, type ProviderErrorKind } from './places-provider.ts'
+import { isRateLimited, RateLimitError } from './rate-limit.ts'
 
 type ExaSearchClient = {
   search(query: string, options: RegularSearchOptions): Promise<unknown>
@@ -17,8 +18,9 @@ const placeInfoSchema = z.object({
     opens: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
     closes: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable(),
   })),
-  knows_before_you_go: z.string(),
   menu: z.array(z.string()),
+  // Si Exa no lo devuelve, queda vacío en vez de invalidar la respuesta.
+  instagram_profile_url: z.string().catch(''),
 })
 
 const exaResultSchema = z.object({
@@ -38,6 +40,8 @@ const searchResponseSchema = z.object({
   }),
 })
 
+// Exa acepta hasta 10 propiedades en total, contando las anidadas (los items de open_hours suman 3):
+// este schema ya usa las 10. Para sumar un campo hay que sacar otro.
 export const EXA_PLACE_OUTPUT_SCHEMA = {
   description: 'Schema describing a place or venue, including its details, hours, and menu',
   type: 'object',
@@ -47,8 +51,8 @@ export const EXA_PLACE_OUTPUT_SCHEMA = {
     'contact_info',
     'open_hours_raw',
     'open_hours',
-    'knows_before_you_go',
     'menu',
+    'instagram_profile_url',
   ],
   properties: {
     description: {
@@ -80,10 +84,6 @@ export const EXA_PLACE_OUTPUT_SCHEMA = {
         },
       },
     },
-    knows_before_you_go: {
-      type: 'string',
-      description: 'Important tips or information visitors should know before visiting',
-    },
     menu: {
       type: 'array',
       description: 'List of menu items available at the place',
@@ -91,6 +91,10 @@ export const EXA_PLACE_OUTPUT_SCHEMA = {
         type: 'string',
         description: 'Name of the menu item',
       },
+    },
+    instagram_profile_url: {
+      type: 'string',
+      description: "Full URL of the place's official Instagram profile (https://www.instagram.com/<handle>/), or an empty string if it does not appear in the sources. Fill it only when the profile URL or @handle literally appears in the retrieved pages; never infer or construct it from the place name.",
     },
   },
 } satisfies DeepOutputSchema & { description: string }
@@ -148,6 +152,11 @@ function errorKind(error: unknown): ProviderErrorKind {
   return 'upstream'
 }
 
+function exaFailure(error: unknown): PlacesProviderError {
+  if (isRateLimited(error)) return new RateLimitError('exa', 'Exa limitó temporalmente las consultas.', { cause: error })
+  return new PlacesProviderError(errorKind(error), 'Exa no pudo completar la consulta.', { cause: error })
+}
+
 export class ExaPlaceSearchProvider implements ExaPlaceProvider {
   readonly configured: boolean
   private readonly client?: ExaSearchClient
@@ -183,7 +192,7 @@ export class ExaPlaceSearchProvider implements ExaPlaceProvider {
     try {
       result = await this.client.search(query, EXA_TEXT_SEARCH_OPTIONS)
     } catch (error) {
-      throw new PlacesProviderError(errorKind(error), 'Exa no pudo completar la consulta.', { cause: error })
+      throw exaFailure(error)
     }
     const parsed = textSearchResponseSchema.safeParse(result)
     if (!parsed.success) throw new PlacesProviderError('upstream', 'Exa devolvió una respuesta inválida.')
@@ -207,11 +216,7 @@ export class ExaPlaceSearchProvider implements ExaPlaceProvider {
       try {
         result = await this.client.search(query, EXA_PLACE_SEARCH_OPTIONS)
       } catch (error) {
-        throw new PlacesProviderError(
-          errorKind(error),
-          'Exa no pudo completar la consulta.',
-          { cause: error },
-        )
+        throw exaFailure(error)
       }
       parsed = searchResponseSchema.safeParse(result)
     }

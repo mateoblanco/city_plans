@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createApp } from './app.ts'
-import { PlacesProviderError, type PlacesProvider } from './providers/places-provider.ts'
+import { ExaProviderFailure, InstagramProviderFailure, PlacesProviderError, type PlacesProvider } from './providers/places-provider.ts'
 
 const validRequest = {
   mode: 'filters',
@@ -183,7 +183,7 @@ describe('exploración multi-fuente', () => {
     expect(response.status).toBe(404)
   })
 
-  it('POST /api/places guarda los resultados y GET /api/places/exists devuelve los ya guardados', async () => {
+  it('POST /api/places guarda los resultados y POST /api/places/exists devuelve los ya guardados', async () => {
     const saved = [{ googlePlaceId: 'place-1', id: 'uuid-1', action: 'created', embedded: true }]
     const placesSaver = { save: vi.fn().mockResolvedValue(saved), existing: vi.fn().mockResolvedValue(['place-1']) }
     const app = createApp({ placesSaver })
@@ -192,32 +192,45 @@ describe('exploración multi-fuente', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
+    const exists = (body: unknown) => app.request('/api/places/exists', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
     const results = [{ status: 'ok', place: { googlePlaceId: 'place-1' } }, { status: 'error' }]
 
     const response = await post({ results })
-    const exists = await app.request('/api/places/exists?ids=place-1, place-2,,place-1')
+    const found = await exists({ ids: ['place-1', ' place-2', 'place-1'] })
 
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ results: saved })
     expect(placesSaver.save).toHaveBeenCalledWith(results)
-    expect(exists.status).toBe(200)
-    expect(await exists.json()).toEqual({ ids: ['place-1'] })
+    expect(found.status).toBe(200)
+    expect(await found.json()).toEqual({ ids: ['place-1'] })
+    expect(placesSaver.existing).toHaveBeenCalledTimes(1)
     expect(placesSaver.existing).toHaveBeenCalledWith(['place-1', 'place-2'])
+    // Un barrido grande entra en una sola consulta; más de 2000, vacío o ids vacíos no.
+    const many = Array.from({ length: 2000 }, (_, index) => `place-${index}`)
+    expect((await exists({ ids: many })).status).toBe(200)
+    expect(placesSaver.existing).toHaveBeenLastCalledWith(many)
+    expect((await exists({ ids: [...many, 'extra'] })).status).toBe(400)
+    expect((await exists({ ids: [] })).status).toBe(400)
+    expect((await exists({ ids: [''] })).status).toBe(400)
+    expect((await exists(null)).status).toBe(400)
     expect((await post({ results: [] })).status).toBe(400)
     expect((await post({ results: [{ place: {} }] })).status).toBe(400)
     expect((await post(null)).status).toBe(400)
-    expect((await app.request('/api/places/exists')).status).toBe(400)
   })
 
   it('GET /api/places devuelve el listado del reader y 500 si falla', async () => {
     const list = [{
       id: 'uuid-1', name: 'El Palenque', neighborhoodId: 'CIUDAD VIEJA', categories: ['restaurant'], tags: ['cash_only'],
       status: 'published', hoursStatus: 'exact', updatedAt: '2026-10-12T15:00:00.000Z', hasEmbedding: true,
-      prominence: 0.54, editorialMentions: 2, listedOrAwarded: true, igFollowers: 999, featured: false,
+      prominence: 0.54, igFollowers: 999, featured: false, iconCategory: 'grill',
     }]
-    const response = await createApp({ placesReader: { list: vi.fn().mockResolvedValue(list), setFeatured: vi.fn() } }).request('/api/places')
+    const response = await createApp({ placesReader: { list: vi.fn().mockResolvedValue(list), setFeatured: vi.fn(), publish: vi.fn() } }).request('/api/places')
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const failed = await createApp({ placesReader: { list: vi.fn().mockRejectedValue(new Error('boom')), setFeatured: vi.fn() } }).request('/api/places')
+    const failed = await createApp({ placesReader: { list: vi.fn().mockRejectedValue(new Error('boom')), setFeatured: vi.fn(), publish: vi.fn() } }).request('/api/places')
 
     expect(response.status).toBe(200)
     expect(response.headers.get('Cache-Control')).toBe('no-store')
@@ -230,7 +243,7 @@ describe('exploración multi-fuente', () => {
   it('PATCH /api/places/:id/featured valida el pedido y cambia sólo featured', async () => {
     const id = '0b9f6a3c-1d2e-4f5a-8b7c-9d0e1f2a3b4c'
     const setFeatured = vi.fn(async (placeId: string) => placeId === id)
-    const app = createApp({ placesReader: { list: vi.fn(), setFeatured } })
+    const app = createApp({ placesReader: { list: vi.fn(), setFeatured, publish: vi.fn() } })
     const patch = (placeId: string, body: unknown) => app.request(`/api/places/${placeId}/featured`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -250,11 +263,48 @@ describe('exploración multi-fuente', () => {
     expect(await missing.json()).toEqual({ error: { code: 'NOT_FOUND_ERROR', message: 'El lugar no existe.' } })
 
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const failing = createApp({ placesReader: { list: vi.fn(), setFeatured: vi.fn().mockRejectedValue(new Error('boom')) } })
+    const failing = createApp({ placesReader: { list: vi.fn(), setFeatured: vi.fn().mockRejectedValue(new Error('boom')), publish: vi.fn() } })
     const failed = await failing.request(`/api/places/${id}/featured`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ featured: true }) })
     expect(failed.status).toBe(500)
     error.mockRestore()
     expect((await createApp().request(`/api/places/${id}/featured`, { method: 'PATCH', body: '{"featured":true}' })).status).toBe(503)
+  })
+
+  it('PATCH /api/places/:id/status publica a mano un lugar en review', async () => {
+    const id = '0b9f6a3c-1d2e-4f5a-8b7c-9d0e1f2a3b4c'
+    const other = '1b9f6a3c-1d2e-4f5a-8b7c-9d0e1f2a3b4c'
+    const published = '2b9f6a3c-1d2e-4f5a-8b7c-9d0e1f2a3b4c'
+    const publish = vi.fn(async (placeId: string) => placeId === id ? 'published' as const : placeId === published ? 'not_in_review' as const : 'not_found' as const)
+    const app = createApp({ placesReader: { list: vi.fn(), setFeatured: vi.fn(), publish } })
+    const patch = (placeId: string, body: unknown) => app.request(`/api/places/${placeId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+
+    const ok = await patch(id, { status: 'published' })
+    expect(ok.status).toBe(200)
+    expect(await ok.json()).toEqual({ id, status: 'published' })
+    expect(publish).toHaveBeenCalledWith(id)
+
+    // Sólo se puede publicar: cualquier otro status es un pedido inválido.
+    for (const body of [{ status: 'hidden' }, { status: 'review' }, { status: 'cualquiera' }, null]) {
+      expect((await patch(id, body)).status).toBe(400)
+    }
+    expect((await patch('no-es-uuid', { status: 'published' })).status).toBe(400)
+    expect(publish).toHaveBeenCalledTimes(1)
+    expect((await patch(other, { status: 'published' })).status).toBe(404)
+    const notInReview = await patch(published, { status: 'published' })
+    expect(notInReview.status).toBe(409)
+    expect(await notInReview.json()).toEqual({ error: { code: 'VALIDATION_ERROR', message: 'El lugar no está para revisar.' } })
+
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const failing = createApp({ placesReader: { list: vi.fn(), setFeatured: vi.fn(), publish: vi.fn().mockRejectedValue(new Error('boom')) } })
+    const failed = await failing.request(`/api/places/${id}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'published' }) })
+    expect(failed.status).toBe(500)
+    expect(await failed.json()).toEqual({ error: { code: 'UNKNOWN_ERROR', message: 'No se pudo publicar el lugar.' } })
+    error.mockRestore()
+    expect((await createApp().request(`/api/places/${id}/status`, { method: 'PATCH', body: '{"status":"published"}' })).status).toBe(503)
   })
 
   it('/api/places responde 503 si no hay base configurada', async () => {
@@ -264,7 +314,7 @@ describe('exploración multi-fuente', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ results: [{ status: 'ok' }] }),
     })
-    const exists = await app.request('/api/places/exists?ids=place-1')
+    const exists = await app.request('/api/places/exists', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: ['place-1'] }) })
     const list = await app.request('/api/places')
 
     expect(list.status).toBe(503)
@@ -314,7 +364,10 @@ describe('exploración multi-fuente', () => {
     expect(log).toHaveBeenCalledWith([
       '2 lugares · unmapped_fact: 1 · llm_doubt: 1 · hours_no_close: 1',
       'Horarios recuperados con la segunda búsqueda: 0 de 0 (USD 0.0000)',
-      'Costo USD 0.2000: fuentes 0.1200 · LLM principal 0.0800 · segunda búsqueda 0.0000',
+      'A revisar: 0',
+      // Un lote de antes del logo: sin review.logo ni stats.logoUsd, valen los defaults.
+      'Logos: 0 subidos · 1 sin foto usable · 0 con fallas',
+      'Costo USD 0.2000: fuentes 0.1200 · LLM principal 0.0800 · segunda búsqueda 0.0000 · logo 0.0000',
       'Tokens cacheados: 6000 de 20000 (30%) · escritos en cache: 0',
     ].join('\n'))
     expect(invalidType.status).toBe(400)
@@ -399,6 +452,28 @@ describe('exploración multi-fuente', () => {
     expect(response.status).toBe(429)
     expect(await response.json()).toEqual({
       error: { code: 'QUOTA_ERROR', message: 'Vercel AI Gateway limitó temporalmente las consultas.' },
+    })
+  })
+
+  it('un error de Apify sale con su propio código, para que el lote lo cuente aparte', async () => {
+    const app = createApp({
+      extractor: { configured: true, extract: vi.fn().mockRejectedValue(new InstagramProviderFailure(new Error('Instagram demoró demasiado en responder.'))) },
+    })
+    const response = await app.request('/api/extract', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ googlePlaceId: 'place-1', seedCategories: ['cafe'] }) })
+    expect(response.status).toBe(502)
+    expect(await response.json()).toEqual({
+      error: { code: 'INSTAGRAM_PROVIDER_ERROR', message: 'Error de Apify: no se pudo consultar Instagram. Instagram demoró demasiado en responder.' },
+    })
+  })
+
+  it('un error de Exa sale con su propio código, para que el lote lo cuente aparte', async () => {
+    const app = createApp({
+      extractor: { configured: true, extract: vi.fn().mockRejectedValue(new ExaProviderFailure(new Error('Exa no pudo completar la consulta.'))) },
+    })
+    const response = await app.request('/api/extract', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ googlePlaceId: 'place-1', seedCategories: ['cafe'] }) })
+    expect(response.status).toBe(502)
+    expect(await response.json()).toEqual({
+      error: { code: 'EXA_PROVIDER_ERROR', message: 'Error de Exa: no se pudo consultar Exa. Exa no pudo completar la consulta.' },
     })
   })
 

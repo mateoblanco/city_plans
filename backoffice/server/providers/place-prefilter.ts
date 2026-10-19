@@ -4,7 +4,7 @@ import {
   ACCEPT_PRIMARY_TYPE_SUFFIXES,
   MIN_REVIEWS_TO_ACCEPT,
   REJECT_PRIMARY_TYPES,
-  REJECTED_BUSINESS_STATUSES,
+  CLOSED_BUSINESS_STATUSES,
   REVIEW_PRIMARY_TYPES,
 } from './neighborhood-sweep-config.ts'
 
@@ -24,8 +24,9 @@ export function classifyPlace(place: {
   primaryType?: string
   userRatingCount?: number
 }): PlaceClassification {
-  if (place.businessStatus && REJECTED_BUSINESS_STATUSES.includes(place.businessStatus)) {
-    return { group: 'rejected', reason: place.businessStatus.toLowerCase() }
+  // Cerrado según Google: a revisión con el motivo; la UI no deja procesarlo salvo que se mueva a mano.
+  if (place.businessStatus && CLOSED_BUSINESS_STATUSES.includes(place.businessStatus)) {
+    return { group: 'review', reason: place.businessStatus.toLowerCase() }
   }
 
   const primaryType = place.primaryType

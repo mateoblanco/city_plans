@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { ApifyInstagramProvider } from './apify-instagram-provider.ts'
+import { RateLimitError, TransientProviderError } from './rate-limit.ts'
 
 describe('ApifyInstagramProvider', () => {
   it('envía sólo el username y normaliza nombre, bio y links', async () => {
@@ -49,6 +50,21 @@ describe('ApifyInstagramProvider', () => {
     expect(dos).not.toHaveProperty('followers')
   })
 
+  it('prefiere la foto de perfil HD y cae a la común', async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify([
+      { username: 'cafe.uno', profilePicUrl: 'https://cdn.example/uno-150.jpg', profilePicUrlHD: 'https://cdn.example/uno-hd.jpg' },
+      { username: 'cafe.dos', profilePicUrl: 'https://cdn.example/dos-150.jpg' },
+      { username: 'cafe.tres' },
+    ]), { status: 200 }))
+    const provider = new ApifyInstagramProvider({ token: 'secret' }, fetcher)
+
+    const [uno, dos, tres] = await provider.scrapeMany(['https://www.instagram.com/cafe.uno/'])
+
+    expect(uno.profilePicUrl).toBe('https://cdn.example/uno-hd.jpg')
+    expect(dos.profilePicUrl).toBe('https://cdn.example/dos-150.jpg')
+    expect(tres).not.toHaveProperty('profilePicUrl')
+  })
+
   it('informa configuración, autorización y cuota sin filtrar secretos', async () => {
     await expect(
       new ApifyInstagramProvider({}).scrape('https://instagram.com/cafe/'),
@@ -66,7 +82,17 @@ describe('ApifyInstagramProvider', () => {
       vi.fn().mockResolvedValue(new Response('', { status: 402 })),
     )
     await expect(quota.scrape('https://instagram.com/cafe/'))
-      .rejects.toMatchObject({ kind: 'quota' })
+      .rejects.toMatchObject({ kind: 'quota', message: 'Apify no tiene crédito disponible.' })
+    await expect(quota.scrape('https://instagram.com/cafe/')).rejects.not.toBeInstanceOf(RateLimitError)
+
+    // 429 es un límite temporal: se puede reintentar y trae el Retry-After.
+    const limited = new ApifyInstagramProvider(
+      { token: 'secret' },
+      vi.fn().mockResolvedValue(new Response('', { status: 429, headers: { 'Retry-After': '4' } })),
+    )
+    const error = await limited.scrape('https://instagram.com/cafe/').catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(RateLimitError)
+    expect(error).toMatchObject({ kind: 'quota', service: 'apify', retryAfterMs: 4000 })
   })
 
   it('conserva el detalle de un error de Apify para facilitar el diagnóstico', async () => {
@@ -112,5 +138,89 @@ describe('ApifyInstagramProvider', () => {
       usernames: ['cafe.uno', 'cafe.dos'],
       includeAboutSection: false,
     })
+  })
+
+  it('busca usuarios con el actor de búsqueda, hasta 5, y devuelve los perfiles con sus datos', async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify([
+      { username: 'el.mingus', fullName: 'El Mingus', biography: 'Jazz bar · Montevideo', url: 'https://www.instagram.com/el.mingus', profilePicUrlHD: 'https://cdn.example/m.jpg', followersCount: 9_000 },
+      { username: 'mingus_electric', fullName: 'Brian Echols', biography: '' },
+    ]), { status: 200 }))
+    const provider = new ApifyInstagramProvider({ token: 'secret' }, fetcher)
+
+    const result = await provider.searchProfiles('El Mingus, bar!')
+
+    expect(result.chargedResults).toBe(2)
+    expect(result.profiles.map((profile) => profile.name)).toEqual(['El Mingus', 'Brian Echols'])
+    expect(result.profiles[0]).toMatchObject({ bio: 'Jazz bar · Montevideo', followers: 9_000, profilePicUrl: 'https://cdn.example/m.jpg' })
+    const [url, init] = fetcher.mock.calls[0]
+    expect(String(url)).toContain('/v2/actors/apify~instagram-search-scraper/run-sync-get-dataset-items')
+    // El actor rechaza los signos (y la coma separa términos): se sacan.
+    expect(JSON.parse(init.body)).toEqual({ search: 'El Mingus bar', searchType: 'user', searchLimit: 5 })
+  })
+
+  it('sin resultados el actor escribe un ítem de error, que se cobra', async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify([{ error: 'no_items', errorDescription: 'Empty or private data for provided input' }]), { status: 200 }))
+    const provider = new ApifyInstagramProvider({ token: 'secret' }, fetcher)
+
+    await expect(provider.searchProfiles('Nadie')).resolves.toEqual({ profiles: [], chargedResults: 1 })
+  })
+
+  it('la búsqueda convierte un 429 en RateLimitError y exige token', async () => {
+    const limited = new ApifyInstagramProvider({ token: 'secret' }, vi.fn().mockResolvedValue(new Response('', { status: 429 })))
+    await expect(limited.searchProfiles('El Mingus')).rejects.toBeInstanceOf(RateLimitError)
+    await expect(new ApifyInstagramProvider({}).searchProfiles('El Mingus')).rejects.toMatchObject({ kind: 'configuration' })
+  })
+
+  it('lee el rubro de la cuenta e ignora "None"', async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify([
+      { username: 'living.uy', fullName: 'L I V I N G', businessCategoryName: 'Bar' },
+      { username: 'plazadechueca_pde', fullName: 'Plaza de Chueca PdE', businessCategoryName: 'None' },
+    ]), { status: 200 }))
+    const { profiles } = await new ApifyInstagramProvider({ token: 'secret' }, fetcher).searchProfiles('living')
+    expect(profiles[0].category).toBe('Bar')
+    expect(profiles[1]).not.toHaveProperty('category')
+  })
+
+  it('timeout, 504, 5xx y error de red son pasajeros; 400 y 402 no', async () => {
+    const providerFor = (fetcher: typeof fetch) => new ApifyInstagramProvider({ token: 'secret' }, fetcher)
+    const timeout = vi.fn().mockRejectedValue(new DOMException('timeout', 'TimeoutError'))
+    await expect(providerFor(timeout).scrape('https://instagram.com/cafe/')).rejects.toMatchObject({ name: 'TransientProviderError', kind: 'timeout' })
+    for (const status of [408, 504, 500, 503]) {
+      const error = await providerFor(vi.fn().mockResolvedValue(new Response('{}', { status }))).scrape('https://instagram.com/cafe/').catch((caught: unknown) => caught)
+      expect(error, String(status)).toBeInstanceOf(TransientProviderError)
+    }
+    await expect(providerFor(vi.fn().mockRejectedValue(new TypeError('fetch failed'))).scrape('https://instagram.com/cafe/')).rejects.toBeInstanceOf(TransientProviderError)
+    for (const status of [400, 402]) {
+      const error = await providerFor(vi.fn().mockResolvedValue(new Response('{}', { status }))).scrape('https://instagram.com/cafe/').catch((caught: unknown) => caught)
+      expect(error, String(status)).not.toBeInstanceOf(TransientProviderError)
+    }
+  })
+
+  it('cada corrida espera hasta 120 s y pasa la memoria sólo si es válida', async () => {
+    const ok = () => vi.fn().mockResolvedValue(new Response('[]', { status: 200 }))
+    const withMemory = ok()
+    await new ApifyInstagramProvider({ token: 'secret', memoryMbytes: 512 }, withMemory).scrape('https://instagram.com/cafe/')
+    const url = new URL(String(withMemory.mock.calls[0][0]))
+    expect(url.searchParams.get('timeout')).toBe('120')
+    expect(url.searchParams.get('memory')).toBe('512')
+
+    const search = ok()
+    await new ApifyInstagramProvider({ token: 'secret' }, search).searchProfiles('Cordón Beer')
+    expect(new URL(String(search.mock.calls[0][0])).searchParams.get('timeout')).toBe('120')
+    expect(new URL(String(search.mock.calls[0][0])).searchParams.has('memory')).toBe(false)
+
+    const invalid = ok()
+    await new ApifyInstagramProvider({ token: 'secret', memoryMbytes: 500 }, invalid).scrape('https://instagram.com/cafe/')
+    expect(new URL(String(invalid.mock.calls[0][0])).searchParams.has('memory')).toBe(false)
+  })
+
+  it('toma la fecha del post más nuevo, en ISO o en segundos', async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify([
+      { username: 'cordon.beer', latestPosts: [{ caption: 'Viernes', timestamp: '2026-10-15T21:00:00.000Z' }, { caption: 'Jueves', timestamp: '2026-10-01T21:00:00.000Z' }] },
+      { username: 'cordonbeer', latestPosts: [{ caption: 'Hola', timestamp: 1704888000 }] },
+      { username: 'sinfecha', latestPosts: [{ caption: 'Hola' }] },
+    ]), { status: 200 }))
+    const profiles = await new ApifyInstagramProvider({ token: 'secret' }, fetcher).scrapeMany(['https://instagram.com/cordon.beer/'])
+    expect(profiles.map((profile) => profile.latestPostAt)).toEqual(['2026-10-15T21:00:00.000Z', '2024-01-10T12:00:00.000Z', undefined])
   })
 })

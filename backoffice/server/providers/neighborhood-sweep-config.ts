@@ -23,12 +23,12 @@ export const SWEEP_TYPES: readonly SweepTypeConfig[] = [
 ]
 
 // Filtro previo al pipeline (sólo modo completo). Se evalúa con businessStatus, primaryType y reseñas.
-// Orden: cerrado → rejected; REJECT → rejected; REVIEW → review (review_type:<tipo>);
+// Orden: cerrado → review (closed_permanently/closed_temporarily, bloqueado para procesar salvo que se mueva a mano); REJECT → rejected; REVIEW → review (review_type:<tipo>);
 // ACCEPT (lista o sufijo) → accepted, o review por pocas reseñas (few_reviews);
 // cualquier otro → review (unknown_type:<tipo>). El primaryType manda: los types secundarios no cuentan.
 export const MIN_REVIEWS_TO_ACCEPT = 10
 
-export const REJECTED_BUSINESS_STATUSES: readonly string[] = ['CLOSED_PERMANENTLY', 'CLOSED_TEMPORARILY']
+export const CLOSED_BUSINESS_STATUSES: readonly string[] = ['CLOSED_PERMANENTLY', 'CLOSED_TEMPORARILY']
 
 export const ACCEPT_PRIMARY_TYPES: readonly string[] = [
   'restaurant',

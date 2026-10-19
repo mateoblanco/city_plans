@@ -11,10 +11,11 @@ const GROUPS: { group: GroupName; title: string }[] = [
   { group: 'atmosphere', title: 'Ambiente' },
   { group: 'goodFor', title: 'Ideal para' },
   { group: 'offers', title: 'Ofertas' },
+  { group: 'style', title: 'Estilo' },
 ]
 
 type PlaceTagsEvidenceProps = {
-  place: Pick<PlaceEnrichmentDraft, 'categories' | 'tags' | 'placeFacts'>
+  place: Pick<PlaceEnrichmentDraft, 'categories' | 'tags' | 'placeFacts' | 'style' | 'tagEvidence'>
 }
 
 /** Muestra cada categoría y tag del borrador con los facts que lo respaldan. */
@@ -25,7 +26,9 @@ export function PlaceTagsEvidence({ place }: PlaceTagsEvidenceProps) {
       group,
       title,
       // categories va aparte: un id de tag nunca se agrupa como categoría.
-      ids: group === 'categories' ? place.categories : place.tags.filter((id) => groupOf(id) === group),
+      ids: group === 'categories' ? place.categories
+        : group === 'style' ? (place.style ? [place.style] : [])
+        : place.tags.filter((id) => groupOf(id) === group),
     }))
     .filter((section) => section.ids.length > 0)
 
@@ -40,10 +43,16 @@ export function PlaceTagsEvidence({ place }: PlaceTagsEvidenceProps) {
           <ul className="space-y-1.5">
             {section.ids.map((id) => {
               const facts = place.placeFacts.filter((fact) => fact.supports.includes(`${section.group}.${id}`))
+              const evidence = place.tagEvidence?.find((item) => item.tag === id)
               return (
                 <li key={id}>
                   <span className="font-medium">{label(id, 'es')}</span>{' '}
                   <code className="text-xs text-muted-foreground">{id}</code>
+                  {evidence && (
+                    <span className="text-xs text-muted-foreground">
+                      {' '}· {evidence.mode === 'explicit' ? 'Explícito' : 'Inferido'}{evidence.signals.length > 0 ? `: ${evidence.signals.join(', ')}` : ''}
+                    </span>
+                  )}
                   {facts.length > 0 ? (
                     <ul className="mt-0.5 space-y-0.5 pl-4 text-muted-foreground">
                       {facts.map((fact) => (

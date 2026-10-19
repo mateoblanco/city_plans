@@ -1,5 +1,5 @@
-// Recalcula prominence de todos los lugares desde las señales guardadas, sin buscar nada nuevo.
-// Para cuando cambian los pesos o topes de computeProminence. Uso: yarn prominence:recompute
+// Recalcula prominence de todos los lugares desde los seguidores guardados, sin buscar nada nuevo.
+// Para cuando cambia la fórmula de computeProminence. Uso: yarn prominence:recompute
 import './env.ts'
 import { eq } from 'drizzle-orm'
 import { places } from '../db/schema.ts'
@@ -9,7 +9,7 @@ async function main() {
   if (!process.env.DATABASE_URL) throw new Error('Falta configurar DATABASE_URL en .env.local.')
   const { db } = await import('../db/index.ts')
   const rows = await db
-    .select({ id: places.id, editorialMentions: places.editorialMentions, listedOrAwarded: places.listedOrAwarded, igFollowers: places.igFollowers, prominence: places.prominence })
+    .select({ id: places.id, igFollowers: places.igFollowers, prominence: places.prominence })
     .from(places)
   let changed = 0
   for (const row of rows) {

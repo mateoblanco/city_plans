@@ -1,8 +1,13 @@
 import { z } from 'zod'
-import { CATEGORIES, TAG_IDS, ids } from './tags.ts'
+import { CATEGORIES, STYLE_IDS, TAG_IDS, ids } from './tags.ts'
+import { ICON_CATEGORY_KEYS } from './icon-categories.ts'
+import { REVIEW_REASON_IDS } from './review-reasons.ts'
 
 const DietLevel = z.enum(['unknown', 'no', 'has_options', 'fully'])
 const TransitStatus = z.enum(['success', 'partial', 'unavailable'])
+export const LOGO_KINDS = ['logo', 'local', 'food', 'person', 'other'] as const
+export const LOGO_SOURCES = ['instagram', 'owner'] as const
+const HexColor = z.string().regex(/^#[0-9a-f]{6}$/)
 
 // Contrato del borrador que más adelante podrá mapearse a tablas de la base.
 // Los IDs y campos de curaduría no pertenecen a esta extracción automática.
@@ -63,10 +68,30 @@ export const PlaceDraft = z.object({
   })),
   // Señales de prominencia; el default acepta resultados de antes de que existieran.
   signals: z.object({
-    editorialMentions: z.number().int().nonnegative(),
-    listedOrAwarded: z.boolean(),
     igFollowers: z.number().int().nonnegative().nullable(),
-  }).default({ editorialMentions: 0, listedOrAwarded: false, igFollowers: null }),
+  }).default({ igFollowers: null }),
+  // Logo en R2 (sólo la clave); el default acepta resultados de antes de que existiera.
+  logo: z.object({
+    key: z.string().regex(/^logos\/[A-Za-z0-9_-]+-[0-9a-f]{8}\.webp$/),
+    kind: z.enum(LOGO_KINDS).nullable(),
+    bgColor: HexColor.nullable(),
+    color: HexColor.nullable(),
+    source: z.enum(LOGO_SOURCES),
+    fetchedAt: z.string().datetime(),
+  }).nullable().default(null),
+  // Categoría de ícono; null = todavía sin categoría (también en resultados de antes de que existiera).
+  iconCategory: z.enum(ICON_CATEGORY_KEYS).nullable().default(null),
+  // Estilo de la marca; null sin señales (también en resultados de antes de que existiera).
+  style: z.enum(STYLE_IDS).nullable().default(null),
+  // Motivos para no publicar (review-reasons.ts); vacío = se publica. Falta en resultados de antes.
+  reviewReasons: z.array(z.enum(REVIEW_REASON_IDS)).default([]),
+  // Respaldo de momentos, cozy y style: sólo para auditar, no se guarda.
+  tagEvidence: z.array(z.object({
+    tag: z.string(),
+    mode: z.enum(['explicit', 'inferred']),
+    signals: z.array(z.string()),
+    factIds: z.array(z.string()),
+  })).default([]),
   embeddingText: z.string(),
   keywordText: z.string(),
 })

@@ -2,11 +2,10 @@ import pMap from 'p-map'
 import type { ExaPlaceResponse } from '../../src/types/places.ts'
 import type { InstagramProfileData } from '../providers/apify-instagram-provider.ts'
 import { brandSearchTerm } from '../providers/brand-name.ts'
-import { editorialSignals } from '../providers/editorial-sources.ts'
 import { isChainBranch, isForeignSource, type Source } from '../providers/place-extraction-service.ts'
 import { withServiceLimit } from '../providers/service-limits.ts'
 import { canonical } from '../providers/source-hosts.ts'
-import { computeProminence, stableSignals, type ProminenceSignals } from './prominence.ts'
+import { computeProminence, type ProminenceSignals } from './prominence.ts'
 
 const REFRESH_CONCURRENCY = 4
 
@@ -16,14 +15,13 @@ export type SignalsRow = ProminenceSignals & {
   googlePlaceId: string | null
   name: string
   instagram: string | null
-  website: string | null
   prominence: number
 }
 
 export type SignalsUpdate = ProminenceSignals & { prominence: number }
 
 export type RefreshDeps = {
-  /** Exa con la marca y el tipo de lugar, la misma búsqueda que hace el pipeline. */
+  /** Exa con la marca y el tipo de lugar, la misma búsqueda que hace el pipeline. Sirve para detectar cadenas. */
   searchPlace(term: string): Promise<ExaPlaceResponse>
   /** Tipo de lugar de Google (primaryTypeDisplayName), sólo para la consulta. */
   placeType?(googlePlaceId: string): Promise<string | null>
@@ -40,7 +38,6 @@ export type RefreshResult = {
   before: SignalsUpdate
   after: SignalsUpdate | null
   chain: boolean
-  editorialHosts: string[]
   warnings: string[]
   error?: string
 }
@@ -54,15 +51,14 @@ export function instagramProfileUrl(handle: string) {
 }
 
 function sameSignals(left: SignalsUpdate, right: SignalsUpdate) {
-  return left.editorialMentions === right.editorialMentions && left.listedOrAwarded === right.listedOrAwarded &&
-    left.igFollowers === right.igFollowers && Math.abs(left.prominence - right.prominence) < 1e-6
+  return left.igFollowers === right.igFollowers && Math.abs(left.prominence - right.prominence) < 1e-6
 }
 
 /**
- * Vuelve a contar las señales de prominencia de lugares guardados, sin LLM: el tipo de lugar de
- * Google (sólo para la consulta), Exa con la marca y el perfil de Instagram ya guardado.
- * editorialMentions no baja y listedOrAwarded no vuelve a false (stableSignals). No toca ninguna otra columna. Una falla de un lugar no corta
- * el resto; si falla sólo Instagram, se actualizan las menciones y los seguidores quedan como estaban.
+ * Vuelve a leer los seguidores de Instagram de lugares guardados y recalcula prominence, sin LLM.
+ * Exa (con la marca y el tipo de lugar de Google) sólo sirve para saber si es una sucursal de cadena:
+ * ahí los seguidores son de la marca y quedan en null. No toca ninguna otra columna. Una falla de un
+ * lugar no corta el resto; si falla sólo Instagram, los seguidores quedan como estaban.
  * Sin el nombre de Google, es cadena si las fuentes muestran varias sucursales o si hay más de un
  * lugar guardado con la misma marca.
  */
@@ -73,7 +69,7 @@ export async function refreshSignals(rows: SignalsRow[], deps: RefreshDeps, opti
   const selected = options.onlyIds ? rows.filter((row) => options.onlyIds!.has(row.id)) : rows
 
   return pMap(selected, async (row): Promise<RefreshResult> => {
-    const before: SignalsUpdate = { editorialMentions: row.editorialMentions, listedOrAwarded: row.listedOrAwarded, igFollowers: row.igFollowers, prominence: row.prominence }
+    const before: SignalsUpdate = { igFollowers: row.igFollowers, prominence: row.prominence }
     const base = { id: row.id, name: row.name, before }
     const warnings: string[] = []
     let placeType: string | null = null
@@ -88,13 +84,12 @@ export async function refreshSignals(rows: SignalsRow[], deps: RefreshDeps, opti
     try {
       exa = await withServiceLimit('exa', () => deps.searchPlace(brandSearchTerm(row.name, placeType)))
     } catch (error) {
-      return { ...base, status: 'error', after: null, chain: false, editorialHosts: [], warnings, error: `Exa: ${message(error)}` }
+      return { ...base, status: 'error', after: null, chain: false, warnings, error: `Exa: ${message(error)}` }
     }
 
     const sources = exa.results
-      .map((result): Source => ({ id: '', kind: 'exa', trust: 'third_party', url: result.url, title: result.title, text: result.text?.trim() || result.highlights.join('\n') }))
+      .map((result): Source => ({ id: '', kind: 'exa', trust: 'third_party', url: result.url, text: result.text?.trim() || result.highlights.join('\n') }))
       .filter((source) => !isForeignSource(source.url, source.text))
-    const editorial = editorialSignals(sources, { brand: row.name, websiteUrl: row.website })
     const chain = (brandCounts.get(brandKey(row.name)) ?? 0) > 1 || isChainBranch({ name: row.name }, sources)
 
     let igFollowers: number | null = null
@@ -112,10 +107,8 @@ export async function refreshSignals(rows: SignalsRow[], deps: RefreshDeps, opti
       }
     }
 
-    // Estables, como al guardar desde el pipeline: Exa no devuelve siempre las mismas fuentes.
-    const signals = stableSignals(row, { editorialMentions: editorial.editorialMentions, listedOrAwarded: editorial.listedOrAwarded, igFollowers })
-    const after: SignalsUpdate = { ...signals, prominence: computeProminence(signals) }
-    const result = { ...base, after, chain, editorialHosts: editorial.editorialHosts, warnings }
+    const after: SignalsUpdate = { igFollowers, prominence: computeProminence({ igFollowers }) }
+    const result = { ...base, after, chain, warnings }
     if (sameSignals(before, after)) return { ...result, status: 'unchanged' }
     if (deps.write) {
       try {

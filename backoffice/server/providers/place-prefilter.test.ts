@@ -39,8 +39,9 @@ describe('classifyPlace', () => {
     expect(classifyPlace({ primaryType: 'bakery' })).toEqual({ group: 'review', reason: 'review_type:bakery' })
   })
 
-  it('respeta el orden: cerrado y REJECT ganan sobre REVIEW, y el primaryType manda sobre los types secundarios', () => {
-    expect(classifyPlace({ primaryType: 'bakery', businessStatus: 'CLOSED_PERMANENTLY', ...OK })).toEqual({ group: 'rejected', reason: 'closed_permanently' })
+  it('respeta el orden: cerrado gana sobre REJECT y REVIEW, y el primaryType manda sobre los types secundarios', () => {
+    expect(classifyPlace({ primaryType: 'bakery', businessStatus: 'CLOSED_PERMANENTLY', ...OK })).toEqual({ group: 'review', reason: 'closed_permanently' })
+    expect(classifyPlace({ primaryType: 'supermarket', businessStatus: 'CLOSED_PERMANENTLY', ...OK })).toEqual({ group: 'review', reason: 'closed_permanently' })
     expect(classifyPlace({ primaryType: 'cafe', types: ['bakery', 'cafe'], ...OK } as never)).toEqual({ group: 'accepted', reason: null })
     expect(classifyPlace({ primaryType: 'coffee_shop', types: ['bakery', 'coffee_shop'], ...OK } as never)).toEqual({ group: 'accepted', reason: null })
   })
@@ -49,10 +50,10 @@ describe('classifyPlace', () => {
     expect(classifyPlace({ businessStatus: 'OPERATIONAL', ...OK })).toEqual({ group: 'review', reason: 'primary_type_missing' })
   })
 
-  it('los cerrados siguen en rejected, sea cual sea el tipo', () => {
-    expect(classifyPlace({ primaryType: 'bar', businessStatus: 'CLOSED_PERMANENTLY', ...OK })).toEqual({ group: 'rejected', reason: 'closed_permanently' })
-    expect(classifyPlace({ primaryType: 'florist', businessStatus: 'CLOSED_TEMPORARILY' })).toEqual({ group: 'rejected', reason: 'closed_temporarily' })
-    expect(classifyPlace({ businessStatus: 'CLOSED_TEMPORARILY' })).toEqual({ group: 'rejected', reason: 'closed_temporarily' })
+  it('los cerrados van a revisión con su motivo, sea cual sea el tipo', () => {
+    expect(classifyPlace({ primaryType: 'bar', businessStatus: 'CLOSED_PERMANENTLY', ...OK })).toEqual({ group: 'review', reason: 'closed_permanently' })
+    expect(classifyPlace({ primaryType: 'florist', businessStatus: 'CLOSED_TEMPORARILY' })).toEqual({ group: 'review', reason: 'closed_temporarily' })
+    expect(classifyPlace({ businessStatus: 'CLOSED_TEMPORARILY' })).toEqual({ group: 'review', reason: 'closed_temporarily' })
   })
 
   it('manda a revisión los aceptables con menos de 10 reseñas o sin reseñas', () => {

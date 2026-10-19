@@ -43,6 +43,55 @@ function setup(saveResponse: () => Promise<Response>) {
 }
 
 describe('ProcessedPlacesPanel', () => {
+  it('muestra el ícono de la categoría, el logo con su clasificación y colores, o por qué no hay', () => {
+    const withLogo = {
+      ...ok('place-1', 'Bar Uno', 'exact'),
+      logoUrl: 'https://logos.example/logos/place-1-0a1b2c3d.webp',
+    } as PlaceEnrichmentResponse & { status: 'ok' }
+    withLogo.place.logo = { key: 'logos/place-1-0a1b2c3d.webp', kind: 'local', bgColor: null, color: '#c0392b', source: 'instagram', fetchedAt: '2026-10-16T12:00:00.000Z' }
+    withLogo.review.logo = { status: 'ok', reason: null, kind: 'local' }
+    withLogo.place.iconCategory = 'croissant'
+    const failed = ok('place-2', 'Bar Dos', 'exact') as PlaceEnrichmentResponse & { status: 'ok' }
+    failed.review.logo = { status: 'failed', reason: 'upload_failed', kind: 'logo' }
+    vi.stubGlobal('fetch', vi.fn(() => jsonResponse({ ids: [] })))
+    render(<ProcessedPlacesPanel rows={{ 'place-1': { status: 'done', result: withLogo }, 'place-2': { status: 'done', result: failed } }} places={[]} categoryLabel={(id) => id} />)
+
+    const uno = screen.getByRole('row', { name: /Bar Uno/ })
+    expect(within(uno).getByRole('img', { name: 'Logo de Bar Uno' })).toHaveAttribute('src', 'https://logos.example/logos/place-1-0a1b2c3d.webp')
+    expect(within(uno).getByRole('img', { name: 'croissant' })).toHaveTextContent('🥐')
+    expect(within(uno).getByTitle('croissant')).toBeInTheDocument()
+    expect(within(uno).getByText('Local')).toBeInTheDocument()
+    expect(within(uno).getByTitle('Fondo: sin dato')).toBeInTheDocument()
+    expect(within(uno).getByText('#c0392b')).toBeInTheDocument()
+    const dos = screen.getByRole('row', { name: /Bar Dos/ })
+    expect(within(dos).getByText('Sin logo')).toBeInTheDocument()
+    // Sin categoría (un resultado de antes): el ícono de reserva, sólo visual.
+    expect(within(dos).getByRole('img', { name: 'Sin categoría' })).toHaveTextContent('🍽️')
+    expect(within(dos).getByText('no se pudo subir a R2')).toBeInTheDocument()
+  })
+
+  it('anota los 429 que hubo en cada lugar y si se recuperó', () => {
+    const limited = ok('place-1', 'Bar Uno', 'exact') as PlaceEnrichmentResponse & { status: 'ok' }
+    limited.review.rateLimits = [{ service: 'exa', retries: 3, waitedMs: 7000, recovered: false }, { service: 'llm', retries: 1, waitedMs: 1000, recovered: true }]
+    vi.stubGlobal('fetch', vi.fn(() => jsonResponse({ ids: [] })))
+    render(<ProcessedPlacesPanel rows={{ 'place-1': { status: 'done', result: limited }, 'place-2': { status: 'done', result: ok('place-2', 'Bar Dos', 'exact') } }} places={[]} categoryLabel={(id) => id} />)
+
+    expect(within(screen.getByRole('row', { name: /Bar Uno/ })).getByText('Reintentos: Exa ×3 sin recuperar · LLM ×1 recuperado')).toBeInTheDocument()
+    expect(within(screen.getByRole('row', { name: /Bar Dos/ })).queryByText(/Reintentos/)).not.toBeInTheDocument()
+  })
+
+  it('anota los reintentos de Apify por timeout y el desempate del Instagram', () => {
+    const tied = ok('place-1', 'Cordón Beer', 'exact') as PlaceEnrichmentResponse & { status: 'ok' }
+    tied.review.rateLimits = [{ service: 'apify', retries: 0, transientRetries: 2, waitedMs: 20000, recovered: true }]
+    tied.review.instagramTieBreak = { rule: 'latest_post', pass: 'first', handles: ['cordonbeer', 'cordon.beer'] }
+    vi.stubGlobal('fetch', vi.fn(() => jsonResponse({ ids: [] })))
+    render(<ProcessedPlacesPanel rows={{ 'place-1': { status: 'done', result: tied } }} places={[]} categoryLabel={(id) => id} />)
+
+    const row = screen.getByRole('row', { name: /Cordón Beer/ })
+    expect(within(row).getByText('Reintentos: Apify ×2 por timeout recuperado')).toBeInTheDocument()
+    expect(within(row).getByText('Desempate de Instagram: post más reciente (@cordonbeer vs @cordon.beer)')).toBeInTheDocument()
+  })
+
   it('lista lo procesado, tilda los ok y consulta qué ya está en la base', async () => {
     const { fetchMock, row } = setup(() => jsonResponse({ results: [] }))
 
@@ -56,7 +105,8 @@ describe('ProcessedPlacesPanel', () => {
     expect(within(row('Bar Uno')).getByText('Exacto')).toBeInTheDocument()
     expect(await within(row('Bar Uno')).findByText('nuevo')).toBeInTheDocument()
     expect(within(row('Bar Dos')).getByText('ya existe')).toBeInTheDocument()
-    expect(fetchMock.mock.calls[0][0]).toBe('/api/places/exists?ids=place-1,place-2,place-3,place-4')
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/places/exists')
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({ ids: ['place-1', 'place-2', 'place-3', 'place-4'] })
     expect(screen.getByRole('button', { name: /Guardar seleccionados \(2\)/ })).toBeEnabled()
   })
 
@@ -124,6 +174,7 @@ describe('ProcessedPlacesPanel', () => {
       conError: 1,
       anomalias: { cuisine_unmentioned: 2, hours_vague: 1 },
       dudas: [{ lugar: 'Bar Uno', dudas: ['¿Es bar o restaurante?'] }],
+      aRevisar: {},
     })
   })
 })

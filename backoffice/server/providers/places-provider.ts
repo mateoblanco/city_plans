@@ -47,3 +47,27 @@ export class PlacesProviderError extends Error {
     this.kind = kind
   }
 }
+
+/**
+ * Apify no pudo traer Instagram (agotados los reintentos, sin crédito o con el token rechazado). El lugar no se
+ * procesa: sin esto se guardaría sin Instagram ni logo. HTTP 502 con código INSTAGRAM_PROVIDER_ERROR.
+ */
+export class InstagramProviderFailure extends PlacesProviderError {
+  constructor(cause: unknown) {
+    const detail = cause instanceof Error ? ` ${cause.message}` : ''
+    super('upstream', `Error de Apify: no se pudo consultar Instagram.${detail}`, { cause })
+    this.name = 'InstagramProviderFailure'
+  }
+}
+
+/**
+ * Exa no respondió (agotados los reintentos, respuesta inválida, sin crédito o con la clave rechazada). El lugar no se
+ * procesa: sin esto se guardaría sin las fuentes de Exa. HTTP 502 con código EXA_PROVIDER_ERROR.
+ */
+export class ExaProviderFailure extends PlacesProviderError {
+  constructor(cause: unknown) {
+    const detail = cause instanceof Error ? ` ${cause.message}` : ''
+    super('upstream', `Error de Exa: no se pudo consultar Exa.${detail}`, { cause })
+    this.name = 'ExaProviderFailure'
+  }
+}

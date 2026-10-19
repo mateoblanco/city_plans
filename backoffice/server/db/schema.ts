@@ -13,6 +13,9 @@ import {
   uuid,
   vector,
 } from "drizzle-orm/pg-core";
+import { ICON_CATEGORY_KEYS } from "../../src/data/icon-categories.ts";
+import { STYLE_IDS } from "../../src/data/tags.ts";
+import { REVIEW_REASON_IDS } from "../../src/data/review-reasons.ts";
 
 // ── Tipos auxiliares ──
 
@@ -43,10 +46,14 @@ const tsvector = customType<{ data: string }>({
 
 // ── Valores permitidos ──
 
-export const PLACE_STATUS = ["draft", "published", "hidden"] as const;
+// review: el pipeline encontró un motivo para no publicarlo (review_reasons); se publica a mano.
+export const PLACE_STATUS = ["draft", "published", "review", "hidden"] as const;
 export const DIET_LEVEL = ["unknown", "no", "has_options", "fully"] as const;
 export const PRICE = ["unknown", "low", "moderate", "high", "very_high"] as const;
 export const RESERVATIONS = ["unknown", "no_reservations", "accepts", "recommended"] as const;
+export const LOGO_KIND = ["logo", "local", "food", "person", "other"] as const;
+// owner: más adelante, cuando el dueño pueda cambiar el logo.
+export const LOGO_SOURCE = ["instagram", "owner"] as const;
 
 const inList = (values: readonly string[]) =>
   sql.raw(values.map((v) => `'${v}'`).join(", "));
@@ -75,6 +82,8 @@ export const places = pgTable(
     googlePlaceId: text("google_place_id").unique(),
     slug: text("slug").notNull().unique(),
     status: text("status", { enum: PLACE_STATUS }).notNull().default("draft"),
+    // Motivos de src/data/review-reasons.ts por los que el pipeline no lo publicó; vacío = ninguno.
+    reviewReasons: text("review_reasons", { enum: REVIEW_REASON_IDS }).array().notNull().default(sql`'{}'`),
 
     // Identidad y ubicación
     name: text("name").notNull(),
@@ -118,17 +127,28 @@ export const places = pgTable(
     highlights: jsonb("highlights").$type<Localized[]>().notNull().default([]),
     transitLines: jsonb("transit_lines").$type<TransitLine[]>().notNull().default([]),
 
-    // Prominencia: señales del pipeline (o de signals:refresh) y el puntaje que sale de ellas.
-    // Fuentes editoriales distintas (por dominio) que nombran al lugar.
-    editorialMentions: integer("editorial_mentions").notNull().default(0),
-    // Alguna de esas fuentes es un ranking ("los mejores…") o menciona un premio.
-    listedOrAwarded: boolean("listed_or_awarded").notNull().default(false),
+    // Prominencia: seguidores del pipeline (o de signals:refresh) y el puntaje que sale de ellos.
     // Seguidores del Instagram validado; null sin Instagram o en una sucursal de cadena.
     igFollowers: integer("ig_followers"),
     // 0 a 1, de computeProminence (server/places/prominence.ts).
     prominence: real("prominence").notNull().default(0),
     // Curaduría manual desde el backoffice: el pipeline nunca lo escribe.
     featured: boolean("featured").notNull().default(false),
+
+    // Logo en Cloudflare R2: sólo la clave; la URL pública es LOGO_BASE_URL + "/" + logo_key.
+    logoKey: text("logo_key"),
+    logoKind: text("logo_kind", { enum: LOGO_KIND }),
+    // Hex #rrggbb: fondo (borde de la imagen) y color principal sin contar el fondo.
+    logoBgColor: text("logo_bg_color"),
+    logoColor: text("logo_color"),
+    logoSource: text("logo_source", { enum: LOGO_SOURCE }),
+    logoFetchedAt: timestamp("logo_fetched_at", { withTimezone: true }),
+
+    // Categoría de ícono (shared/icon-categories.ts): sólo la clave; el emoji vive en código.
+    // null = todavía sin categoría; el check sólo admite claves reales.
+    iconCategory: text("icon_category", { enum: ICON_CATEGORY_KEYS }),
+    // Estilo de la marca (shared/tags.ts STYLES): casual, intermedio o cuidado; null sin señales suficientes.
+    style: text("style", { enum: STYLE_IDS }),
 
     // Búsqueda
     embeddingText: text("embedding_text"),
@@ -158,6 +178,13 @@ export const places = pgTable(
     check("places_diet_gluten_free_check", sql`${t.dietGlutenFree} in (${inList(DIET_LEVEL)})`),
     check("places_price_check", sql`${t.price} in (${inList(PRICE)})`),
     check("places_reservations_check", sql`${t.reservations} in (${inList(RESERVATIONS)})`),
+    check("places_logo_kind_check", sql`${t.logoKind} in (${inList(LOGO_KIND)})`),
+    check("places_logo_source_check", sql`${t.logoSource} in (${inList(LOGO_SOURCE)})`),
+    check("places_logo_bg_color_check", sql`${t.logoBgColor} ~ '^#[0-9a-f]{6}$'`),
+    check("places_logo_color_check", sql`${t.logoColor} ~ '^#[0-9a-f]{6}$'`),
+    check("places_icon_category_check", sql`${t.iconCategory} in (${inList(ICON_CATEGORY_KEYS)})`),
+    check("places_style_check", sql`${t.style} in (${inList(STYLE_IDS)})`),
+    check("places_review_reasons_check", sql`${t.reviewReasons} <@ array[${inList(REVIEW_REASON_IDS)}]::text[]`),
 
     index("places_location_idx").using("gist", t.location),
     index("places_tags_idx").using("gin", t.tags),

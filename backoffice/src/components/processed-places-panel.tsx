@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, Copy, LoaderCircle, Save } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { PlaceIcon } from '@/components/place-icon'
+import { PlaceLogo } from '@/components/place-logo'
 import {
   Table,
   TableBody,
@@ -10,9 +12,10 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import type { ExtractionRow } from '@/hooks/use-extraction-batch'
+import { reviewReasonLabel } from '@/data/review-reasons'
 import { existingPlaceIds, savePlaces } from '@/lib/places-api'
 import { buildProcessedSummary } from '@/lib/processed-summary'
-import type { PlaceEnrichmentResponse, PlaceSummary, SavePlaceResult } from '@/types/places'
+import type { InstagramTieBreakRule, PlaceEnrichmentResponse, PlaceReview, PlaceSummary, SavePlaceResult } from '@/types/places'
 
 type ProcessedPlacesPanelProps = {
   rows: Record<string, ExtractionRow>
@@ -35,6 +38,35 @@ const MISSING_NAME = 'Sin nombre confirmado'
 /** Un resultado ok sin nombre confirmado por las fuentes no se puede guardar: name es NOT NULL. */
 function missingName(row: ExtractionRow | undefined) {
   return row?.result?.status === 'ok' && !row.result.place.name.trim()
+}
+
+const RATE_LIMIT_SERVICES: Record<NonNullable<PlaceReview['rateLimits']>[number]['service'], string> = { apify: 'Apify', exa: 'Exa', llm: 'LLM' }
+
+/**
+ * "Reintentos: Exa ×3 sin recuperar · Apify ×2 por timeout, recuperado"; null si no hubo. ×N son los 429 y
+ * "por timeout" los reintentos por falla pasajera.
+ */
+function rateLimitNote(review: PlaceReview) {
+  const entries = review.rateLimits ?? []
+  if (entries.length === 0) return null
+  return `Reintentos: ${entries.map((entry) => {
+    const counts = [entry.retries > 0 ? `×${entry.retries}` : '', entry.transientRetries ? `×${entry.transientRetries} por timeout` : ''].filter(Boolean).join(' y ')
+    return `${RATE_LIMIT_SERVICES[entry.service]} ${counts} ${entry.recovered ? 'recuperado' : 'sin recuperar'}`
+  }).join(' · ')}`
+}
+
+const TIE_BREAK_LABELS: Record<InstagramTieBreakRule, string> = {
+  first_pass_candidate: 'candidato de las fuentes',
+  gastronomy: 'rubro gastronómico',
+  latest_post: 'post más reciente',
+  followers: 'más seguidores',
+  unresolved: 'sin resolver',
+}
+
+/** "Desempate: post más reciente (@cordonbeer vs @cordon.beer)"; null si no hubo empate. */
+function tieBreakNote(review: PlaceReview) {
+  const tie = review.instagramTieBreak
+  return tie ? `Desempate de Instagram: ${TIE_BREAK_LABELS[tie.rule]} (${tie.handles.map((handle) => `@${handle}`).join(' vs ')})` : null
 }
 
 const HOURS_LABELS: Record<string, string> = { exact: 'Exacto', partial: 'Parcial', vague: 'Vago', none: 'Sin horario' }
@@ -226,6 +258,7 @@ export function ProcessedPlacesPanel({ rows, places, categoryLabel }: ProcessedP
                 />
               </TableHead>
               <TableHead className="px-4 sm:px-5">Nombre</TableHead>
+              <TableHead className="px-4 sm:px-5">Logo</TableHead>
               <TableHead className="px-4 sm:px-5">Categorías</TableHead>
               <TableHead className="px-4 sm:px-5">Horario</TableHead>
               <TableHead className="px-4 sm:px-5">En base</TableHead>
@@ -252,7 +285,35 @@ export function ProcessedPlacesPanel({ rows, places, categoryLabel }: ProcessedP
                     {name}
                     {row.status === 'error' && <span className="block text-xs font-normal text-destructive">Error: {row.error}</span>}
                     {row.result?.status === 'no_sources' && <span className="block text-xs font-normal text-amber-700">Sin fuentes</span>}
+                    {row.result?.status === 'ok' && rateLimitNote(row.result.review) && (
+                      <span className="block text-xs font-normal text-amber-700">{rateLimitNote(row.result.review)}</span>
+                    )}
                     {missingName(row) && <span className="block text-xs font-normal text-destructive">{MISSING_NAME}</span>}
+                    {row?.result?.status === 'ok' && tieBreakNote(row.result.review) && (
+                      <span className="block text-xs font-normal text-muted-foreground">{tieBreakNote(row.result.review)}</span>
+                    )}
+                    {place && (place.reviewReasons ?? []).length > 0 && (
+                      <span className="block text-xs font-normal text-amber-700">
+                        Irá a revisión: {(place.reviewReasons ?? []).map(reviewReasonLabel).join(' · ')}
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell className="px-4 py-3 sm:px-5">
+                    {row.result?.status === 'ok'
+                      ? (
+                        <span className="flex items-center gap-2.5">
+                          <PlaceIcon category={row.result.place.iconCategory} />
+                          <PlaceLogo
+                            name={name}
+                            url={row.result.logoUrl ?? null}
+                            kind={row.result.place.logo?.kind ?? row.result.review.logo?.kind ?? null}
+                            bgColor={row.result.place.logo?.bgColor ?? null}
+                            color={row.result.place.logo?.color ?? null}
+                            issue={row.result.review.logo?.reason}
+                          />
+                        </span>
+                      )
+                      : <span className="text-muted-foreground">—</span>}
                   </TableCell>
                   <TableCell className="px-4 py-3 text-muted-foreground sm:px-5">
                     {place && place.categories.length > 0 ? place.categories.map(categoryLabel).join(', ') : '—'}

@@ -21,7 +21,8 @@ describe('SavePlaceButton', () => {
     render(<SavePlaceButton result={result} />)
 
     const button = await screen.findByRole('button', { name: 'Actualizar' })
-    expect(fetchMock.mock.calls[0][0]).toBe('/api/places/exists?ids=place-1')
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/places/exists')
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'POST', body: JSON.stringify({ ids: ['place-1'] }) })
     await userEvent.click(button)
 
     expect(await screen.findByText('Actualizado ✓')).toBeInTheDocument()

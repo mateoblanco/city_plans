@@ -1,0 +1,6 @@
+ALTER TABLE "places" DROP CONSTRAINT "places_icon_category_check";--> statement-breakpoint
+ALTER TABLE "places" ALTER COLUMN "icon_category" DROP DEFAULT;--> statement-breakpoint
+ALTER TABLE "places" ALTER COLUMN "icon_category" DROP NOT NULL;--> statement-breakpoint
+-- "other" ya no es una categoría: las filas que lo tenían pasan a "sin categoría" para que el check nuevo valide.
+UPDATE "places" SET "icon_category" = NULL WHERE "icon_category" = 'other';--> statement-breakpoint
+ALTER TABLE "places" ADD CONSTRAINT "places_icon_category_check" CHECK ("places"."icon_category" in ('wine', 'beer', 'beer_pub', 'cocktails', 'tropical_drinks', 'classic_bar', 'coffee', 'tea', 'croissant', 'bread', 'bakery', 'pancakes', 'breakfast', 'cake', 'cupcake', 'pie', 'birthday_cake', 'donut', 'cookie', 'chocolate', 'ice_cream', 'grill', 'meat', 'pasta', 'pizza', 'burger', 'fries', 'sandwich', 'hot_dog', 'taco', 'burrito', 'tamale', 'seafood', 'fish', 'octopus', 'tapas', 'sushi', 'ramen', 'wok', 'dumplings', 'curry', 'falafel', 'kebab', 'salad', 'bookstore'));

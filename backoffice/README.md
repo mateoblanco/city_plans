@@ -57,6 +57,22 @@ Instagram usa `apify/instagram-profile-scraper` con `includeAboutSection: false`
 
 Exa e Instagram son best-effort: si uno falla, la extracción continúa con el otro. Google Places sigue siendo obligatorio. La extracción no tiene cache ni estado en el servidor: cada llamada corre el pipeline completo.
 
+## Logos en Cloudflare R2
+
+Después de validar el Instagram, el pipeline toma la foto de perfil HD que ya trae Apify, la valida (imagen, mínimo 150 px, no el avatar genérico), la clasifica con un modelo chico con visión (`logo`, `local`, `food`, `person` u `other`), extrae el color de fondo y el principal y sube un WebP de 256×256 al bucket público `logos` de R2. En `places` sólo se guarda la clave; la URL pública es `LOGO_BASE_URL` + clave. Si algún paso falla, el lugar se guarda igual y el motivo queda en `review.logo`.
+
+En Cloudflare: creá el bucket `logos`, activá el acceso público (subdominio r2.dev o dominio propio) y creá un token de R2 con permiso **Object Read & Write** sobre ese bucket. Variables (prefijo `R2_` para no mezclarlas con AWS):
+
+```dotenv
+R2_ACCESS_KEY_ID=...
+R2_SECRET_ACCESS_KEY=...
+R2_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+R2_REGION=auto
+LOGO_BASE_URL=https://pub-xxxx.r2.dev
+```
+
+`yarn logos:cleanup --dry-run` lista los logos del bucket que ninguna fila usa: los de más de 24 h (a borrar) y los más recientes (se saltean, pueden ser de extracciones sin guardar). Sin `--dry-run` borra sólo los de más de 24 h.
+
 ## Costos por extracción
 
 La respuesta de enriquecimiento incluye `performance.costUsd`: un desglose estimado en USD de Google, Exa, Instagram/Apify, scraping, tránsito y LLM, junto con `totalUsd`. Los valores predeterminados son precios de lista para Google Place Details Enterprise + Atmosphere, Exa Search con contenido/highlights y GPT-5 mini; no descuentan topes gratuitos, créditos ni descuentos por volumen. Apify depende del actor y del plan, mientras que el scraper local y tránsito local empiezan en USD 0.

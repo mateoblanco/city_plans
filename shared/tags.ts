@@ -118,7 +118,7 @@ export const FEATURES = {
   board_games: tag('Juegos de mesa', 'Board games', ['juegos de mesa', 'juegos'], ['board games', 'games']),
   watch_football: tag('Deportes en vivo', 'Live sports', ['ver fútbol', 'ver el partido', 'pantallas', 'pantalla gigante', 'pantalla grande', 'fútbol', 'básquet', 'basket', 'deportes', 'ver deportes', 'rugby', 'partido'], ['live sports', 'sports', 'sports bar', 'watch football', 'watch the game', 'big screen', 'basketball', 'soccer', 'rugby']),
   pool_table: tag('Pool y metegol', 'Pool and foosball', ['pool', 'metegol', 'billar'], ['pool table', 'billiards', 'foosball']),
-  kids_area: tag('Espacio para niños', 'Kids area', ['espacio para niños', 'juegos para niños'], ['kids area', 'kid friendly', 'playground']),
+  kids_area: tag('Espacio para niños', 'Kids area', ['espacio para niños', 'juegos para niños'], ['kids area', 'playground']),
   wifi: tag('Wifi', 'Wifi', ['wifi', 'internet'], ['wifi', 'wi-fi', 'internet']),
   outlets: tag('Enchufes', 'Power outlets', ['enchufes', 'para cargar la compu'], ['power outlets', 'plugs', 'charging']),
   pet_friendly: tag('Pet friendly', 'Pet friendly', ['pet friendly', 'se aceptan perros', 'con mascotas'], ['pet friendly', 'dog friendly', 'dogs allowed']),
@@ -132,20 +132,21 @@ export const FEATURES = {
 } satisfies TagGroup
 
 export const GOOD_FOR = {
-  first_date: tag('Primera cita', 'First date', ['primera cita', 'cita', 'romántico', 'ir en pareja'], ['first date', 'date night', 'romantic', 'couples']),
-  work: tag('Para trabajar', 'Remote work', ['trabajar', 'para trabajar', 'laburar', 'con la compu', 'notebook', 'home office', 'estudiar'], ['work', 'laptop', 'laptop friendly', 'remote work', 'remote workers', 'work from', 'study', 'work from cafe']),
+  date: tag('Cita', 'Date', ['cita', 'primera cita', 'romántico', 'en pareja', 'ir en pareja'], ['date', 'first date', 'date night', 'romantic', 'couples']),
+  work: tag('Para trabajar', 'Remote work', ['trabajar', 'para trabajar', 'laburar', 'con la compu', 'notebook', 'home office', 'estudiar', 'cowork', 'coworking'], ['work', 'laptop', 'cowork', 'coworking', 'laptop friendly', 'remote work', 'remote workers', 'work from', 'study', 'work from cafe']),
   lgbtq_friendly: tag('LGBTQ+ friendly', 'LGBTQ+ friendly', ['lgbt', 'lgbtq', 'lgbtq+', 'diversidad'], ['gay friendly', 'lgbtq']),
   after_office: tag('After office', 'After work', ['after office', 'after', 'salida del trabajo'], ['after work', 'after office']),
-  groups: tag('Grupos', 'Groups', ['grupos', 'con amigos', 'mesa larga', 'cumpleaños'], ['groups', 'friends', 'big table', 'birthday']),
-  kids_friendly: tag('Apto niños', 'Kids friendly', ['apto niños', 'para ir con niños', 'con niños', 'en familia', 'con chicos', 'menú infantil', 'menú para niños'], ['kids friendly', 'family friendly', 'family', 'with kids']),
+  groups: tag('Grupos', 'Groups', ['grupos', 'en grupo', 'con amigos', 'juntarse con amigos', 'mesa larga'], ['groups', 'friends', 'with friends', 'big table']),
+  kids_friendly: tag('Apto niños', 'Kids friendly', ['apto niños', 'para ir con niños', 'con niños', 'con los chicos', 'en familia', 'con chicos', 'menú infantil', 'menú para niños'], ['kids friendly', 'kid friendly', 'family friendly', 'family', 'with kids']),
   solo: tag('Ir solo', 'Solo', ['ir solo', 'sola', 'barra'], ['solo', 'alone', 'eat at the bar']),
-  celebration: tag('Celebración', 'Celebration', ['celebrar', 'festejar', 'ocasión especial', 'aniversario', 'celebraciones', 'casamientos', 'festejos'], ['celebration', 'special occasion', 'anniversary']),
+  celebration: tag('Celebración', 'Celebration', ['celebrar', 'festejar', 'cumpleaños', 'cumple', 'ocasión especial', 'celebraciones', 'casamientos', 'festejos'], ['celebration', 'special occasion', 'birthday']),
+  quick: tag('Algo rápido', 'Quick bite', ['algo rápido', 'al paso', 'rápido', 'comer rápido'], ['quick bite', 'grab and go', 'quick']),
 } satisfies TagGroup
 
 export const ATMOSPHERE = {
   quiet: tag('Tranquilo', 'Quiet', ['tranquilo', 'silencioso', 'calmo', 'para charlar'], ['quiet', 'calm', 'low-key']),
   lively: tag('Animado', 'Lively', ['animado', 'con onda', 'movido', 'bullicioso'], ['lively', 'buzzy', 'vibrant']),
-  cozy: tag('Acogedor', 'Cozy', ['acogedor', 'cálido', 'íntimo'], ['cozy', 'warm', 'intimate']),
+  cozy: tag('Acogedor', 'Cozy', ['acogedor', 'acogedora'], ['cozy', 'cosy']),
   elegant: tag('Elegante', 'Elegant', ['elegante', 'sofisticado', 'refinado'], ['elegant', 'upscale', 'refined']),
 } satisfies TagGroup
 
@@ -161,7 +162,26 @@ export const DIETARY = {
   gluten_free: tag('Sin TACC', 'Gluten free', ['sin tacc', 'sin gluten', 'celíaco', 'celíacos', 'apto celíacos'], ['gluten free', 'celiac', 'celiac friendly', 'no gluten']),
 } satisfies TagGroup
 
-export const ALL_GROUPS = { categories: CATEGORIES, moments: MOMENTS, cuisines: CUISINES, foods: FOODS, drinks: DRINKS, features: FEATURES, atmosphere: ATMOSPHERE, goodFor: GOOD_FOR, offers: OFFERS, dietary: DIETARY } as const
+/**
+ * Momentos u ocasiones (con amigos, cita, con niños, festejar, algo rápido): tags de goodFor que se pueden
+ * inferir con señales en la extracción y que la búsqueda usa siempre como preferencia, nunca como filtro.
+ */
+export const OCCASION_TAGS = ['groups', 'date', 'kids_friendly', 'celebration', 'quick'] as const satisfies readonly (keyof typeof GOOD_FOR)[]
+export type OccasionTag = (typeof OCCASION_TAGS)[number]
+export const isOccasionTag = (id: string): id is OccasionTag => (OCCASION_TAGS as readonly string[]).includes(id)
+
+/** Estilo del lugar: de la marca, igual en todas las sucursales. Es un campo propio (style), no un tag. */
+export const STYLES = {
+  casual: tag('Casual', 'Casual', ['descontracturado', 'de barrio', 'informal', 'casual', 'sencillo'], ['casual', 'laid-back', 'informal', 'neighborhood spot']),
+  intermedio: tag('Intermedio', 'Mid-range', [], []),
+  cuidado: tag('Cuidado', 'Refined', ['especial', 'de autor', 'cuidado', 'refinado'], ['refined', 'chef-driven', 'special']),
+} satisfies TagGroup
+
+export type StyleId = keyof typeof STYLES
+export const STYLE_IDS = Object.keys(STYLES) as [StyleId, ...StyleId[]]
+export const isStyleId = (value: string): value is StyleId => Object.hasOwn(STYLES, value)
+
+export const ALL_GROUPS = { categories: CATEGORIES, moments: MOMENTS, cuisines: CUISINES, foods: FOODS, drinks: DRINKS, features: FEATURES, atmosphere: ATMOSPHERE, goodFor: GOOD_FOR, offers: OFFERS, dietary: DIETARY, style: STYLES } as const
 export type GroupName = keyof typeof ALL_GROUPS
 
 /** Filtros de búsqueda que agrupan varios tags. */
@@ -238,6 +258,8 @@ export type SearchTextInput = {
   dishes?: string[]
   /** Hasta 3 ids que definen al lugar; entran en embeddingText aunque sean comidas o bebidas. */
   signature?: string[]
+  /** Estilo de la marca; entra en los dos textos. */
+  style?: StyleId | null
 }
 
 // Grupos que describen la identidad del lugar. foods, drinks y features son filtros: sólo entran
@@ -256,12 +278,13 @@ export function buildEmbeddingText(place: SearchTextInput) {
     place.locatedIn ? `Dentro de ${place.locatedIn}` : '',
     place.description?.es ?? '',
     ...identityTags.map((id) => label(id, 'es')),
+    place.style ? `Estilo ${label(place.style, 'es').toLowerCase()}` : '',
   ]).join('. ')
 }
 
 /** Todo lo buscable por palabra: tags con sinónimos en es/en, highlights y platos. */
 export function buildKeywordText(place: SearchTextInput) {
-  const tagText = place.tags.flatMap((id) => {
+  const tagText = [...place.tags, ...(place.style ? [place.style] : [])].flatMap((id) => {
     const definition = findDef(id)
     return definition
       ? [definition.label.es, definition.label.en, ...definition.synonyms.es, ...definition.synonyms.en]

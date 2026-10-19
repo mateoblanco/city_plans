@@ -43,25 +43,44 @@ function validBrand(candidate: string) {
   return !(tokens.length === 1 && toCanonical(candidate))
 }
 
+// Separadores de un agregado (sucursal, ubicación o descripción): con espacios alrededor, o "(" o
+// una comilla (Hakuna Matata "Pizza Cubana"). Un guion sin espacios es parte del nombre ("Coca-Cola", "Pan-Ka").
+const DESCRIPTOR_SEPARATOR = /\s+[|\-–—·]\s+|\s*[("“”«]/
+
 /**
- * Marca a partir del nombre de Google: le saca los sufijos de sucursal del final (barrio,
- * "sucursal", "shopping", "centro"…). Si el recorte deja algo genérico, devuelve el nombre entero.
+ * Marca a partir del nombre de Google, y si el recorte sacó una sucursal. Primero corta en el primer
+ * separador (" | ", " - ", " – ", " — ", " · ", "(" o una comilla " “ ” «): lo que sigue es sucursal, ubicación o
+ * descripción. Después le saca los sufijos de sucursal del final (barrio, "sucursal", "shopping",
+ * "centro"…). Un corte que deja menos de 3 caracteres o algo genérico no se hace.
+ * `branch` es true sólo si lo recortado es una sucursal: un agregado descriptivo ("| Museo
+ * Nacional…", "- Hot Dogs") no hace del lugar una sucursal de cadena.
  */
-export function brandFromGoogleName(name: string): string {
+export function googleNameParts(name: string): { brand: string; branch: boolean } {
   let brand = name.trim()
-  const parenthesis = /^(.+?)\s*\(([^()]*)\)$/.exec(brand)
-  if (parenthesis && isBranchSegment(parenthesis[2]) && validBrand(parenthesis[1])) brand = parenthesis[1].trim()
-  const separated = /^(.+?)\s+[-|–—]\s+(.+)$/.exec(brand)
-  if (separated && isBranchSegment(separated[2]) && validBrand(separated[1])) brand = separated[1].trim()
+  let branch = false
+  const separator = DESCRIPTOR_SEPARATOR.exec(brand)
+  if (separator) {
+    const before = brand.slice(0, separator.index).trim()
+    const after = brand.slice(separator.index + separator[0].length).replace(/[)"“”»]\s*$/, '').trim()
+    if (before.replace(/\s+/g, '').length >= 3 && validBrand(before)) {
+      brand = before
+      branch = isBranchSegment(after)
+    }
+  }
 
   const tokens = brand.split(/\s+/)
   const sucursal = tokens.findIndex((token, index) => index > 0 && canonical(token).replace(/[^a-z]/g, '') === 'sucursal')
   const cuts = [...(sucursal > 0 ? [sucursal] : []), ...tailCuts(tokens).reverse()]
   for (const cut of cuts) {
-    const candidate = tokens.slice(0, cut).join(' ').replace(/[\s,\-|–—]+$/, '')
-    if (validBrand(candidate)) return candidate
+    const candidate = tokens.slice(0, cut).join(' ').replace(/[\s,\-|–—·]+$/, '')
+    if (validBrand(candidate)) return { brand: candidate, branch: true }
   }
-  return brand
+  return { brand, branch }
+}
+
+/** La marca sin sucursal ni agregados del nombre de Google (ver googleNameParts). */
+export function brandFromGoogleName(name: string): string {
+  return googleNameParts(name).brand
 }
 
 // Tipos de Google que no ayudan a desambiguar una búsqueda.

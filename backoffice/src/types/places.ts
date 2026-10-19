@@ -1,3 +1,7 @@
+import type { IconCategory } from '../data/icon-categories.ts'
+import type { StyleId } from '../data/tags.ts'
+import type { ReviewReason } from '../data/review-reasons.ts'
+
 export type JsonPrimitive = string | number | boolean | null
 
 export type JsonValue =
@@ -57,12 +61,36 @@ export type GooglePlaceDetailsResponse = {
 
 /** Señales de prominencia que salen de las fuentes; el puntaje se calcula al guardar. */
 export type PlaceSignals = {
-  /** Fuentes editoriales distintas (por dominio) que nombran al lugar. */
-  editorialMentions: number
-  /** Alguna de esas fuentes es un ranking o menciona un premio. */
-  listedOrAwarded: boolean
   /** Seguidores del Instagram validado; null sin Instagram o en una sucursal de cadena. */
   igFollowers: number | null
+}
+
+/** Qué muestra la foto de perfil de Instagram: un logo, el local, comida, una persona u otra cosa. */
+export type LogoKind = 'logo' | 'local' | 'food' | 'person' | 'other'
+
+/** Por qué un lugar no tiene logo, o qué paso falló. */
+export type LogoIssue =
+  | 'no_instagram'
+  | 'no_picture'
+  | 'download_failed'
+  | 'not_image'
+  | 'too_small'
+  | 'generic_avatar'
+  | 'classification_failed'
+  | 'processing_failed'
+  | 'storage_not_configured'
+  | 'upload_failed'
+  /** Clasificada como persona: no se sube y el lugar queda sin logo. */
+  | 'person_photo'
+
+/** Logo guardado en R2: key es la clave del bucket (la URL la arma LOGO_BASE_URL). Colores en hex #rrggbb. */
+export type PlaceLogo = {
+  key: string
+  kind: LogoKind | null
+  bgColor: string | null
+  color: string | null
+  source: 'instagram' | 'owner'
+  fetchedAt: string
 }
 
 export type PlaceEnrichmentDraft = {
@@ -119,8 +147,30 @@ export type PlaceEnrichmentDraft = {
   /** Para auditar en el backoffice de dónde sale cada dato; no entra en embeddingText ni keywordText. */
   placeFacts: PlaceFact[]
   signals: PlaceSignals
+  /** Foto de perfil del Instagram validado, procesada y subida a R2; null sin Instagram o si algún paso falló. */
+  logo: PlaceLogo | null
+  /** Clave de shared/icon-categories.ts: por qué es conocido el lugar. La elige el LLM; null = todavía sin categoría. */
+  iconCategory: IconCategory | null
+  /** Estilo de la marca (casual, intermedio, cuidado); null sin señales suficientes. Falta en resultados de antes. */
+  style?: StyleId | null
+  /** Motivos para guardarlo con status review en vez de published; vacío = se publica. Falta en resultados de antes. */
+  reviewReasons?: ReviewReason[]
+  /**
+   * Cómo quedó cada momento (goodFor), cozy y el style: explicit si la fuente lo nombra, inferred por señales.
+   * Sólo para auditar; no se guarda en la base.
+   */
+  tagEvidence?: TagEvidence[]
   embeddingText: string
   keywordText: string
+}
+
+export type TagEvidence = {
+  /** Id del tag o del style. */
+  tag: string
+  mode: 'explicit' | 'inferred'
+  /** Señal o frase que lo justificó. */
+  signals: string[]
+  factIds: string[]
 }
 
 export type PlaceFactKind = 'food' | 'drink' | 'feature' | 'hours' | 'dietary' | 'price' | 'reservations' | 'contact' | 'other'
@@ -160,7 +210,54 @@ export type PlaceReview = {
   anomalies: PlaceReviewAnomaly[]
   /** Segunda búsqueda de horarios en Exa (cadenas); costUsd suma Exa y el LLM de ese paso. */
   hoursRetry: { attempted: boolean; recovered: boolean; costUsd: number }
+  /** Paso del logo: ok, sin logo (missing: no había foto usable) o failed (falló la clasificación o la subida). */
+  logo: { status: 'ok' | 'missing' | 'failed'; reason: LogoIssue | null; kind: LogoKind | null; detail?: string | null }
+  /**
+   * Reintentos por servicio: por 429 (retries) y por timeout o error pasajero (transientRetries, sólo Apify),
+   * espera total y si se recuperó. Sin recuperar, Exa queda fuera de las fuentes; Apify y el LLM terminan con
+   * error. Falta en resultados de antes.
+   */
+  rateLimits?: { service: 'apify' | 'exa' | 'llm'; retries: number; waitedMs: number; recovered: boolean; transientRetries?: number }[]
+  /**
+   * Desempate entre varios perfiles de Instagram válidos (en la primera pasada o en el respaldo): la regla que
+   * eligió, o unresolved si siguió el empate, y los handles empatados. Falta si no hubo empate.
+   */
+  instagramTieBreak?: { rule: InstagramTieBreakRule; pass: 'first' | 'fallback'; handles: string[] }
+  /**
+   * Cuentas de Instagram descartadas por ser candidatas (o estar guardadas) en lugares de otra marca: agregadoras.
+   * places son los googlePlaceId de esos otros lugares; el lote re-procesa los suyos que la hayan elegido.
+   */
+  instagramShared?: { handle: string; places: string[] }[]
+  /**
+   * Búsqueda de respaldo del Instagram (usuarios de Instagram en Apify, por la marca), cuando la primera
+   * pasada no dejó candidatos o los rechazó: por qué corrió ("sin candidato" o "candidato rechazado:
+   * <handle>, <motivo>"), términos buscados, handles que trajo y su costo (ya sumado en costUsd).
+   * tieBreak: qué regla eligió entre varios perfiles válidos (candidato de la primera pasada o rubro
+   * gastronómico), o unresolved si siguió el empate; falta si no hubo empate. Falta si no se usó.
+   * skipped: no se buscó aunque hacía falta (unconfirmed_name: ninguna fuente nombra la marca); reason
+   * dice por qué habría corrido.
+   */
+  instagramFallback?: {
+    attempted: boolean
+    skipped?: 'unconfirmed_name'
+    reason: string
+    terms: string[]
+    handles: string[]
+    costUsd: number
+    tieBreak?: InstagramTieBreakRule
+  }
+  /**
+   * Salida estructurada del modelo (PlaceExtraction de server/providers/place-extraction-service.ts) con la que se
+   * armó el place, para volver a correr postProcess sin pagar el LLM. No va al reporte. Falta en resultados de antes.
+   */
+  llmOutput?: unknown
 }
+
+/**
+ * Reglas de desempate entre perfiles de Instagram válidos, en orden: candidato de la primera pasada (sólo en el
+ * respaldo), único con rubro gastronómico, post más reciente, más seguidores. unresolved: siguió el empate.
+ */
+export type InstagramTieBreakRule = 'first_pass_candidate' | 'gastronomy' | 'latest_post' | 'followers' | 'unresolved'
 
 /** Datos de cada lugar procesado para el resumen del lote. */
 export type ExtractionReportStats = {
@@ -174,6 +271,8 @@ export type ExtractionReportStats = {
   sourcesUsd: number
   mainLlmUsd: number
   hoursRetryUsd: number
+  /** Clasificación del logo. */
+  logoUsd: number
   /** Tokens de entrada del llamado principal: total, leídos del cache y escritos en el cache. */
   inputTokens: number
   cachedInputTokens: number
@@ -181,7 +280,16 @@ export type ExtractionReportStats = {
 }
 
 export type ExtractionReportRequest = {
-  places: { name: string; googlePlaceId: string; stats: ExtractionReportStats; review: PlaceReview | null }[]
+  /** reviewReasons: motivos para guardarlo con status review (vacío o ausente = se publica). */
+  places: { name: string; googlePlaceId: string; stats: ExtractionReportStats; review: PlaceReview | null; reviewReasons?: ReviewReason[] }[]
+  /** googlePlaceId de los que no se procesaron por un error de Apify. */
+  apifyErrors?: string[]
+  /** El lote se cortó por errores de Apify seguidos. */
+  stoppedByApify?: boolean
+  /** googlePlaceId de los que no se procesaron por un error de Exa. */
+  exaErrors?: string[]
+  /** El lote se cortó por errores de Exa seguidos. */
+  stoppedByExa?: boolean
 }
 
 /** Respuesta de POST /api/places por cada lugar enviado. */
@@ -205,10 +313,14 @@ export type PlaceListItem = {
   updatedAt: string
   hasEmbedding: boolean
   prominence: number
-  editorialMentions: number
-  listedOrAwarded: boolean
   igFollowers: number | null
   featured: boolean
+  logoUrl: string | null
+  logoKind: LogoKind | null
+  logoBgColor: string | null
+  logoColor: string | null
+  iconCategory: IconCategory | null
+  reviewReasons: ReviewReason[]
 }
 
 export type PlaceEnrichmentResponse = {
@@ -219,6 +331,8 @@ export type PlaceEnrichmentResponse = {
   sourceAudit: PlaceExtractionSourceAudit
   performance: PlaceExtractionPerformance
   place: PlaceEnrichmentDraft
+  /** URL pública de place.logo (LOGO_BASE_URL + key), para la miniatura en Procesados. */
+  logoUrl?: string | null
 } | {
   source: 'llm'
   status: 'no_sources'
@@ -228,10 +342,42 @@ export type PlaceEnrichmentResponse = {
   target: Pick<PlaceEnrichmentDraft, 'name' | 'address' | 'coordinates' | 'neighborhoodId' | 'city' | 'googlePlaceId' | 'transit'>
 }
 
+/** De dónde salió un handle candidato. */
+export type InstagramCandidateOrigin =
+  | 'exa_profile_field'
+  | 'exa_contact_info'
+  | 'exa_result'
+  | 'website'
+  | 'exa_instagram_search'
+  | 'apify_search'
+
+/** Qué regla aceptó o rechazó el perfil que trajo Apify. */
+export type InstagramMatchRule =
+  | 'handle_exact'
+  | 'handle_location'
+  | 'handle_category'
+  | 'name_and_local_signal'
+  | 'name_and_address'
+  | 'name_and_website_link'
+  | 'brand_word_and_address'
+  | 'brand_word_and_phone'
+  | 'mismatch_overridden_by_phone'
+  | 'mismatch_overridden_by_website_link'
+  /** Es el Instagram que Google tiene como web del lugar (sólo confirma un candidato de otra fuente). */
+  | 'google_website_match'
+  | 'foreign_profile'
+  | 'non_gastronomy_profile'
+  | 'other_address_in_bio'
+  | 'no_identity_signal'
+
 export type InstagramAuditCandidate = {
   handle: string
   decision: 'selected' | 'discarded' | 'unavailable'
   reason: string
+  /** Fuentes que lo propusieron. Falta en respuestas de antes. */
+  origins?: InstagramCandidateOrigin[]
+  /** Regla de validación que lo aceptó o rechazó (sólo si Apify trajo el perfil). */
+  rule?: InstagramMatchRule
 }
 
 export type PlaceExtractionSourceAudit = {
@@ -248,7 +394,7 @@ export type PlaceExtractionSourceAudit = {
 
 export type PlaceExtractionPerformance = {
   totalMs: number
-  stepsMs: Partial<Record<'google' | 'exa' | 'scraping' | 'instagram' | 'llm' | 'transit', number>>
+  stepsMs: Partial<Record<'google' | 'exa' | 'scraping' | 'instagram' | 'logo' | 'llm' | 'transit', number>>
   sourceText: {
     beforeChars: number
     afterChars: number
@@ -296,6 +442,14 @@ export type PlaceExtractionCost = {
       outputTokens: number | null
       costUsd: number
     }
+    /** Clasificación de la foto de perfil con un modelo chico con visión. */
+    logo?: {
+      model: string
+      inputTokens: number | null
+      outputTokens: number | null
+      gatewayCostUsd: number | null
+      costUsd: number
+    }
   }
 }
 
@@ -305,8 +459,11 @@ export type ExaPlaceInfo = {
   contact_info: string
   open_hours_raw: string
   open_hours: { days: string; opens: string; closes: string | null }[]
-  knows_before_you_go: string
+  /** Ya no se pide a Exa (el schema admite 10 propiedades); queda en snapshots viejos. */
+  knows_before_you_go?: string
   menu: string[]
+  /** URL del perfil de Instagram que Exa encontró en las fuentes; vacío si no apareció. Falta en snapshots viejos. */
+  instagram_profile_url?: string
 }
 
 export type ExaPlaceResult = {
@@ -367,6 +524,10 @@ export type ApiErrorCode =
   | 'QUOTA_ERROR'
   | 'TIMEOUT_ERROR'
   | 'UPSTREAM_ERROR'
+  /** Apify no pudo traer Instagram en /api/extract: el lugar no se procesó y hay que reintentarlo. */
+  | 'INSTAGRAM_PROVIDER_ERROR'
+  /** Exa no respondió en /api/extract: el lugar no se procesó y hay que reintentarlo. */
+  | 'EXA_PROVIDER_ERROR'
   | 'NOT_FOUND_ERROR'
   | 'UNKNOWN_ERROR'
 

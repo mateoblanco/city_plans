@@ -172,17 +172,28 @@ export async function setPlaceFeatured(id: string, featured: boolean, signal?: A
   await parseApiResponse<{ id: string; featured: boolean }>(response)
 }
 
-const EXISTS_CHUNK = 100
+/** Publica a mano un lugar que quedó en revisión. */
+export async function publishPlace(id: string, signal?: AbortSignal): Promise<void> {
+  const response = await fetch(`/api/places/${encodeURIComponent(id)}/status`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'published' }),
+    signal,
+  })
+  await parseApiResponse<{ id: string; status: 'published' }>(response)
+}
 
-/** googlePlaceId que ya están en la base; consulta en tandas para no alargar demasiado la URL. */
+/** googlePlaceId que ya están en la base: una sola request (y una sola consulta) con todos los ids. */
 export async function existingPlaceIds(ids: readonly string[], signal?: AbortSignal): Promise<Set<string>> {
   const unique = [...new Set(ids)]
-  const chunks = Array.from({ length: Math.ceil(unique.length / EXISTS_CHUNK) }, (_, index) => unique.slice(index * EXISTS_CHUNK, (index + 1) * EXISTS_CHUNK))
-  const found = await Promise.all(chunks.map(async (chunk) => {
-    const response = await fetch(`/api/places/exists?ids=${chunk.map(encodeURIComponent).join(',')}`, { signal })
-    return (await parseApiResponse<{ ids: string[] }>(response)).ids
-  }))
-  return new Set(found.flat())
+  if (unique.length === 0) return new Set()
+  const response = await fetch('/api/places/exists', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids: unique }),
+    signal,
+  })
+  return new Set((await parseApiResponse<{ ids: string[] }>(response)).ids)
 }
 
 /** Recorre un barrio completo y entrega cada evento NDJSON a medida que llega. */

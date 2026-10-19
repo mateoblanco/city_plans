@@ -3,6 +3,8 @@ import { config } from 'dotenv'
 import { createApp } from './app.ts'
 import { ApifyInstagramProvider } from './providers/apify-instagram-provider.ts'
 import { ExaPlaceSearchProvider } from './providers/exa-place-provider.ts'
+import { R2LogoStorage } from './providers/logo-storage.ts'
+import { fileSnapshotStore } from './providers/extraction-snapshots.ts'
 import { GooglePlacesProvider } from './providers/google-places-provider.ts'
 import { GoogleNeighborhoodSweeper } from './providers/neighborhood-sweep.ts'
 import { fileReportWriter } from './providers/extraction-report.ts'
@@ -28,6 +30,8 @@ const exaProvider = new ExaPlaceSearchProvider()
 const instagramProvider = new ApifyInstagramProvider({
   token: process.env.APIFY_API_TOKEN,
   actorId: process.env.APIFY_INSTAGRAM_ACTOR_ID,
+  searchActorId: process.env.APIFY_INSTAGRAM_SEARCH_ACTOR_ID,
+  memoryMbytes: Number(process.env.APIFY_MEMORY_MB) || undefined,
 })
 const matchProviders = {
   openstreetmap: new OpenStreetMapProvider({
@@ -40,6 +44,17 @@ const transitProvider = new MontevideoBusProvider({
   clientSecret: process.env.IM_CLIENT_SECRET,
 })
 const websiteScraper = new PlaywrightWebsiteScraper()
+// Neon es opcional: sin DATABASE_URL el server arranca igual y /api/places responde 503.
+const database = process.env.DATABASE_URL?.trim()
+  ? await (async () => {
+      const [{ db }, { drizzlePlacesStore, placesSaver }, { drizzleInstagramOwners, drizzlePlacesReader }] = await Promise.all([
+        import('./db/index.ts'),
+        import('./places/save.ts'),
+        import('./places/list.ts'),
+      ])
+      return { placesSaver: placesSaver(drizzlePlacesStore(db)), placesReader: drizzlePlacesReader(db), instagramOwners: drizzleInstagramOwners(db) }
+    })()
+  : undefined
 const extractor = provider
   ? new PlaceExtractionService({
       apiKey: process.env.AI_GATEWAY_API_KEY,
@@ -48,18 +63,12 @@ const extractor = provider
       instagram: instagramProvider,
       website: websiteScraper,
       transit: transitProvider,
+      logoStorage: new R2LogoStorage(),
+      // Salida del modelo y fuentes en cache/extractions, para yarn extraction:replay.
+      snapshots: fileSnapshotStore(),
+      // Un Instagram ya guardado para otro lugar no es candidato (cuentas agregadoras).
+      instagramOwners: database?.instagramOwners,
     })
-  : undefined
-// Neon es opcional: sin DATABASE_URL el server arranca igual y /api/places responde 503.
-const database = process.env.DATABASE_URL?.trim()
-  ? await (async () => {
-      const [{ db }, { drizzlePlacesStore, placesSaver }, { drizzlePlacesReader }] = await Promise.all([
-        import('./db/index.ts'),
-        import('./places/save.ts'),
-        import('./places/list.ts'),
-      ])
-      return { placesSaver: placesSaver(drizzlePlacesStore(db)), placesReader: drizzlePlacesReader(db) }
-    })()
   : undefined
 const apiPort = Number(process.env.BACKOFFICE_API_PORT ?? 8787)
 

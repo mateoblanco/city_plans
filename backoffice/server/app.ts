@@ -16,7 +16,7 @@ import type {
 import type { PlaceMatchProvider } from './providers/place-match-provider.ts'
 import { matchPlace } from './providers/place-match-provider.ts'
 import type { PlacesProvider } from './providers/places-provider.ts'
-import { PlacesProviderError } from './providers/places-provider.ts'
+import { ExaProviderFailure, InstagramProviderFailure, PlacesProviderError } from './providers/places-provider.ts'
 import type { ExaPlaceProvider } from './providers/exa-place-provider.ts'
 import type { PlaceExtractor } from './providers/place-extraction-service.ts'
 import type { NeighborhoodSweeper } from './providers/neighborhood-sweep.ts'
@@ -92,6 +92,9 @@ type AppDependencies = {
 }
 
 const MAX_SAVE_PLACES = 500
+// Un barrido grande trae cientos de lugares: se consultan todos en un solo POST.
+const MAX_EXISTS_IDS = 2000
+const existsRequestSchema = z.object({ ids: z.array(z.string().trim().min(1).max(300)).min(1).max(MAX_EXISTS_IDS) })
 const MISSING_DATABASE = 'Falta configurar DATABASE_URL en .env.local.'
 // Lo mínimo: cada resultado es un objeto con status. El place se valida entero en savePlaces.
 const savePlacesRequestSchema = z.object({
@@ -99,6 +102,7 @@ const savePlacesRequestSchema = z.object({
 })
 
 const setFeaturedSchema = z.object({ featured: z.boolean() })
+const setStatusSchema = z.object({ status: z.literal('published') })
 
 function apiError(
   code: ApiErrorResponse['error']['code'],
@@ -108,6 +112,14 @@ function apiError(
 }
 
 function providerError(error: PlacesProviderError) {
+  // Antes que upstream: el frontend lo cuenta aparte ("Error de Apify: reintentar") y corta el lote si se repite.
+  if (error instanceof InstagramProviderFailure) {
+    return { status: 502 as const, body: apiError('INSTAGRAM_PROVIDER_ERROR', error.message) }
+  }
+  // Igual que Apify: el frontend lo cuenta aparte ("Error de Exa: reintentar").
+  if (error instanceof ExaProviderFailure) {
+    return { status: 502 as const, body: apiError('EXA_PROVIDER_ERROR', error.message) }
+  }
   if (error.kind === 'validation') {
     return { status: 400 as const, body: apiError('VALIDATION_ERROR', error.message) }
   }
@@ -365,6 +377,25 @@ export function createApp({ provider, exaProvider, matchProviders = {}, instagra
     }
   })
 
+  // Publicar a mano un lugar que el pipeline dejó en review. Es el único cambio de status permitido.
+  app.patch('/api/places/:id/status', async (context) => {
+    if (!placesReader) return context.json(apiError('CONFIGURATION_ERROR', MISSING_DATABASE), 503)
+    const id = context.req.param('id')
+    const parsed = setStatusSchema.safeParse(await context.req.json().catch(() => null))
+    if (!z.uuid().safeParse(id).success || !parsed.success) {
+      return context.json(apiError('VALIDATION_ERROR', 'El pedido para cambiar el status no es válido.'), 400)
+    }
+    try {
+      const outcome = await placesReader.publish(id)
+      if (outcome === 'not_found') return context.json(apiError('NOT_FOUND_ERROR', 'El lugar no existe.'), 404)
+      if (outcome === 'not_in_review') return context.json(apiError('VALIDATION_ERROR', 'El lugar no está para revisar.'), 409)
+      return context.json({ id, status: 'published' })
+    } catch (error) {
+      console.error(JSON.stringify({ event: 'places_status_error', message: error instanceof Error ? error.message : String(error) }))
+      return context.json(apiError('UNKNOWN_ERROR', 'No se pudo publicar el lugar.'), 500)
+    }
+  })
+
   app.post('/api/places', async (context) => {
     if (!placesSaver) return context.json(apiError('CONFIGURATION_ERROR', MISSING_DATABASE), 503)
     const body = await context.req.json().catch(() => null)
@@ -380,12 +411,12 @@ export function createApp({ provider, exaProvider, matchProviders = {}, instagra
     }
   })
 
-  app.get('/api/places/exists', async (context) => {
+  // googlePlaceId que ya están en places: una sola consulta con todos los ids.
+  app.post('/api/places/exists', async (context) => {
     if (!placesSaver) return context.json(apiError('CONFIGURATION_ERROR', MISSING_DATABASE), 503)
-    const ids = [...new Set((context.req.query('ids') ?? '').split(',').map((id) => id.trim()).filter(Boolean))]
-    if (ids.length === 0 || ids.length > MAX_SAVE_PLACES || ids.some((id) => id.length > 300)) {
-      return context.json(apiError('VALIDATION_ERROR', 'La lista de ids no es válida.'), 400)
-    }
+    const parsed = existsRequestSchema.safeParse(await context.req.json().catch(() => null))
+    if (!parsed.success) return context.json(apiError('VALIDATION_ERROR', 'La lista de ids no es válida.'), 400)
+    const ids = [...new Set(parsed.data.ids)]
     try {
       return context.json({ ids: await placesSaver.existing(ids) })
     } catch (error) {

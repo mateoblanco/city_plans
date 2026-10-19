@@ -1,6 +1,6 @@
-// Vuelve a contar menciones editoriales, lista/premio y seguidores de los lugares guardados, sin
-// reprocesarlos: el tipo de lugar de Google (sólo para la consulta), Exa (con la marca) y Apify (si ya
-// tiene instagram). No llama al LLM ni toca otras columnas.
+// Vuelve a leer los seguidores de Instagram de los lugares guardados y recalcula prominence, sin
+// reprocesarlos: Apify (si ya tiene instagram), y Exa con la marca y el tipo de lugar de Google sólo
+// para detectar sucursales de cadena. No llama al LLM ni toca otras columnas.
 // Uso: yarn signals:refresh [--dry-run] [--only <id o nombre>,<id o nombre>…]
 import './env.ts'
 import { eq } from 'drizzle-orm'
@@ -12,14 +12,13 @@ import { GooglePlacesProvider } from '../providers/google-places-provider.ts'
 import { canonical } from '../providers/source-hosts.ts'
 
 const format = (values: SignalsUpdate | null) => values
-  ? `${values.editorialMentions} men · ${values.listedOrAwarded ? 'lista' : '—'} · ${values.igFollowers ?? '—'} seg · ${values.prominence.toFixed(3)}`
+  ? `${values.igFollowers ?? '—'} seg · ${values.prominence.toFixed(3)}`
   : '—'
 
 function report(results: RefreshResult[], dryRun: boolean) {
   for (const result of results) {
     const mark = result.status === 'changed' ? (dryRun ? 'cambiaría' : 'actualizado') : result.status === 'unchanged' ? 'igual' : 'ERROR'
     console.log(`${mark.padEnd(11)} ${result.name}: ${format(result.before)} → ${format(result.after)}${result.chain ? ' (cadena)' : ''}`)
-    if (result.editorialHosts.length > 0) console.log(`            editoriales: ${result.editorialHosts.join(', ')}`)
     for (const warning of result.warnings) console.log(`            aviso: ${warning}`)
     if (result.error) console.log(`            ${result.error}`)
   }
@@ -59,8 +58,8 @@ async function main() {
 
   const rows = await db
     .select({
-      id: places.id, googlePlaceId: places.googlePlaceId, name: places.name, instagram: places.instagram, website: places.website,
-      editorialMentions: places.editorialMentions, listedOrAwarded: places.listedOrAwarded, igFollowers: places.igFollowers, prominence: places.prominence,
+      id: places.id, googlePlaceId: places.googlePlaceId, name: places.name, instagram: places.instagram,
+      igFollowers: places.igFollowers, prominence: places.prominence,
     })
     .from(places)
   const ids = only ? onlyIds(rows, only) : undefined
@@ -70,11 +69,9 @@ async function main() {
     placeType: google ? (googlePlaceId) => google.getPlaceType(googlePlaceId) : undefined,
     searchPlace: (term) => exa.searchPlace(term),
     scrapeInstagram: (url) => instagram.configured ? instagram.scrape(url) : Promise.reject(new Error('Apify sin configurar')),
-    // Sólo las cuatro columnas de prominencia; updatedAt avanza por $onUpdate.
+    // Sólo las columnas de prominencia; updatedAt avanza por $onUpdate.
     write: dryRun ? undefined : async (id, values) => {
       await db.update(places).set({
-        editorialMentions: values.editorialMentions,
-        listedOrAwarded: values.listedOrAwarded,
         igFollowers: values.igFollowers,
         prominence: values.prominence,
       }).where(eq(places.id, id))

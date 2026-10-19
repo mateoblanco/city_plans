@@ -184,7 +184,84 @@ describe('Buscar por barrio', () => {
     expect(screen.getByText('Fuera del barrio')).toBeInTheDocument()
   })
 
-  it('separa aceptados, para revisar y rechazados, y muestra rating y reseñas sólo en las vistas previas del resumen', async () => {
+  it('oculta por defecto los que ya están en la base, con una sola consulta, y los muestra al desactivar el checkbox', async () => {
+    const saved = { ...place, placeId: 'a1', name: 'Lugar guardado' }
+    const fresh = ['a2', 'a3'].map((id) => ({ ...place, placeId: id, name: `Lugar ${id}` }))
+    const outside = { ...place, placeId: 'a4', name: 'Lugar vecino', insideNeighborhood: false }
+    const existsBodies: { ids: string[] }[] = []
+    const extractBodies: { googlePlaceId: string }[] = []
+    let releaseExists!: () => void
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200 }))
+      if (url.includes('/sweep')) {
+        return ndjson([
+          { type: 'places', items: [saved, ...fresh, outside] },
+          { type: 'done', summary: summary({ totalPlaces: 4, byGroup: { accepted: 4, review: 0, rejected: 0 } }) },
+        ])
+      }
+      if (url === '/api/places/exists') {
+        existsBodies.push(JSON.parse(String(init?.body)))
+        // Se demora para poder seleccionar antes de que llegue la respuesta.
+        return new Promise<Response>((resolve) => { releaseExists = () => resolve(new Response(JSON.stringify({ ids: ['a1', 'a4'] }), { status: 200 })) })
+      }
+      if (url === '/api/extraction-reports') return json({ path: 'output/report.json' })
+      extractBodies.push(JSON.parse(String(init?.body)))
+      return Promise.resolve(new Response(JSON.stringify({ error: { code: 'UPSTREAM_ERROR', message: 'sin pipeline en el test' } }), { status: 502 }))
+    }))
+    render(<App />)
+    const user = await startSweep()
+    expect(await screen.findByLabelText('Recorrido completo')).toBeInTheDocument()
+
+    // Mientras consulta, todo se ve y se puede seleccionar.
+    expect(screen.getByText('· Consultando la base…')).toBeInTheDocument()
+    const hide = screen.getByLabelText('Ocultar los que ya están en la base')
+    expect(hide).toBeChecked()
+    await user.click(screen.getByLabelText('Seleccionar todos'))
+    expect(screen.getByRole('button', { name: 'Procesar (3)' })).toBeEnabled()
+
+    releaseExists()
+    expect(await screen.findByText('· 1 oculto porque ya está en la base')).toBeInTheDocument()
+    expect(existsBodies).toEqual([{ ids: ['a1', 'a2', 'a3', 'a4'] }])
+    expect(screen.queryByRole('link', { name: /Lugar guardado/ })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Seleccionar Lugar guardado')).not.toBeInTheDocument()
+    // Estaba seleccionado: queda deseleccionado y no se procesa.
+    expect(screen.getByRole('button', { name: 'Procesar (2)' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /Aceptados/ })).toHaveTextContent('Aceptados (2)')
+
+    // El conteo sigue al filtro de ubicación: a4 está guardado y fuera del barrio.
+    await user.click(screen.getByLabelText('Mostrar sólo lugares del barrio'))
+    expect(screen.getByText('· 2 ocultos porque ya están en la base')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Lugar vecino/ })).not.toBeInTheDocument()
+    await user.click(screen.getByLabelText('Mostrar sólo lugares del barrio'))
+
+    await user.click(hide)
+    expect(screen.getByText('· 1 ya está en la base')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Lugar guardado/ })).toBeInTheDocument()
+    await user.click(screen.getByLabelText('Seleccionar Lugar guardado'))
+    await user.click(screen.getByRole('button', { name: 'Procesar (3)' }))
+    await waitFor(() => expect(extractBodies.map((body) => body.googlePlaceId).sort()).toEqual(['a1', 'a2', 'a3']))
+    expect(existsBodies).toHaveLength(1)
+
+    // Volver a ocultarlos los deselecciona.
+    await user.click(hide)
+    expect(screen.queryByRole('link', { name: /Lugar guardado/ })).not.toBeInTheDocument()
+    await user.click(hide)
+    expect(screen.getByLabelText('Seleccionar Lugar guardado')).not.toBeChecked()
+  })
+
+  it('si no puede consultar la base, avisa y no oculta nada', async () => {
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => String(input) === '/api/places/exists'
+      ? Promise.resolve(new Response(JSON.stringify({ error: { code: 'CONFIGURATION_ERROR', message: 'Falta configurar DATABASE_URL en .env.local.' } }), { status: 503 }))
+      : ndjson([{ type: 'places', items: [place] }, { type: 'done', summary: summary() }])))
+    render(<App />)
+    await startSweep()
+
+    expect(await screen.findByText('· No se pudo consultar la base')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Bar Uno/ })).toBeInTheDocument()
+  })
+
+  it('separa aceptados, a revisar y rechazados, y muestra rating y reseñas sólo en las vistas previas del resumen', async () => {
     const review = { ...place, placeId: 'r1', name: 'Sin Tipo', group: 'review' as const, reason: 'primary_type_missing', primaryType: null, rating: null, userRatingCount: null }
     const rejected = { ...place, placeId: 'x1', name: 'Super Barrio', group: 'rejected' as const, reason: 'excluded_type:supermarket', primaryType: 'supermarket', rating: 3.9, userRatingCount: 57 }
     vi.stubGlobal('fetch', vi.fn(() => ndjson([
@@ -216,11 +293,11 @@ describe('Buscar por barrio', () => {
     expect(within(rejectedTable).getByText('excluded_type:supermarket')).toBeInTheDocument()
     expect(within(rejectedTable).queryByRole('button', { name: /Buscar información/ })).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Para revisar (1)' }))
+    await user.click(screen.getByRole('button', { name: 'A revisar (1)' }))
     expect(within(screen.getAllByRole('table')[0]).getByText('primary_type_missing')).toBeInTheDocument()
 
     expect(screen.getByText('Rechazados (primeros 1 de 1)')).toBeInTheDocument()
-    expect(screen.getByText('Para revisar (primeros 1 de 1)')).toBeInTheDocument()
+    expect(screen.getByText('A revisar (primeros 1 de 1)')).toBeInTheDocument()
     expect(screen.getByText('Tipos en revisión sin clasificar')).toBeInTheDocument()
     expect(screen.getByText('florist').nextElementSibling).toHaveTextContent('3')
     expect(screen.getByText('meal_delivery').nextElementSibling).toHaveTextContent('1')
@@ -294,8 +371,200 @@ describe('Buscar por barrio', () => {
     expect(screen.getByRole('link', { name: /Bar Uno/ })).toBeInTheDocument()
   })
 
-  it('procesa los seleccionados de Aceptados y Para revisar con concurrencia 3, estados por fila, reintento y métricas', async () => {
-    const accepted = ['a1', 'a2', 'a3', 'a4'].map((id) => ({ ...place, placeId: id, name: `Lugar ${id}` }))
+  describe('errores de Apify y cuentas compartidas', () => {
+    const okResult = (id: string, name: string, extra: { selected?: string; shared?: { handle: string; places: string[] }[] } = {}) => ({
+      source: 'llm', status: 'ok', model: 'anthropic/claude-sonnet-5.5',
+      performance: { totalMs: 1000, stepsMs: { llm: 1000 }, costUsd: { totalUsd: 0.1, providers: { llm: { costUsd: 0.04 } } } },
+      place: { googlePlaceId: id, name, categories: [], tags: [], placeFacts: [], hours: { status: 'none' }, contact: { instagram: null, website: null }, reviewReasons: [] },
+      review: { unmappedFacts: [], doubts: [], anomalies: [], hoursRetry: { attempted: false, recovered: false, costUsd: 0 }, ...(extra.shared ? { instagramShared: extra.shared } : {}) },
+      sourceAudit: {
+        instagram: Boolean(extra.selected),
+        instagramSelection: { handle: extra.selected ?? null, origin: null, candidates: extra.selected ? [{ handle: extra.selected, decision: 'selected', reason: 'validated_exact_place_profile' }] : [] },
+      },
+    })
+    const apifyError = () => Promise.resolve(new Response(JSON.stringify({
+      error: { code: 'INSTAGRAM_PROVIDER_ERROR', message: 'Error de Apify: no se pudo consultar Instagram. Instagram demoró demasiado en responder.' },
+    }), { status: 502 }))
+    const items = (count: number) => Array.from({ length: count }, (_, index) => ({ ...place, placeId: `a${index + 1}`, name: `Lugar ${index + 1}` }))
+
+    function stub(sweepItems: ReturnType<typeof items>, extract: (id: string, call: number) => Promise<Response>) {
+      const calls: string[] = []
+      const reports: { apifyErrors?: string[]; stoppedByApify?: boolean; exaErrors?: string[]; stoppedByExa?: boolean }[] = []
+      vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        if (url.includes('/sweep')) {
+          return ndjson([
+            { type: 'places', items: sweepItems },
+            { type: 'done', summary: summary({ totalPlaces: sweepItems.length, byGroup: { accepted: sweepItems.length, review: 0, rejected: 0 } }) },
+          ])
+        }
+        if (url === '/api/extraction-reports') {
+          reports.push(JSON.parse(String(init?.body)))
+          return Promise.resolve(new Response(JSON.stringify({ path: 'output/report.json' }), { status: 200 }))
+        }
+        if (url === '/api/places/exists') return Promise.resolve(new Response(JSON.stringify({ ids: [] }), { status: 200 }))
+        const { googlePlaceId } = JSON.parse(String(init?.body)) as { googlePlaceId: string }
+        calls.push(googlePlaceId)
+        return extract(googlePlaceId, calls.filter((id) => id === googlePlaceId).length)
+      }))
+      return { calls, reports }
+    }
+
+    async function processAll(count: number) {
+      render(<App />)
+      const user = await startSweep()
+      await screen.findByLabelText('Recorrido completo')
+      await user.click(screen.getByLabelText('Seleccionar todos'))
+      await user.click(screen.getByRole('button', { name: `Procesar (${count})` }))
+      return { user, metrics: await screen.findByRole('region', { name: 'Métricas del procesamiento' }) }
+    }
+
+    it('3 errores de Apify seguidos cortan el lote: los que corrían terminan, la cola queda para reintentar y avisa', async () => {
+      // Arrancan 5 (concurrencia): el 1 sale bien, 2-4 con error de Apify. Cada uno que termina libera un lugar, así que
+      // el 6 y el 7 arrancan antes del tercer error y terminan igual; el 8 queda en la cola.
+      const { calls, reports } = stub(items(8), (id) => ['a2', 'a3', 'a4'].includes(id)
+        ? apifyError()
+        : Promise.resolve(new Response(JSON.stringify(okResult(id, `Lugar ${id.slice(1)}`)), { status: 200 })))
+      const { user, metrics } = await processAll(8)
+
+      expect(screen.getByRole('alert')).toHaveTextContent('Se cortó el lote: Apify falló en 3 lugares seguidos. Revisá Apify y reintentá.')
+      expect(calls.sort()).toEqual(['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7'])
+      const instagram = within(within(metrics).getByRole('list', { name: 'Errores de Apify y Exa y cuentas compartidas' }))
+      expect(instagram.getByText('Error de Apify: reintentar').nextElementSibling).toHaveTextContent('3')
+      expect(instagram.getByText('Lugar 2, Lugar 3, Lugar 4')).toBeInTheDocument()
+      expect(within(metrics).getByText('No se guardan: usá «Reintentar fallidos».')).toBeInTheDocument()
+      // 3 de Apify y 1 que quedó en cola.
+      expect(screen.getByRole('button', { name: 'Reintentar fallidos (4)' })).toBeEnabled()
+      await waitFor(() => expect(reports).toHaveLength(1))
+      expect(reports[0]).toMatchObject({ apifyErrors: ['a2', 'a3', 'a4'], stoppedByApify: true })
+
+      // Los que terminaron bien se pueden guardar; los de Apify y los de la cola no.
+      await user.click(screen.getByRole('button', { name: /Procesados/ }))
+      expect(screen.getByRole('checkbox', { name: 'Seleccionar Lugar 1' })).toBeEnabled()
+      expect(screen.getByRole('checkbox', { name: 'Seleccionar Lugar 2' })).toBeDisabled()
+      expect(screen.getAllByText('Error: No se procesó: el lote se cortó por errores de Apify.')).toHaveLength(1)
+    })
+
+    it('un error de Exa no se guarda, se cuenta como «Error de Exa: reintentar» y 3 seguidos cortan el lote', async () => {
+      const exaError = () => Promise.resolve(new Response(JSON.stringify({
+        error: { code: 'EXA_PROVIDER_ERROR', message: 'Error de Exa: no se pudo consultar Exa. Exa no pudo completar la consulta.' },
+      }), { status: 502 }))
+      const { reports } = stub(items(8), (id) => ['a2', 'a3', 'a4'].includes(id)
+        ? exaError()
+        : Promise.resolve(new Response(JSON.stringify(okResult(id, `Lugar ${id.slice(1)}`)), { status: 200 })))
+      const { user, metrics } = await processAll(8)
+
+      expect(screen.getByRole('alert')).toHaveTextContent('Se cortó el lote: Exa falló en 3 lugares seguidos. Revisá Exa y reintentá.')
+      const sources = within(within(metrics).getByRole('list', { name: 'Errores de Apify y Exa y cuentas compartidas' }))
+      expect(sources.getByText('Error de Exa: reintentar').nextElementSibling).toHaveTextContent('3')
+      expect(sources.getByText('Error de Apify: reintentar').nextElementSibling).toHaveTextContent('0')
+      expect(sources.getByText('Lugar 2, Lugar 3, Lugar 4')).toBeInTheDocument()
+      await waitFor(() => expect(reports).toHaveLength(1))
+      expect(reports[0]).toMatchObject({ exaErrors: ['a2', 'a3', 'a4'], stoppedByExa: true, apifyErrors: [] })
+
+      await user.click(screen.getByRole('button', { name: /Procesados/ }))
+      expect(screen.getByRole('checkbox', { name: 'Seleccionar Lugar 2' })).toBeDisabled()
+      expect(screen.getAllByText('Error: No se procesó: el lote se cortó por errores de Exa.')).toHaveLength(1)
+    })
+
+    it('errores de Apify no seguidos no cortan el lote', async () => {
+      const { calls } = stub(items(4), (id) => id === 'a3'
+        ? Promise.resolve(new Response(JSON.stringify(okResult(id, 'Lugar 3')), { status: 200 }))
+        : apifyError())
+      const { metrics } = await processAll(4)
+
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(calls.sort()).toEqual(['a1', 'a2', 'a3', 'a4'])
+      expect(within(metrics).getByText('Lugar 1, Lugar 2, Lugar 4')).toBeInTheDocument()
+    })
+
+    it('re-procesa una vez al que se quedó con una cuenta que otro lugar del lote informó como compartida', async () => {
+      const { calls } = stub([{ ...place, placeId: 'duna', name: 'Duna Bar' }, { ...place, placeId: 'marta', name: 'Doña Marta' }], (id, call) => {
+        const result = id === 'duna'
+          ? okResult(id, 'Duna Bar', call === 1 ? { selected: 'lanocheuy_' } : { shared: [{ handle: 'lanocheuy_', places: ['marta'] }] })
+          : okResult(id, 'Doña Marta', { shared: [{ handle: 'lanocheuy_', places: ['duna'] }] })
+        return Promise.resolve(new Response(JSON.stringify(result), { status: 200 }))
+      })
+      const { metrics } = await processAll(2)
+
+      expect(calls).toEqual(['duna', 'marta', 'duna'])
+      const instagram = within(within(metrics).getByRole('list', { name: 'Errores de Apify y Exa y cuentas compartidas' }))
+      expect(instagram.getByText('Cuentas compartidas descartadas').nextElementSibling).toHaveTextContent('1')
+      expect(instagram.getByText('@lanocheuy_ (re-procesado: Duna Bar)')).toBeInTheDocument()
+    })
+  })
+
+  it('los cerrados según Google quedan en A revisar sin poder seleccionarse hasta moverlos a mano, y el resumen los cuenta', async () => {
+    const closed = { ...place, placeId: 'c1', name: 'Cerrado Uno', group: 'review' as const, reason: 'closed_permanently' }
+    const paused = { ...place, placeId: 'c2', name: 'Cerrado Dos', group: 'review' as const, reason: 'closed_temporarily' }
+    const fewReviews = { ...place, placeId: 'f1', name: 'Pocas Reseñas', group: 'review' as const, reason: 'few_reviews' }
+    const extractBodies: { googlePlaceId: string }[] = []
+    const result = (id: string) => ({
+      source: 'llm', status: 'ok', model: 'anthropic/claude-sonnet-5.5',
+      performance: { totalMs: 1000, stepsMs: { llm: 1000 }, costUsd: { totalUsd: 0.1, providers: { llm: { costUsd: 0.04 } } } },
+      place: {
+        googlePlaceId: id, name: id === 'c1' ? 'Cerrado Uno' : 'Pocas Reseñas', categories: [], tags: [], placeFacts: [],
+        hours: { status: 'none' }, contact: { instagram: null, website: null },
+        reviewReasons: id === 'c1' ? ['not_open_yet', 'no_place_facts'] : [],
+      },
+      review: { unmappedFacts: [], doubts: [], anomalies: [], hoursRetry: { attempted: false, recovered: false, costUsd: 0 } },
+      sourceAudit: { instagram: false, instagramSelection: { handle: null, origin: null, candidates: [] } },
+    })
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/sweep')) {
+        return ndjson([
+          { type: 'places', items: [closed, paused, fewReviews] },
+          { type: 'done', summary: summary({ totalPlaces: 3, byGroup: { accepted: 0, review: 3, rejected: 0 } }) },
+        ])
+      }
+      if (url === '/api/extraction-reports') return Promise.resolve(new Response(JSON.stringify({ path: 'output/report.json' }), { status: 200 }))
+      if (url === '/api/places/exists') return Promise.resolve(new Response(JSON.stringify({ ids: [] }), { status: 200 }))
+      const body = JSON.parse(String(init?.body)) as { googlePlaceId: string }
+      extractBodies.push(body)
+      return Promise.resolve(new Response(JSON.stringify(result(body.googlePlaceId)), { status: 200 }))
+    }))
+    render(<App />)
+    const user = await startSweep()
+    expect(await screen.findByLabelText('Recorrido completo')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'A revisar (3)' }))
+    expect(screen.getByText('Cerrado definitivamente según Google')).toBeInTheDocument()
+    expect(screen.getByText('Cerrado temporalmente según Google')).toBeInTheDocument()
+    expect(screen.getByLabelText('Seleccionar Cerrado Uno')).toBeDisabled()
+    // "Seleccionar todos" sólo toma los que se pueden procesar.
+    await user.click(screen.getByLabelText('Seleccionar todos'))
+    expect(screen.getByLabelText('Seleccionar Cerrado Uno')).not.toBeChecked()
+    expect(screen.getByRole('button', { name: 'Procesar (1)' })).toBeEnabled()
+
+    await user.click(screen.getByRole('button', { name: 'Permitir procesar Cerrado Uno' }))
+    expect(screen.getByLabelText('Seleccionar Cerrado Uno')).toBeEnabled()
+    await user.click(screen.getByLabelText('Seleccionar Cerrado Uno'))
+    expect(screen.getByRole('button', { name: 'Procesar (2)' })).toBeEnabled()
+    // Volver a bloquearlo lo saca de la selección.
+    await user.click(screen.getByRole('button', { name: 'Volver a bloquear Cerrado Uno' }))
+    expect(screen.getByRole('button', { name: 'Procesar (1)' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'Permitir procesar Cerrado Uno' }))
+    await user.click(screen.getByLabelText('Seleccionar Cerrado Uno'))
+
+    await user.click(screen.getByRole('button', { name: 'Procesar (2)' }))
+    const metrics = await screen.findByRole('region', { name: 'Métricas del procesamiento' })
+    expect(extractBodies.map((body) => body.googlePlaceId).sort()).toEqual(['c1', 'f1'])
+    const review = within(within(metrics).getByRole('list', { name: 'A revisar por motivo' }))
+    expect(review.getByText('Todavía no abrió').nextElementSibling).toHaveTextContent('1')
+    expect(review.getByText('Sin datos del local: las fuentes eran de otros lugares').nextElementSibling).toHaveTextContent('1')
+    expect(review.getByText('Bar sin bebidas').nextElementSibling).toHaveTextContent('0')
+    expect(review.getByText('Cerrado definitivamente según Google (barrido)').nextElementSibling).toHaveTextContent('1')
+    expect(review.getByText('Cerrado temporalmente según Google (barrido)').nextElementSibling).toHaveTextContent('1')
+    expect(review.getByText('Cerrado Dos')).toBeInTheDocument()
+    expect(within(metrics).getByText('1 procesado se guarda sin publicar')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Procesados/ }))
+    expect(screen.getByText('Irá a revisión: Todavía no abrió · Sin datos del local: las fuentes eran de otros lugares')).toBeInTheDocument()
+  })
+
+  it('procesa los seleccionados de Aceptados y A revisar con concurrencia 5, estados por fila, reintento y métricas', async () => {
+    const accepted = ['a1', 'a2', 'a3', 'a4', 'a5', 'a6'].map((id) => ({ ...place, placeId: id, name: `Lugar ${id}` }))
     const review = { ...place, placeId: 'r1', name: 'Lugar r1', group: 'review' as const, reason: 'few_reviews', insideNeighborhood: false }
     const rejected = { ...place, placeId: 'x1', name: 'Lugar x1', group: 'rejected' as const, reason: 'excluded_type:store' }
     const pending: { id: string; resolve: () => void }[] = []
@@ -314,6 +583,18 @@ describe('Buscar por barrio', () => {
       review: {
         unmappedFacts: [{ id: 'F1', text: `Karaoke en ${id}`, proposedTag: 'karaoke' }], doubts: [],
         anomalies: [{ type: 'no_contact', detail: 'sin instagram ni website' }], hoursRetry: { attempted: true, recovered: false, costUsd: 0.03 },
+        ...(id === 'a3' ? { logo: { status: 'failed', reason: 'download_failed', kind: null, detail: '403' } } : {}),
+        ...(id === 'r1' ? { logo: { status: 'ok', reason: null, kind: 'local' } } : {}),
+        // a4 y a5 usaron el respaldo del Instagram: a4 lo rechazó la validación, a5 quedó validado.
+        ...(id === 'a4' ? { logo: { status: 'missing', reason: 'no_instagram', kind: null }, instagramFallback: { attempted: true, reason: 'sin candidato', terms: ['Lugar a4'], handles: ['otro.a4'], costUsd: 0.0135 } } : {}),
+        ...(id === 'a5' ? { logo: { status: 'ok', reason: null, kind: 'logo' }, instagramFallback: { attempted: true, reason: 'candidato rechazado: otro.a5, identity_or_location_mismatch', terms: ['Lugar a5'], handles: ['lugar.a5'], costUsd: 0.0135 } } : {}),
+      },
+      sourceAudit: {
+        instagram: id === 'a5',
+        instagramSelection: {
+          handle: null, origin: null,
+          candidates: id === 'a4' ? [{ handle: 'otro.a4', decision: 'discarded', reason: 'identity_or_location_mismatch' }] : [],
+        },
       },
     })
 
@@ -322,13 +603,14 @@ describe('Buscar por barrio', () => {
       if (url.includes('/sweep')) {
         return ndjson([
           { type: 'places', items: [...accepted, review, rejected] },
-          { type: 'done', summary: summary({ totalPlaces: 5, byGroup: { accepted: 4, review: 0, rejected: 1 } }) },
+          { type: 'done', summary: summary({ totalPlaces: 8, byGroup: { accepted: 6, review: 1, rejected: 1 } }) },
         ])
       }
       if (url === '/api/extraction-reports') {
         reportBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
         return Promise.resolve(new Response(JSON.stringify({ path: 'output/report.json' }), { status: 200 }))
       }
+      if (url === '/api/places/exists') return Promise.resolve(new Response(JSON.stringify({ ids: [] }), { status: 200 }))
       expect(url).toBe('/api/extract')
       const body = JSON.parse(String(init?.body)) as { googlePlaceId: string }
       extractBodies.push(body)
@@ -355,51 +637,64 @@ describe('Buscar por barrio', () => {
     expect(screen.getByRole('button', { name: 'Procesar (0)' })).toBeDisabled()
     await user.click(screen.getByLabelText('Seleccionar todos'))
     await user.click(screen.getByLabelText('Mostrar sólo lugares del barrio'))
-    await user.click(screen.getByRole('button', { name: /Para revisar/ }))
+    await user.click(screen.getByRole('button', { name: /A revisar/ }))
     await user.click(screen.getByLabelText('Seleccionar Lugar r1'))
     await user.click(screen.getByRole('button', { name: /Rechazados/ }))
     expect(screen.queryByLabelText('Seleccionar todos')).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /Aceptados/ }))
 
-    await user.click(screen.getByRole('button', { name: 'Procesar (5)' }))
-    await waitFor(() => expect(pending).toHaveLength(3))
+    await user.click(screen.getByRole('button', { name: 'Procesar (7)' }))
+    await waitFor(() => expect(pending).toHaveLength(5))
     const mainTable = () => screen.getAllByRole('table')[0]
-    expect(within(mainTable()).getAllByText('Procesando…')).toHaveLength(3)
-    expect(within(mainTable()).getByText('En cola')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Procesar (5)' })).toBeDisabled()
+    expect(within(mainTable()).getAllByText('Procesando…')).toHaveLength(5)
+    expect(within(mainTable()).getAllByText('En cola')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Procesar (7)' })).toBeDisabled()
 
-    while (pending.length > 0 || extractBodies.length < 5) {
+    while (pending.length > 0 || extractBodies.length < 7) {
       await waitFor(() => expect(pending.length).toBeGreaterThan(0))
       pending.shift()?.resolve()
     }
 
     const metrics = await screen.findByRole('region', { name: 'Métricas del procesamiento' })
-    expect(maxInFlight).toBe(3)
-    expect(extractBodies).toHaveLength(5)
+    expect(maxInFlight).toBe(5)
+    expect(extractBodies).toHaveLength(7)
     expect(extractBodies.find((body) => body.googlePlaceId === 'a1')).toEqual({
       googlePlaceId: 'a1', seedCategories: ['bar', 'wine_bar'], neighborhoodId: 'PARQUE RODO',
     })
     expect(extractBodies.find((body) => body.googlePlaceId === 'r1')).toEqual({ googlePlaceId: 'r1', seedCategories: ['bar', 'wine_bar'] })
     // Al terminar el lote se manda un reporte con la revisión de los lugares listos.
     await waitFor(() => expect(reportBodies).toHaveLength(1))
-    expect(reportBodies[0].places).toHaveLength(4)
+    expect(reportBodies[0].places).toHaveLength(6)
     expect((reportBodies[0].places as { googlePlaceId: string; review: unknown }[]).find((entry) => entry.googlePlaceId === 'a1')).toEqual({
-      name: 'Lugar a1', googlePlaceId: 'a1',
+      name: 'Lugar a1', googlePlaceId: 'a1', reviewReasons: [],
       stats: {
         hoursStatus: 'none', hasInstagram: false, hasWebsite: true, tagCount: 2, costUsd: 0.1, totalMs: 4000,
-        sourcesUsd: expect.closeTo(0.03, 6), mainLlmUsd: 0.04, hoursRetryUsd: 0.03, inputTokens: 10_000, cachedInputTokens: 3_000, cacheWriteTokens: 0,
+        sourcesUsd: expect.closeTo(0.03, 6), mainLlmUsd: 0.04, hoursRetryUsd: 0.03, logoUsd: 0, inputTokens: 10_000, cachedInputTokens: 3_000, cacheWriteTokens: 0,
       },
       review: {
         unmappedFacts: [{ id: 'F1', text: 'Karaoke en a1', proposedTag: 'karaoke' }], doubts: [],
         anomalies: [{ type: 'no_contact', detail: 'sin instagram ni website' }], hoursRetry: { attempted: true, recovered: false, costUsd: 0.03 },
       },
     })
-    expect(within(metrics).getByText('Listos').nextElementSibling).toHaveTextContent('4')
+    expect(within(metrics).getByText('Listos').nextElementSibling).toHaveTextContent('6')
     expect(within(metrics).getByText('Con error').nextElementSibling).toHaveTextContent('1')
     expect(within(metrics).getByText('Google').nextElementSibling).toHaveTextContent('1,0 s')
     expect(within(metrics).getByText('LLM').nextElementSibling).toHaveTextContent('3,0 s')
+    // Logos: conteo por motivo y, debajo, los lugares con el código HTTP o la clasificación.
+    const logos = within(within(metrics).getByRole('list', { name: 'Logos por resultado' }))
+    expect(logos.getByText('Error al bajar la imagen').nextElementSibling).toHaveTextContent('1')
+    expect(logos.getByText('Lugar a3 (403)')).toBeInTheDocument()
+    expect(logos.getByText('Clasificada como local, comida u otro').nextElementSibling).toHaveTextContent('1')
+    expect(logos.getByText('Lugar r1 (Local)')).toBeInTheDocument()
+    expect(logos.getByText('Con logo').nextElementSibling).toHaveTextContent('1')
+    expect(logos.getByText('Instagram rechazado en la validación').nextElementSibling).toHaveTextContent('1')
+    expect(logos.getByText('Lugar a4 (@otro.a4: identity_or_location_mismatch (respaldo))')).toBeInTheDocument()
+    const fallbackLine = within(metrics).getByText('Instagram encontrado por el respaldo')
+    expect(fallbackLine.nextElementSibling).toHaveTextContent('1 de 2 búsquedas')
+    expect(fallbackLine.closest('p')).toHaveTextContent('Lugar a5 (tras rechazo)')
+    expect(within(metrics).getByText('1 con error, sin paso de logo')).toBeInTheDocument()
     expect(within(mainTable()).getByText('Error: Falló a2')).toBeInTheDocument()
-    expect(within(mainTable()).getAllByText(/^Listo · /)).toHaveLength(3)
+    expect(within(mainTable()).getAllByText(/^Listo · /)).toHaveLength(5)
 
     const a1Row = within(mainTable()).getByRole('link', { name: /Lugar a1/ }).closest('tr') as HTMLElement
     await user.click(within(a1Row).getByRole('button', { name: 'Ver resultado' }))
@@ -420,8 +715,8 @@ describe('Buscar por barrio', () => {
     await waitFor(() => expect(pending).toHaveLength(1))
     expect(pending[0].id).toBe('a2')
     pending.shift()?.resolve()
-    await waitFor(() => expect(within(mainTable()).getAllByText(/^Listo · /)).toHaveLength(4))
-    expect(extractBodies).toHaveLength(6)
+    await waitFor(() => expect(within(mainTable()).getAllByText(/^Listo · /)).toHaveLength(6))
+    expect(extractBodies).toHaveLength(8)
     // El reintento también es un lote y genera su propio reporte.
     await waitFor(() => expect(reportBodies).toHaveLength(2))
     expect(reportBodies[1].places).toHaveLength(1)

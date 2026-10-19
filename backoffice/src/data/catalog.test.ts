@@ -110,6 +110,9 @@ describe('catálogos permitidos', () => {
     expect(toCanonical('acogedor')).toEqual({ group: 'atmosphere', id: 'cozy' })
     expect(toCanonical('upscale')).toEqual({ group: 'atmosphere', id: 'elegant' })
     expect(GOOD_FOR.work.synonyms.en).toEqual(expect.arrayContaining(['remote workers', 'laptop', 'work from']))
+    // Patrimonio Café: "funciona como cowork".
+    expect(toCanonical('cowork')).toEqual({ group: 'goodFor', id: 'work' })
+    expect(toCanonical('coworking')).toEqual({ group: 'goodFor', id: 'work' })
   })
 
   it('separa el tag genérico al aire libre y lo agrupa en el filtro', () => {

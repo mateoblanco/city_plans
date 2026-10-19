@@ -1,4 +1,4 @@
-// Hosts y comparaciones de texto que comparten la extracción y la clasificación editorial.
+// Hosts y comparaciones de texto de la extracción.
 
 export const BLOCKED_HOSTS = ['google.com', 'goo.gl', 'maps.app.goo.gl', 'corner.inc', 'exa.ai', 'facebook.com', 'foursquare.com']
 export const DIRECTORY_HOSTS = ['opina.com.uy', 'linkedin.com', 'tripadvisor', 'restaurantguru', 'yelp.com', 'wanderlog.com', 'saliracomer.com', 'laguiadelociouruguay.com']

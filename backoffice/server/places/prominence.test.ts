@@ -1,38 +1,24 @@
 import { describe, expect, it } from 'vitest'
-import { computeProminence, stableSignals } from './prominence.ts'
+import { computeProminence } from './prominence.ts'
 
 describe('computeProminence', () => {
-  it('sin señales vale sólo el término neutro de Instagram', () => {
-    expect(computeProminence({ editorialMentions: 0, listedOrAwarded: false, igFollowers: null })).toBeCloseTo(0.35)
+  it('sin dato de Instagram (o sucursal de cadena) es neutro', () => {
+    expect(computeProminence({ igFollowers: null })).toBe(0.5)
   })
 
-  it('llega a 1 con los topes alcanzados y no se pasa', () => {
-    expect(computeProminence({ editorialMentions: 5, listedOrAwarded: true, igFollowers: 99_999 })).toBeCloseTo(1)
-    expect(computeProminence({ editorialMentions: 12, listedOrAwarded: true, igFollowers: 5_000_000 })).toBeCloseTo(1)
-    expect(computeProminence({ editorialMentions: 12, listedOrAwarded: true, igFollowers: 5_000_000 })).toBeLessThanOrEqual(1)
+  it('log10(seguidores + 1) / 5', () => {
+    expect(computeProminence({ igFollowers: 0 })).toBe(0)
+    expect(computeProminence({ igFollowers: 999 })).toBeCloseTo(0.6)
+    expect(computeProminence({ igFollowers: 99_999 })).toBeCloseTo(1)
   })
 
-  it('sin dato de Instagram es mejor que 0 seguidores y peor que muchos', () => {
-    const base = { editorialMentions: 2, listedOrAwarded: false }
-    const none = computeProminence({ ...base, igFollowers: null })
-    expect(computeProminence({ ...base, igFollowers: 0 })).toBeLessThan(none)
-    expect(computeProminence({ ...base, igFollowers: 50_000 })).toBeGreaterThan(none)
+  it('topea en 1', () => {
+    expect(computeProminence({ igFollowers: 5_000_000 })).toBe(1)
   })
 
-  it('suma cada término con su peso', () => {
-    // 0.2 × 1/2 + 0.7 × log10(1000)/5 + 0.1
-    expect(computeProminence({ editorialMentions: 1, listedOrAwarded: true, igFollowers: 999 })).toBeCloseTo(0.1 + 0.42 + 0.1)
-    // Desde 2 menciones el término editorial ya está al tope.
-    expect(computeProminence({ editorialMentions: 3, listedOrAwarded: false, igFollowers: null }))
-      .toBe(computeProminence({ editorialMentions: 2, listedOrAwarded: false, igFollowers: null }))
-  })
-})
-
-describe('stableSignals', () => {
-  it('no baja las menciones ni apaga lista/premio; los seguidores sí cambian', () => {
-    expect(stableSignals({ editorialMentions: 2, listedOrAwarded: true }, { editorialMentions: 1, listedOrAwarded: false, igFollowers: 10 }))
-      .toEqual({ editorialMentions: 2, listedOrAwarded: true, igFollowers: 10 })
-    expect(stableSignals({ editorialMentions: 0, listedOrAwarded: false }, { editorialMentions: 3, listedOrAwarded: true, igFollowers: null }))
-      .toEqual({ editorialMentions: 3, listedOrAwarded: true, igFollowers: null })
+  it('sin dato es mejor que 0 seguidores y peor que muchos', () => {
+    const none = computeProminence({ igFollowers: null })
+    expect(computeProminence({ igFollowers: 0 })).toBeLessThan(none)
+    expect(computeProminence({ igFollowers: 50_000 })).toBeGreaterThan(none)
   })
 })

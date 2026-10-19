@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import type { NewPlace } from '../db/schema.ts'
 import { computeProminence } from './prominence.ts'
-import { EMBEDDING_MODEL, savePlaces, slugify, type ExistingPlace, type PlacesStore } from './save.ts'
+import { EMBEDDING_MODEL, pipelineStatus, savePlaces, slugify, type ExistingPlace, type PlacesStore } from './save.ts'
 import { draft } from './test-fixtures.ts'
 
 const ok = (overrides: Parameters<typeof draft>[0] = {}) => ({ source: 'llm', status: 'ok', place: draft(overrides) })
@@ -33,7 +33,68 @@ describe('slugify', () => {
   })
 })
 
+describe('pipelineStatus', () => {
+  it('nuevo: review con motivos, published sin', () => {
+    expect(pipelineStatus(undefined, ['not_open_yet'])).toBe('review')
+    expect(pipelineStatus(undefined, [])).toBe('published')
+  })
+
+  it('al actualizar mueve published ↔ review, pero no toca draft, hidden ni un status manual', () => {
+    expect(pipelineStatus({ status: 'published', manualOverrides: [] }, ['no_place_facts'])).toBe('review')
+    expect(pipelineStatus({ status: 'review', manualOverrides: [] }, [])).toBe('published')
+    expect(pipelineStatus({ status: 'hidden', manualOverrides: [] }, [])).toBeUndefined()
+    expect(pipelineStatus({ status: 'draft', manualOverrides: [] }, ['not_open_yet'])).toBeUndefined()
+    expect(pipelineStatus({ status: 'published', manualOverrides: ['status'] }, ['not_open_yet'])).toBeUndefined()
+  })
+})
+
 describe('savePlaces', () => {
+  it('guarda en review los lugares con motivos, con los motivos, y publica los demás', async () => {
+    const { store, inserted } = fakeStore()
+
+    await savePlaces([ok({ reviewReasons: ['not_open_yet'] }), ok({ googlePlaceId: 'place-2' })], { store, embed: vectors })
+
+    expect(inserted.map((row) => [row.googlePlaceId, row.status, row.reviewReasons])).toEqual([
+      ['place-1', 'review', ['not_open_yet']],
+      ['place-2', 'published', []],
+    ])
+  })
+
+  it('al actualizar cambia el status según los motivos, salvo hidden o un status puesto a mano', async () => {
+    const existing = (googlePlaceId: string, status: ExistingPlace['status'], manualOverrides: string[] = []) =>
+      ({ id: `uuid-${googlePlaceId}`, googlePlaceId, embeddingTextHash: hash(draft().embeddingText), manualOverrides, status })
+    const { store, updated } = fakeStore([
+      existing('a', 'published'), existing('b', 'review'), existing('c', 'hidden'), existing('d', 'published', ['status']),
+    ])
+
+    await savePlaces([
+      ok({ googlePlaceId: 'a', reviewReasons: ['bar_without_drinks'] }),
+      ok({ googlePlaceId: 'b' }),
+      ok({ googlePlaceId: 'c', reviewReasons: ['not_open_yet'] }),
+      ok({ googlePlaceId: 'd', reviewReasons: ['not_open_yet'] }),
+    ], { store, embed: vectors })
+
+    const statusOf = (id: string) => updated.find((entry) => entry.id === `uuid-${id}`)?.values.status
+    expect(statusOf('a')).toBe('review')
+    expect(statusOf('b')).toBe('published')
+    expect(statusOf('c')).toBeUndefined()
+    expect(statusOf('d')).toBeUndefined()
+    expect(updated.find((entry) => entry.id === 'uuid-d')?.values.reviewReasons).toEqual(['not_open_yet'])
+  })
+
+  it('un motivo que no está en el catálogo invalida sólo ese lugar', async () => {
+    const { store, inserted } = fakeStore()
+
+    const results = await savePlaces([
+      { source: 'llm', status: 'ok', place: { ...draft({ googlePlaceId: 'raro' }), reviewReasons: ['cuisine_unmentioned'] } },
+      ok({ googlePlaceId: 'place-2' }),
+    ], { store, embed: vectors })
+
+    expect(results[0]).toMatchObject({ googlePlaceId: 'raro', action: 'skipped' })
+    expect(results[0].error).toContain('reviewReasons')
+    expect(inserted.map((row) => row.googlePlaceId)).toEqual(['place-2'])
+  })
+
   it('inserta un lugar nuevo publicado, con slug y embedding', async () => {
     const { store, inserted } = fakeStore()
     const embed = vi.fn(vectors)
@@ -59,7 +120,7 @@ describe('savePlaces', () => {
   })
 
   it('actualiza un existente sin pisar manualOverrides ni la identidad, y no re-embebe si el texto no cambió', async () => {
-    const existing = { id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(draft().embeddingText), manualOverrides: ['instagram', 'diet_vegan'], editorialMentions: 0, listedOrAwarded: false }
+    const existing = { id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(draft().embeddingText), manualOverrides: ['instagram', 'diet_vegan'], status: 'published' as const }
     const { store, inserted, updated } = fakeStore([existing])
     const embed = vi.fn(vectors)
 
@@ -75,40 +136,63 @@ describe('savePlaces', () => {
     }
   })
 
-  it('actualiza las señales y prominence, y nunca escribe featured', async () => {
-    const { store, inserted, updated } = fakeStore([{ id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(draft().embeddingText), manualOverrides: [], editorialMentions: 0, listedOrAwarded: false }])
+  it('actualiza los seguidores y prominence, y nunca escribe featured', async () => {
+    const { store, inserted, updated } = fakeStore([{ id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(draft().embeddingText), manualOverrides: [], status: 'published' as const }])
 
     await savePlaces([ok(), ok({ googlePlaceId: 'place-2' })], { store, embed: vectors })
 
-    expect(updated[0].values).toMatchObject({ editorialMentions: 2, listedOrAwarded: true, igFollowers: 999 })
+    expect(updated[0].values).toMatchObject({ igFollowers: 999 })
     expect(updated[0].values.prominence).toBeCloseTo(computeProminence(draft().signals))
     expect(updated[0].values).not.toHaveProperty('featured')
     expect(inserted[0]).not.toHaveProperty('featured')
   })
 
-  it('no baja editorialMentions ni apaga listedOrAwarded al actualizar; igFollowers sí cambia', async () => {
-    const existing = { id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(draft().embeddingText), manualOverrides: [], editorialMentions: 3, listedOrAwarded: true }
+  it('una sucursal de cadena (sin seguidores) pasa a prominence neutra al actualizar', async () => {
+    const existing = { id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(draft().embeddingText), manualOverrides: [], status: 'published' as const }
     const { store, updated } = fakeStore([existing])
 
-    await savePlaces([ok({ signals: { editorialMentions: 1, listedOrAwarded: false, igFollowers: 50 } })], { store, embed: vectors })
+    await savePlaces([ok({ signals: { igFollowers: null } })], { store, embed: vectors })
 
-    expect(updated[0].values).toMatchObject({ editorialMentions: 3, listedOrAwarded: true, igFollowers: 50 })
-    expect(updated[0].values.prominence).toBeCloseTo(computeProminence({ editorialMentions: 3, listedOrAwarded: true, igFollowers: 50 }))
+    expect(updated[0].values).toMatchObject({ igFollowers: null, prominence: 0.5 })
   })
 
-  it('acepta un resultado sin signals (anterior a la prominencia) con señales vacías', async () => {
+  it('guarda la categoría de ícono al insertar y la actualiza al reprocesar; sin ella, null', async () => {
+    const existing = { id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(draft().embeddingText), manualOverrides: [], status: 'published' as const }
+    const { store, inserted, updated } = fakeStore([existing])
+    const { iconCategory: _icon, ...legacy } = draft({ googlePlaceId: 'place-3' })
+
+    await savePlaces([ok({ iconCategory: 'octopus' }), ok({ googlePlaceId: 'place-2', iconCategory: 'wine' }), { source: 'llm', status: 'ok', place: legacy }], { store, embed: vectors })
+
+    expect(updated[0].values.iconCategory).toBe('octopus')
+    expect(inserted.map((row) => row.iconCategory)).toEqual(['wine', null])
+  })
+
+  it('guarda el style y, en un resultado de antes del campo, null', async () => {
+    const { store, inserted } = fakeStore()
+    const { style: _style, ...legacy } = draft({ googlePlaceId: 'place-3' })
+
+    await savePlaces([ok({ googlePlaceId: 'place-2', style: 'cuidado' }), { source: 'llm', status: 'ok', place: legacy }], { store, embed: vectors })
+
+    expect(inserted.map((row) => row.style)).toEqual(['cuidado', null])
+  })
+
+  it('acepta un resultado sin signals (anterior a la prominencia), y con las claves editoriales viejas', async () => {
     const { store, inserted } = fakeStore()
     const { signals: _signals, ...place } = draft()
 
     const results = await savePlaces([{ source: 'llm', status: 'ok', place }], { store, embed: vectors })
 
     expect(results[0].action).toBe('created')
-    expect(inserted[0]).toMatchObject({ editorialMentions: 0, listedOrAwarded: false, igFollowers: null })
-    expect(inserted[0].prominence).toBeCloseTo(computeProminence({ editorialMentions: 0, listedOrAwarded: false, igFollowers: null }))
+    expect(inserted[0]).toMatchObject({ igFollowers: null, prominence: 0.5 })
+
+    const legacy = { ...place, googlePlaceId: 'place-2', signals: { editorialMentions: 3, listedOrAwarded: true, igFollowers: 999 } }
+    await savePlaces([{ source: 'llm', status: 'ok', place: legacy }], { store, embed: vectors })
+    expect(inserted[1]).toMatchObject({ igFollowers: 999, prominence: expect.closeTo(0.6) })
+    expect(inserted[1]).not.toHaveProperty('editorialMentions')
   })
 
   it('re-embebe un existente cuyo texto cambió', async () => {
-    const { store, updated } = fakeStore([{ id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: 'viejo', manualOverrides: [], editorialMentions: 0, listedOrAwarded: false }])
+    const { store, updated } = fakeStore([{ id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: 'viejo', manualOverrides: [], status: 'published' as const }])
 
     const results = await savePlaces([ok()], { store, embed: vectors })
 

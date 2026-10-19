@@ -43,6 +43,48 @@
       "when": 1791920349784,
       "tag": "0005_prominence",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792178055725,
+      "tag": "0006_logo",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792181042193,
+      "tag": "0007_drop_editorial",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792185839340,
+      "tag": "0008_icon_category",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792189043557,
+      "tag": "0009_icon_category_nullable",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792284483036,
+      "tag": "0010_style",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792421814925,
+      "tag": "0011_review_status",
+      "breakpoints": true
     }
   ]
 }

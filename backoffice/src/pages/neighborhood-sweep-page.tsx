@@ -28,8 +28,11 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { NEIGHBORHOOD_NAMES, neighborhoodDisplayName } from '@/data/neighborhood-names'
 import { CATEGORIES, type CategoryId } from '@/data/tags'
-import { sweepNeighborhood, type ExtractRequest } from '@/lib/places-api'
-import { EXTRACT_CONCURRENCY } from '@/lib/extraction-config'
+import { CLOSED_REASONS, REVIEW_REASONS, isClosedReason, type ReviewReason } from '@/data/review-reasons'
+import { existingPlaceIds, sweepNeighborhood, type ExtractRequest } from '@/lib/places-api'
+import { APIFY_FAILURE_LIMIT, EXA_FAILURE_LIMIT, EXTRACT_CONCURRENCY } from '@/lib/extraction-config'
+import { LOGO_GROUPS, type LogoSummary } from '@/lib/logo-summary'
+import { closedSummary, type ClosedSummary, type ReviewSummary } from '@/lib/review-summary'
 import {
   useExtractionBatch,
   type ExtractionBatchMetrics,
@@ -53,6 +56,22 @@ import type {
 } from '@/types/places'
 
 type SweepStatus = 'idle' | 'loading' | 'success' | 'empty' | 'error' | 'partial'
+
+type ExistingStatus = 'idle' | 'loading' | 'ready' | 'error'
+
+function withoutIds(selected: ReadonlySet<string>, ids: ReadonlySet<string>): ReadonlySet<string> {
+  if (![...selected].some((id) => ids.has(id))) return selected
+  return new Set([...selected].filter((id) => !ids.has(id)))
+}
+
+function existingLabel(status: ExistingStatus, count: number, hidden: boolean) {
+  if (status === 'loading') return 'Consultando la base…'
+  if (status === 'error') return 'No se pudo consultar la base'
+  if (status !== 'ready') return null
+  if (count === 0) return 'Ninguno está en la base'
+  if (!hidden) return count === 1 ? '1 ya está en la base' : `${count} ya están en la base`
+  return count === 1 ? '1 oculto porque ya está en la base' : `${count} ocultos porque ya están en la base`
+}
 
 type SweepProgress = {
   apiCalls: SweepCallCounts
@@ -89,13 +108,32 @@ const columns: readonly PlacesTableColumn<NeighborhoodSweepPlace>[] = [
 
 const GROUPS: readonly { id: PlaceGroup; label: string }[] = [
   { id: 'accepted', label: 'Aceptados' },
-  { id: 'review', label: 'Para revisar' },
+  { id: 'review', label: 'A revisar' },
   { id: 'rejected', label: 'Rechazados' },
 ]
 
 const reasonColumn: PlacesTableColumn<NeighborhoodSweepPlace> = {
   header: 'Motivo',
   cell: (place) => <span className="font-mono text-xs">{place.reason ?? '—'}</span>,
+}
+
+/** Motivo con el cerrado según Google en español y el botón para moverlo a mano a procesar (o volver a bloquearlo). */
+function reasonColumnWithRelease(released: ReadonlySet<string>, onToggle: (place: NeighborhoodSweepPlace) => void): PlacesTableColumn<NeighborhoodSweepPlace> {
+  return {
+    header: 'Motivo',
+    cell: (place) => {
+      if (!isClosedReason(place.reason)) return reasonColumn.cell(place)
+      const isReleased = released.has(place.placeId)
+      return (
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-amber-700">{CLOSED_REASONS[place.reason]}</span>
+          <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => onToggle(place)} aria-label={`${isReleased ? 'Volver a bloquear' : 'Permitir procesar'} ${place.name}`}>
+            {isReleased ? 'Volver a bloquear' : 'Permitir procesar'}
+          </Button>
+        </span>
+      )
+    },
+  }
 }
 
 const locationColumn: PlacesTableColumn<NeighborhoodSweepPlace> = {
@@ -146,6 +184,7 @@ const STEP_LABELS: Record<ExtractionStep, string> = {
   instagram: 'Instagram',
   llm: 'LLM',
   transit: 'Buses',
+  logo: 'Logo',
 }
 
 function incompleteRunMessage(summary: NeighborhoodSweepSummary) {
@@ -182,12 +221,46 @@ export function NeighborhoodSweepPage() {
   // Tab "Procesados": resultados del lote para guardar en la base.
   const [showProcessed, setShowProcessed] = useState(false)
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set())
+  // Cerrados según Google que se movieron a mano para poder procesarlos.
+  const [releasedIds, setReleasedIds] = useState<ReadonlySet<string>>(new Set())
   const [resultPlace, setResultPlace] = useState<NeighborhoodSweepPlace | null>(null)
+  // googlePlaceId del barrido que ya están en places; se consultan una vez, al terminar el barrido.
+  const [existingIds, setExistingIds] = useState<ReadonlySet<string>>(new Set())
+  const [existingStatus, setExistingStatus] = useState<ExistingStatus>('idle')
+  const [hideExisting, setHideExisting] = useState(true)
+  const hideExistingRef = useRef(true)
   const batch = useExtractionBatch()
   const abortController = useRef<AbortController | null>(null)
+  const existsController = useRef<AbortController | null>(null)
   const cancelledByUser = useRef(false)
 
-  useEffect(() => () => abortController.current?.abort(), [])
+  useEffect(() => () => {
+    abortController.current?.abort()
+    existsController.current?.abort()
+  }, [])
+
+  async function loadExisting(ids: string[]) {
+    existsController.current?.abort()
+    const controller = new AbortController()
+    existsController.current = controller
+    setExistingStatus('loading')
+    try {
+      const found = await existingPlaceIds(ids, controller.signal)
+      if (controller.signal.aborted) return
+      setExistingIds(found)
+      setExistingStatus('ready')
+      // Lo que se seleccionó durante el barrido y resultó estar guardado deja de estar seleccionado.
+      if (hideExistingRef.current) setSelectedIds((current) => withoutIds(current, found))
+    } catch {
+      if (!controller.signal.aborted) setExistingStatus('error')
+    }
+  }
+
+  function toggleHideExisting(hide: boolean) {
+    hideExistingRef.current = hide
+    setHideExisting(hide)
+    if (hide) setSelectedIds((current) => withoutIds(current, existingIds))
+  }
 
   async function runSweep(target: string, sweepMode: NeighborhoodSweepMode) {
     abortController.current?.abort()
@@ -204,7 +277,11 @@ export function NeighborhoodSweepPage() {
     setGroup('accepted')
     setShowProcessed(false)
     setSelectedIds(new Set())
+    setReleasedIds(new Set())
     setResultPlace(null)
+    existsController.current?.abort()
+    setExistingIds(new Set())
+    setExistingStatus('idle')
     batch.reset()
     setPlaces([])
     setSummary(null)
@@ -233,6 +310,8 @@ export function NeighborhoodSweepPage() {
 
     if (abortController.current !== controller) return
     abortController.current = null
+    // También con un barrido cancelado o incompleto: lo encontrado se puede procesar igual.
+    if (byId.size > 0) void loadExisting([...byId.keys()])
 
     const resultCount = [...byId.values()].filter(isInside).length
     if (cancelledByUser.current) {
@@ -274,13 +353,17 @@ export function NeighborhoodSweepPage() {
   const insidePlaces = places.filter(isInside)
   const canFilter = activeMode === 'full'
   const showOnlyInside = canFilter && onlyInside
-  const locationVisible = showOnlyInside ? insidePlaces : places
+  // Los ya guardados se sacan antes de los filtros de ubicación y grupo: no cuentan ni se pueden seleccionar.
+  const shownPlaces = hideExisting ? places.filter((place) => !existingIds.has(place.placeId)) : places
+  const locationVisible = showOnlyInside ? shownPlaces.filter(isInside) : shownPlaces
+  const existingInView = (showOnlyInside ? insidePlaces : places).filter((place) => existingIds.has(place.placeId)).length
+  const existingText = existingLabel(existingStatus, existingInView, hideExisting)
   const groupCounts = { accepted: 0, review: 0, rejected: 0 }
   for (const place of locationVisible) if (place.group) groupCounts[place.group] += 1
-  const visiblePlaces = canFilter ? locationVisible.filter((place) => place.group === group) : places
+  const visiblePlaces = canFilter ? locationVisible.filter((place) => place.group === group) : shownPlaces
   const tableColumns = [
     ...columns,
-    ...(canFilter && group !== 'accepted' ? [reasonColumn] : []),
+    ...(canFilter && group !== 'accepted' ? [group === 'review' ? reasonColumnWithRelease(releasedIds, toggleReleased) : reasonColumn] : []),
     ...(canFilter && !onlyInside ? [locationColumn] : []),
   ]
   const selectable = canFilter && group !== 'rejected'
@@ -290,7 +373,21 @@ export function NeighborhoodSweepPage() {
   if (hasBatch) {
     tableColumns.push({ header: 'Procesamiento', cell: (place) => processingStatus(batch.rows[place.placeId], () => setResultPlace(place)) })
   }
-  const allVisibleSelected = visiblePlaces.length > 0 && visiblePlaces.every((place) => selectedIds.has(place.placeId))
+  // Un cerrado según Google no se puede seleccionar hasta moverlo a mano.
+  const blocked = (place: NeighborhoodSweepPlace) => isClosedReason(place.reason) && !releasedIds.has(place.placeId)
+  const selectableVisible = visiblePlaces.filter((place) => !blocked(place))
+  const allVisibleSelected = selectableVisible.length > 0 && selectableVisible.every((place) => selectedIds.has(place.placeId))
+
+  function toggleReleased(place: NeighborhoodSweepPlace) {
+    const release = !releasedIds.has(place.placeId)
+    setReleasedIds((current) => {
+      const next = new Set(current)
+      if (release) next.add(place.placeId)
+      else next.delete(place.placeId)
+      return next
+    })
+    if (!release) setSelectedIds((current) => withoutIds(current, new Set([place.placeId])))
+  }
 
   function toggleSelected(place: NeighborhoodSweepPlace) {
     setSelectedIds((current) => {
@@ -304,7 +401,7 @@ export function NeighborhoodSweepPage() {
   function toggleAllVisible() {
     setSelectedIds((current) => {
       const next = new Set(current)
-      for (const place of visiblePlaces) {
+      for (const place of selectableVisible) {
         if (allVisibleSelected) next.delete(place.placeId)
         else next.add(place.placeId)
       }
@@ -312,9 +409,9 @@ export function NeighborhoodSweepPage() {
     })
   }
 
-  // Sólo aceptados y para revisar van al pipeline.
-  const selectedRequests: ExtractRequest[] = places
-    .filter((place) => selectedIds.has(place.placeId) && place.group !== 'rejected' && place.group !== null)
+  // Sólo aceptados y a revisar van al pipeline; los cerrados, sólo si se movieron a mano.
+  const selectedRequests: ExtractRequest[] = shownPlaces
+    .filter((place) => selectedIds.has(place.placeId) && place.group !== 'rejected' && place.group !== null && !blocked(place))
     .map((place) => ({
       googlePlaceId: place.placeId,
       seedCategories: place.seedCategories,
@@ -493,17 +590,35 @@ export function NeighborhoodSweepPage() {
               <div className="min-h-40 bg-muted/20" aria-hidden="true" />
             )}
 
-            {hasResults && canFilter && (
-              <div className="border-b px-4 py-2.5 sm:px-5">
-                <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={onlyInside}
-                    onChange={(event) => setOnlyInside(event.target.checked)}
-                    className="size-4 accent-foreground"
-                  />
-                  Mostrar sólo lugares del barrio
-                </label>
+            {hasResults && (
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b px-4 py-2.5 sm:px-5">
+                {canFilter && (
+                  <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={onlyInside}
+                      onChange={(event) => setOnlyInside(event.target.checked)}
+                      className="size-4 accent-foreground"
+                    />
+                    Mostrar sólo lugares del barrio
+                  </label>
+                )}
+                <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                  <label className="inline-flex cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={hideExisting}
+                      onChange={(event) => toggleHideExisting(event.target.checked)}
+                      className="size-4 accent-foreground"
+                    />
+                    Ocultar los que ya están en la base
+                  </label>
+                  {existingText && (
+                    <span className={existingStatus === 'error' ? 'text-destructive' : 'text-muted-foreground'} aria-live="polite">
+                      · {existingText}
+                    </span>
+                  )}
+                </span>
               </div>
             )}
 
@@ -600,6 +715,7 @@ export function NeighborhoodSweepPage() {
                         onToggle: toggleSelected,
                         allSelected: allVisibleSelected,
                         onToggleAll: toggleAllVisible,
+                        isDisabled: blocked,
                       }
                     : undefined
                 }
@@ -607,7 +723,9 @@ export function NeighborhoodSweepPage() {
             )}
           </div>
 
-          {batch.metrics && !batch.running && <BatchMetricsPanel metrics={batch.metrics} />}
+          {batch.metrics && !batch.running && (
+            <BatchMetricsPanel metrics={batch.metrics} closed={closedSummary(places)} nameOf={(id) => places.find((place) => place.placeId === id)?.name ?? id} />
+          )}
 
           {summary && <SweepSummaryPanel summary={summary} places={places} />}
         </section>
@@ -650,12 +768,23 @@ export function NeighborhoodSweepPage() {
   )
 }
 
-function BatchMetricsPanel({ metrics }: { metrics: ExtractionBatchMetrics }) {
+function BatchMetricsPanel({ metrics, closed, nameOf }: { metrics: ExtractionBatchMetrics; closed: ClosedSummary; nameOf: (id: string) => string }) {
   const steps = (Object.keys(STEP_LABELS) as ExtractionStep[]).filter((step) => metrics.averageStepsMs[step] !== undefined)
   return (
+    <>
+    {metrics.stoppedByApify && (
+      <p role="alert" className="mt-4 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+        Se cortó el lote: Apify falló en {APIFY_FAILURE_LIMIT} lugares seguidos. Revisá Apify y reintentá.
+      </p>
+    )}
+    {metrics.stoppedByExa && (
+      <p role="alert" className="mt-4 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+        Se cortó el lote: Exa falló en {EXA_FAILURE_LIMIT} lugares seguidos. Revisá Exa y reintentá.
+      </p>
+    )}
     <section
       aria-label="Métricas del procesamiento"
-      className="mt-4 grid gap-6 rounded-2xl border bg-background px-4 py-4 text-sm shadow-[0_1px_2px_rgb(0_0_0/0.03)] sm:grid-cols-2 sm:px-5"
+      className="mt-4 grid gap-6 rounded-2xl border bg-background px-4 py-4 text-sm shadow-[0_1px_2px_rgb(0_0_0/0.03)] sm:grid-cols-2 sm:px-5 lg:grid-cols-3"
     >
       <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1.5">
         <dt className="text-muted-foreground">Tiempo total</dt>
@@ -686,7 +815,115 @@ function BatchMetricsPanel({ metrics }: { metrics: ExtractionBatchMetrics }) {
           </ul>
         )}
       </div>
+      <LogoSummaryBlock summary={metrics.logos} />
+      <ReviewSummaryBlock summary={metrics.review} closed={closed} />
+      <ProviderErrorsBlock apify={metrics.apifyErrors} exa={metrics.exaErrors} shared={metrics.sharedAccounts} nameOf={nameOf} />
     </section>
+    </>
+  )
+}
+
+/** Lugares sin procesar por un error de Apify o de Exa (no se guardan) y cuentas agregadoras que obligaron a re-procesar. */
+function ProviderErrorsBlock({ apify, exa, shared, nameOf }: { apify: string[]; exa: string[]; shared: ExtractionBatchMetrics['sharedAccounts']; nameOf: (id: string) => string }) {
+  const errorRows = [
+    { label: 'Error de Apify: reintentar', ids: apify },
+    { label: 'Error de Exa: reintentar', ids: exa },
+  ]
+  return (
+    <div className="sm:col-span-2 lg:col-span-1">
+      <h3 className="mb-2 font-medium">Fuentes</h3>
+      <ul className="grid gap-1.5" aria-label="Errores de Apify y Exa y cuentas compartidas">
+        {errorRows.map(({ label, ids }) => (
+          <li key={label} className={ids.length === 0 ? 'text-muted-foreground/60' : undefined}>
+            <span className="flex justify-between gap-4">
+              <span className={ids.length === 0 ? undefined : 'text-muted-foreground'}>{label}</span>
+              <span className="tabular-nums">{ids.length}</span>
+            </span>
+            {ids.length > 0 && <span className="block text-xs text-muted-foreground">{ids.map(nameOf).join(', ')}</span>}
+          </li>
+        ))}
+        <li className={shared.length === 0 ? 'text-muted-foreground/60' : undefined}>
+          <span className="flex justify-between gap-4">
+            <span className={shared.length === 0 ? undefined : 'text-muted-foreground'}>Cuentas compartidas descartadas</span>
+            <span className="tabular-nums">{shared.length}</span>
+          </span>
+          {shared.length > 0 && (
+            <span className="block text-xs text-muted-foreground">
+              {shared.map((item) => `@${item.handle} (re-procesado: ${item.reprocessed.map(nameOf).join(', ')})`).join(', ')}
+            </span>
+          )}
+        </li>
+      </ul>
+      {apify.length + exa.length > 0 && <p className="mt-2 text-xs text-muted-foreground">No se guardan: usá «Reintentar fallidos».</p>}
+    </div>
+  )
+}
+
+/** Lugares que se guardan con status review, por motivo, y los cerrados según Google del barrido. */
+function ReviewSummaryBlock({ summary, closed }: { summary: ReviewSummary; closed: ClosedSummary }) {
+  const rows = [
+    ...(Object.keys(REVIEW_REASONS) as ReviewReason[]).map((id) => ({ id, label: REVIEW_REASONS[id], names: summary.byReason[id] })),
+    ...(Object.keys(CLOSED_REASONS) as (keyof ClosedSummary)[]).map((id) => ({ id, label: `${CLOSED_REASONS[id]} (barrido)`, names: closed[id] })),
+  ]
+  return (
+    <div className="sm:col-span-2 lg:col-span-1">
+      <h3 className="mb-2 font-medium">A revisar</h3>
+      <ul className="grid gap-1.5" aria-label="A revisar por motivo">
+        {rows.map((row) => (
+          <li key={row.id} className={row.names.length === 0 ? 'text-muted-foreground/60' : undefined}>
+            <span className="flex justify-between gap-4">
+              <span className={row.names.length === 0 ? undefined : 'text-muted-foreground'}>{row.label}</span>
+              <span className="tabular-nums">{row.names.length}</span>
+            </span>
+            {row.names.length > 0 && <span className="block text-xs text-muted-foreground">{row.names.join(', ')}</span>}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-xs text-muted-foreground">
+        {summary.places === 1 ? '1 procesado se guarda sin publicar' : `${summary.places} procesados se guardan sin publicar`}
+      </p>
+    </div>
+  )
+}
+
+/** Resultado del paso del logo por motivo, con los lugares de cada uno (y el código HTTP o la clasificación). */
+function LogoSummaryBlock({ summary }: { summary: LogoSummary }) {
+  return (
+    <div className="sm:col-span-2 lg:col-span-1">
+      <h3 className="mb-2 font-medium">Logos</h3>
+      <ul className="grid gap-1.5" aria-label="Logos por resultado">
+        {LOGO_GROUPS.map((group) => {
+          const places = summary.groups[group.id]
+          return (
+            <li key={group.id} className={places.length === 0 ? 'text-muted-foreground/60' : undefined}>
+              <span className="flex justify-between gap-4">
+                <span className={places.length === 0 ? undefined : 'text-muted-foreground'}>{group.label}</span>
+                <span className="tabular-nums">{places.length}</span>
+              </span>
+              {places.length > 0 && (
+                <span className="block text-xs text-muted-foreground">
+                  {places.map((place) => place.detail ? `${place.name} (${place.detail})` : place.name).join(', ')}
+                </span>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+      {summary.fallback.searched > 0 && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          <span className="flex justify-between gap-4">
+            <span>Instagram encontrado por el respaldo</span>
+            <span className="tabular-nums">{summary.fallback.found.length} de {summary.fallback.searched} {summary.fallback.searched === 1 ? 'búsqueda' : 'búsquedas'}</span>
+          </span>
+          {summary.fallback.found.length > 0 && <span className="block">{summary.fallback.found.map((place) => place.detail ? `${place.name} (${place.detail})` : place.name).join(', ')}</span>}
+        </p>
+      )}
+      {summary.withoutStep > 0 && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          {summary.withoutStep === 1 ? '1 con error, sin paso de logo' : `${summary.withoutStep} con error, sin paso de logo`}
+        </p>
+      )}
+    </div>
   )
 }
 
@@ -766,7 +1003,7 @@ function SweepSummaryPanel({
             <>
               <dt className="text-muted-foreground">Aceptados</dt>
               <dd className="font-medium tabular-nums">{summary.byGroup.accepted}</dd>
-              <dt className="text-muted-foreground">Para revisar</dt>
+              <dt className="text-muted-foreground">A revisar</dt>
               <dd className="font-medium tabular-nums">{summary.byGroup.review}</dd>
               <dt className="text-muted-foreground">Rechazados</dt>
               <dd className="font-medium tabular-nums">{summary.byGroup.rejected}</dd>
@@ -820,7 +1057,7 @@ function SweepSummaryPanel({
 
         {summary.byGroup && (
           <div>
-            <h3 className="mb-2 font-medium">Por motivo (revisar y rechazados)</h3>
+            <h3 className="mb-2 font-medium">Por motivo (a revisar y rechazados)</h3>
             {byReason.length === 0 ? (
               <p className="text-muted-foreground">Ninguno.</p>
             ) : (
@@ -862,7 +1099,7 @@ function SweepSummaryPanel({
         {summary.byGroup && (
           <div className="grid gap-6 sm:col-span-2 lg:col-span-3">
             <PreviewTable title="Rechazados" places={inside.filter((place) => place.group === 'rejected')} />
-            <PreviewTable title="Para revisar" places={inside.filter((place) => place.group === 'review')} />
+            <PreviewTable title="A revisar" places={inside.filter((place) => place.group === 'review')} />
           </div>
         )}
 

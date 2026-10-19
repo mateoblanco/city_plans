@@ -21,6 +21,8 @@ export type PlacesTableSelection<T extends PlaceSummary> = {
   onToggle: (place: T) => void
   allSelected: boolean
   onToggleAll: () => void
+  /** Filas que no se pueden seleccionar (por ejemplo, cerrados según Google). */
+  isDisabled?: (place: T) => boolean
 }
 
 type PlacesTableProps<T extends PlaceSummary> = {
@@ -73,6 +75,7 @@ export function PlacesTable<T extends PlaceSummary>({
                       type="checkbox"
                       aria-label={`Seleccionar ${place.name}`}
                       checked={selection.isSelected(place)}
+                      disabled={selection.isDisabled?.(place) ?? false}
                       onChange={() => selection.onToggle(place)}
                       className="size-4 accent-foreground"
                     />

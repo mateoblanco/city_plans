@@ -296,11 +296,11 @@ describe('GoogleNeighborhoodSweeper', () => {
     expect(byId.ok).toMatchObject({ group: 'accepted', reason: null, primaryType: 'restaurant', rating: 1.2, userRatingCount: 10 })
     expect(byId.few).toMatchObject({ group: 'review', reason: 'few_reviews', rating: 5, userRatingCount: 3 })
     expect(byId.sushi).toMatchObject({ group: 'accepted', rating: 4.9, userRatingCount: 800 })
-    expect(byId.closed).toMatchObject({ group: 'rejected', reason: 'closed_permanently' })
+    expect(byId.closed).toMatchObject({ group: 'review', reason: 'closed_permanently' })
     expect(byId.market).toMatchObject({ group: 'rejected', reason: 'excluded_type:supermarket' })
     expect(byId.shop).toMatchObject({ group: 'review', reason: 'unknown_type:clothing_store' })
     expect(byId.nodata).toMatchObject({ group: 'review', reason: 'primary_type_missing', rating: null, userRatingCount: null })
-    expect(summary.byGroup).toEqual({ accepted: 2, review: 3, rejected: 2 })
+    expect(summary.byGroup).toEqual({ accepted: 2, review: 4, rejected: 1 })
     expect(summary.byReason).toEqual({
       few_reviews: 1,
       closed_permanently: 1,

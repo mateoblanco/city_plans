@@ -16,7 +16,7 @@ const text = (value: string | null | undefined) => value?.trim() ? value : null
  * Los textos vacíos pasan a null; sin nombre (NOT NULL en la tabla) tira un error.
  */
 export function toRow(place: PlaceEnrichmentDraft & { neighborhoodId: string }): PlaceRow {
-  const { coordinates, dietary, contact, description, signals } = place
+  const { coordinates, dietary, contact, description, signals, logo } = place
   const name = text(place.name)
   if (!name) throw new Error(MISSING_NAME)
   return {
@@ -49,10 +49,17 @@ export function toRow(place: PlaceEnrichmentDraft & { neighborhoodId: string }):
     descriptionEn: text(description.en),
     highlights: place.highlights,
     transitLines: place.transit.lines,
-    editorialMentions: signals.editorialMentions,
-    listedOrAwarded: signals.listedOrAwarded,
     igFollowers: signals.igFollowers,
     prominence: computeProminence(signals),
+    logoKey: logo?.key ?? null,
+    logoKind: logo?.kind ?? null,
+    logoBgColor: logo?.bgColor ?? null,
+    logoColor: logo?.color ?? null,
+    logoSource: logo?.source ?? null,
+    logoFetchedAt: logo ? new Date(logo.fetchedAt) : null,
+    iconCategory: place.iconCategory ?? null,
+    style: place.style ?? null,
+    reviewReasons: place.reviewReasons ?? [],
     embeddingText: text(place.embeddingText),
     keywordText: text(place.keywordText),
   }

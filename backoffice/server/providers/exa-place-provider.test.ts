@@ -6,6 +6,7 @@ import {
   ExaPlaceSearchProvider,
 } from './exa-place-provider.ts'
 import { PlacesProviderError } from './places-provider.ts'
+import { RateLimitError } from './rate-limit.ts'
 
 const structuredPlace = {
   description: 'Un bar de Montevideo.',
@@ -13,8 +14,8 @@ const structuredPlace = {
   contact_info: '+598 2 000 0000',
   open_hours_raw: '18:00 a 01:00',
   open_hours: [{ days: 'Mon-Sun', opens: '18:00', closes: '01:00' }],
-  knows_before_you_go: 'Conviene reservar.',
   menu: ['Pizza', 'Cerveza'],
+  instagram_profile_url: 'https://www.instagram.com/demorondangabar/',
 }
 
 function exaResult(overrides: Partial<SearchResponse<{ highlights: true }>> = {}) {
@@ -57,6 +58,26 @@ describe('ExaPlaceSearchProvider', () => {
       properties: { open_hours_raw: { type: 'string' }, open_hours: { type: 'array' } },
     })
     expect(EXA_PLACE_OUTPUT_SCHEMA.properties.contact_info.description).toContain('Instagram: @handle; Web: https://official-site.example')
+    expect(EXA_PLACE_OUTPUT_SCHEMA.required).toContain('instagram_profile_url')
+    expect(EXA_PLACE_OUTPUT_SCHEMA.properties.instagram_profile_url.description).toContain('never infer or construct it from the place name')
+  })
+
+  it('el schema no pasa el máximo de 10 propiedades de Exa, contando las anidadas', () => {
+    const count = (schema: { properties?: Record<string, unknown>; items?: unknown }): number =>
+      Object.values(schema.properties ?? {}).reduce<number>((total, child) => total + 1 + count(child as typeof schema), 0) +
+      (schema.items ? count(schema.items as typeof schema) : 0)
+    expect(count(EXA_PLACE_OUTPUT_SCHEMA)).toBeLessThanOrEqual(10)
+  })
+
+  it('una respuesta sin instagram_profile_url lo deja vacío sin reintentar', async () => {
+    const { instagram_profile_url: _omitted, ...withoutInstagram } = structuredPlace
+    const search = vi.fn().mockResolvedValue(exaResult({ output: { content: withoutInstagram, grounding: [] } } as never))
+    const provider = new ExaPlaceSearchProvider('exa-test-key', { search })
+
+    const response = await provider.searchPlace('Demorondanga Bar')
+
+    expect(response.output.content.instagram_profile_url).toBe('')
+    expect(search).toHaveBeenCalledTimes(1)
   })
 
   it('informa configuración faltante sin invocar Exa', async () => {
@@ -133,7 +154,11 @@ describe('ExaPlaceSearchProvider', () => {
     const search = vi.fn().mockRejectedValue({ statusCode: 429 })
     const provider = new ExaPlaceSearchProvider('exa-test-key', { search })
 
-    await expect(provider.searchPlace('Demorondanga Bar')).rejects.toMatchObject({ kind: 'quota' })
+    // El 429 sale como RateLimitError: lo reintenta el servicio de extracción, no el provider.
+    const error = await provider.searchPlace('Demorondanga Bar').catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(RateLimitError)
+    expect(error).toMatchObject({ kind: 'quota', service: 'exa' })
     expect(search).toHaveBeenCalledOnce()
   })
+
 })

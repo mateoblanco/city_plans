@@ -5,8 +5,7 @@ import pMap from 'p-map'
 import { PlaceDraft } from '../../src/data/place-schema.ts'
 import type { NeonHttpDatabase } from 'drizzle-orm/neon-http'
 import type * as schema from '../db/schema.ts'
-import { places, type NewPlace } from '../db/schema.ts'
-import { computeProminence, stableSignals } from './prominence.ts'
+import { places, type NewPlace, type Place } from '../db/schema.ts'
 import { MISSING_NAME, toRow } from './to-row.ts'
 
 export const EMBEDDING_MODEL = 'openai/text-embedding-3-small'
@@ -25,8 +24,7 @@ export type ExistingPlace = {
   googlePlaceId: string
   embeddingTextHash: string | null
   manualOverrides: string[]
-  editorialMentions: number
-  listedOrAwarded: boolean
+  status: Place['status']
 }
 
 /** Lo único que savePlaces necesita de la base; los tests usan un fake en memoria. */
@@ -52,6 +50,18 @@ export const gatewayEmbedder: Embedder = async (values) => (await embedMany({ mo
 const KEY_BY_COLUMN = new Map(Object.entries(getTableColumns(places)).map(([key, column]) => [column.name, key]))
 // Una extracción nunca pisa la identidad ni la curaduría del lugar.
 const NEVER_UPDATED = new Set(['id', 'googlePlaceId', 'slug', 'status', 'featured', 'createdAt'])
+
+/**
+ * Status que deja una extracción: review si tiene motivos, published si no. Al actualizar sólo mueve
+ * published ↔ review: nunca toca draft ni hidden, ni un status puesto a mano (manualOverrides "status").
+ * undefined = no cambiar.
+ */
+export function pipelineStatus(current: Pick<ExistingPlace, 'status' | 'manualOverrides'> | undefined, reviewReasons: readonly string[]): Place['status'] | undefined {
+  const status = reviewReasons.length > 0 ? 'review' : 'published'
+  if (!current) return status
+  if (current.manualOverrides.includes('status')) return undefined
+  return current.status === 'published' || current.status === 'review' ? status : undefined
+}
 
 export function slugify(name: string) {
   const slug = name.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -144,15 +154,13 @@ export async function savePlaces(results: unknown[], deps: { store: PlacesStore;
         ...(embedding ? { embedding, embeddingModel: EMBEDDING_MODEL, embeddingTextHash: hashes.get(googlePlaceId)!, embeddedAt } : {}),
       }
       if (current) {
-        // Exa no devuelve siempre las mismas fuentes: una mención o un ranking ya visto no se pierde.
-        const signals = stableSignals(current, row)
-        Object.assign(row, signals, { prominence: computeProminence(signals) })
         const locked = new Set(current.manualOverrides.map((column) => KEY_BY_COLUMN.get(column)).filter(Boolean))
-        const values = Object.fromEntries(Object.entries(row).filter(([key]) => !locked.has(key) && !NEVER_UPDATED.has(key)))
-        await store.update(current.id, values)
+        const values: Partial<NewPlace> = Object.fromEntries(Object.entries(row).filter(([key]) => !locked.has(key) && !NEVER_UPDATED.has(key)))
+        const status = pipelineStatus(current, row.reviewReasons ?? [])
+        await store.update(current.id, status && status !== current.status ? { ...values, status } : values)
         written.set(googlePlaceId, { googlePlaceId, id: current.id, action: 'updated', embedded: Boolean(embedding), ...failedEmbedding })
       } else {
-        const id = await store.insert({ ...row, slug: slugs.get(googlePlaceId)!, status: 'published' })
+        const id = await store.insert({ ...row, slug: slugs.get(googlePlaceId)!, status: pipelineStatus(undefined, row.reviewReasons ?? []) })
         written.set(googlePlaceId, { googlePlaceId, id, action: 'created', embedded: Boolean(embedding), ...failedEmbedding })
       }
     } catch (error) {
@@ -171,8 +179,7 @@ export function drizzlePlacesStore(db: Database): PlacesStore {
       if (ids.length === 0) return []
       const rows = await db
         .select({
-          id: places.id, googlePlaceId: places.googlePlaceId, embeddingTextHash: places.embeddingTextHash, manualOverrides: places.manualOverrides,
-          editorialMentions: places.editorialMentions, listedOrAwarded: places.listedOrAwarded,
+          id: places.id, googlePlaceId: places.googlePlaceId, embeddingTextHash: places.embeddingTextHash, manualOverrides: places.manualOverrides, status: places.status,
         })
         .from(places)
         .where(inArray(places.googlePlaceId, ids))

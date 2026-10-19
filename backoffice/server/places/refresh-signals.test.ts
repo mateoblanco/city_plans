@@ -4,8 +4,8 @@ import { computeProminence } from './prominence.ts'
 import { refreshSignals, type RefreshDeps, type SignalsRow } from './refresh-signals.ts'
 
 const row = (overrides: Partial<SignalsRow> = {}): SignalsRow => ({
-  id: 'uuid-1', googlePlaceId: 'g-1', name: 'El Palenque', instagram: 'elpalenque', website: 'https://elpalenque.com.uy/',
-  editorialMentions: 0, listedOrAwarded: false, igFollowers: null, prominence: computeProminence({ editorialMentions: 0, listedOrAwarded: false, igFollowers: null }), ...overrides,
+  id: 'uuid-1', googlePlaceId: 'g-1', name: 'El Palenque', instagram: 'elpalenque',
+  igFollowers: null, prominence: computeProminence({ igFollowers: null }), ...overrides,
 })
 
 const exa = (results: ExaPlaceResult[]): ExaPlaceResponse => ({
@@ -28,22 +28,22 @@ function deps(overrides: Partial<RefreshDeps> = {}): RefreshDeps {
 }
 
 describe('refreshSignals', () => {
-  it('cuenta las señales con Exa y Apify y escribe sólo las cuatro columnas', async () => {
+  it('lee los seguidores con Apify y escribe sólo igFollowers y prominence', async () => {
     const d = deps()
 
     const [result] = await refreshSignals([row()], d)
 
     expect(d.searchPlace).toHaveBeenCalledWith('El Palenque')
     expect(d.scrapeInstagram).toHaveBeenCalledWith('https://www.instagram.com/elpalenque/')
-    expect(result).toMatchObject({ status: 'changed', chain: false, editorialHosts: ['elpais.com.uy'] })
-    expect(d.write).toHaveBeenCalledWith('uuid-1', { editorialMentions: 1, listedOrAwarded: true, igFollowers: 999, prominence: expect.closeTo(computeProminence({ editorialMentions: 1, listedOrAwarded: true, igFollowers: 999 })) })
+    expect(result).toMatchObject({ status: 'changed', chain: false })
+    expect(d.write).toHaveBeenCalledWith('uuid-1', { igFollowers: 999, prominence: expect.closeTo(0.6) })
   })
 
   it('en dry-run calcula sin escribir', async () => {
     const d = deps({ write: undefined })
     const [result] = await refreshSignals([row()], d)
     expect(result.status).toBe('changed')
-    expect(result.after?.editorialMentions).toBe(1)
+    expect(result.after).toEqual({ igFollowers: 999, prominence: expect.closeTo(0.6) })
   })
 
   it('no escribe si nada cambió', async () => {
@@ -78,7 +78,7 @@ describe('refreshSignals', () => {
 
     expect(broken).toMatchObject({ status: 'error', error: 'Exa: timeout', after: null })
     expect(ok.status).toBe('changed')
-    expect(ok.after).toMatchObject({ editorialMentions: 1, igFollowers: 321 })
+    expect(ok.after).toEqual({ igFollowers: 321, prominence: computeProminence({ igFollowers: 321 }) })
     expect(ok.warnings[0]).toContain('quota')
     expect(d.write).toHaveBeenCalledTimes(1)
   })
@@ -89,10 +89,11 @@ describe('refreshSignals', () => {
     expect(results.map((result) => result.status).sort()).toEqual(['changed', 'error'])
   })
 
-  it('no baja editorialMentions ni apaga listedOrAwarded aunque Exa traiga menos fuentes', async () => {
-    const d = deps({ searchPlace: vi.fn(async () => exa([])) })
-    const [result] = await refreshSignals([row({ editorialMentions: 2, listedOrAwarded: true, igFollowers: 5, prominence: 0 })], d)
-    expect(result.after).toMatchObject({ editorialMentions: 2, listedOrAwarded: true, igFollowers: 999 })
+  it('una sucursal de cadena según las fuentes deja los seguidores en null, sin llamar a Apify', async () => {
+    const d = deps({ searchPlace: vi.fn(async () => exa([{ title: 'Sucursales', url: 'https://elpalenque.com.uy/sucursales', highlights: ['El Palenque: nuestras sucursales'] }])) })
+    const [result] = await refreshSignals([row({ igFollowers: 5000, prominence: computeProminence({ igFollowers: 5000 }) })], d)
+    expect(result).toMatchObject({ chain: true, after: { igFollowers: null, prominence: 0.5 } })
+    expect(d.scrapeInstagram).not.toHaveBeenCalled()
   })
 
   it('busca en Exa con la marca y el tipo de lugar de Google; si Google falla, sólo con la marca', async () => {
