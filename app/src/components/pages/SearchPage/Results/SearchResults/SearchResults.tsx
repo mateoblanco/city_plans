@@ -1,9 +1,8 @@
 import Link from "next/link";
-import type { CardDebug } from "@/components/PlaceCard/PlaceCard";
 import { searchPlaces, type SearchResponse, type SearchResult } from "@/server/search";
 import DebugPanel from "../DebugPanel/DebugPanel";
+import PlaceCard, { type CardDebug } from "../PlaceCard/PlaceCard";
 import MapSync from "../Map/MapSync/MapSync";
-import ResultCard from "../ResultCard/ResultCard";
 import MapColumn from "../Map/MapColumn/MapColumn";
 import styles from "./SearchResults.module.scss";
 import { searchHref } from "../../utils/search-href";
@@ -17,7 +16,7 @@ type PlacesProps = {
 const Places = (props: PlacesProps) => (
   <div className={styles.grid}>
     {props.places.map((place) => (
-      <ResultCard key={place.id} place={place} debug={props.scores?.get(place.id)} />
+      <PlaceCard key={place.id} place={place} debug={props.scores?.get(place.id)} />
     ))}
   </div>
 );
@@ -59,7 +58,7 @@ const SearchResults = async (props: Props) => {
   const scores = cardScores(response);
   const notices = relaxed.map((notice) => notice.message);
 
-  const mapPlaces = results.map(({ id, name, lat, lng }) => ({ id, name, lat, lng }));
+  const mapPlaces = results.map(({ id, name, lat, lng, iconCategory }) => ({ id, name, lat, lng, iconCategory }));
 
   return (
     <MapSync places={mapPlaces} userLocation={response.near}>

@@ -50,6 +50,7 @@ export function relax(state: SearchState, step: RelaxStep): SearchState {
     const prefer = {
       categories: [...new Set([...value.prefer.categories, ...terms.categories])],
       tags: [...new Set([...value.prefer.tags, ...terms.tags])],
+      style: value.prefer.style,
     }
     return { ...state, subs: [], interpretation: { ...value, prefer } }
   }
@@ -65,7 +66,7 @@ export function relax(state: SearchState, step: RelaxStep): SearchState {
     interpretation: {
       ...value,
       must: { ...value.must, categories: [], tags: [], neighborhoods: [], price: [], openAt: null },
-      prefer: { categories: [...new Set([...value.prefer.categories, ...value.must.categories])], tags: mustTagsToPrefer.tags },
+      prefer: { categories: [...new Set([...value.prefer.categories, ...value.must.categories])], tags: mustTagsToPrefer.tags, style: value.prefer.style },
     },
   }
 }

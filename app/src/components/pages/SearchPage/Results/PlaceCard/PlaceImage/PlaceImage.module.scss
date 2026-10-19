@@ -1,0 +1,39 @@
+// // Sin logo: después va un color de la paleta; se cambia sólo acá.
+// $fallback-bg: #ffffff;
+// $fallback-border: #000000;
+// $fallback-text: #000000;
+
+.image {
+  align-items: center;
+  background-color: var(--banner-bg, #ffffff);
+  box-sizing: border-box;
+  display: flex;
+  height: 100px;
+  justify-content: center;
+  overflow: hidden;
+  width:70px;
+  border-radius:8px;
+  border: 1px solid #000000;
+
+  // &[data-fallback] {
+  //   background-color: $fallback-bg;
+  //   border: 1px solid $fallback-border;
+  //   color: $fallback-text;
+  //   padding: 0 16px;
+  // }
+}
+
+.logo {
+  object-fit: contain;
+  // width: 100%;
+  // height: 88px;
+  width: 66px;
+  height: auto;
+}
+
+.name {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 24px;
+  text-align: center;
+}

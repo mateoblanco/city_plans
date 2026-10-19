@@ -37,7 +37,7 @@ const Interpreted = (props: InterpretedProps) => {
     ["Sub-filtros", join(props.bar.subs.filter((sub) => sub.active).map((sub) => `${sub.id} (${sub.fromText ? `texto: ${sub.removeKeys.join(", ")}` : "URL"})`))],
     ["Extras", join(props.bar.extras.map((chip) => `${chip.kind}:${chip.id}`))],
     ["Platos", join(value.dishes.map((dish) => `${dish.name}${dish.relatedTags.length + dish.relatedCategories.length ? ` (relacionados: ${[...dish.relatedTags, ...dish.relatedCategories].join(", ")})` : ""}`))],
-    ["Preferencias", join([...value.prefer.categories, ...value.prefer.tags])],
+    ["Preferencias", join([...value.prefer.categories, ...value.prefer.tags, ...(value.prefer.style ? [`style:${value.prefer.style}`] : [])])],
     ["Vibe", value.vibe ?? "—"],
     ["Texto semántico", semanticText ?? "—"],
     ["Keywords", join(props.debug.keywords)],

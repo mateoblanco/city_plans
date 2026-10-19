@@ -51,6 +51,7 @@ export function buildReasons(item: Fused, context: ReasonContext): string[] {
   const wantedTags = [...interpretation.must.tags, ...interpretation.prefer.tags]
   for (const id of row.categories) if (wantedCategories.includes(id)) reasons.push(label(id, lang))
   for (const id of row.tags) if (wantedTags.includes(id)) reasons.push(label(id, lang))
+  if (interpretation.prefer.style && row.style === interpretation.prefer.style) reasons.push(label(row.style, lang))
 
   if (context.near && row.distance !== null) reasons.push(distanceLabel(row.distance, lang))
   reasons.push(openStateLabel(context.open, lang, context.moment, context.isNow, context.next))

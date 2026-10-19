@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SEARCH_CONFIG } from '../config'
 import { dishTarget } from '../dishes'
 import { buildRankings, fuse, qualityMultiplier, reciprocalRankFusion, type FuseContext } from '../fuse'
@@ -12,7 +12,7 @@ import { everyDay, fakeCache, fakeStore, llmOutput, row } from './fixtures'
 // Lunes 12/10/2026 13:00 en Montevideo.
 const now = new Date('2026-10-12T16:00:00Z')
 const context = (overrides: Partial<FuseContext> = {}): FuseContext => ({
-  pinnedId: null, dishes: [], categories: [], requestedTags: [], preferTags: [], openAt: null, wantsBest: false, ...overrides,
+  pinnedId: null, dishes: [], categories: [], requestedTags: [], preferTags: [], preferStyle: null, price: [], openAt: null, wantsBest: false, ...overrides,
 })
 
 describe('fusión', () => {
@@ -111,8 +111,12 @@ describe('calidad', () => {
 })
 
 describe('runSearch', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
   const places = [
-    row({ id: 'cafe-cordon', name: 'Café del Cordón', categories: ['cafe'], tags: ['terrace'], hours: everyDay('08:00', '20:00'), diet: { vegan: 'has_options', vegetarian: 'unknown', glutenFree: 'unknown' } }),
+    row({ id: 'cafe-cordon', name: 'Café del Cordón', categories: ['cafe'], tags: ['terrace'], iconCategory: 'coffee', logoKey: 'cafe-cordon.png', logoBgColor: '#f4e1c1', hours: everyDay('08:00', '20:00'), diet: { vegan: 'has_options', vegetarian: 'unknown', glutenFree: 'unknown' } }),
     row({ id: 'cafe-rodo', name: 'Café Rodó', neighborhoodId: 'PARQUE RODO', categories: ['cafe'], distance: 500 }),
     row({ id: 'pizzeria', name: 'Pizzería', categories: ['pizzeria', 'restaurant'], tags: ['pizza'], hours: everyDay('19:00', '01:00') }),
     row({ id: 'bodegon', name: 'Bodegón', categories: ['restaurant'], tags: ['milanesa'], dishes: ['milanesa napolitana'], diet: { vegan: 'unknown', vegetarian: 'unknown', glutenFree: 'fully' } }),
@@ -133,6 +137,17 @@ describe('runSearch', () => {
       { kind: 'prefer', id: 'cafe', label: 'Café', fromText: false, fromFilter: false },
     ])
     expect(response.results[0].reasons).toEqual(['Café', 'Abierto · cierra 20:00', 'Cordón'])
+    expect(response.results[0].iconCategory).toBe('coffee')
+    expect(response.results[0]).toMatchObject({ logoKey: 'cafe-cordon.png', logoBgColor: '#f4e1c1' })
+  })
+
+  it('arma logoUrl en el servidor desde LOGO_BASE_URL; sin clave queda en null', async () => {
+    vi.stubEnv('LOGO_BASE_URL', 'https://pub-x.r2.dev')
+    const { store } = fakeStore(places)
+    const response = await runSearch('Cafés', { store, cache: fakeCache().cache }, { now })
+    const byId = new Map(response.results.map((result) => [result.id, result]))
+    expect(byId.get('cafe-cordon')).toMatchObject({ logoUrl: 'https://pub-x.r2.dev/cafe-cordon.png', logoBgColor: '#f4e1c1' })
+    expect(byId.get('cafe-rodo')?.logoUrl).toBeNull()
   })
 
   it('"los mejores" amplía la calidad sin chip ni filtro; featured suma "Recomendado"', async () => {

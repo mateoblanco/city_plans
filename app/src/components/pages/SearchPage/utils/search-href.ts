@@ -105,7 +105,8 @@ export function nearHref(state: SearchUrl, lat: number, lng: number): string {
 function textRow(bar: BarRef): string[] {
   return [
     ...bar.subs.filter((sub) => sub.active && sub.fromText).flatMap((sub) => sub.removeKeys),
-    ...(bar.intent ? bar.extras.filter((chip) => chip.fromText !== false).map((chip) => `${chip.kind}:${chip.id}`) : []),
+    // Los momentos y el style ("con amigos", "de barrio") no son de la intención: siguen al cambiarla.
+    ...(bar.intent ? bar.extras.filter((chip) => chip.fromText !== false && chip.kind !== "prefer").map((chip) => `${chip.kind}:${chip.id}`) : []),
   ].filter((key) => !key.startsWith("category:"));
 }
 

@@ -1,7 +1,7 @@
-import { findDef, normalize } from '@shared/tags.ts'
+import { findDef, isStyleId, normalize, type StyleId } from '@shared/tags.ts'
 import { resolveNeighborhood } from '@shared/neighborhood-aliases.ts'
 import { canonicalOf, singularForms } from './dishes'
-import { BEST_WORDS, emptyInterpretation, tidy, type Interpretation } from './interpretation'
+import { BEST_WORDS, emptyInterpretation, tidy, type Interpretation, type Price } from './interpretation'
 
 const STOPWORDS_ES = new Set(['en', 'de', 'del', 'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'y', 'o', 'con', 'para', 'por', 'a', 'al', 'zona', 'barrio'])
 const STOPWORDS_EN = new Set(['in', 'at', 'near', 'the', 'a', 'an', 'with', 'for', 'and', 'or', 'of', 'to', 'around', 'area'])
@@ -13,6 +13,23 @@ const OPEN_NOW = new Map([
 const NEAR_ME = new Map([
   ['cerca mio', 'es'], ['cerca mia', 'es'], ['cerca de mi', 'es'], ['cerca de aca', 'es'], ['near me', 'en'], ['nearby', 'en'],
 ] as const)
+// Precio pedido: filtra (lo desconocido pasa) y un precio confirmado que coincide rankea más arriba.
+const PRICE_WORDS = new Map<string, [Price[], 'es' | 'en']>([
+  ...['barato', 'barata', 'baratos', 'baratas', 'economico', 'economica', 'economicos', 'economicas'].map((word) => [word, [['low'], 'es']] as const),
+  ...['caro', 'cara', 'caros', 'caras'].map((word) => [word, [['high', 'very_high'], 'es']] as const),
+  ...['de lujo', 'lujoso', 'lujosa', 'lujosos'].map((word) => [word, [['very_high'], 'es']] as const),
+  ['cheap', [['low'], 'en']], ['inexpensive', [['low'], 'en']], ['expensive', [['high', 'very_high'], 'en']], ['luxury', [['very_high'], 'en']],
+] as [string, [Price[], 'es' | 'en']][])
+
+// Citas que traen el estilo: una tranqui o descontracturada es casual; una romántica o especial, cuidado. "cita" sola es sólo date.
+// also: otra frase del catálogo que la consulta también pide, resuelta igual que si viniera sola ("cena romántica" → "cena").
+const DATE_STYLES = new Map<string, { style: StyleId; also?: string; language?: 'en' }>([
+  ...['primera cita', 'algo tranqui para una cita', 'cita tranqui', 'cita descontracturada', 'cita informal'].map((phrase) => [phrase, { style: 'casual' }] as const),
+  ...['aniversario', 'cita especial', 'cita romantica'].map((phrase) => [phrase, { style: 'cuidado' }] as const),
+  ['cena romantica', { style: 'cuidado', also: 'cena' }],
+  ['anniversary', { style: 'cuidado', language: 'en' }],
+])
+
 const DAYS = new Map<string, [number, 'es' | 'en']>([
   ['domingo', [0, 'es']], ['lunes', [1, 'es']], ['martes', [2, 'es']], ['miercoles', [3, 'es']], ['jueves', [4, 'es']], ['viernes', [5, 'es']], ['sabado', [6, 'es']],
   ['sunday', [0, 'en']], ['monday', [1, 'en']], ['tuesday', [2, 'en']], ['wednesday', [3, 'en']], ['thursday', [4, 'en']], ['friday', [5, 'en']], ['saturday', [6, 'en']],
@@ -28,6 +45,19 @@ function phraseLanguage(id: string, phrase: string): 'es' | 'en' | null {
   const es = matches([definition.label.es, ...definition.synonyms.es])
   const en = matches([definition.label.en, ...definition.synonyms.en])
   return en && !es ? 'en' : es && !en ? 'es' : null
+}
+
+/** Aplica una frase del catálogo donde corresponde. Devuelve su idioma (null si es ambiguo), o undefined si no está. */
+function applyTerm(target: Interpretation, phrase: string): 'es' | 'en' | null | undefined {
+  const found = canonicalOf(phrase)
+  if (!found) return undefined
+  if (found.group === 'categories') target.must.categories.push(found.id)
+  else if (found.group === 'dietary') target.must.diet[found.id === 'gluten_free' ? 'glutenFree' : (found.id as 'vegan' | 'vegetarian')] = true
+  else if (found.group === 'foods') target.dishes.push({ name: phrase, relatedTags: [found.id], relatedCategories: [] })
+  else if (found.group === 'style') target.prefer.style ??= isStyleId(found.id) ? found.id : null
+  else if (found.group === 'atmosphere' || found.group === 'goodFor') target.prefer.tags.push(found.id)
+  else target.must.tags.push(found.id)
+  return phraseLanguage(found.id, phrase)
 }
 
 // Lo que viene después de una negación suelta ("algo que no sea pizza") no se toma como pedido en el modo parcial.
@@ -58,6 +88,8 @@ export function interpretWithDictionary(normalized: string, { partial = false }:
       const openNow = OPEN_NOW.get(phrase as never)
       const nearMe = NEAR_ME.get(phrase as never)
       const day = DAYS.get(phrase)
+      const price = PRICE_WORDS.get(phrase)
+      const dateStyle = DATE_STYLES.get(phrase)
       if (neighborhood) {
         target.must.neighborhoods.push(neighborhood)
       } else if (openNow) {
@@ -70,16 +102,18 @@ export function interpretWithDictionary(normalized: string, { partial = false }:
       } else if (day) {
         target.must.openAt = { day: day[0], time: null }
         votes[day[1]]++
+      } else if (price) {
+        target.must.price.push(...price[0])
+        votes[price[1]]++
+      } else if (dateStyle) {
+        target.prefer.tags.push('date')
+        target.prefer.style ??= dateStyle.style
+        if (dateStyle.also) applyTerm(target, dateStyle.also)
+        votes[dateStyle.language ?? 'es']++
       } else {
-        const found = canonicalOf(phrase)
-        if (!found) continue
-        const language = phraseLanguage(found.id, phrase)
+        const language = applyTerm(target, phrase)
+        if (language === undefined) continue
         if (language) votes[language]++
-        if (found.group === 'categories') target.must.categories.push(found.id)
-        else if (found.group === 'dietary') target.must.diet[found.id === 'gluten_free' ? 'glutenFree' : (found.id as 'vegan' | 'vegetarian')] = true
-        else if (found.group === 'foods') target.dishes.push({ name: phrase, relatedTags: [found.id], relatedCategories: [] })
-        else if (found.group === 'atmosphere' || found.group === 'goodFor') target.prefer.tags.push(found.id)
-        else target.must.tags.push(found.id)
       }
       consumed = length
     }

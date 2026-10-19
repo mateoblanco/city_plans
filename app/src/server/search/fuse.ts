@@ -1,6 +1,7 @@
 import { SEARCH_CONFIG } from './config'
 import type { CandidateRow } from './candidates'
 import type { DishTarget } from './dishes'
+import type { Price } from './interpretation'
 import { hoursConfirmed, openStatus, type Moment, type OpenState } from './hours'
 
 export type RankingName = keyof typeof SEARCH_CONFIG.rrf.weights
@@ -17,6 +18,10 @@ export type FuseContext = {
   /** Tags pedidos (must + prefer + tags de los platos), para comparar con signature. */
   requestedTags: string[]
   preferTags: string[]
+  /** Estilo pedido como preferencia; null si no se pidió. */
+  preferStyle: string | null
+  /** Precios pedidos (must.price); vacío si la consulta no habla de precio. */
+  price: Price[]
   /** Momento pedido con openAt; null si la consulta no habla de horario. */
   openAt: Moment | null
   /** La consulta pide lo mejor: rango de calidad más amplio. */
@@ -92,9 +97,12 @@ export function boostsFor(row: CandidateRow, context: FuseContext, open: OpenSta
   const result: Fused['boosts'] = {}
   if (count(row.categories, context.categories) > 0) result.category = boosts.category
   const signature = Math.min(count(row.signature, [...context.requestedTags, ...context.categories]), boosts.maxSignatureMatches)
-  if (signature > 0) result.signature = signature * boosts.signature
+  if (signature > 0) result.signature = signature * (context.wantsBest ? boosts.signatureBest : boosts.signature)
   const prefer = count(row.tags, context.preferTags)
   if (prefer > 0) result.preferTag = prefer * boosts.preferTag
+  if (context.preferStyle && row.style === context.preferStyle) result.preferStyle = boosts.preferStyle
+  // price = 'unknown' pasa el filtro pero no suma: lo confirmado va primero.
+  if (context.price.length > 0 && (context.price as string[]).includes(row.price)) result.priceMatch = boosts.priceMatch
   if (row.dishExact.some(Boolean)) result.exactDish = boosts.exactDish
   if (open?.state === 'open' && hoursConfirmed(row.hours)) result.confirmedOpen = boosts.confirmedOpen
   return result

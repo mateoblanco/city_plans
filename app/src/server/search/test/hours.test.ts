@@ -3,7 +3,7 @@ import { PgDialect } from 'drizzle-orm/pg-core'
 import { candidatesQuery, openAtSql } from '../candidates'
 import { dishTarget } from '../dishes'
 import { montevideoNow, nextOpening, openStatus, resolveOpenAt, type Hours } from '../hours'
-import { openStateLabel } from '../labels'
+import { openStateLabel, openStateText } from '../labels'
 
 const lateBar: Hours = { status: 'exact', slots: [{ day: 5, opens: '20:00', closes: '02:00' }] }
 const lunch: Hours = { status: 'exact', slots: [{ day: 1, opens: '12:00', closes: '16:00' }] }
@@ -76,8 +76,24 @@ describe('nextOpening', () => {
     // Sábado 03:00, ya cerró el turno del viernes: vuelve a abrir el viernes siguiente.
     expect(label(lateBar, { day: 6, time: '03:00' })).toBe('Cerrado · Abre el viernes 20:00')
     expect(label(lateBar, { day: 6, time: '03:00' }, 'en')).toBe('Closed · Opens Friday 20:00')
-    // Abierto a la 01:30 del sábado: no hay próxima apertura que mostrar.
-    expect(label(lateBar, { day: 6, time: '01:30' })).toBe('Abierto · cierra 02:00')
+    // Abierto a la 01:30 del sábado: no hay próxima apertura que mostrar, y cierra en media hora.
+    expect(label(lateBar, { day: 6, time: '01:30' })).toBe('Cierra pronto · 2:00')
+  })
+
+  it('cierra pronto y abre pronto: dentro de soonMinutes, sólo ahora', () => {
+    const text = (hours: Hours, at: { day: number; time: string }, isNow = true) =>
+      openStateText(openStatus(hours, at), 'es', at, isNow, isNow ? nextOpening(hours, at) : null)
+    expect(text(lunch, { day: 1, time: '15:00' })).toEqual({ tone: 'closing_soon', prefix: '', status: 'Cierra pronto', detail: '16:00' })
+    expect(text(lunch, { day: 1, time: '14:59' })).toMatchObject({ tone: 'open', status: 'Abierto', detail: 'cierra 16:00' })
+    expect(text(lunch, { day: 1, time: '11:00' })).toEqual({ tone: 'opening_soon', prefix: '', status: 'Abre pronto', detail: '12:00' })
+    expect(text(lunch, { day: 1, time: '10:59' })).toMatchObject({ tone: 'closed', status: 'Cerrado', detail: 'Abre 12:00' })
+    // Cruzando la medianoche: viernes 23:30 con apertura el sábado 00:15.
+    const night: Hours = { status: 'exact', slots: [{ day: 6, opens: '00:15', closes: '05:00' }] }
+    expect(text(night, { day: 5, time: '23:30' })).toMatchObject({ tone: 'opening_soon', detail: '0:15' })
+    expect(text(lateBar, { day: 6, time: '01:30' })).toMatchObject({ tone: 'closing_soon', detail: '2:00' })
+    // Un momento pedido (no ahora) no dice "pronto".
+    expect(text(lunch, { day: 1, time: '15:00' }, false)).toEqual({ tone: 'open', prefix: 'Lunes 15:00: ', status: 'abierto', detail: 'cierra 16:00' })
+    expect(openStateText(openStatus(lunch, { day: 1, time: '15:00' }), 'en', { day: 1, time: '15:00' }, true).status).toBe('Closing soon')
   })
 
   it('local que no abre ningún día: queda "Cerrado"', () => {

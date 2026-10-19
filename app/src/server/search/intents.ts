@@ -154,6 +154,7 @@ export function resolveIntent(fromText: Interpretation, url: IntentUrl, removals
       prefer: {
         categories: [...new Set([...fromText.prefer.categories, ...absorbed.categories])],
         tags: [...new Set([...fromText.prefer.tags, ...absorbed.tags])],
+        style: fromText.prefer.style,
       },
     },
   }

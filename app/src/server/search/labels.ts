@@ -1,5 +1,6 @@
 import { label } from '@shared/tags.ts'
 import type { DietKey, Lang, Price } from './interpretation'
+import { SEARCH_CONFIG } from './config'
 import type { Moment, NextOpening, OpenState } from './hours'
 
 export const DAY_NAMES: Record<Lang, string[]> = {
@@ -83,23 +84,46 @@ function opensLabel(next: NextOpening, lang: Lang) {
   return es ? `Abre el ${DAY_NAMES.es[next.day]} ${time}` : `Opens ${DAY_NAMES.en[next.day]} ${time}`
 }
 
+/** Abierto, cerrado y los dos "pronto" (sólo ahora, dentro de SEARCH_CONFIG.soonMinutes). */
+export type OpenTone = 'open' | 'closing_soon' | 'opening_soon' | 'closed' | 'unconfirmed'
+
+/** La etiqueta en partes, para que la card le dé color sólo al estado: prefijo, estado y horario. */
+export type OpenStateText = { tone: OpenTone; prefix: string; status: string; detail: string | null }
+
+const minutes = (time: string) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5))
+
+/** Minutos desde `from` hasta `to`, pasando la medianoche si hace falta. */
+const minutesUntil = (from: string, to: string) => (minutes(to) - minutes(from) + 24 * 60) % (24 * 60)
+
 /**
- * "Abierto · cierra 23:00", "Cerrado · Abre mañana 9:00", "Horario no confirmado"; con prefijo de día si no es
- * ahora. `next` (próxima apertura) sólo se usa ahora.
+ * "Abierto · cierra 23:00", "Cierra pronto · 23:00", "Cerrado · Abre mañana 9:00", "Abre pronto · 19:00",
+ * "Horario no confirmado"; con prefijo de día si no es ahora. `next` (próxima apertura) sólo se usa ahora.
  */
-export function openStateLabel(state: OpenState, lang: Lang, moment: Moment, isNow: boolean, next: NextOpening | null = null): string {
+export function openStateText(state: OpenState, lang: Lang, moment: Moment, isNow: boolean, next: NextOpening | null = null): OpenStateText {
   const es = lang === 'es'
-  if (state.state === 'unconfirmed') return es ? 'Horario no confirmado' : 'Hours not confirmed'
+  if (state.state === 'unconfirmed') return { tone: 'unconfirmed', prefix: '', status: es ? 'Horario no confirmado' : 'Hours not confirmed', detail: null }
   const prefix = isNow ? '' : `${capitalize(DAY_NAMES[lang][moment.day])}${moment.time ? ` ${moment.time}` : ''}: `
+  const soon = SEARCH_CONFIG.soonMinutes
   if (state.state === 'closed') {
-    if (!isNow) return prefix + (es ? 'cerrado' : 'closed')
-    const closed = es ? 'Cerrado' : 'Closed'
-    return next ? `${closed} · ${opensLabel(next, lang)}` : closed
+    if (!isNow) return { tone: 'closed', prefix, status: es ? 'cerrado' : 'closed', detail: null }
+    if (next && moment.time && next.daysAhead * 24 * 60 + minutes(next.opens) - minutes(moment.time) <= soon) {
+      return { tone: 'opening_soon', prefix, status: es ? 'Abre pronto' : 'Opening soon', detail: clock(next.opens) }
+    }
+    return { tone: 'closed', prefix, status: es ? 'Cerrado' : 'Closed', detail: next ? opensLabel(next, lang) : null }
   }
   if (moment.time === null && state.opensAt) {
     const range = state.closesAt ? `${state.opensAt}–${state.closesAt}` : `${es ? 'desde las' : 'from'} ${state.opensAt}`
-    return prefix + (es ? `abre ${range}` : `open ${range}`)
+    return { tone: 'open', prefix, status: es ? `abre ${range}` : `open ${range}`, detail: null }
+  }
+  if (isNow && moment.time && state.closesAt && minutesUntil(moment.time, state.closesAt) <= soon) {
+    return { tone: 'closing_soon', prefix, status: es ? 'Cierra pronto' : 'Closing soon', detail: clock(state.closesAt) }
   }
   const open = isNow ? (es ? 'Abierto' : 'Open') : es ? 'abierto' : 'open'
-  return prefix + (state.closesAt ? `${open} · ${es ? 'cierra' : 'closes'} ${state.closesAt}` : open)
+  return { tone: 'open', prefix, status: open, detail: state.closesAt ? `${es ? 'cierra' : 'closes'} ${state.closesAt}` : null }
+}
+
+/** La etiqueta entera, como texto: la usan los motivos. */
+export function openStateLabel(state: OpenState, lang: Lang, moment: Moment, isNow: boolean, next: NextOpening | null = null): string {
+  const text = openStateText(state, lang, moment, isNow, next)
+  return text.prefix + (text.detail ? `${text.status} · ${text.detail}` : text.status)
 }

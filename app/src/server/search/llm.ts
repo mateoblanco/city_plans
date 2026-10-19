@@ -27,9 +27,12 @@ Campos:
   - tags: ids de los demás grupos que sean requisitos concretos (terraza, música en vivo, brunch, cerveza tirada).
   - diet: vegan / vegetarian / glutenFree en true sólo si se pide ("sin TACC" → glutenFree).
   - neighborhoods: nombres de barrio de la lista ("near Ciudad Vieja" → "Ciudad Vieja", "el prado" → "Prado Nueva Savona").
-  - price: low, moderate, high o very_high ("barato" → ["low"], "no muy caro" → ["low","moderate"]).
+  - price: low, moderate, high o very_high ("barato" o "económico" → ["low"], "no muy caro" → ["low","moderate"], "caro" → ["high","very_high"], "de lujo" → ["very_high"]).
   - openAt: {now:true} para "abierto ahora"; {now:false, day, time} para un día (0 = domingo … 6 = sábado; null = hoy) y/o una hora "HH:MM" (null = cualquier momento de ese día); null si no habla de horario.
-- prefer: lo subjetivo o deseable (tranquilo, acogedor, lindo, para trabajar, para una cita), en categories/tags.
+- prefer: lo subjetivo o deseable (tranquilo, acogedor, lindo, para trabajar), en categories/tags.
+  - Momentos u ocasiones, siempre en prefer.tags y nunca en must: "con amigos" o "en grupo" → groups; "cita", "romántico" o "en pareja" → date; "con los chicos" o "con niños" → kids_friendly; "festejar" o "cumpleaños" → celebration; "algo rápido" o "al paso" → quick.
+  - Estilo del lugar, también en prefer.tags y nunca en must: "descontracturado", "de barrio" o "informal" → casual; "especial", "elegante" o "de autor" → cuidado.
+  - Una cita puede traer el estilo: "primera cita", "algo tranqui para una cita" o "cita descontracturada" → date + casual; "aniversario", "anniversary" o "cita especial" → date + cuidado; "cena romántica" → date + cuidado y además dinner, igual que "cena"; "cita" sola → sólo date.
 - exclude: lo que la persona NO quiere ("algo que no sea pizza" → exclude tags ["pizza"] y categories ["pizzeria"]).
 - dishes: platos o comidas concretas, en español, minúscula y forma estándar ("milanga" → "milanesa", "best steak" → "bife", "chivito", "milanesa napolitana"). Una comida genérica que ya es un tag del grupo foods también va acá ("pizza", "sushi", "picada"), no en tags.
   Cada plato va como {name, related}: en related, 1 a 3 ids de tags o categorías del catálogo que lo representen, para buscar por ahí si ningún lugar tiene el plato (ceviche → ["peruvian", "seafood"]; milanesa napolitana → ["milanesa"]; ramen → ["japanese"]).
@@ -41,7 +44,6 @@ Campos:
 Reglas:
 - "mejor", "best", "top" sólo marcan wantsBest: no van en must, prefer, unrecognized ni vibe. "rico" y "bueno" no son requisitos: ignoralos.
 - Las bebidas coloquiales van como tags: "birra" → draft_beer, "vino" → wine.
-- "cumpleaños" o grupos grandes → prefer goodFor (groups, celebration).
 - No inventes ids: si algo no está en el catálogo, va a unrecognized.
 - Las listas vacías van como [].
 

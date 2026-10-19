@@ -2,10 +2,12 @@
 
 import { AdvancedMarker, APIProvider, Map, useMap } from "@vis.gl/react-google-maps";
 import { useEffect, useMemo } from "react";
+import type { IconCategory } from "@shared/icon-categories.ts";
+import PlaceIcon from "@/components/PlaceIcon/PlaceIcon";
 import styles from "./SearchMap.module.scss";
 
 export type LatLng = { lat: number; lng: number };
-export type MapPlace = LatLng & { id: string; name: string };
+export type MapPlace = LatLng & { id: string; name: string; iconCategory: IconCategory | null };
 
 const MONTEVIDEO = { lat: -34.9011, lng: -56.1645 };
 const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -56,7 +58,7 @@ const SearchMap = (props: Props) => {
 
   return (
     <APIProvider apiKey={API_KEY} language="es" region="UY">
-      <Map mapId={MAP_ID} defaultCenter={MONTEVIDEO} defaultZoom={13} disableDefaultUI clickableIcons={false} gestureHandling="greedy">
+      <Map className={styles.map} mapId={MAP_ID} defaultCenter={MONTEVIDEO} defaultZoom={13} disableDefaultUI clickableIcons={false} gestureHandling="greedy" >
         {props.places.map((place) => {
           const active = place.id === props.hoveredId;
           return (
@@ -69,7 +71,9 @@ const SearchMap = (props: Props) => {
               onMouseEnter={() => props.onHover(place.id)}
               onMouseLeave={() => props.onHover(null)}
             >
-              <div className={styles.marker} data-active={active || undefined} />
+              <div className={styles.marker} data-active={active || undefined}>
+                <PlaceIcon category={place.iconCategory} />
+              </div>
             </AdvancedMarker>
           );
         })}

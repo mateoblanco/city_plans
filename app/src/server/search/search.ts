@@ -1,6 +1,7 @@
-import { findDef, label, normalize } from '@shared/tags.ts'
+import { findDef, isOccasionTag, isStyleId, label, normalize } from '@shared/tags.ts'
 import { neighborhoodDisplayName } from '@shared/neighborhood-names.ts'
 import centroids from '@shared/neighborhood-centroids.json'
+import type { IconCategory } from '@shared/icon-categories.ts'
 import { SEARCH_CONFIG } from './config'
 import type { EmbeddingResult, SearchCache } from './cache'
 import type { CandidateFilters, CandidateRow, DishMode, NameMatch, ScoreInputs } from './candidates'
@@ -23,9 +24,10 @@ import {
   validateInterpretation,
   type Interpretation,
 } from './interpretation'
-import { openStateLabel } from './labels'
+import { openStateLabel, openStateText, type OpenStateText } from './labels'
 import { normalizeQuery, queryWords } from './normalize'
 import { buildReasons } from './reasons'
+import { logoUrl } from './logo'
 import { relevanceCut, type Relevance } from './relevance'
 import { canRelax, noMatchNotice, relax, RELAX_ORDER, relaxNotice, type NoticeKind, type RelaxStep, type SearchState } from './relax'
 import type { PlacesStore } from './store'
@@ -48,10 +50,18 @@ export type SearchResult = {
   name: string
   neighborhood: string
   categories: string[]
+  /** Clave de shared/icon-categories.ts (null = todavía sin categoría); el emoji lo dibuja PlaceIcon. */
+  iconCategory: IconCategory | null
+  /** Clave del logo en R2 (null = sin logo). */
+  logoKey: string | null
+  /** LOGO_BASE_URL + "/" + logoKey, armada acá porque la card es de cliente y no ve la variable. */
+  logoUrl: string | null
+  /** Fondo del banner del logo (#rrggbb) o null. */
+  logoBgColor: string | null
   lat: number
   lng: number
   reasons: string[]
-  openStatus: { state: OpenState['state']; closesAt: string | null; label: string }
+  openStatus: { state: OpenState['state']; closesAt: string | null; label: string } & OpenStateText
   matchLevel: MatchLevel
 }
 
@@ -174,6 +184,7 @@ export function semanticTextFor(normalized: string, value: Interpretation, edits
     ...[...value.must.categories, ...value.prefer.categories].map((id) => label(id)),
     ...value.dishes.map((dish) => dish.name),
     ...[...value.must.tags, ...value.prefer.tags].map((id) => label(id)),
+    ...(value.prefer.style ? [label(value.prefer.style)] : []),
     ...value.must.neighborhoods.map((id) => neighborhoodDisplayName(id) ?? id),
   ]
   return parts.length ? parts.join(', ') : null
@@ -299,7 +310,10 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       const validation = validateInterpretation(priced('interpret', llm.value).data)
       source = 'llm'
       original = validation.interpretation
-      discarded = validation.discarded.map((value) => ({ value, reason: 'no está en los catálogos' }))
+      discarded = [
+        ...validation.discarded.map((value) => ({ value, reason: 'no está en los catálogos' })),
+        ...validation.toPrefer.map((value) => ({ value, reason: 'momento: va como preferencia, nunca como filtro' })),
+      ]
       model = llm.value.model
     } else {
       // Sin modelo (timeout o error), la búsqueda sigue sin avisar: lo que el diccionario reconoce como filtros,
@@ -414,6 +428,8 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     categories: requestedCategories,
     requestedTags,
     preferTags: current.prefer.tags,
+    preferStyle: current.prefer.style,
+    price: current.must.price,
     openAt: openAtMoment,
     wantsBest: current.wantsBest,
   })
@@ -434,6 +450,10 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       name: item.row.name,
       neighborhood: neighborhoodDisplayName(item.row.neighborhoodId) ?? item.row.neighborhoodId,
       categories: item.row.categories,
+      iconCategory: item.row.iconCategory,
+      logoKey: item.row.logoKey,
+      logoUrl: logoUrl(item.row.logoKey),
+      logoBgColor: item.row.logoBgColor,
       lat: item.row.lat,
       lng: item.row.lng,
       reasons: buildReasons(item, { interpretation: current, dishes, dishMode: state.dishMode, moment, isNow, open, next, near: near !== null }),
@@ -441,6 +461,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
         state: open.state,
         closesAt: open.state === 'open' ? open.closesAt : null,
         label: openStateLabel(open, interpretation.language, moment, isNow, next),
+        ...openStateText(open, interpretation.language, moment, isNow, next),
       },
       matchLevel: item.matchLevel,
     }
@@ -474,10 +495,13 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   }
   timings.total = elapsed(started)
 
-  // Extras de la barra: lo que pidió el texto y no quedó representado por la intención ni sus sub-filtros.
+  // Extras de la barra: lo que pidió el texto y no quedó representado por la intención ni sus sub-filtros. Los
+  // momentos y el style son preferencias, pero se muestran igual para poder quitarlos.
   const chips = chipsOf(buildChips(interpretation, today, near !== null))
+  const subKeys = new Set(resolved.subs.flatMap((sub) => sub.removeKeys))
+  const shownPreference = (chip: Chip) => chip.kind === 'prefer' && (isOccasionTag(chip.id) || isStyleId(chip.id)) && !subKeys.has(`prefer:${chip.id}`)
   const extras = chips.filter(
-    (chip) => chip.fromText && (chip.kind === 'category' || chip.kind === 'tag' || (chip.kind === 'dish' && !resolved.absorbedDishes.includes(chip.id))),
+    (chip) => chip.fromText && (chip.kind === 'category' || chip.kind === 'tag' || shownPreference(chip) || (chip.kind === 'dish' && !resolved.absorbedDishes.includes(chip.id))),
   )
   const response: SearchResponse = {
     query: rawQuery,

@@ -4,17 +4,29 @@
   padding: 16px;
 }
 
+// Mismo scale para el hover del marcador y para la card resaltada en la lista (hoveredId de MapSync).
+$marker-active-scale: 1.5;
+
 .marker {
+  align-items: center;
   background-color: #ffffff;
-  border: 2px solid #000000;
   border-radius: 50%;
-  height: 14px;
-  transition: transform 0.1s;
-  width: 14px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  display: flex;
+  justify-content: center;
+  // padding: 1px;
+  width:30px;
+  height:30px;
+  transition:
+    transform 0.15s ease-out,
+    box-shadow 0.15s ease-out;
 
   &[data-active] {
-    background-color: #000000;
-    transform: scale(1.5);
+    // Anillo negro como box-shadow: no agranda la caja (el ancla no se mueve) y escala con el transform.
+    box-shadow:
+      0 0 0 1px #000000,
+      0 1px 4px rgba(0, 0, 0, 0.3);
+    transform: scale($marker-active-scale);
   }
 }
 
@@ -25,4 +37,12 @@
   box-shadow: 0 0 0 1px #1a73e8;
   height: 16px;
   width: 16px;
+}
+
+// Con className, <Map> deja de aplicar su width/height 100% por defecto: hay que darlos acá.
+.map {
+  border-radius: 16px;
+  height: 100%;
+  overflow: hidden;
+  width: 100%;
 }

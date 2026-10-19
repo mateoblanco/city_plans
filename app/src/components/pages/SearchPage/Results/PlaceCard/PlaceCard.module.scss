@@ -1,0 +1,61 @@
+.card {
+  border: 1px solid #DFDFE1;
+  outline: 2px solid transparent;
+  display: flex;
+  padding:16px;
+  gap: 16px;
+  align-items: center;
+  border-radius: 8px;
+  transition: background-color 0.15s ease-out;
+  // flex-direction: column;
+
+  &[data-active] {
+    background-color: #DFDFE1;
+  }
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  // padding: 12px;
+}
+
+.name {
+  font-size: 16px;
+}
+
+.meta {
+  font-size: 14px;
+}
+
+.openStatus {
+  font-size: 14px;
+  color: #555555;
+}
+
+.openTone {
+  &[data-tone="open"] {
+    color: #1a7f37;
+  }
+
+  &[data-tone="closing_soon"] {
+    color: #d97706;
+  }
+
+  &[data-tone="closed"] {
+    color: #cf222e;
+  }
+}
+
+.reasons {
+  font-size: 13px;
+  color: #555555;
+  padding-left: 16px;
+}
+
+.debug {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 12px;
+  color: #555555;
+}

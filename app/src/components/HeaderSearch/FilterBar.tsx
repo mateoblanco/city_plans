@@ -104,6 +104,7 @@ const FilterBar = async (props: Props) => {
               {sub.active ? `${sub.label} ×` : sub.label}
             </Link>
           ))}
+          {props.bar.subs.length > 0 && props.bar.extras.length > 0 && <hr className={styles.divider} />}
           {props.bar.extras.map((chip) => (
             <Link
               key={`${chip.kind}:${chip.id}`}

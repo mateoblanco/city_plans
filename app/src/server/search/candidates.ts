@@ -4,6 +4,7 @@ import type { DishTarget } from './dishes'
 import type { Hours, Moment } from './hours'
 import type { DietKey, Price } from './interpretation'
 import type { IntentMatch } from '@shared/intents.ts'
+import type { IconCategory } from '@shared/icon-categories.ts'
 
 /** Filtros duros: lo que un lugar tiene que cumplir para ser candidato. */
 export type CandidateFilters = {
@@ -52,6 +53,8 @@ export type CandidateRow = {
   tags: string[]
   signature: string[]
   dishes: string[]
+  /** Estilo de la marca (casual, intermedio, cuidado); null sin señales. */
+  style: string | null
   diet: Record<DietKey, string>
   price: string
   hours: Hours
@@ -59,6 +62,12 @@ export type CandidateRow = {
   prominence: number
   /** Curaduría manual. */
   featured: boolean
+  /** Clave de shared/icon-categories.ts; null = todavía sin categoría. */
+  iconCategory: IconCategory | null
+  /** Clave del logo en R2 (null = sin logo); la URL la arma logoUrl. */
+  logoKey: string | null
+  /** Color de fondo del logo (#rrggbb) o null. */
+  logoBgColor: string | null
   lat: number
   lng: number
   matchesFilters: boolean
@@ -180,7 +189,8 @@ export function candidatesQuery(filters: CandidateFilters, scores: ScoreInputs):
   return sql`
     ${withVector}select id, slug, name, neighborhood_id as "neighborhoodId", categories, tags, signature, dishes,
       json_build_object('vegan', diet_vegan, 'vegetarian', diet_vegetarian, 'glutenFree', diet_gluten_free) as diet,
-      price, hours, prominence, featured,
+      price, style, hours, prominence, featured, icon_category as "iconCategory",
+      logo_key as "logoKey", logo_bg_color as "logoBgColor",
       ST_Y(location::geometry) as lat, ST_X(location::geometry) as lng,
       (${matches}) as "matchesFilters",
       ${semantic} as semantic,

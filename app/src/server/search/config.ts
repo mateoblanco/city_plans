@@ -36,8 +36,14 @@ export const SEARCH_CONFIG = {
   boosts: {
     category: 0.01,
     signature: 0.008,
+    /** Con "lo mejor" ("el mejor chivito"): lo que define al lugar pesa más que un primer puesto en un ranking. */
+    signatureBest: 0.02,
     maxSignatureMatches: 2,
     preferTag: 0.006,
+    /** El style pedido ("de barrio" → casual), como una preferencia más. */
+    preferStyle: 0.006,
+    /** La consulta pide precio y el del lugar está confirmado y coincide: queda arriba de los de precio desconocido. */
+    priceMatch: 0.008,
     exactDish: 0.02,
     confirmedOpen: 0.01,
   },
@@ -82,4 +88,6 @@ export const SEARCH_CONFIG = {
   cacheSeconds: 60 * 60 * 24,
 
   timeZone: 'America/Montevideo',
+  /** Faltando esto o menos para el cierre o la apertura, la card dice "Cierra pronto" / "Abre pronto". */
+  soonMinutes: 60,
 } as const

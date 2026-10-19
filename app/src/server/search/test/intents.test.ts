@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { PgDialect } from 'drizzle-orm/pg-core'
-import { INTENTS, NO_INTENT_CATEGORIES, type IntentDef, type IntentMatch } from '@shared/intents.ts'
+import { INTENT_IDS, INTENTS, NO_INTENT_CATEGORIES, type IntentDef, type IntentMatch } from '@shared/intents.ts'
 import { CATEGORIES, TAG_IDS } from '@shared/tags.ts'
 import { intentHref } from '@/components/pages/SearchPage/utils/search-href'
 import { candidatesQuery } from '../candidates'
@@ -140,10 +140,11 @@ describe('SQL de la intención', () => {
     expect(query.params.slice(0, 4)).toEqual([['bar', 'brewery', 'wine_bar', 'night_club'], ['signature_cocktails', 'classic_cocktails'], ['night_club'], ['dj']])
   })
 
-  it('Top picks filtra por featured', () => {
+  // Top picks está comentado en shared/intents.ts; el filtro por featured sigue disponible para una intención.
+  it('un grupo con featured filtra por featured', () => {
     const query = new PgDialect().sqlToQuery(
       candidatesQuery(
-        { categories: [], tags: [], diet: [], neighborhoods: [], price: [], openAt: null, excludeCategories: [], excludeTags: [], dishes: [], dishMode: 'dish', near: null, groups: intentGroups('top', []) },
+        { categories: [], tags: [], diet: [], neighborhoods: [], price: [], openAt: null, excludeCategories: [], excludeTags: [], dishes: [], dishMode: 'dish', near: null, groups: [{ featured: true }] },
         { embedding: null, keywords: [], name: null, origins: [], pinnedId: null },
       ),
     )
@@ -189,11 +190,14 @@ describe('búsqueda con intención', () => {
     expect(ids(response)).toEqual(['pizzeria'])
   })
 
-  it('Top picks sin destacados: avisa que todavía no hay', async () => {
+  it('Top picks no es una intención: intent=top se ignora', async () => {
+    expect(INTENT_IDS).not.toContain('top')
+    expect(parseIntent('top', 'x')).toEqual({ intent: null, subs: [] })
     const { store } = fakeStore(places)
     const response = await runSearch('', { store, cache: fakeCache().cache }, { now, intent: 'top' })
-    expect(response.results).toEqual([])
-    expect(response.relaxed.map((notice) => notice.message)).toEqual(['Todavía no hay top picks. Probá con otra opción.'])
+    expect(response.bar.intent).toBeNull()
+    expect(response.relaxed).toEqual([])
+    expect(ids(response).sort()).toEqual(places.map((place) => place.id).sort())
   })
 
   it('el aviso de cero resultados nombra la intención', () => {

@@ -27,6 +27,7 @@ export function buildChips(value: Interpretation, today: number, near = false): 
     chips.push({ kind: 'openAt', id: openAt === 'now' ? 'now' : 'day', label: momentLabel(moment, lang, today) })
   }
   for (const id of [...value.prefer.categories, ...value.prefer.tags]) chips.push({ kind: 'prefer', id, label: label(id, lang) })
+  if (value.prefer.style) chips.push({ kind: 'prefer', id: value.prefer.style, label: label(value.prefer.style, lang) })
   for (const id of [...value.exclude.categories, ...value.exclude.tags]) chips.push({ kind: 'exclude', id, label: excludeLabel(id, lang) })
   if (value.vibe) chips.push({ kind: 'vibe', id: 'vibe', label: value.vibe })
   return chips

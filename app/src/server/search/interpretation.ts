@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { CATEGORIES, DIETARY, TAG_IDS, normalize } from '@shared/tags.ts'
+import { CATEGORIES, DIETARY, TAG_IDS, isOccasionTag, isStyleId, normalize, type StyleId } from '@shared/tags.ts'
 import { resolveNeighborhood } from '@shared/neighborhood-aliases.ts'
 import { canonicalOf } from './dishes'
 
@@ -25,7 +25,8 @@ export type Interpretation = {
     price: Price[]
     openAt: OpenAt
   }
-  prefer: { categories: string[]; tags: string[] }
+  /** style: estilo pedido ("de barrio" → casual); como los momentos, siempre preferencia. */
+  prefer: { categories: string[]; tags: string[]; style: StyleId | null }
   exclude: { categories: string[]; tags: string[] }
   dishes: Dish[]
   vibe: string | null
@@ -40,7 +41,7 @@ export function emptyInterpretation(language: Lang = 'es'): Interpretation {
   return {
     nameQuery: null,
     must: { categories: [], tags: [], diet: {}, neighborhoods: [], price: [], openAt: null },
-    prefer: { categories: [], tags: [] },
+    prefer: { categories: [], tags: [], style: null },
     exclude: { categories: [], tags: [] },
     dishes: [],
     vibe: null,
@@ -75,7 +76,7 @@ export type LlmInterpretation = z.infer<typeof LlmInterpretationSchema>
 const TAG_ID_SET = new Set<string>(TAG_IDS)
 const DIET_BY_TAG: Record<string, DietKey> = { vegan: 'vegan', vegetarian: 'vegetarian', gluten_free: 'glutenFree' }
 
-export type Term = { kind: 'category' | 'tag'; id: string } | { kind: 'diet'; key: DietKey }
+export type Term = { kind: 'category' | 'tag'; id: string } | { kind: 'diet'; key: DietKey } | { kind: 'style'; id: StyleId }
 
 /** Id válido de tags.ts para lo que mandó el modelo o escribió la persona (id, label o sinónimo). */
 export function classifyTerm(raw: string): Term | null {
@@ -83,9 +84,11 @@ export function classifyTerm(raw: string): Term | null {
   if (value in CATEGORIES) return { kind: 'category', id: value }
   if (value in DIETARY) return { kind: 'diet', key: DIET_BY_TAG[value] }
   if (TAG_ID_SET.has(value)) return { kind: 'tag', id: value }
+  if (isStyleId(value)) return { kind: 'style', id: value }
   const found = canonicalOf(normalize(value.replace(/_/g, ' ')))
   if (!found) return null
   if (found.group === 'categories') return { kind: 'category', id: found.id }
+  if (found.group === 'style' && isStyleId(found.id)) return { kind: 'style', id: found.id }
   if (found.group === 'dietary') return { kind: 'diet', key: DIET_BY_TAG[found.id] }
   return TAG_ID_SET.has(found.id) ? { kind: 'tag', id: found.id } : null
 }
@@ -126,18 +129,24 @@ function validOpenAt(raw: LlmInterpretation['must']['openAt']): OpenAt {
   return day === null && time === null ? null : { day, time }
 }
 
-export type Validation = { interpretation: Interpretation; discarded: string[] }
+/** toPrefer: momentos que el modelo puso como requisito y pasaron a preferencia (`tag:groups`). */
+export type Validation = { interpretation: Interpretation; discarded: string[]; toPrefer: string[] }
 
 /** Se queda sólo con ids de tags.ts y barrios conocidos; lo demás se descarta (y se informa en debug). */
 export function validateInterpretation(raw: LlmInterpretation): Validation {
   const discarded: string[] = []
+  const toPrefer: string[] = []
   const result = emptyInterpretation(raw.language?.trim().toLowerCase().startsWith('en') ? 'en' : 'es')
 
-  const sortTerms = (values: string[], into: { categories: string[]; tags: string[] }, diet?: Interpretation['must']['diet']) => {
+  // El style va siempre a preferencias, venga de must o de prefer; excluir un estilo no existe.
+  const sortTerms = (values: string[], into: { categories: string[]; tags: string[] }, diet?: Interpretation['must']['diet'], styleAllowed = true) => {
     for (const value of values) {
       const term = classifyTerm(value)
       if (!term) discarded.push(value)
-      else if (term.kind === 'diet') {
+      else if (term.kind === 'style') {
+        if (styleAllowed) result.prefer.style ??= term.id
+        else discarded.push(value)
+      } else if (term.kind === 'diet') {
         if (diet) diet[term.key] = true
         else discarded.push(value)
       } else (term.kind === 'category' ? into.categories : into.tags).push(term.id)
@@ -146,7 +155,13 @@ export function validateInterpretation(raw: LlmInterpretation): Validation {
 
   sortTerms([...raw.must.categories, ...raw.must.tags], result.must, result.must.diet)
   sortTerms([...raw.prefer.categories, ...raw.prefer.tags], result.prefer)
-  sortTerms([...raw.exclude.categories, ...raw.exclude.tags], result.exclude)
+  sortTerms([...raw.exclude.categories, ...raw.exclude.tags], result.exclude, undefined, false)
+  // Los momentos (con amigos, cita…) nunca filtran: si el modelo los exigió, pasan a preferencia.
+  for (const id of result.must.tags.filter(isOccasionTag)) {
+    result.must.tags = result.must.tags.filter((item) => item !== id)
+    result.prefer.tags.push(id)
+    toPrefer.push(`tag:${id}`)
+  }
   for (const key of DIET_KEYS) if (raw.must.diet[key]) result.must.diet[key] = true
 
   for (const value of raw.must.neighborhoods) {
@@ -174,7 +189,7 @@ export function validateInterpretation(raw: LlmInterpretation): Validation {
   result.needsLocation = result.unrecognized.some(mentionsNearMe)
   result.wantsBest = raw.wantsBest === true
 
-  return { interpretation: tidy(result), discarded }
+  return { interpretation: tidy(result), discarded, toPrefer }
 }
 
 /** Sin repetidos; lo excluido o exigido no aparece también como preferencia. */
@@ -187,9 +202,14 @@ export function tidy(value: Interpretation): Interpretation {
     neighborhoods: unique(value.must.neighborhoods),
     price: unique(value.must.price),
   }
+  // Los momentos nunca son requisito; "elegante" también pide un lugar cuidado.
+  const occasions = must.tags.filter(isOccasionTag)
+  must.tags = must.tags.filter((id) => !isOccasionTag(id))
+  const preferTags = unique([...value.prefer.tags, ...occasions])
   const prefer = {
     categories: unique(value.prefer.categories).filter((id) => !must.categories.includes(id) && !exclude.categories.includes(id)),
-    tags: unique(value.prefer.tags).filter((id) => !must.tags.includes(id) && !exclude.tags.includes(id)),
+    tags: preferTags.filter((id) => !must.tags.includes(id) && !exclude.tags.includes(id)),
+    style: value.prefer.style ?? (preferTags.includes('elegant') || must.tags.includes('elegant') ? 'cuidado' : null),
   }
   const dishes = new Map<string, Dish>()
   for (const dish of value.dishes) {
@@ -236,6 +256,7 @@ export function applyRemove(value: Interpretation, removals: { kind: ChipKind; i
     else if (kind === 'prefer') {
       next.prefer.categories = next.prefer.categories.filter((item) => item !== id)
       next.prefer.tags = next.prefer.tags.filter((item) => item !== id)
+      if (next.prefer.style === id) next.prefer.style = null
     } else if (kind === 'exclude') {
       next.exclude.categories = next.exclude.categories.filter((item) => item !== id)
       next.exclude.tags = next.exclude.tags.filter((item) => item !== id)

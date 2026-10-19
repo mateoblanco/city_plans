@@ -14,6 +14,18 @@
   flex-basis: 100%;
 }
 
+// Separa los sub-filtros de la intención de lo que pidió el texto (extras): línea vertical del gris del borde del header.
+.divider {
+  align-self: stretch;
+  background-color: #DFDFE1;
+  border: none;
+  flex-shrink: 0;
+  // El reset le pone height: 0 a los hr, y con alto fijo el stretch no aplica.
+  height: auto;
+  margin: 0;
+  width: 1px;
+}
+
 .filterRow {
   align-items: center;
   display: flex;
