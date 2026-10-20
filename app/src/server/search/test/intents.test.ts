@@ -6,11 +6,11 @@ import { intentHref } from '@/components/pages/SearchPage/utils/search-href'
 import { candidatesQuery } from '../candidates'
 import { interpretWithDictionary } from '../dictionary'
 import { detectIntent, intentGroups, parseIntent, resolveIntent } from '../intents'
-import { emptyInterpretation, parseRemove, type Interpretation } from '../interpretation'
+import { emptyInterpretation, parseRemove, validateInterpretation, type Interpretation } from '../interpretation'
 import { normalizeQuery } from '../normalize'
 import { noMatchNotice } from '../relax'
 import { runSearch } from '../search'
-import { fakeCache, fakeStore, row } from './fixtures'
+import { fakeCache, fakeStore, llmOutput, row } from './fixtures'
 
 const read = (query: string): Interpretation => interpretWithDictionary(normalizeQuery(query))!
 const now = new Date('2026-10-12T16:00:00Z')
@@ -241,5 +241,82 @@ describe('"bar con amigos"', () => {
     expect(response.debug!.semanticText).toBe('bar con amigos')
     expect(embedded).toEqual(['bar con amigos'])
     expect(response.debug!.keywords).toEqual(['bar', 'amigos'])
+  })
+})
+
+describe('verbos que piden una intención', () => {
+  it('"comer con amigos" elige Comer y deja groups como preferencia', () => {
+    const value = read('comer con amigos')
+    expect(value).toMatchObject({ intent: 'eat', prefer: { tags: ['groups'] }, must: { tags: [], categories: [] } })
+    expect(detectIntent(value)).toBe('eat')
+  })
+
+  it('"tomar algo" y compañía eligen Bares sin exigir el tag drinks', () => {
+    for (const query of ['tomar algo con amigos', 'unas cervezas', 'tomar unos tragos', 'salir a tomar algo']) {
+      const value = read(query)
+      expect(value.intent, query).toBe('bars')
+      expect(value.must.tags, query).toEqual([])
+      expect(detectIntent(value), query).toBe('bars')
+    }
+  })
+
+  it('café y postre', () => {
+    expect(detectIntent(read('tomar un café'))).toBe('cafes')
+    expect(detectIntent(read('comer un postre'))).toBe('desserts')
+    expect(detectIntent(read('postre'))).toBe('desserts')
+    expect(detectIntent(read('helado'))).toBe('desserts')
+    expect(detectIntent(read('merendar'))).toBe('cafes')
+  })
+
+  it('una frase más larga del catálogo gana al verbo y almorzar/cenar siguen prendiendo el sub-filtro', () => {
+    expect(read('comer de noche')).toMatchObject({ intent: null, must: { tags: ['dinner'] } })
+    expect(read('comer rápido')).toMatchObject({ intent: null, prefer: { tags: ['quick'] } })
+    expect(read('cenar con amigos')).toMatchObject({ must: { tags: ['dinner'] } })
+    expect(resolveIntent(read('cenar con amigos'), parseIntent(null, null), []).subs.map((sub) => sub.id)).toEqual(['dinner'])
+  })
+
+  it('verbo y categoría de otra intención empatan: ninguna', () => {
+    expect(detectIntent(read('comer en un bar'))).toBeNull()
+    expect(detectIntent(read('comer pizza'))).toBe('eat')
+  })
+
+  it('el modelo también puede traer la intención; una inválida se descarta', () => {
+    expect(validateInterpretation(llmOutput({ intent: 'eat' })).interpretation.intent).toBe('eat')
+    const invalid = validateInterpretation(llmOutput({ intent: 'dance' }))
+    expect(invalid.interpretation.intent).toBeNull()
+    expect(invalid.discarded).toContain('intent:dance')
+  })
+
+  it('quitar la intención del texto la apaga', () => {
+    const resolved = resolveIntent(read('comer con amigos'), parseIntent(null, null), parseRemove('intent:eat'))
+    expect(resolved.intent).toBeNull()
+  })
+})
+
+describe('Comer incluye bares con comida', () => {
+  const places = [
+    row({ id: 'bar-con-pizza', categories: ['bar'], tags: ['pizza', 'dj'] }),
+    row({ id: 'bar-de-tragos', categories: ['bar'], tags: ['classic_cocktails'] }),
+    row({ id: 'boliche', categories: ['bar', 'night_club'], tags: ['groups'] }),
+    row({ id: 'cafe-almuerzo', categories: ['cafe'], tags: ['lunch', 'desserts'] }),
+    row({ id: 'resto', categories: ['restaurant'] }),
+  ]
+
+  it('un bar con algún plato entra; uno sólo de tragos, un boliche y un café no', async () => {
+    const response = await runSearch('comer con amigos', { store: fakeStore(places).store, cache: fakeCache().cache }, { now })
+    expect(response.bar.intent).toEqual({ id: 'eat', fromText: true })
+    expect(response.results.map((result) => result.id).sort()).toEqual(['bar-con-pizza', 'resto'])
+  })
+
+  it('el SQL pide "categoría y tag" para el par', () => {
+    const query = new PgDialect().sqlToQuery(
+      candidatesQuery(
+        { categories: [], tags: [], diet: [], neighborhoods: [], price: [], openAt: null, excludeCategories: [], excludeTags: [], dishes: [], dishMode: 'dish', near: null, groups: intentGroups('eat', []) },
+        { embedding: null, keywords: [], name: null, origins: [], pinnedId: null },
+      ),
+    )
+    expect(query.sql).toContain('(categories && $1::text[] or (categories && $2::text[] and tags && $3::text[]))')
+    expect(query.params[1]).toEqual(['bar', 'brewery', 'wine_bar'])
+    expect(query.params[2]).toEqual(expect.arrayContaining(['pizza', 'picada', 'tapas', 'japanese']))
   })
 })

@@ -1,6 +1,7 @@
+import { CUISINES, FOODS, normalize } from '@shared/tags.ts'
 import { SEARCH_CONFIG } from './config'
 import type { CandidateRow } from './candidates'
-import type { DishTarget } from './dishes'
+import { singularForms, type DishTarget } from './dishes'
 import type { Price } from './interpretation'
 import { hoursConfirmed, openStatus, type Moment, type OpenState } from './hours'
 
@@ -26,6 +27,8 @@ export type FuseContext = {
   openAt: Moment | null
   /** La consulta pide lo mejor: rango de calidad más amplio. */
   wantsBest: boolean
+  /** La consulta pide bailar (boliche, dancing, dj o el sub-filtro Para bailar): los boliches no bajan. */
+  wantsDancing: boolean
 }
 
 export type Fused = {
@@ -56,12 +59,21 @@ function ranked(rows: CandidateRow[], value: (row: CandidateRow) => number | nul
     .slice(0, SEARCH_CONFIG.rankingDepth)
 }
 
-/** withQuality: búsqueda sin texto, donde el orden sale de la calidad (featured primero, después prominence). */
-export function buildRankings(rows: CandidateRow[], withQuality = false): Rankings {
+const nameWords = (name: string) => new Set(normalize(name).split(/[^a-z0-9]+/).filter(Boolean).flatMap(singularForms))
+
+/**
+ * withQuality: búsqueda sin texto, donde el orden sale de la calidad (featured primero, después prominence).
+ * wholeWords: con la consulta resuelta por el diccionario, sus palabras son términos y el ranking de nombre sólo cuenta
+ * los nombres que tienen alguna entera ("pizza" → "Fundamento Pizza"; "comer" no → "Misión Comedor"). Un nombre casi
+ * idéntico igual se fija por strongNameMatch.
+ */
+export function buildRankings(rows: CandidateRow[], { withQuality = false, wholeWords = null }: { withQuality?: boolean; wholeWords?: string[] | null } = {}): Rankings {
+  const wanted = wholeWords && new Set(wholeWords.flatMap(singularForms))
+  const nameOk = (row: CandidateRow) => !wanted || [...nameWords(row.name)].some((word) => wanted.has(word))
   return {
     semantic: ranked(rows, (row) => row.semantic, 'desc'),
     keyword: ranked(rows, (row) => (row.keyword > 0 ? row.keyword : null), 'desc'),
-    name: ranked(rows, (row) => (row.nameScore >= SEARCH_CONFIG.name.minForRanking ? row.nameScore : null), 'desc'),
+    name: ranked(rows, (row) => (row.nameScore >= SEARCH_CONFIG.name.minForRanking && nameOk(row) ? row.nameScore : null), 'desc'),
     distance: ranked(rows, (row) => row.distance, 'asc'),
     quality: withQuality ? ranked(rows, (row) => (row.featured ? 1 : 0) + (Number(row.prominence) || 0), 'desc') : [],
   }
@@ -92,6 +104,16 @@ export function matchLevelOf(row: CandidateRow, dishes: DishTarget[]): MatchLeve
 
 const count = (values: string[], wanted: string[]) => values.filter((value) => wanted.includes(value)).length
 
+const FOOD_TAGS = new Set<string>([...Object.keys(FOODS), ...Object.keys(CUISINES)])
+const FOOD_CATEGORIES = new Set(['restaurant', 'grill', 'pizzeria', 'chiviteria', 'bodegon'])
+
+/** Boliche, "para bailar", o un dj sin nada de comida: lo que se busca es bailar, no comer ni tomar algo. */
+export function isDanceOnly(row: Pick<CandidateRow, 'categories' | 'tags'>): boolean {
+  if (row.categories.includes('night_club') || row.tags.includes('dancing')) return true
+  const food = row.tags.some((id) => FOOD_TAGS.has(id)) || row.categories.some((id) => FOOD_CATEGORIES.has(id))
+  return row.tags.includes('dj') && !food
+}
+
 export function boostsFor(row: CandidateRow, context: FuseContext, open: OpenState | null): Fused['boosts'] {
   const { boosts } = SEARCH_CONFIG
   const result: Fused['boosts'] = {}
@@ -104,7 +126,11 @@ export function boostsFor(row: CandidateRow, context: FuseContext, open: OpenSta
   // price = 'unknown' pasa el filtro pero no suma: lo confirmado va primero.
   if (context.price.length > 0 && (context.price as string[]).includes(row.price)) result.priceMatch = boosts.priceMatch
   if (row.dishExact.some(Boolean)) result.exactDish = boosts.exactDish
+  const knownFor = context.dishes.some((target) =>
+    (row.iconCategory !== null && target.icons.includes(row.iconCategory)) || (target.category !== null && row.categories.includes(target.category)))
+  if (knownFor) result.knownFor = boosts.knownFor
   if (open?.state === 'open' && hoursConfirmed(row.hours)) result.confirmedOpen = boosts.confirmedOpen
+  if (!context.wantsDancing && isDanceOnly(row)) result.danceOnly = boosts.danceOnly
   return result
 }
 

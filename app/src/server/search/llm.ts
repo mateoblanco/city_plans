@@ -1,6 +1,7 @@
 import { generateText, Output } from 'ai'
 import { ALL_GROUPS, type TagGroup } from '@shared/tags.ts'
 import { NEIGHBORHOOD_NAMES } from '@shared/neighborhood-names.ts'
+import { INTENTS, type IntentDef } from '@shared/intents.ts'
 import { SEARCH_CONFIG } from './config'
 import { gatewayCost } from './cost'
 import { LlmInterpretationSchema, type LlmInterpretation } from './interpretation'
@@ -16,6 +17,13 @@ function catalog() {
       return `## ${group}\n${lines.join('\n')}`
     })
     .join('\n\n')
+}
+
+/** Verbos de cada intención, para el campo intent. */
+function intentVerbs() {
+  return (Object.entries(INTENTS) as [string, IntentDef][])
+    .map(([id, intent]) => `"${[...intent.verbs.es, ...intent.verbs.en].join('", "')}" → ${id}`)
+    .join('; ')
 }
 
 export const SYSTEM_PROMPT = `Interpretás búsquedas de bares, cafés y restaurantes de Montevideo, Uruguay. La consulta puede estar en español rioplatense o en inglés, y puede ser coloquial.
@@ -41,11 +49,12 @@ Campos:
 - vibe: frase corta en español que describa el ambiente o la ocasión para una búsqueda semántica ("lugar tranquilo para trabajar"); null si la consulta es sólo requisitos concretos.
 - language: "es" o "en", el idioma de la consulta.
 - unrecognized: partes que no pudiste mapear a nada ("cerca mío", "near me", "para 15 personas").
+- intent: qué quiere hacer la persona cuando lo dice con un verbo y no con un tag: ${intentVerbs()}. "almorzar", "cenar" y "merendar" ya son tags (lunch, dinner, afternoon_snack) y no necesitan intent, pero no está mal ponerlo. null si la consulta no dice qué quiere hacer.
 - wantsBest: true si se pide lo mejor o lo más destacado ("el mejor chivito", "los mejores cafés", "best coffee", "top bares"); si no, false.
 
 Reglas:
 - "mejor", "best", "top" sólo marcan wantsBest: no van en must, prefer, unrecognized ni vibe. "rico" y "bueno" no son requisitos: ignoralos.
-- Las bebidas coloquiales van como tags: "birra" → draft_beer, "vino" → wine.
+- Las bebidas coloquiales van como tags: "birra" → draft_beer, "vino" → wine. Pero "tomar algo", "unas cervezas" o "unos tragos" sólo dicen la intención (intent bars), no piden un tag.
 - No inventes ids: si algo no está en el catálogo, va a unrecognized.
 - Las listas vacías van como [].
 

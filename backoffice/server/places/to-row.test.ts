@@ -38,6 +38,7 @@ describe('toRow', () => {
       highlights: [{ es: 'Pulpo a la gallega', en: 'Galician octopus' }],
       transitLines: [{ line: '121', stopId: '42', meters: 150 }],
       igFollowers: 999,
+      chainBranch: false,
       prominence: expect.closeTo(computeProminence(draft().signals)),
       logoKey: 'logos/place-1-0a1b2c3d.webp',
       logoKind: 'logo',

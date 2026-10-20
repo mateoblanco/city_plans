@@ -4,6 +4,7 @@ import type { InstagramProfileData } from '../providers/apify-instagram-provider
 import { brandSearchTerm } from '../providers/brand-name.ts'
 import { isChainBranch, isForeignSource, type Source } from '../providers/place-extraction-service.ts'
 import { withServiceLimit } from '../providers/service-limits.ts'
+import type { ExtractionSnapshot } from '../providers/extraction-snapshots.ts'
 import { canonical } from '../providers/source-hosts.ts'
 import { computeProminence, type ProminenceSignals } from './prominence.ts'
 
@@ -11,6 +12,7 @@ const REFRESH_CONCURRENCY = 4
 
 /** Lo que signals:refresh lee de cada lugar guardado. */
 export type SignalsRow = ProminenceSignals & {
+  chainBranch: boolean
   id: string
   googlePlaceId: string | null
   name: string
@@ -18,7 +20,7 @@ export type SignalsRow = ProminenceSignals & {
   prominence: number
 }
 
-export type SignalsUpdate = ProminenceSignals & { prominence: number }
+export type SignalsUpdate = { igFollowers: number | null; chainBranch: boolean; prominence: number }
 
 export type RefreshDeps = {
   /** Exa con la marca y el tipo de lugar, la misma búsqueda que hace el pipeline. Sirve para detectar cadenas. */
@@ -51,25 +53,33 @@ export function instagramProfileUrl(handle: string) {
 }
 
 function sameSignals(left: SignalsUpdate, right: SignalsUpdate) {
-  return left.igFollowers === right.igFollowers && Math.abs(left.prominence - right.prominence) < 1e-6
+  return left.igFollowers === right.igFollowers && left.chainBranch === right.chainBranch && Math.abs(left.prominence - right.prominence) < 1e-6
+}
+
+const update = (igFollowers: number | null, chainBranch: boolean): SignalsUpdate =>
+  ({ igFollowers, chainBranch, prominence: computeProminence({ igFollowers, chainBranch }) })
+
+const brandCountsOf = (rows: { name: string }[]) => {
+  const counts = new Map<string, number>()
+  for (const row of rows) counts.set(brandKey(row.name), (counts.get(brandKey(row.name)) ?? 0) + 1)
+  return counts
 }
 
 /**
  * Vuelve a leer los seguidores de Instagram de lugares guardados y recalcula prominence, sin LLM.
  * Exa (con la marca y el tipo de lugar de Google) sólo sirve para saber si es una sucursal de cadena:
- * ahí los seguidores son de la marca y quedan en null. No toca ninguna otra columna. Una falla de un
+ * ahí los seguidores son de la marca y computeProminence los descuenta. No toca ninguna otra columna. Una falla de un
  * lugar no corta el resto; si falla sólo Instagram, los seguidores quedan como estaban.
  * Sin el nombre de Google, es cadena si las fuentes muestran varias sucursales o si hay más de un
  * lugar guardado con la misma marca.
  */
 export async function refreshSignals(rows: SignalsRow[], deps: RefreshDeps, options: { onlyIds?: ReadonlySet<string> } = {}): Promise<RefreshResult[]> {
   // Las marcas repetidas se cuentan sobre todos los lugares, aunque se procesen sólo algunos.
-  const brandCounts = new Map<string, number>()
-  for (const row of rows) brandCounts.set(brandKey(row.name), (brandCounts.get(brandKey(row.name)) ?? 0) + 1)
+  const brandCounts = brandCountsOf(rows)
   const selected = options.onlyIds ? rows.filter((row) => options.onlyIds!.has(row.id)) : rows
 
   return pMap(selected, async (row): Promise<RefreshResult> => {
-    const before: SignalsUpdate = { igFollowers: row.igFollowers, prominence: row.prominence }
+    const before: SignalsUpdate = { igFollowers: row.igFollowers, chainBranch: row.chainBranch, prominence: row.prominence }
     const base = { id: row.id, name: row.name, before }
     const warnings: string[] = []
     let placeType: string | null = null
@@ -93,7 +103,7 @@ export async function refreshSignals(rows: SignalsRow[], deps: RefreshDeps, opti
     const chain = (brandCounts.get(brandKey(row.name)) ?? 0) > 1 || isChainBranch({ name: row.name }, sources)
 
     let igFollowers: number | null = null
-    if (!chain && row.instagram) {
+    if (row.instagram) {
       try {
         const profile = await withServiceLimit('apify', () => deps.scrapeInstagram(instagramProfileUrl(row.instagram!)))
         if (typeof profile?.followers === 'number') igFollowers = profile.followers
@@ -107,7 +117,7 @@ export async function refreshSignals(rows: SignalsRow[], deps: RefreshDeps, opti
       }
     }
 
-    const after: SignalsUpdate = { igFollowers, prominence: computeProminence({ igFollowers }) }
+    const after = update(igFollowers, chain)
     const result = { ...base, after, chain, warnings }
     if (sameSignals(before, after)) return { ...result, status: 'unchanged' }
     if (deps.write) {
@@ -119,4 +129,51 @@ export async function refreshSignals(rows: SignalsRow[], deps: RefreshDeps, opti
     }
     return { ...result, status: 'changed' }
   }, { concurrency: REFRESH_CONCURRENCY })
+}
+
+export type SnapshotSignalsResult = {
+  id: string
+  name: string
+  status: 'changed' | 'unchanged' | 'skipped'
+  before: SignalsUpdate
+  after: SignalsUpdate | null
+  /** Por qué no se calculó (sin snapshot, el snapshot es de otro Instagram…). */
+  reason?: string
+}
+
+/**
+ * Completa los seguidores que faltan (lugares con instagram y sin igFollowers) con los que ya midió el pipeline y
+ * quedaron en cache/extractions, sin Apify ni Exa. Es cadena sólo con evidencia: las fuentes del snapshot muestran
+ * sucursales o hay más de un lugar guardado con la misma marca, igual que refreshSignals. Sin write, no escribe (dry-run).
+ */
+export async function signalsFromSnapshots(
+  rows: SignalsRow[],
+  snapshots: Pick<ExtractionSnapshot, 'googlePlaceId' | 'sources' | 'prominenceSignals' | 'instagramAudit'>[],
+  deps: { write?(id: string, values: SignalsUpdate): Promise<void> } = {},
+  options: { onlyIds?: ReadonlySet<string> } = {},
+): Promise<SnapshotSignalsResult[]> {
+  const brandCounts = brandCountsOf(rows)
+  const byPlaceId = new Map(snapshots.map((snapshot) => [snapshot.googlePlaceId, snapshot]))
+  const selected = rows.filter((row) => row.instagram && row.igFollowers === null && (!options.onlyIds || options.onlyIds.has(row.id)))
+  const results: SnapshotSignalsResult[] = []
+  for (const row of selected) {
+    const before: SignalsUpdate = { igFollowers: row.igFollowers, chainBranch: row.chainBranch, prominence: row.prominence }
+    const base = { id: row.id, name: row.name, before, after: null }
+    const snapshot = row.googlePlaceId ? byPlaceId.get(row.googlePlaceId) : undefined
+    const followers = snapshot?.prominenceSignals?.instagramFollowers ?? null
+    const saved = snapshot?.instagramAudit?.saved
+    if (!snapshot) results.push({ ...base, status: 'skipped', reason: 'sin snapshot' })
+    else if (saved && saved.toLowerCase() !== row.instagram!.replace(/^@/, '').toLowerCase()) results.push({ ...base, status: 'skipped', reason: `el snapshot es de @${saved}` })
+    else if (followers === null) results.push({ ...base, status: 'skipped', reason: 'el snapshot no tiene seguidores' })
+    else {
+      const chain = (brandCounts.get(brandKey(row.name)) ?? 0) > 1 || isChainBranch({ name: row.name }, snapshot.sources)
+      const after = update(followers, chain)
+      if (sameSignals(before, after)) results.push({ ...base, after, status: 'unchanged' })
+      else {
+        await deps.write?.(row.id, after)
+        results.push({ ...base, after, status: 'changed' })
+      }
+    }
+  }
+  return results
 }

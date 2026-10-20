@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { applyStyleChanges, planStyleChange, type StyleRow } from './style-backfill.ts'
+import { applySearchTextChanges, planMomentsChange, planStyleChange, type SearchTextRow } from './search-text-backfill.ts'
 
-const row = (overrides: Partial<StyleRow> = {}): StyleRow => ({
+const row = (overrides: Partial<SearchTextRow> = {}): SearchTextRow => ({
   id: 'uuid-1',
   googlePlaceId: 'place-1',
   name: 'Brujona',
@@ -50,13 +50,13 @@ describe('planStyleChange', () => {
   })
 })
 
-describe('applyStyleChanges', () => {
+describe('applySearchTextChanges', () => {
   it('escribe sólo style, los textos y el embedding; saltea los overrides de style', async () => {
     const write = vi.fn(async () => {})
     const embed = vi.fn(async (texts: string[]) => texts.map(() => [0.1, 0.2]))
     const changes = [planStyleChange(row(), byIcon)!, planStyleChange(row({ id: 'uuid-2', manualOverrides: ['style'] }), byIcon)!]
     const now = new Date('2026-10-20T12:00:00.000Z')
-    expect(await applyStyleChanges(changes, { write, embed, now: () => now })).toEqual({ written: 1, embedError: null })
+    expect(await applySearchTextChanges(changes, { write, embed, now: () => now })).toEqual({ written: 1, embedError: null })
     expect(embed).toHaveBeenCalledWith([changes[0].embeddingText])
     expect(write).toHaveBeenCalledTimes(1)
     expect(write).toHaveBeenCalledWith('uuid-1', {
@@ -72,9 +72,38 @@ describe('applyStyleChanges', () => {
 
   it('si el embedding falla, escribe igual el style y los textos', async () => {
     const write = vi.fn(async () => {})
-    const result = await applyStyleChanges([planStyleChange(row(), byIcon)!], { write, embed: async () => { throw new Error('gateway') } })
+    const result = await applySearchTextChanges([planStyleChange(row(), byIcon)!], { write, embed: async () => { throw new Error('gateway') } })
     expect(result).toEqual({ written: 1, embedError: 'No se pudieron generar los embeddings: gateway' })
     expect(write).toHaveBeenCalledWith('uuid-1', expect.not.objectContaining({ embedding: expect.anything() }))
     expect(write).toHaveBeenCalledWith('uuid-1', expect.objectContaining({ style: 'casual' }))
+  })
+})
+
+describe('planMomentsChange', () => {
+  const matute = row({ name: 'Matute', categories: ['brewery', 'bar'], tags: ['picada', 'craft_beer', 'date'] })
+
+  it('reemplaza sólo los momentos y regenera los textos', () => {
+    const change = planMomentsChange(matute, { tags: ['picada', 'craft_beer', 'date', 'groups'] })!
+    expect(change).toMatchObject({ before: ['date'], after: ['date', 'groups'], added: ['groups'], removed: [], skipped: false })
+    expect(change.values).toEqual({ tags: ['picada', 'craft_beer', 'date', 'groups'] })
+    expect(change.embeddingText).toContain('Grupos')
+    expect(change.keywordText).toContain('con amigos')
+  })
+
+  it('informa los que el replay saca; sin cambios de momentos, null aunque cambien otros tags', () => {
+    expect(planMomentsChange(matute, { tags: ['picada'] })).toMatchObject({ added: [], removed: ['date'], values: { tags: ['picada', 'craft_beer'] } })
+    expect(planMomentsChange(matute, { tags: ['pizza', 'date'] })).toBeNull()
+  })
+
+  it('respeta el override manual de tags', () => {
+    expect(planMomentsChange(row({ tags: ['picada'], manualOverrides: ['tags'] }), { tags: ['picada', 'groups'] }))
+      .toMatchObject({ skipped: true, keywordText: null, embeddingText: null })
+  })
+
+  it('al aplicar escribe los tags, no el style', async () => {
+    const write = vi.fn(async () => {})
+    await applySearchTextChanges([planMomentsChange(matute, { tags: ['picada', 'groups'] })!], { write, embed: async (texts) => texts.map(() => [1]) })
+    expect(write).toHaveBeenCalledWith('uuid-1', expect.objectContaining({ tags: ['picada', 'craft_beer', 'groups'], embedding: [1] }))
+    expect(write).toHaveBeenCalledWith('uuid-1', expect.not.objectContaining({ style: expect.anything() }))
   })
 })

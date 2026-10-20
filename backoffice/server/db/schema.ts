@@ -128,8 +128,10 @@ export const places = pgTable(
     transitLines: jsonb("transit_lines").$type<TransitLine[]>().notNull().default([]),
 
     // Prominencia: seguidores del pipeline (o de signals:refresh) y el puntaje que sale de ellos.
-    // Seguidores del Instagram validado; null sin Instagram o en una sucursal de cadena.
+    // Seguidores del Instagram validado (en una sucursal de cadena, los de la marca); null sin Instagram.
     igFollowers: integer("ig_followers"),
+    // Sucursal de cadena: computeProminence descuenta los seguidores de la marca.
+    chainBranch: boolean("chain_branch").notNull().default(false),
     // 0 a 1, de computeProminence (server/places/prominence.ts).
     prominence: real("prominence").notNull().default(0),
     // Curaduría manual desde el backoffice: el pipeline nunca lo escribe.

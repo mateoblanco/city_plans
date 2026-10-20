@@ -9,7 +9,7 @@ async function main() {
   if (!process.env.DATABASE_URL) throw new Error('Falta configurar DATABASE_URL en .env.local.')
   const { db } = await import('../db/index.ts')
   const rows = await db
-    .select({ id: places.id, igFollowers: places.igFollowers, prominence: places.prominence })
+    .select({ id: places.id, igFollowers: places.igFollowers, chainBranch: places.chainBranch, prominence: places.prominence })
     .from(places)
   let changed = 0
   for (const row of rows) {

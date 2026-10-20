@@ -33,7 +33,14 @@ const topHaveCategory = (count: number, category: string): Check => ({
   ],
 });
 
+const noDanceInTop = (count: number): Check => ({
+  description: `ningún boliche ni lugar para bailar en los primeros ${count}`,
+  test: (places) => places.slice(0, count).filter((place) => place.categories.includes("night_club") || place.tags.includes("dancing")).map(name),
+});
+
 export const CHECKS: Record<string, Check[]> = {
+  "comer con amigos": [nonEmpty, allInIntent("eat"), noDanceInTop(5), every("ninguna cafetería", (place) => !place.categories.includes("cafe"))],
+  "tomar algo con amigos": [nonEmpty, allInIntent("bars"), noDanceInTop(5)],
   "bar con amigos": [nonEmpty, allInIntent("bars")],
   pizza: [topHaveCategory(3, "pizzeria")],
   vegano: [nonEmpty, every("todos con opciones veganas", veganOk)],

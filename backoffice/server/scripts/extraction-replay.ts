@@ -6,7 +6,10 @@
 // sin escribir; --apply-style además escribe style, keyword_text, embedding_text y el embedding de esos lugares (nada
 // más, sin tocar updatedAt). Los dos leen la base y no piden Place Details: el style no depende del nombre ni de la
 // dirección, que salen de la salida guardada del modelo.
-// Uso: yarn extraction:replay [--only <googlePlaceId>,…] [--json <archivo>] [--apply-review] [--style | --apply-style]
+// --moments lista los lugares guardados donde cambiarían los momentos (groups, date…: +agregados −sacados y el costo del
+// embedding), sin escribir; --apply-moments escribe en esos lugares sólo los tags de momento (los demás tags quedan),
+// keyword_text, embedding_text y el embedding, igual que --apply-style y sin Place Details.
+// Uso: yarn extraction:replay [--only <googlePlaceId>,…] [--json <archivo>] [--apply-review] [--style | --apply-style] [--moments | --apply-moments]
 import './env.ts'
 import { writeFileSync } from 'node:fs'
 import { eq, inArray } from 'drizzle-orm'
@@ -19,7 +22,9 @@ import { GooglePlacesProvider } from '../providers/google-places-provider.ts'
 import { reviewExtraction } from '../providers/place-extraction-service.ts'
 import { instagramOperating, reviewReasonsFor } from '../providers/review-reasons.ts'
 import { gatewayEmbedder } from '../places/save.ts'
-import { applyStyleChanges, planStyleChange, type StyleChange, type StyleRow } from '../places/style-backfill.ts'
+import {
+  applySearchTextChanges, planMomentsChange, planStyleChange, type MomentsChange, type SearchTextRow, type StyleChange,
+} from '../places/search-text-backfill.ts'
 
 const arg = (name: string) => {
   const index = process.argv.indexOf(name)
@@ -30,9 +35,12 @@ const jsonPath = arg('--json')
 const applyReview = process.argv.includes('--apply-review')
 const applyStyle = process.argv.includes('--apply-style')
 const styleMode = applyStyle || process.argv.includes('--style')
+const applyMoments = process.argv.includes('--apply-moments')
+const momentsMode = applyMoments || process.argv.includes('--moments')
+if (styleMode && momentsMode) throw new Error('--style y --moments van por separado.')
 if (applyReview && !process.env.DATABASE_URL) throw new Error('Falta configurar DATABASE_URL en .env.local: --apply-review escribe status y review_reasons.')
-if (styleMode && !process.env.DATABASE_URL) throw new Error('Falta configurar DATABASE_URL en .env.local: --style compara con el style guardado.')
-const db = applyReview || styleMode ? (await import('../db/index.ts')).db : null
+if ((styleMode || momentsMode) && !process.env.DATABASE_URL) throw new Error('Falta configurar DATABASE_URL en .env.local: --style y --moments comparan con lo guardado.')
+const db = applyReview || styleMode || momentsMode ? (await import('../db/index.ts')).db : null
 
 /** Escribe sólo status y review_reasons de un lugar guardado; devuelve qué pasó para el log. */
 async function applyReviewStatus(googlePlaceId: string, reasons: ReviewReason[]): Promise<string> {
@@ -54,8 +62,8 @@ if (snapshots.length === 0) {
   process.exit(0)
 }
 
-if (styleMode) {
-  const rows: StyleRow[] = await db!.select({
+if (styleMode || momentsMode) {
+  const rows: SearchTextRow[] = await db!.select({
     id: placesTable.id, googlePlaceId: placesTable.googlePlaceId, name: placesTable.name, neighborhoodId: placesTable.neighborhoodId,
     descriptionEs: placesTable.descriptionEs, descriptionEn: placesTable.descriptionEn, locatedIn: placesTable.locatedIn,
     categories: placesTable.categories, tags: placesTable.tags, dietVegan: placesTable.dietVegan, dietVegetarian: placesTable.dietVegetarian,
@@ -63,7 +71,7 @@ if (styleMode) {
     style: placesTable.style, manualOverrides: placesTable.manualOverrides,
   }).from(placesTable).where(inArray(placesTable.googlePlaceId, snapshots.map((snapshot) => snapshot.googlePlaceId)))
   const byPlaceId = new Map(rows.map((row) => [row.googlePlaceId, row]))
-  const changes: StyleChange[] = []
+  const changes: (StyleChange | MomentsChange)[] = []
   let unchanged = 0
   for (const snapshot of snapshots) {
     const row = byPlaceId.get(snapshot.googlePlaceId)
@@ -72,25 +80,28 @@ if (styleMode) {
     const llm = snapshot.llmOutput as { name?: string; address?: string }
     const details = { getDetails: async () => ({ anchor: { name: llm.name || row.name, address: llm.address || '', latitude: 0, longitude: 0 } }) }
     const replayed = await replaySnapshot({ ...snapshot, request: { ...snapshot.request, neighborhoodId: row.neighborhoodId } }, details as never)
-    const change = planStyleChange(row, replayed)
+    const change = styleMode ? planStyleChange(row, replayed) : planMomentsChange(row, replayed)
     if (change) changes.push(change)
     else unchanged += 1
   }
   const BASIS = { signals: 'señales', price: 'precio', icon: 'ícono' } as const
+  const describe = (change: StyleChange | MomentsChange) => 'basis' in change
+    ? `${change.before ?? '—'} → ${change.after} · ${change.basis ? BASIS[change.basis] : '?'}`
+    : `${change.before.join(', ') || '—'} → ${change.after.join(', ') || '—'} · ${[...change.added.map((id) => `+${id}`), ...change.removed.map((id) => `−${id}`)].join(' ')}`
   for (const change of changes) {
-    console.log(`${change.name} · ${change.before ?? '—'} → ${change.after} · ${change.basis ? BASIS[change.basis] : '?'}` +
+    console.log(`${change.name} · ${describe(change)}` +
       (change.skipped ? ' · override manual: no se escribe' : ` · embedding US$ ${change.estimatedEmbeddingUsd.toFixed(6)}`))
   }
   const total = changes.reduce((sum, change) => sum + change.estimatedEmbeddingUsd, 0)
   console.log(`\n${changes.length} cambian, ${unchanged} quedan igual, ${snapshots.length - rows.length} snapshots sin lugar en la base. Embeddings: US$ ${total.toFixed(6)} aprox.`)
-  if (applyStyle) {
-    const result = await applyStyleChanges(changes, {
+  if (applyStyle || applyMoments) {
+    const result = await applySearchTextChanges(changes, {
       embed: gatewayEmbedder,
       write: async (id, values) => { await db!.update(placesTable).set({ ...values, updatedAt: placesTable.updatedAt }).where(eq(placesTable.id, id)) },
     })
     console.log(`Escritos: ${result.written}.${result.embedError ? ` ${result.embedError}` : ''}`)
   } else {
-    console.log('Sin escribir: --apply-style escribe estos cambios.')
+    console.log(`Sin escribir: ${styleMode ? '--apply-style' : '--apply-moments'} escribe estos cambios.`)
   }
   process.exit(0)
 }

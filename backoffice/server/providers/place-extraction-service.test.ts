@@ -1127,6 +1127,31 @@ describe('PlaceExtractionService', () => {
     expect(withPage.tags).toContain('menu_of_the_day')
   })
 
+  it('una picada hace al lugar para grupos aunque la fuente no diga "para compartir", incluso si el modelo propuso groups y se descartó', () => {
+    const page: Source = { id: 'S1', kind: 'web', trust: 'official', url: 'https://matute.example/', text: 'Cervecería. Picadas, pizzas y cerveza tirada.' }
+    const place = postProcess(target, {
+      ...emptyExtraction,
+      facts: [
+        { id: 'F1', text: 'Tiene picadas', sourceId: 'S1', kind: 'food', proposedTag: null },
+        { id: 'F2', text: 'Sirve pizzas', sourceId: 'S1', kind: 'food', proposedTag: null },
+      ],
+      tags: [
+        { group: 'foods', id: 'picada', facts: ['F1'] },
+        { group: 'foods', id: 'pizza', facts: ['F2'] },
+        { group: 'goodFor', id: 'groups', facts: ['F2'] },
+      ],
+    }, { sources: [page] })
+    expect(place.tags).toEqual(expect.arrayContaining(['picada', 'groups']))
+    expect(place.tagEvidence).toContainEqual({ tag: 'groups', mode: 'inferred', signals: ['picada (tag)'], factIds: ['F1'] })
+
+    const withoutPicada = postProcess(target, {
+      ...emptyExtraction,
+      facts: [{ id: 'F2', text: 'Sirve pizzas', sourceId: 'S1', kind: 'food', proposedTag: null }],
+      tags: [{ group: 'foods', id: 'pizza', facts: ['F2'] }],
+    }, { sources: [page] })
+    expect(withoutPicada.tags).not.toContain('groups')
+  })
+
   it('un tag respaldado sólo por el resumen de Exa se queda si una fuente real lo nombra', () => {
     const summary: Source = { id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://exa.ai/', text: 'RESUMEN ESTRUCTURADO DE EXA\nTiene delivery a través de Rappi. Tiene wifi.' }
     const rappi: Source = { id: 'S2', kind: 'exa', trust: 'third_party', url: 'https://www.rappi.com.uy/restaurantes/113414-pancho-va', text: 'Pancho Va! Precios y Menú para Delivery - Rappi\nPancho de soja $250' }
@@ -2043,24 +2068,24 @@ describe('señales de prominencia', () => {
 
     expect(result.status).toBe('ok')
     if (result.status !== 'ok') return
-    expect(result.place.signals).toEqual({ igFollowers: 12_000 })
+    expect(result.place.signals).toEqual({ igFollowers: 12_000, chainBranch: false })
     expect(searchPlace).toHaveBeenCalledOnce()
     expect(scrapeMany).toHaveBeenCalledOnce()
   })
 
-  it('en una sucursal de cadena no guarda los seguidores de la marca', () => {
+  it('en una sucursal de cadena guarda los seguidores de la marca y la marca como cadena', () => {
     const source: Source = { id: 'S1', kind: 'web', trust: 'official', url: 'https://marca.example/', text: 'La Nueva Roma. Helados artesanales.' }
     const prominenceSignals = { instagramFollowers: 40_000 }
 
     const branch = postProcess({ ...target, name: 'La Nueva Roma Cordón' }, emptyExtraction, { sources: [source], prominenceSignals })
     const single = postProcess({ ...target, name: 'La Nueva Roma' }, emptyExtraction, { sources: [source], prominenceSignals })
 
-    expect(branch.signals).toEqual({ igFollowers: null })
-    expect(single.signals.igFollowers).toBe(40_000)
+    expect(branch.signals).toEqual({ igFollowers: 40_000, chainBranch: true })
+    expect(single.signals).toEqual({ igFollowers: 40_000, chainBranch: false })
   })
 
   it('sin señales del pipeline no hay seguidores', () => {
-    expect(postProcess(target, emptyExtraction, { sources: [] }).signals).toEqual({ igFollowers: null })
+    expect(postProcess(target, emptyExtraction, { sources: [] }).signals).toEqual({ igFollowers: null, chainBranch: false })
   })
 })
 

@@ -69,7 +69,8 @@ export const PlaceDraft = z.object({
   // Señales de prominencia; el default acepta resultados de antes de que existieran.
   signals: z.object({
     igFollowers: z.number().int().nonnegative().nullable(),
-  }).default({ igFollowers: null }),
+    chainBranch: z.boolean().default(false),
+  }).default({ igFollowers: null, chainBranch: false }),
   // Logo en R2 (sólo la clave); el default acepta resultados de antes de que existiera.
   logo: z.object({
     key: z.string().regex(/^logos\/[A-Za-z0-9_-]+-[0-9a-f]{8}\.webp$/),

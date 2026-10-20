@@ -24,7 +24,7 @@ export function draft(overrides: Partial<PlaceEnrichmentDraft> = {}): PlaceEnric
     signature: ['seafood'],
     description: { es: 'Parrilla clásica.', en: 'Classic grill.' },
     locatedIn: 'Mercado del Puerto',
-    signals: { igFollowers: 999 },
+    signals: { igFollowers: 999, chainBranch: false },
     logo: { key: 'logos/place-1-0a1b2c3d.webp', kind: 'logo', bgColor: '#ffffff', color: '#c0392b', source: 'instagram', fetchedAt: '2026-10-12T20:00:00.000Z' },
     placeFacts: [{ id: 'F1', text: 'Está en el Mercado del Puerto', kind: 'other', sourceId: 'S1', sourceUrl: 'https://guia.example/', trust: 'third_party', supports: ['locatedIn'] }],
     embeddingText: 'El Palenque. Ciudad Vieja, Montevideo. Dentro de Mercado del Puerto',

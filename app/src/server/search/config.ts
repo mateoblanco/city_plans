@@ -45,7 +45,17 @@ export const SEARCH_CONFIG = {
     /** La consulta pide precio y el del lugar está confirmado y coincide: queda arriba de los de precio desconocido. */
     priceMatch: 0.008,
     exactDish: 0.02,
+    /**
+     * Pide un plato y el lugar es conocido por él: su ícono es el del plato (pizza → pizza) o su categoría es la del
+     * plato (pizzería). Pesa más que exactDish: una pizzería le gana a un bar que tiene pizza en la carta.
+     */
+    knownFor: 0.03,
     confirmedOpen: 0.01,
+    /**
+     * Principalmente para bailar (boliche, tag dancing, o dj sin comida) y la consulta no pide bailar: baja un poco
+     * menos que un primer puesto en un ranking. No se excluye.
+     */
+    danceOnly: -0.015,
   },
 
   /**

@@ -50,6 +50,7 @@ export function toRow(place: PlaceEnrichmentDraft & { neighborhoodId: string }):
     highlights: place.highlights,
     transitLines: place.transit.lines,
     igFollowers: signals.igFollowers,
+    chainBranch: signals.chainBranch,
     prominence: computeProminence(signals),
     logoKey: logo?.key ?? null,
     logoKind: logo?.kind ?? null,

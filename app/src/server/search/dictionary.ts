@@ -1,5 +1,6 @@
 import { findDef, isStyleId, normalize, type StyleId } from '@shared/tags.ts'
 import { resolveNeighborhood } from '@shared/neighborhood-aliases.ts'
+import { INTENT_VERBS, type IntentId } from '@shared/intents.ts'
 import { canonicalOf, singularForms } from './dishes'
 import { BEST_WORDS, emptyInterpretation, tidy, type Interpretation, type Price } from './interpretation'
 
@@ -29,6 +30,10 @@ const DATE_STYLES = new Map<string, { style: StyleId; also?: string; language?: 
   ['cena romantica', { style: 'cuidado', also: 'cena' }],
   ['anniversary', { style: 'cuidado', language: 'en' }],
 ])
+
+// Verbos que piden una intención sin nombrar un tag ("comer", "tomar algo"). Se miran antes que el catálogo, así
+// "tomar algo" es sólo Bares y no exige el tag drinks; una frase más larga del catálogo ("comer de noche") gana igual.
+const VERBS = new Map<string, [IntentId, 'es' | 'en']>(INTENT_VERBS.map(([phrase, id, lang]) => [normalize(phrase), [id, lang]]))
 
 const DAYS = new Map<string, [number, 'es' | 'en']>([
   ['domingo', [0, 'es']], ['lunes', [1, 'es']], ['martes', [2, 'es']], ['miercoles', [3, 'es']], ['jueves', [4, 'es']], ['viernes', [5, 'es']], ['sabado', [6, 'es']],
@@ -91,6 +96,7 @@ export function interpretWithDictionary(normalized: string, { partial = false }:
       const day = DAYS.get(phrase)
       const price = PRICE_WORDS.get(phrase)
       const dateStyle = DATE_STYLES.get(phrase)
+      const verb = VERBS.get(phrase)
       if (neighborhood) {
         target.must.neighborhoods.push(neighborhood)
       } else if (openNow) {
@@ -111,6 +117,9 @@ export function interpretWithDictionary(normalized: string, { partial = false }:
         target.prefer.style ??= dateStyle.style
         if (dateStyle.also) applyTerm(target, dateStyle.also)
         votes[dateStyle.language ?? 'es']++
+      } else if (verb) {
+        target.intent ??= verb[0]
+        votes[verb[1]]++
       } else {
         const language = applyTerm(target, phrase)
         if (language === undefined) continue

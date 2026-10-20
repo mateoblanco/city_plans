@@ -419,9 +419,12 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   step = performance.now()
   const openAtMoment = resolveOpenAt(current.must.openAt, now)
   const relatedTags = state.dishMode === 'related' ? dishes.flatMap((target) => target.related.tags) : dishes.flatMap((target) => (target.tag ? [target.tag] : []))
-  const rankings = buildRankings(rows, textless)
+  const rankings = buildRankings(rows, { withQuality: textless, wholeWords: source === 'shortcut' ? keywords : null })
   const requestedCategories = [...current.must.categories, ...current.prefer.categories]
   const requestedTags = [...current.must.tags, ...current.prefer.tags, ...relatedTags]
+  const dancing = ['night_club', 'dancing', 'dj']
+  const wantsDancing = [...requestedCategories, ...requestedTags].some((id) => dancing.includes(id)) || intentGroups(state.intent, state.subs).slice(1).some((group) =>
+    [...(group.categories ?? []), ...(group.tags ?? [])].some((id) => dancing.includes(id)))
   const allFused = fuse(rows, rankings, {
     pinnedId: pinned?.id ?? null,
     dishes,
@@ -432,6 +435,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     price: current.must.price,
     openAt: openAtMoment,
     wantsBest: current.wantsBest,
+    wantsDancing,
   })
   // Corte por relevancia antes del tope: lo que se corta deja lugar a otros.
   const cut = relevanceCut(allFused, { hasEmbedding: embedding !== null, categories: requestedCategories, tags: requestedTags, hasDishes: dishes.length > 0 })
@@ -456,7 +460,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       logoBgColor: item.row.logoBgColor,
       lat: item.row.lat,
       lng: item.row.lng,
-      reasons: buildReasons(item, { interpretation: current, dishes, dishMode: state.dishMode, moment, isNow, open, next, near: near !== null }),
+      reasons: buildReasons(item, { interpretation: current, dishes, dishMode: state.dishMode, intent: state.intent, near: near !== null }),
       openStatus: {
         state: open.state,
         closesAt: open.state === 'open' ? open.closesAt : null,

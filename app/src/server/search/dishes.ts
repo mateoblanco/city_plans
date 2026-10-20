@@ -10,6 +10,30 @@ const CATEGORY_FOR_FOOD: Record<string, string> = {
   pastries: 'bakery',
 }
 
+// Ícono (shared/icon-categories.ts) de un lugar conocido por la comida del tag: pizza → pizza, burgers → burger.
+const ICONS_FOR_FOOD: Record<string, string[]> = {
+  pizza: ['pizza'],
+  burgers: ['burger'],
+  sushi: ['sushi'],
+  hot_dogs: ['hot_dog'],
+  wok: ['wok'],
+  seafood: ['seafood', 'fish', 'octopus'],
+  grilled_meat: ['grill', 'meat'],
+  pasta: ['pasta'],
+  sandwiches: ['sandwich'],
+  salads: ['salad'],
+  tapas: ['tapas'],
+  ice_cream: ['ice_cream'],
+  desserts: ['cake', 'pie', 'cupcake'],
+  pastries: ['croissant', 'bakery'],
+}
+
+// Platos típicos de una cocina sin tag propio, por su nombre en singular: "tacos" → taco.
+const ICONS_FOR_DISH: Record<string, string[]> = {
+  taco: ['taco'], burrito: ['burrito'], tamal: ['tamale'], ramen: ['ramen'], curry: ['curry'], falafel: ['falafel'],
+  kebab: ['kebab'], shawarma: ['kebab'], dumpling: ['dumplings'], gyoza: ['dumplings'], 'papas fritas': ['fries'], fries: ['fries'],
+}
+
 /** Variantes para buscar en el diccionario: tal cual y sin plural. */
 export function singularForms(phrase: string): string[] {
   const forms = [phrase]
@@ -35,7 +59,11 @@ export type DishTarget = {
   generic: boolean
   /** Tags y categorías para buscar si ningún lugar tiene el plato: el tag propio más los que mandó el modelo. */
   related: { tags: string[]; categories: string[] }
+  /** Íconos de un lugar conocido por este plato (pizza → pizza): con ellos o con `category`, suma knownFor. */
+  icons: string[]
 }
+
+const iconsForDish = (dish: string) => [...new Set(singularForms(normalize(dish)).flatMap((form) => ICONS_FOR_DISH[form] ?? []))]
 
 /** Tag relacionado con un plato: el plato entero o, si no, la palabra más larga del principio que sea comida. */
 export function dishTarget(dish: string): DishTarget {
@@ -50,9 +78,9 @@ export function dishTarget(dish: string): DishTarget {
         [found.id, definition?.label.es ?? '', definition?.label.en ?? ''].some((name) => singularForms(normalize(name)).includes(form)),
       )
     const category = CATEGORY_FOR_FOOD[found.id] ?? null
-    return { dish, tag: found.id, category, generic, related: { tags: [found.id], categories: category ? [category] : [] } }
+    return { dish, tag: found.id, category, generic, related: { tags: [found.id], categories: category ? [category] : [] }, icons: ICONS_FOR_FOOD[found.id] ?? [] }
   }
-  return { dish, tag: null, category: null, generic: false, related: { tags: [], categories: [] } }
+  return { dish, tag: null, category: null, generic: false, related: { tags: [], categories: [] }, icons: iconsForDish(dish) }
 }
 
 /** dishTarget() más los tags relacionados de la interpretación. */

@@ -151,7 +151,7 @@ describe('savePlaces', () => {
     const existing = { id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(draft().embeddingText), manualOverrides: [], status: 'published' as const }
     const { store, updated } = fakeStore([existing])
 
-    await savePlaces([ok({ signals: { igFollowers: null } })], { store, embed: vectors })
+    await savePlaces([ok({ signals: { igFollowers: null, chainBranch: false } })], { store, embed: vectors })
 
     expect(updated[0].values).toMatchObject({ igFollowers: null, prominence: 0.5 })
   })

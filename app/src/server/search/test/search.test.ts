@@ -12,7 +12,7 @@ import { everyDay, fakeCache, fakeStore, llmOutput, row } from './fixtures'
 // Lunes 12/10/2026 13:00 en Montevideo.
 const now = new Date('2026-10-12T16:00:00Z')
 const context = (overrides: Partial<FuseContext> = {}): FuseContext => ({
-  pinnedId: null, dishes: [], categories: [], requestedTags: [], preferTags: [], preferStyle: null, price: [], openAt: null, wantsBest: false, ...overrides,
+  pinnedId: null, dishes: [], categories: [], requestedTags: [], preferTags: [], preferStyle: null, price: [], openAt: null, wantsBest: false, wantsDancing: false, ...overrides,
 })
 
 describe('fusión', () => {
@@ -136,7 +136,8 @@ describe('runSearch', () => {
       { kind: 'neighborhood', id: 'CORDON', label: 'Cordón', fromText: true, fromFilter: false },
       { kind: 'prefer', id: 'cafe', label: 'Café', fromText: false, fromFilter: false },
     ])
-    expect(response.results[0].reasons).toEqual(['Café', 'Abierto · cierra 20:00', 'Cordón'])
+    // El horario, el barrio y la categoría ya están en la card: no son motivos.
+    expect(response.results[0].reasons).toEqual([])
     expect(response.results[0].iconCategory).toBe('coffee')
     expect(response.results[0]).toMatchObject({ logoKey: 'cafe-cordon.png', logoBgColor: '#f4e1c1' })
   })
@@ -470,7 +471,7 @@ describe('runSearch', () => {
     const { store } = fakeStore(places)
     const response = await runSearch('vegan near me', { store, cache: fakeCache().cache }, { now })
     expect(response.needsLocation).toBe(true)
-    expect(response.results[0].reasons).toEqual(['Vegan options', 'Open · closes 20:00', 'Cordón'])
+    expect(response.results[0].reasons).toEqual(['Vegan options'])
   })
 
   it('cada resultado trae sus coordenadas para el mapa', async () => {

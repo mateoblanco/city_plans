@@ -118,6 +118,7 @@ function groupSql(group: IntentMatch): SQL {
   if (group.categories?.length) options.push(sql`categories && ${textArray(group.categories)}`)
   if (group.tags?.length) options.push(sql`tags && ${textArray(group.tags)}`)
   if (group.featured) options.push(sql`featured`)
+  for (const pair of group.all ?? []) options.push(sql`(categories && ${textArray(pair.categories)} and tags && ${textArray(pair.tags)})`)
   return options.length ? sql`(${sql.join(options, sql` or `)})` : sql`false`
 }
 

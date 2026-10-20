@@ -16,6 +16,11 @@ describe('computeProminence', () => {
     expect(computeProminence({ igFollowers: 5_000_000 })).toBe(1)
   })
 
+  it('una sucursal de cadena usa los seguidores de la marca, descontados', () => {
+    expect(computeProminence({ igFollowers: 999, chainBranch: true })).toBeCloseTo(0.6 * 0.85)
+    expect(computeProminence({ igFollowers: null, chainBranch: true })).toBe(0.5)
+  })
+
   it('sin dato es mejor que 0 seguidores y peor que muchos', () => {
     const none = computeProminence({ igFollowers: null })
     expect(computeProminence({ igFollowers: 0 })).toBeLessThan(none)

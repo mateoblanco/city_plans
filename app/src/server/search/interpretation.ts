@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { CATEGORIES, DIETARY, TAG_IDS, isOccasionTag, isStyleId, normalize, type StyleId } from '@shared/tags.ts'
 import { resolveNeighborhood } from '@shared/neighborhood-aliases.ts'
+import { isIntentId, type IntentId } from '@shared/intents.ts'
 import { canonicalOf } from './dishes'
 
 export const PRICES = ['low', 'moderate', 'high', 'very_high'] as const
@@ -35,6 +36,8 @@ export type Interpretation = {
   needsLocation: boolean
   /** Pide lo mejor ("el mejor chivito", "best coffee"): amplía el multiplicador de calidad. No es filtro ni chip. */
   wantsBest: boolean
+  /** Intención pedida con un verbo ("comer", "tomar algo"): vota por ella como un tag; no es filtro por sí misma. */
+  intent: IntentId | null
 }
 
 export function emptyInterpretation(language: Lang = 'es'): Interpretation {
@@ -49,6 +52,7 @@ export function emptyInterpretation(language: Lang = 'es'): Interpretation {
     unrecognized: [],
     needsLocation: false,
     wantsBest: false,
+    intent: null,
   }
 }
 
@@ -70,6 +74,7 @@ export const LlmInterpretationSchema = z.object({
   language: z.string(),
   unrecognized: z.array(z.string()),
   wantsBest: z.boolean(),
+  intent: z.string().nullable(),
 })
 export type LlmInterpretation = z.infer<typeof LlmInterpretationSchema>
 
@@ -189,6 +194,10 @@ export function validateInterpretation(raw: LlmInterpretation): Validation {
   result.unrecognized = raw.unrecognized.map((part) => part.trim()).filter((part) => part && !onlyBest(part))
   result.needsLocation = result.unrecognized.some(mentionsNearMe)
   result.wantsBest = raw.wantsBest === true
+  // Una interpretación cacheada de antes del campo no lo trae.
+  const intent = raw.intent?.trim() ?? ''
+  result.intent = isIntentId(intent) ? intent : null
+  if (intent && !result.intent) discarded.push(`intent:${intent}`)
 
   return { interpretation: tidy(result), discarded, toPrefer }
 }

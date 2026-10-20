@@ -1,0 +1,1 @@
+ALTER TABLE "places" ADD COLUMN "chain_branch" boolean DEFAULT false NOT NULL;

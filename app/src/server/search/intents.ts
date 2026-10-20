@@ -38,6 +38,11 @@ export function parseIntent(rawIntent: string | null | undefined, rawSub: string
 const hits = (match: IntentMatch, categories: string[], tags: string[]) =>
   (match.categories ?? []).some((id) => categories.includes(id)) || (match.tags ?? []).some((id) => tags.includes(id))
 
+/** Lugar: además, algún par categoría + tag de all (un bar con comida). Lo pedido en el texto no lo usa. */
+const placeHits = (match: IntentMatch, categories: string[], tags: string[]) =>
+  hits(match, categories, tags) ||
+  (match.all ?? []).some((pair) => pair.categories.some((id) => categories.includes(id)) && pair.tags.some((id) => tags.includes(id)))
+
 /** ¿Lo pedido (categorías y tags) apunta a esta intención? Por su match, sus sub-filtros o detect. */
 function points(id: IntentId, categories: string[], tags: string[]) {
   const intent = def(id)
@@ -49,8 +54,9 @@ function points(id: IntentId, categories: string[], tags: string[]) {
 }
 
 /**
- * Votos por intención: un voto por cada categoría, tag o plato exigido que apunta a ella. Un plato que no
- * apunta a ninguna vota la intención por defecto (Comer). Las preferencias y la vibe no votan.
+ * Votos por intención: un voto por cada categoría, tag o plato exigido que apunta a ella, y uno por el verbo
+ * ("comer" → Comer). Un plato que no apunta a ninguna vota la intención por defecto (Comer). Las preferencias y la
+ * vibe no votan.
  */
 export function intentVotes(value: Interpretation): Partial<Record<IntentId, number>> {
   const votes: Partial<Record<IntentId, number>> = {}
@@ -61,6 +67,7 @@ export function intentVotes(value: Interpretation): Partial<Record<IntentId, num
   for (const id of value.must.categories) vote([id], [], null)
   for (const id of value.must.tags) vote([], [id], null)
   for (const dish of value.dishes) vote(dish.relatedCategories, dish.relatedTags, DEFAULT_DISH_INTENT)
+  if (value.intent) votes[value.intent] = (votes[value.intent] ?? 0) + 1
   return votes
 }
 
@@ -175,7 +182,7 @@ export function subTerms(intent: IntentId | null, subs: string[]): { categories:
 
 /** ¿El lugar cumple el grupo? Igual que el SQL de candidates. */
 export function matchesGroup(group: IntentMatch, row: { categories: string[]; tags: string[]; featured: boolean }) {
-  return Boolean(group.featured && row.featured) || hits(group, row.categories, row.tags)
+  return Boolean(group.featured && row.featured) || placeHits(group, row.categories, row.tags)
 }
 
 /** Barra de la respuesta: todos los sub-filtros de la intención (activos o no) y los extras del texto. */

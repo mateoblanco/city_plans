@@ -61,8 +61,10 @@ export type GooglePlaceDetailsResponse = {
 
 /** Señales de prominencia que salen de las fuentes; el puntaje se calcula al guardar. */
 export type PlaceSignals = {
-  /** Seguidores del Instagram validado; null sin Instagram o en una sucursal de cadena. */
+  /** Seguidores del Instagram validado (en una sucursal de cadena, los de la marca); null sin Instagram. */
   igFollowers: number | null
+  /** Sucursal de cadena: los seguidores son de la marca y la prominencia se descuenta. */
+  chainBranch: boolean
 }
 
 /** Qué muestra la foto de perfil de Instagram: un logo, el local, comida, una persona u otra cosa. */

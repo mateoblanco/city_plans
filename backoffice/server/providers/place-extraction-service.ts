@@ -1956,6 +1956,13 @@ export function postProcess(
     support.set('goodFor.kids_friendly', [...new Set([...(support.get('goodFor.kids_friendly') ?? []), ...factIds])])
     tagEvidence.push({ tag: 'kids_friendly', mode: 'inferred', signals: ['espacio para niños (kids_area)'], factIds })
   }
+  // Una picada (o tabla) es para compartir aunque la fuente no lo diga: hace al lugar para grupos.
+  if (tags.includes('picada') && !tags.includes('groups')) {
+    const factIds = support.get('foods.picada') ?? []
+    tags.push('groups')
+    support.set('goodFor.groups', [...new Set([...(support.get('goodFor.groups') ?? []), ...factIds])])
+    tagEvidence.push({ tag: 'groups', mode: 'inferred', signals: ['picada (tag)'], factIds })
+  }
   // Momentos que el modelo no propuso: el código los deduce de las señales en todos los facts, con las mismas reglas
   // (una fuerte o dos débiles; el resumen de Exa sólo suma como débil), sin las señales de NOT_FOR_DEDUCTION.
   // Uno que el modelo propuso y se descartó no vuelve por acá.
@@ -2142,9 +2149,9 @@ export function postProcess(
   }))
 
   const searchInput = searchTextInput({ ...processed, neighborhoodId: target.neighborhoodId, dishes, signature, style })
-  // Seguidores de una sucursal de cadena: son de la marca y no dicen nada de este local.
+  // En una sucursal de cadena los seguidores son de la marca: quedan, y computeProminence los descuenta.
   const prominence = context.prominenceSignals ?? NO_PROMINENCE_SIGNALS
-  const signals = { igFollowers: chain || instagramRejected ? null : prominence.instagramFollowers }
+  const signals = { igFollowers: instagramRejected ? null : prominence.instagramFollowers, chainBranch: chain }
   return PlaceDraft.parse({
     ...target,
     ...processed,

@@ -42,8 +42,6 @@ type Props = {
 /** Tarjeta de un resultado, con el hover sincronizado con su marcador. */
 const PlaceCard = (props: Props) => {
   const { hoveredId, setHoveredId } = useHoveredPlace();
-  // Los motivos ya incluyen el barrio y el horario, que acá tienen su propia línea.
-  const reasons = props.place.reasons.filter((reason) => reason !== props.place.neighborhood && reason !== props.place.openStatus.label);
 
   return (
     <article
@@ -69,9 +67,9 @@ const PlaceCard = (props: Props) => {
           {props.place.openStatus.detail && ` · ${props.place.openStatus.detail}`}
         </p>
         
-        {/* {reasons.length > 0 && (
+        {/* {props.place.reasons.length > 0 && (
           <ul className={styles.reasons}>
-            {reasons.map((reason) => (
+            {props.place.reasons.map((reason) => (
               <li key={reason}>{reason}</li>
             ))}
           </ul>

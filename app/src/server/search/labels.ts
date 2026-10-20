@@ -1,4 +1,4 @@
-import { label } from '@shared/tags.ts'
+import { label, type OccasionTag, type StyleId } from '@shared/tags.ts'
 import type { DietKey, Lang, Price } from './interpretation'
 import { SEARCH_CONFIG } from './config'
 import type { Moment, NextOpening, OpenState } from './hours'
@@ -11,6 +11,18 @@ export const DAY_NAMES: Record<Lang, string[]> = {
 export const PRICE_LABELS: Record<Lang, Record<Price, string>> = {
   es: { low: 'Barato', moderate: 'Precio medio', high: 'Caro', very_high: 'Muy caro' },
   en: { low: 'Inexpensive', moderate: 'Moderate', high: 'Expensive', very_high: 'Very expensive' },
+}
+
+/** Un momento pedido, dicho como motivo: "Para ir con amigos" en lugar de "Grupos". */
+export const MOMENT_REASON: Record<Lang, Record<OccasionTag, string>> = {
+  es: { groups: 'Para ir con amigos', date: 'Para una cita', kids_friendly: 'Para ir con niños', celebration: 'Para festejar', quick: 'Algo rápido' },
+  en: { groups: 'Good with friends', date: 'Good for a date', kids_friendly: 'Good with kids', celebration: 'Good to celebrate', quick: 'Quick bite' },
+}
+
+/** El estilo como motivo; intermedio no dice nada y no se muestra. */
+export const STYLE_REASON: Record<Lang, Partial<Record<StyleId, string>>> = {
+  es: { casual: 'Descontracturado', cuidado: 'Ambiente cuidado' },
+  en: { casual: 'Laid-back', cuidado: 'Refined' },
 }
 
 const DIET_TAG: Record<DietKey, string> = { vegan: 'vegan', vegetarian: 'vegetarian', glutenFree: 'gluten_free' }

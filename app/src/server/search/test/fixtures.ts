@@ -102,6 +102,7 @@ export function llmOutput(overrides: Partial<LlmInterpretation> = {}): LlmInterp
     language: 'es',
     unrecognized: [],
     wantsBest: false,
+    intent: null,
     ...overrides,
   }
 }
