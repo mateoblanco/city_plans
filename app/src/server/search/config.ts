@@ -76,6 +76,13 @@ export const SEARCH_CONFIG = {
    */
   relevance: { maxSemanticGap: 0.08 },
 
+  /**
+   * Secciones de las búsquedas amplias: desde cuántos resultados se agrupa, cuántos van en "Mejores coincidencias"
+   * (n/4 entre top.min y top.max), cuántos lugares necesita un grupo, hasta cuántos grupos se muestran y cuántos ids
+   * válidos tiene que dar el modelo para no usar las reglas.
+   */
+  sections: { minResults: 10, top: { min: 3, max: 5 }, minPlaces: 3, maxGroups: 4, minRequested: 2 },
+
   /** Cerca mío: radio inicial y cómo se amplía (en metros) si no hay resultados. */
   near: { radii: [1500, 3000, 5000] },
 

@@ -33,16 +33,31 @@ const topHaveCategory = (count: number, category: string): Check => ({
   ],
 });
 
+/** Agrupada: secciones con cada resultado una sola vez y cada grupo del catálogo con 3 o más lugares. */
+const grouped: Check = {
+  description: "agrupada en secciones, sin repetir lugares y con grupos de 3 o más",
+  test: (places, response) => {
+    if (!response.sections) return [`sin secciones: ${response.debug?.sections.notGrouped ?? "—"}`];
+    const ids = response.sections.flatMap((section) => section.placeIds);
+    return [
+      ...(new Set(ids).size === ids.length && ids.length === places.length ? [] : ["lugares repetidos o faltantes"]),
+      ...response.sections.filter((section) => section.id !== "top" && section.id !== "more" && section.placeIds.length < 3).map((section) => `${section.id}: ${section.placeIds.length}`),
+    ];
+  },
+};
+
+const notGrouped: Check = { description: "sin agrupar", test: (_, response) => (response.sections ? ["tiene secciones"] : []) };
+
 const noDanceInTop = (count: number): Check => ({
   description: `ningún boliche ni lugar para bailar en los primeros ${count}`,
   test: (places) => places.slice(0, count).filter((place) => place.categories.includes("night_club") || place.tags.includes("dancing")).map(name),
 });
 
 export const CHECKS: Record<string, Check[]> = {
-  "comer con amigos": [nonEmpty, allInIntent("eat"), noDanceInTop(5), every("ninguna cafetería", (place) => !place.categories.includes("cafe"))],
-  "tomar algo con amigos": [nonEmpty, allInIntent("bars"), noDanceInTop(5)],
+  "comer con amigos": [nonEmpty, allInIntent("eat"), noDanceInTop(5), every("ningún lugar que sea sólo cafetería (cafe sin restaurante ni bar)", (place) => !place.categories.includes("cafe") || place.categories.includes("restaurant") || place.categories.includes("bar")), grouped],
+  "tomar algo con amigos": [nonEmpty, allInIntent("bars"), noDanceInTop(5), grouped],
   "bar con amigos": [nonEmpty, allInIntent("bars")],
-  pizza: [topHaveCategory(3, "pizzeria")],
+  pizza: [topHaveCategory(3, "pizzeria"), notGrouped],
   vegano: [nonEmpty, every("todos con opciones veganas", veganOk)],
   "sin tacc": [nonEmpty, every("todos con opciones sin TACC", glutenFreeOk)],
   "algo que no sea pizza": [nonEmpty, every("ninguna pizzería", (place) => !place.categories.includes("pizzeria"))],

@@ -29,6 +29,7 @@ import { normalizeQuery, queryWords } from './normalize'
 import { buildReasons } from './reasons'
 import { logoUrl } from './logo'
 import { relevanceCut, type Relevance } from './relevance'
+import { buildSections, notBroadReason, requestedSections, type Section, type SectionsDebug } from './sections'
 import { canRelax, noMatchNotice, relax, RELAX_ORDER, relaxNotice, type NoticeKind, type RelaxStep, type SearchState } from './relax'
 import type { PlacesStore } from './store'
 
@@ -112,6 +113,8 @@ export type SearchDebug = {
   timings: Record<string, number>
   /** Lo que costó esta búsqueda en el AI Gateway (lo que vino de la cache cuenta 0). */
   cost: SearchCost
+  /** Si se agrupó: de dónde salieron los grupos, los elegidos y los descartados por chicos; si no, por qué no. */
+  sections: SectionsDebug
 }
 
 export type SearchResponse = {
@@ -120,6 +123,11 @@ export type SearchResponse = {
   /** Intención, sub-filtros y lo que pidió el texto sin botón propio: lo que muestra la barra. */
   bar: IntentBar
   results: SearchResult[]
+  /**
+   * Búsqueda amplia con suficientes resultados: los mismos resultados en secciones con título (ids de results, cada
+   * uno una sola vez). null: la lista de siempre.
+   */
+  sections: Section[] | null
   relaxed: { what: NoticeKind; message: string }[]
   /** Con cero resultados: los chips de dieta o exclude que hay que sacar para que aparezcan lugares. */
   suggestedRemovals: Chip[]
@@ -471,6 +479,20 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     }
   })
 
+  // Secciones: sólo en búsquedas amplias y con suficientes resultados.
+  const minResults = SEARCH_CONFIG.sections.minResults
+  const notGrouped = notBroadReason(interpretation, { pinned: pinned !== null, subs: resolved.subs.length }) ??
+    (fused.length < minResults ? `menos de ${minResults} resultados` : null)
+  const sectionChoice = notGrouped ? null : requestedSections(interpretation, { fromLlm: source === 'llm', intent: state.intent })
+  const grouped = sectionChoice ? buildSections(fused, sectionChoice.requested, interpretation.language) : null
+  const sectionsDebug: SectionsDebug = {
+    notGrouped: notGrouped ?? (grouped?.sections ? null : 'ningún grupo llegó al mínimo'),
+    source: sectionChoice?.source ?? null,
+    requested: sectionChoice?.requested ?? [],
+    chosen: grouped?.chosen ?? [],
+    dropped: grouped?.dropped ?? [],
+  }
+
   // Avisos: cada paso se arma con el estado previo y sólo si algún resultado no cumple lo relajado.
   const shownRows = fused.filter((item) => !item.pinned).map((item) => item.row)
   const relaxed: SearchResponse['relaxed'] = []
@@ -512,6 +534,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     interpreted: { chips },
     bar: buildBar(resolved, extras),
     results,
+    sections: grouped?.sections ?? null,
     relaxed,
     suggestedRemovals,
     needsLocation: interpretation.needsLocation,
@@ -568,6 +591,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       relevance: cut.summary,
       timings,
       cost: summarizeCost(costs),
+      sections: sectionsDebug,
     }
   }
   return response

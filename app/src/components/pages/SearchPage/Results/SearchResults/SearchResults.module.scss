@@ -19,12 +19,6 @@
   padding: 8px 12px;
 }
 
-.grid {
-  display: grid;
-  gap: 16px;
-  grid-template-columns: repeat(2, 1fr);
-}
-
 .empty {
   display: flex;
   flex-direction: column;

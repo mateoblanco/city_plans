@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { CATEGORIES, DIETARY, TAG_IDS, isOccasionTag, isStyleId, normalize, type StyleId } from '@shared/tags.ts'
 import { resolveNeighborhood } from '@shared/neighborhood-aliases.ts'
 import { isIntentId, type IntentId } from '@shared/intents.ts'
+import { isSectionId, type SectionId } from '@shared/sections.ts'
 import { canonicalOf } from './dishes'
 
 export const PRICES = ['low', 'moderate', 'high', 'very_high'] as const
@@ -38,6 +39,8 @@ export type Interpretation = {
   wantsBest: boolean
   /** Intención pedida con un verbo ("comer", "tomar algo"): vota por ella como un tag; no es filtro por sí misma. */
   intent: IntentId | null
+  /** Grupos del catálogo (shared/sections.ts) que el modelo eligió para agrupar los resultados si la búsqueda es amplia. */
+  sections: SectionId[]
 }
 
 export function emptyInterpretation(language: Lang = 'es'): Interpretation {
@@ -53,6 +56,7 @@ export function emptyInterpretation(language: Lang = 'es'): Interpretation {
     needsLocation: false,
     wantsBest: false,
     intent: null,
+    sections: [],
   }
 }
 
@@ -75,6 +79,7 @@ export const LlmInterpretationSchema = z.object({
   unrecognized: z.array(z.string()),
   wantsBest: z.boolean(),
   intent: z.string().nullable(),
+  sections: z.array(z.string()),
 })
 export type LlmInterpretation = z.infer<typeof LlmInterpretationSchema>
 
@@ -198,6 +203,12 @@ export function validateInterpretation(raw: LlmInterpretation): Validation {
   const intent = raw.intent?.trim() ?? ''
   result.intent = isIntentId(intent) ? intent : null
   if (intent && !result.intent) discarded.push(`intent:${intent}`)
+  for (const value of raw.sections ?? []) {
+    const id = value.trim()
+    if (isSectionId(id)) result.sections.push(id)
+    else if (id) discarded.push(`section:${id}`)
+  }
+  result.sections = unique(result.sections)
 
   return { interpretation: tidy(result), discarded, toPrefer }
 }

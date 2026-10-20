@@ -76,6 +76,15 @@ for (const query of queries.length ? queries : checkOnly ? Object.keys(CHECKS) :
     console.log(`     ${result.reasons.join(" · ")}`);
   });
   if (response.results.length === 0) console.log("  (sin resultados)");
+  const sections = info.sections;
+  const dropped = sections.dropped.length ? ` · descartados: ${sections.dropped.map((group) => `${group.id} (${group.count})`).join(", ")}` : "";
+  const requested = sections.source ? ` · ${sections.source === "llm" ? "modelo" : "reglas"}: ${sections.requested.join(", ")}` : "";
+  if (!response.sections) console.log(`  secciones: no (${sections.notGrouped})${requested}${dropped}`);
+  else {
+    console.log(`  secciones${requested}${dropped}`);
+    const names = new Map(response.results.map((result) => [result.id, result.name]));
+    for (const section of response.sections) console.log(`    ${section.title}: ${section.placeIds.map((id) => names.get(id)).join(", ")}`);
+  }
   for (const passed of checks.passed) console.log(`  ✓ ${passed}`);
   for (const failure of checks.failed) console.log(`  ✗ ${failure}`);
   if (debug) {

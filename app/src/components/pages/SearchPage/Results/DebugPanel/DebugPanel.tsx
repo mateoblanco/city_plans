@@ -16,6 +16,14 @@ const join = (values: string[]) => (values.length ? values.join(", ") : "—");
 
 const origin = ({ fromText, fromFilter }: Chip) => (fromText && fromFilter ? "texto + barra" : fromFilter ? "barra" : fromText ? "texto" : "—");
 
+/** Grupos elegidos (de dónde, cuántos lugares y su puntaje promedio) y los descartados por chicos; o por qué no se agrupó. */
+const sectionsSummary = (sections: SearchDebug["sections"]) => {
+  const dropped = sections.dropped.length ? ` · descartados: ${sections.dropped.map((group) => `${group.id} (${group.count})`).join(", ")}` : "";
+  if (sections.notGrouped) return `sin agrupar: ${sections.notGrouped}${sections.source ? ` · ${sections.source === "llm" ? "modelo" : "reglas"}: ${join(sections.requested)}` : ""}${dropped}`;
+  const chosen = sections.chosen.map((group) => `${group.id} (${group.count}, ${group.avgScore.toFixed(4)})`).join(", ");
+  return `${sections.source === "llm" ? "modelo" : "reglas"}: ${join(sections.requested)} · elegidos: ${chosen}${dropped}`;
+};
+
 type InterpretedProps = {
   debug: SearchDebug;
   chips: Chip[];
@@ -52,6 +60,7 @@ const Interpreted = (props: InterpretedProps) => {
     ["Lo mejor", value.wantsBest ? "sí" : "no"],
     ["Sin reconocer", join(value.unrecognized)],
     ["Chips", join(props.chips.map((chip) => `${chip.kind}:${chip.label} (${origin(chip)})`))],
+    ["Secciones", sectionsSummary(props.debug.sections)],
   ];
   return (
     <dl className={styles.debugSummary}>

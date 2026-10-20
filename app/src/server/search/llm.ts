@@ -2,6 +2,7 @@ import { generateText, Output } from 'ai'
 import { ALL_GROUPS, type TagGroup } from '@shared/tags.ts'
 import { NEIGHBORHOOD_NAMES } from '@shared/neighborhood-names.ts'
 import { INTENTS, type IntentDef } from '@shared/intents.ts'
+import { SECTIONS, type SectionDef } from '@shared/sections.ts'
 import { SEARCH_CONFIG } from './config'
 import { gatewayCost } from './cost'
 import { LlmInterpretationSchema, type LlmInterpretation } from './interpretation'
@@ -24,6 +25,11 @@ function intentVerbs() {
   return (Object.entries(INTENTS) as [string, IntentDef][])
     .map(([id, intent]) => `"${[...intent.verbs.es, ...intent.verbs.en].join('", "')}" → ${id}`)
     .join('; ')
+}
+
+/** Grupos para agrupar los resultados, para el campo sections. */
+function sectionCatalog() {
+  return (Object.entries(SECTIONS) as [string, SectionDef][]).map(([id, section]) => `- ${id}: ${section.title.es} (${section.rule})`).join('\n')
 }
 
 export const SYSTEM_PROMPT = `Interpretás búsquedas de bares, cafés y restaurantes de Montevideo, Uruguay. La consulta puede estar en español rioplatense o en inglés, y puede ser coloquial.
@@ -50,6 +56,7 @@ Campos:
 - language: "es" o "en", el idioma de la consulta.
 - unrecognized: partes que no pudiste mapear a nada ("cerca mío", "near me", "para 15 personas").
 - intent: qué quiere hacer la persona cuando lo dice con un verbo y no con un tag: ${intentVerbs()}. "almorzar", "cenar" y "merendar" ya son tags (lunch, dinner, afternoon_snack) y no necesitan intent, pero no está mal ponerlo. null si la consulta no dice qué quiere hacer.
+- sections: si la consulta es amplia (sin lugar, plato ni requisitos concretos: "comer con amigos", "algo para una cita", "café en Pocitos"), 2 a 4 ids de la lista "Secciones" que sirvan para agrupar los resultados de esa búsqueda, del más útil al menos; [] si la consulta es específica.
 - wantsBest: true si se pide lo mejor o lo más destacado ("el mejor chivito", "los mejores cafés", "best coffee", "top bares"); si no, false.
 
 Reglas:
@@ -61,6 +68,9 @@ Reglas:
 # Catálogo (id: label es / label en (sinónimos))
 
 ${catalog()}
+
+# Secciones (id: título (qué lugares entran))
+${sectionCatalog()}
 
 # Barrios
 ${Object.values(NEIGHBORHOOD_NAMES).join(', ')}`

@@ -103,6 +103,7 @@ export function llmOutput(overrides: Partial<LlmInterpretation> = {}): LlmInterp
     unrecognized: [],
     wantsBest: false,
     intent: null,
+    sections: [],
     ...overrides,
   }
 }
