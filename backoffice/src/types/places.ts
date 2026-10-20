@@ -168,6 +168,8 @@ export type TagEvidence = {
   /** Id del tag o del style. */
   tag: string
   mode: 'explicit' | 'inferred'
+  /** Sólo style: de dónde salió (señales en los facts, el precio o el ícono). */
+  basis?: 'signals' | 'price' | 'icon'
   /** Señal o frase que lo justificó. */
   signals: string[]
   factIds: string[]
@@ -257,7 +259,7 @@ export type PlaceReview = {
  * Reglas de desempate entre perfiles de Instagram válidos, en orden: candidato de la primera pasada (sólo en el
  * respaldo), único con rubro gastronómico, post más reciente, más seguidores. unresolved: siguió el empate.
  */
-export type InstagramTieBreakRule = 'first_pass_candidate' | 'gastronomy' | 'latest_post' | 'followers' | 'unresolved'
+export type InstagramTieBreakRule = 'first_pass_candidate' | 'gastronomy' | 'profile_picture' | 'latest_post' | 'followers' | 'unresolved'
 
 /** Datos de cada lugar procesado para el resumen del lote. */
 export type ExtractionReportStats = {
@@ -368,6 +370,8 @@ export type InstagramMatchRule =
   | 'foreign_profile'
   | 'non_gastronomy_profile'
   | 'other_address_in_bio'
+  /** Aceptado sólo por el nombre, sin señales de negocio y con la foto de una persona. */
+  | 'personal_account'
   | 'no_identity_signal'
 
 export type InstagramAuditCandidate = {

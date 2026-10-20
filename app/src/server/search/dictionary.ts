@@ -42,8 +42,8 @@ function phraseLanguage(id: string, phrase: string): 'es' | 'en' | null {
   const definition = findDef(id)
   if (!definition) return null
   const matches = (names: string[]) => names.some((name) => singularForms(phrase).includes(normalize(name)) || normalize(name) === phrase)
-  const es = matches([definition.label.es, ...definition.synonyms.es])
-  const en = matches([definition.label.en, ...definition.synonyms.en])
+  const es = matches([definition.label.es, ...definition.synonyms.es, ...(definition.dishes?.es ?? [])])
+  const en = matches([definition.label.en, ...definition.synonyms.en, ...(definition.dishes?.en ?? [])])
   return en && !es ? 'en' : es && !en ? 'es' : null
 }
 
@@ -53,7 +53,8 @@ function applyTerm(target: Interpretation, phrase: string): 'es' | 'en' | null |
   if (!found) return undefined
   if (found.group === 'categories') target.must.categories.push(found.id)
   else if (found.group === 'dietary') target.must.diet[found.id === 'gluten_free' ? 'glutenFree' : (found.id as 'vegan' | 'vegetarian')] = true
-  else if (found.group === 'foods') target.dishes.push({ name: phrase, relatedTags: [found.id], relatedCategories: [] })
+  // Un plato típico de una cocina ("tacos") se busca como plato, con la cocina de respaldo: no filtra por cocina.
+  else if (found.group === 'foods' || found.dish) target.dishes.push({ name: phrase, relatedTags: [found.id], relatedCategories: [] })
   else if (found.group === 'style') target.prefer.style ??= isStyleId(found.id) ? found.id : null
   else if (found.group === 'atmosphere' || found.group === 'goodFor') target.prefer.tags.push(found.id)
   else target.must.tags.push(found.id)

@@ -9,7 +9,9 @@ function catalog() {
   return Object.entries(ALL_GROUPS)
     .map(([group, definitions]) => {
       const lines = Object.entries(definitions as TagGroup).map(
-        ([id, definition]) => `- ${id}: ${definition.label.es} / ${definition.label.en} (${[...definition.synonyms.es, ...definition.synonyms.en].slice(0, 6).join(', ')})`,
+        ([id, definition]) =>
+          `- ${id}: ${definition.label.es} / ${definition.label.en} (${[...definition.synonyms.es, ...definition.synonyms.en].slice(0, 6).join(', ')})` +
+          (definition.dishes ? ` platos: ${definition.dishes.es.join(', ')}` : ''),
       )
       return `## ${group}\n${lines.join('\n')}`
     })
@@ -35,7 +37,7 @@ Campos:
   - Una cita puede traer el estilo: "primera cita", "algo tranqui para una cita" o "cita descontracturada" → date + casual; "aniversario", "anniversary" o "cita especial" → date + cuidado; "cena romántica" → date + cuidado y además dinner, igual que "cena"; "cita" sola → sólo date.
 - exclude: lo que la persona NO quiere ("algo que no sea pizza" → exclude tags ["pizza"] y categories ["pizzeria"]).
 - dishes: platos o comidas concretas, en español, minúscula y forma estándar ("milanga" → "milanesa", "best steak" → "bife", "chivito", "milanesa napolitana"). Una comida genérica que ya es un tag del grupo foods también va acá ("pizza", "sushi", "picada"), no en tags.
-  Cada plato va como {name, related}: en related, 1 a 3 ids de tags o categorías del catálogo que lo representen, para buscar por ahí si ningún lugar tiene el plato (ceviche → ["peruvian", "seafood"]; milanesa napolitana → ["milanesa"]; ramen → ["japanese"]).
+  Cada plato va como {name, related}: en related, 1 a 3 ids de tags o categorías del catálogo que lo representen, para buscar por ahí si ningún lugar tiene el plato (ceviche → ["peruvian", "seafood"]; milanesa napolitana → ["milanesa"]; ramen → ["japanese"]). Un plato típico de una cocina (los "platos:" del catálogo) va siempre en dishes con esa cocina en related, nunca como tag de cocina en must: "tacos" → dishes [{name: "tacos", related: ["mexican"]}].
 - vibe: frase corta en español que describa el ambiente o la ocasión para una búsqueda semántica ("lugar tranquilo para trabajar"); null si la consulta es sólo requisitos concretos.
 - language: "es" o "en", el idioma de la consulta.
 - unrecognized: partes que no pudiste mapear a nada ("cerca mío", "near me", "para 15 personas").

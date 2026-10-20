@@ -4,6 +4,8 @@ export type TagDef = {
   label: Record<Lang, string>
   synonyms: Record<Lang, string[]>
   note?: Partial<Record<Lang, string>>
+  /** Sólo cocinas: platos típicos que la sugieren sin nombrarla (tacos → mexicana). No son sinónimos. */
+  dishes?: Record<Lang, string[]>
 }
 
 export type TagGroup = Record<string, TagDef>
@@ -12,6 +14,11 @@ const tag = (es: string, en: string, synEs: string[], synEn: string[], noteEn?: 
   label: { es, en },
   synonyms: { es: synEs, en: synEn },
   ...(noteEn ? { note: { en: noteEn } } : {}),
+})
+
+const cuisine = (es: string, en: string, synEs: string[], synEn: string[], dishesEs: string[] = [], dishesEn: string[] = []): TagDef => ({
+  ...tag(es, en, synEs, synEn),
+  ...(dishesEs.length || dishesEn.length ? { dishes: { es: dishesEs, en: dishesEn } } : {}),
 })
 
 export const CATEGORIES = {
@@ -42,20 +49,38 @@ export const MOMENTS = {
 } satisfies TagGroup
 
 export const CUISINES = {
-  uruguayan: tag('Uruguaya', 'Uruguayan', ['comida uruguaya', 'comida casera', 'minutas'], ['uruguayan food', 'local food', 'home cooking']),
-  italian: tag('Italiana', 'Italian', ['italiano', 'comida italiana'], ['italian food']),
-  armenian: tag('Armenia', 'Armenian', ['armenio', 'comida armenia'], ['armenian food']),
-  chinese: tag('China', 'Chinese', ['chino', 'comida china'], ['chinese food']),
-  japanese: tag('Japonesa', 'Japanese', ['japonés', 'comida japonesa', 'nikkei'], ['japanese food', 'nikkei']),
-  mexican: tag('Mexicana', 'Mexican', ['mexicano', 'comida mexicana', 'tex mex'], ['mexican food', 'tex mex']),
-  venezuelan: tag('Venezolana', 'Venezuelan', ['venezolano', 'comida venezolana'], ['venezuelan food']),
-  peruvian: tag('Peruana', 'Peruvian', ['peruano', 'comida peruana'], ['peruvian food']),
-  middle_eastern: tag('Árabe', 'Middle Eastern', ['árabe', 'comida árabe', 'medio oriente'], ['middle eastern', 'lebanese', 'arabic food']),
-  indian: tag('India', 'Indian', ['indio', 'hindú', 'comida india'], ['indian food', 'curry']),
-  korean: tag('Coreana', 'Korean', ['coreano', 'comida coreana'], ['korean food']),
-  spanish: tag('Española', 'Spanish', ['español', 'comida española', 'gallega', 'gallego', 'cocina española'], ['spanish food', 'galician', 'spanish cuisine']),
-  mediterranean: tag('Mediterránea', 'Mediterranean', ['mediterráneo'], ['mediterranean']),
-  fusion: tag('Fusión', 'Fusion', ['fusión', 'cocina de autor'], ['fusion', 'chef-driven']),
+  uruguayan: cuisine('Uruguaya', 'Uruguayan', ['comida uruguaya', 'comida casera', 'minutas'], ['uruguayan food', 'local food', 'home cooking']),
+  italian: cuisine('Italiana', 'Italian', ['italiano', 'comida italiana', 'cocina italiana', 'trattoria'], ['italian food', 'italian cuisine', 'trattoria'],
+    ['risotto', 'carpaccio', 'bruschetta', 'burrata', 'tiramisú', 'ossobuco', 'focaccia'], ['risotto', 'carpaccio', 'bruschetta', 'burrata', 'tiramisu', 'ossobuco', 'focaccia']),
+  armenian: cuisine('Armenia', 'Armenian', ['armenio', 'comida armenia'], ['armenian food']),
+  chinese: cuisine('China', 'Chinese', ['chino', 'comida china', 'cocina china', 'cantonesa'], ['chinese food', 'chinese cuisine', 'cantonese'],
+    ['chop suey', 'dim sum', 'wantán', 'chow mein', 'pato pekinés', 'cerdo agridulce', 'rollito primavera'], ['chop suey', 'dim sum', 'wonton', 'chow mein', 'peking duck', 'sweet and sour pork', 'spring roll']),
+  japanese: cuisine('Japonesa', 'Japanese', ['japonés', 'comida japonesa', 'cocina japonesa'], ['japanese food', 'japanese cuisine'],
+    ['sushi', 'sashimi', 'nigiri', 'ramen', 'gyoza', 'tempura', 'udon', 'yakitori'], ['sushi', 'sashimi', 'nigiri', 'ramen', 'gyoza', 'tempura', 'udon', 'yakitori']),
+  nikkei: cuisine('Nikkei', 'Nikkei', ['nikkei', 'cocina nikkei', 'comida nikkei', 'nikei'], ['nikkei food', 'japanese-peruvian'],
+    ['acevichado', 'tiradito nikkei', 'ceviche nikkei'], ['acevichado', 'nikkei tiradito', 'nikkei ceviche']),
+  mexican: cuisine('Mexicana', 'Mexican', ['mexicano', 'comida mexicana', 'cocina mexicana', 'tex mex', 'taquería'], ['mexican food', 'mexican cuisine', 'tex mex', 'taqueria'],
+    ['taco', 'burrito', 'quesadilla', 'nachos', 'enchilada', 'fajita', 'guacamole'], ['taco', 'burrito', 'quesadilla', 'nachos', 'enchilada', 'fajita', 'guacamole']),
+  venezuelan: cuisine('Venezolana', 'Venezuelan', ['venezolano', 'comida venezolana', 'cocina venezolana', 'arepera', 'arepería'], ['venezuelan food', 'arepa bar'],
+    ['arepa', 'cachapa', 'tequeño', 'pabellón', 'hallaca'], ['arepa', 'cachapa', 'tequeño', 'pabellon', 'hallaca']),
+  peruvian: cuisine('Peruana', 'Peruvian', ['peruano', 'comida peruana', 'cocina peruana', 'cevichería'], ['peruvian food', 'peruvian cuisine', 'cevicheria'],
+    ['ceviche', 'lomo saltado', 'causa limeña', 'ají de gallina', 'anticucho', 'tiradito', 'papa a la huancaína'], ['ceviche', 'lomo saltado', 'causa limena', 'aji de gallina', 'anticucho', 'tiradito', 'papa a la huancaina']),
+  middle_eastern: cuisine('Árabe', 'Middle Eastern', ['árabe', 'comida árabe', 'cocina árabe', 'medio oriente', 'oriente medio', 'libanés', 'libanesa', 'comida libanesa'], ['middle eastern', 'lebanese', 'arabic food', 'levantine'],
+    ['shawarma', 'falafel', 'hummus', 'kebab', 'kibbeh', 'quipe', 'baba ganoush', 'tabule'], ['shawarma', 'falafel', 'hummus', 'kebab', 'kibbeh', 'baba ganoush', 'tabbouleh']),
+  indian: cuisine('India', 'Indian', ['indio', 'hindú', 'comida india', 'cocina india'], ['indian food', 'indian cuisine'],
+    ['curry', 'tikka masala', 'naan', 'biryani', 'samosa', 'tandoori', 'dal'], ['curry', 'tikka masala', 'naan', 'biryani', 'samosa', 'tandoori', 'dal']),
+  korean: cuisine('Coreana', 'Korean', ['coreano', 'comida coreana', 'cocina coreana'], ['korean food', 'korean cuisine'],
+    ['kimchi', 'bibimbap', 'bulgogi', 'tteokbokki', 'japchae', 'kimbap'], ['kimchi', 'bibimbap', 'bulgogi', 'tteokbokki', 'japchae', 'kimbap']),
+  spanish: cuisine('Española', 'Spanish', ['español', 'comida española', 'gallega', 'gallego', 'cocina española'], ['spanish food', 'galician', 'spanish cuisine']),
+  french: cuisine('Francesa', 'French', ['francés', 'comida francesa', 'cocina francesa'], ['french food', 'french cuisine'],
+    ['crêpe', 'ratatouille', 'croque monsieur', 'boeuf bourguignon', 'confit de pato', 'crème brûlée'], ['crepe', 'ratatouille', 'croque monsieur', 'beef bourguignon', 'duck confit', 'creme brulee']),
+  brazilian: cuisine('Brasileña', 'Brazilian', ['brasileño', 'brasilero', 'brasilera', 'comida brasileña', 'comida brasilera', 'cocina brasileña'], ['brazilian food', 'brazilian cuisine'],
+    ['feijoada', 'pão de queijo', 'coxinha', 'moqueca', 'brigadeiro', 'farofa'], ['feijoada', 'pao de queijo', 'coxinha', 'moqueca', 'brigadeiro', 'farofa']),
+  asian: cuisine('Asiática', 'Asian', ['asiático', 'comida asiática', 'cocina asiática', 'fusión asiática', 'panasiática', 'tailandesa', 'thai', 'vietnamita'], ['asian food', 'asian fusion', 'pan-asian', 'thai food', 'vietnamese'],
+    ['pad thai', 'pho', 'bao', 'banh mi', 'laksa', 'nasi goreng'], ['pad thai', 'pho', 'bao', 'banh mi', 'laksa', 'nasi goreng']),
+  mediterranean: cuisine('Mediterránea', 'Mediterranean', ['mediterráneo', 'comida mediterránea', 'cocina mediterránea'], ['mediterranean', 'mediterranean food'],
+    ['musaka', 'souvlaki', 'tzatziki', 'spanakopita'], ['moussaka', 'souvlaki', 'tzatziki', 'spanakopita']),
+  fusion: cuisine('Fusión', 'Fusion', ['fusión', 'cocina de autor'], ['fusion', 'chef-driven']),
 } satisfies TagGroup
 
 export const FOODS = {
@@ -211,7 +236,7 @@ export function ids<G extends TagGroup>(group: G) {
 
 /** Minúsculas, sin acentos y con espacios colapsados: la forma con la que se comparan términos. */
 export const normalize = (value: string) => value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim()
-const LOOKUP = new Map<string, { group: GroupName; id: string }>()
+const LOOKUP = new Map<string, { group: GroupName; id: string; dish?: true }>()
 for (const [group, definitions] of Object.entries(ALL_GROUPS) as [GroupName, TagGroup][]) {
   for (const [id, definition] of Object.entries(definitions)) {
     for (const key of [id, definition.label.es, definition.label.en, ...definition.synonyms.es, ...definition.synonyms.en]) {
@@ -220,7 +245,15 @@ for (const [group, definitions] of Object.entries(ALL_GROUPS) as [GroupName, Tag
     }
   }
 }
+// Platos típicos de una cocina, después de todos los nombres: nunca le sacan una palabra a otro tag (burrito sigue en wraps).
+for (const [id, definition] of Object.entries(CUISINES) as [string, TagDef][]) {
+  for (const dish of [...(definition.dishes?.es ?? []), ...(definition.dishes?.en ?? [])]) {
+    const normalized = normalize(dish)
+    if (!LOOKUP.has(normalized)) LOOKUP.set(normalized, { group: 'cuisines', id, dish: true })
+  }
+}
 
+/** Tag de un término (id, label, sinónimo o, con dish, plato típico de una cocina). */
 export function toCanonical(raw: string) { return LOOKUP.get(normalize(raw)) ?? null }
 
 export function findDef(id: string): TagDef | undefined {

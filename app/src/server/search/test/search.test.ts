@@ -353,11 +353,23 @@ describe('runSearch', () => {
     const withPeruvian = [...places, row({ id: 'peruano', categories: ['restaurant'], tags: ['peruvian'] })]
     const { store, calls } = fakeStore(withPeruvian)
     const { cache } = fakeCache(llmOutput({ dishes: [{ name: 'ceviche', related: ['peruvian', 'seafood', 'inventado'] }] }))
-    const response = await runSearch('ceviche', { store, cache }, { now, debug: true })
+    // "fresco" no está en el diccionario: la consulta pasa por el modelo.
+    const response = await runSearch('ceviche fresco', { store, cache }, { now, debug: true })
     expect(response.debug?.discarded).toEqual([{ value: 'inventado', reason: 'no está en los catálogos' }])
     expect(calls.map((call) => call.filters.dishMode)).toEqual(['dish', 'related'])
     expect(response.results.map((result) => [result.id, result.matchLevel])).toEqual([['peruano', 'maybe']])
     expect(response.results[0].reasons[0]).toBe('Cocina peruana')
+    expect(response.relaxed).toEqual([{ what: 'dishRelated', message: 'No hay ceviche, pero estos tienen cocina peruana.' }])
+  })
+
+  it('un plato típico de una cocina lo resuelve el diccionario como plato, con la cocina de respaldo', async () => {
+    const withPeruvian = [...places, row({ id: 'peruano', categories: ['restaurant'], tags: ['peruvian'] })]
+    const { store, calls } = fakeStore(withPeruvian)
+    const { cache } = fakeCache()
+    const response = await runSearch('ceviche', { store, cache }, { now })
+    expect(calls.map((call) => call.filters.dishMode)).toEqual(['dish', 'related'])
+    expect(calls[0].filters.tags).not.toContain('peruvian')
+    expect(response.results.map((result) => [result.id, result.matchLevel])).toEqual([['peruano', 'maybe']])
     expect(response.relaxed).toEqual([{ what: 'dishRelated', message: 'No hay ceviche, pero estos tienen cocina peruana.' }])
   })
 

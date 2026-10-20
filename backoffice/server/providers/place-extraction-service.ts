@@ -14,6 +14,7 @@ import {
   OFFERS,
   STYLES,
   type StyleId,
+  type TagDef,
   type TagGroupName,
   type TagId,
   buildEmbeddingText,
@@ -34,6 +35,7 @@ import type {
   InstagramCandidateOrigin,
   InstagramMatchRule,
   InstagramTieBreakRule,
+  LogoKind,
   PlaceEnrichmentDraft,
   PlaceEnrichmentResponse,
   PlaceExtractionCost,
@@ -67,7 +69,7 @@ import type { PlaywrightWebsiteScraper, WebsitePageData } from './website-scrape
 import { logoUrl, type LogoStore } from './logo-storage.ts'
 import { isMomentId, MOMENT_IDS, MOMENT_SIGNALS, NOT_FOR_DEDUCTION, signalsIn, STYLE_SIGNALS, sufficientSignals, type SignalMatch } from './moment-signals.ts'
 import type { ExtractionSnapshotStore } from './extraction-snapshots.ts'
-import { classifyLogo, fetchPlaceLogo, logoModel, type LogoClassifier, type LogoOutcome } from './place-logo.ts'
+import { classifyLogo, classifyProfilePicture, fetchPlaceLogo, logoModel, profilePictureStatus, type LogoClassifier, type LogoOutcome, type PictureClassification, type ProfilePictureStatus } from './place-logo.ts'
 import { brandKey, InstagramCandidateRegistry, type InstagramOwners, type SharedInstagram } from './instagram-candidate-registry.ts'
 import { instagramActivity, instagramOperating, reviewReasonsFor, type InstagramActivity } from './review-reasons.ts'
 
@@ -364,8 +366,9 @@ PASO 2 — el resto del JSON, sólo a partir de facts
 - proposedTag: en cada fact que no cites en ningún tag ni support, completá proposedTag: el id existente que debería haberse usado, un id nuevo en snake_case si ningún tag encaja, o null. proposedTag es null solo para anécdotas, historia de la marca, nombre o dirección del local, datos de contacto, medios de pago o información de otras sucursales. Si el fact describe comida, bebida, actividades o características del lugar, proponé un tag existente o uno nuevo. En los facts citados, null.
 - Platos y bebidas concretos nunca van con proposedTag null: mapealos al tag más cercano (tapas o platos pequeños → tapas, y además picada si mencionan tablas, fiambres o quesos para compartir; postres dulces → desserts; jugos o licuados → smoothies; yogur, tostadas o similares → breakfast).
 - Cada tag tiene que corresponder a al menos un fact. No pongas tags sin un fact que los respalde. Usá solamente los ids permitidos.
-- Inferí tags razonables a partir de los facts. Ejemplo inventado: "pasan música con DJs los viernes y se llena a la salida de la oficina" → dj, after_office; "ideal para trabajar con la compu" → work. Pero foods, cuisines y dietary sólo con menciones explícitas: nunca deduzcas platos, tipo de cocina ni opciones dietarias por el tipo de local. cuisines tiene máximo tres valores.
-- cuisines sólo si es el estilo principal del lugar o una parte relevante de la carta, nunca por un plato suelto: una parrilla que tiene una pasta no es italian. Además, una cocina necesita un fact que la nombre ("cocina italiana", "comida mexicana"); si ningún fact la nombra, no la pongas.
+- Inferí tags razonables a partir de los facts. Ejemplo inventado: "pasan música con DJs los viernes y se llena a la salida de la oficina" → dj, after_office; "ideal para trabajar con la compu" → work. Pero foods, cuisines y dietary sólo con menciones explícitas o, en cuisines, platos típicos (ver abajo): nunca deduzcas platos, tipo de cocina ni opciones dietarias por el tipo de local. cuisines tiene máximo tres valores.
+- cuisines sólo si es el estilo principal del lugar o una parte relevante de la carta, nunca por un plato suelto: una parrilla que tiene una pasta no es italian, ni un bar con unos tacos es mexican. Una cocina va si un fact la nombra ("cocina italiana", "comida mexicana", "taquería") o si al menos dos platos típicos distintos de ella (ver PLATOS TÍPICOS DE CADA COCINA) la identifican claramente: tacos y burritos → mexican; ceviche y lomo saltado → peruvian; arepas y tequeños → venezuelan; shawarma y falafel → middle_eastern; curry y naan → indian; kimchi y bibimbap → korean. Si no, no la pongas.
+- Un lugar nikkei lleva nikkei y, además, japanese si sirve sushi u otro plato japonés, y peruvian si sirve ceviche u otro plato peruano.
 - features, atmosphere y los goodFor work, solo, after_office y lgbtq_friendly también necesitan un fact que nombre el tag con palabras de esa idea ("tiene terraza", "ideal para trabajar", "ambiente tranquilo"). El RESUMEN ESTRUCTURADO DE EXA no alcanza solo para features, goodFor, offers ni atmosphere: necesitan un fact de otra fuente.
 - atmosphere (quiet, lively, cozy, elegant) sólo con un fact que describa el ambiente del lugar. cozy sólo si la fuente dice textualmente acogedor o cozy: no lo deduzcas de otras palabras.
 - Los momentos de goodFor (groups, date, kids_friendly, celebration, quick) van si un fact los nombra ("ideal para ir con amigos", "para una cita", "menú para chicos") o, por inferencia, sólo con señales concretas en los facts que cites: una señal fuerte, o dos débiles distintas.
@@ -430,6 +433,9 @@ STYLE
 - En una cadena, la categoría es de la marca: la misma en todas las sucursales.
 - Elegí siempre la categoría más cercana, aunque no sea exacta.
 ${(Object.entries(ICON_CATEGORIES) as [string, { description: string }][]).map(([key, { description }]) => `- ${key}: ${description}`).join('\n')}
+
+PLATOS TÍPICOS DE CADA COCINA
+${(Object.entries(CUISINES) as [string, TagDef][]).filter(([, definition]) => definition.dishes).map(([id, definition]) => `- ${id}: ${definition.dishes!.es.join(', ')}`).join('\n')}
 
 IDS PERMITIDOS
 ${(Object.entries(ALLOWED_TAG_GROUPS) as [string, Record<string, unknown>][]).map(([group, definitions]) => `- ${group}: ${Object.keys(definitions).join(', ')}`).join('\n')}`
@@ -546,6 +552,45 @@ function otherAddressInBio(bio: string, address: string): boolean {
   return [...text.matchAll(BIO_STREET_NUMBER)].some((match) => !NOT_A_STREET.has(match[1]))
 }
 
+/** El teléfono del local en la bio o los posts. */
+function profileHasPhone(details: GooglePlaceDetailsResponse, profile: InstagramProfileData): boolean {
+  const googlePhone = normalizeUruguayPhone(details.phoneNumber ?? null)
+  const bio = [profile.bio, ...(profile.posts ?? [])].join('\n')
+  return Boolean(googlePhone && phonesInText(bio).map(normalizeUruguayPhone).includes(googlePhone))
+}
+
+/** El perfil enlaza la web oficial (la que se encontró o la de Google, que sólo confirma). */
+function profileLinksWebsite(details: GooglePlaceDetailsResponse, profile: InstagramProfileData, websiteUrl: string | null): boolean {
+  const linkedHosts = [websiteUrl, details.websiteUri ?? null]
+    .filter((url): url is string => Boolean(url && !instagramProfileUrl(url) && !isSocialUrl(url)))
+    .map(hostname).filter(Boolean)
+  return profile.links.some((link) => linkedHosts.includes(hostname(link)))
+}
+
+/** Es el Instagram que Google tiene como web del lugar. */
+function isGoogleWebsiteProfile(details: GooglePlaceDetailsResponse, profile: InstagramProfileData): boolean {
+  return Boolean(details.websiteUri && instagramProfileUrl(details.websiteUri) === instagramProfileUrl(profile.url))
+}
+
+export type BusinessSignal = 'phone' | 'address' | 'website_link' | 'gastronomy'
+
+/**
+ * Señales de que el perfil es de un negocio: el teléfono del local, una dirección en la bio (la del local o una
+ * calle con número), un link a la web oficial (o ser el Instagram que Google tiene para el lugar) o rubro
+ * gastronómico en la bio o la categoría. Una categoría no gastronómica ("Digital creator") no cuenta.
+ */
+export function profileBusinessSignals(details: GooglePlaceDetailsResponse, profile: InstagramProfileData, websiteUrl: string | null): BusinessSignal[] {
+  const bioText = canonical(profile.bio).replace(/[^a-z0-9]+/g, ' ')
+  const hasAddress = mentionsAddress(profile.bio, details.anchor.address) ||
+    (BIO_ADDRESS_MARKER.test(canonical(profile.bio)) && [...bioText.matchAll(BIO_STREET_NUMBER)].some((match) => !NOT_A_STREET.has(match[1])))
+  return [
+    ...(profileHasPhone(details, profile) ? ['phone' as const] : []),
+    ...(hasAddress ? ['address' as const] : []),
+    ...(profileLinksWebsite(details, profile, websiteUrl) || isGoogleWebsiteProfile(details, profile) ? ['website_link' as const] : []),
+    ...(hasGastronomyCategory(profile) ? ['gastronomy' as const] : []),
+  ]
+}
+
 /**
  * Valida un perfil de Instagram para el local y devuelve qué regla lo aceptó o lo rechazó.
  * `strict` (candidatos de la búsqueda por nombre, que trae homónimos de cualquier lado): además del
@@ -564,14 +609,10 @@ export function instagramProfileMatch(details: GooglePlaceDetailsResponse, profi
   if (FOREIGN_PROFILE.test(canonical([profile.url, profile.name, profile.bio, ...profile.links].join(' ')))) return { accepted: false, rule: 'foreign_profile' }
   const brand = brandFromGoogleName(details.anchor.name)
   const bio = [profile.bio, ...(profile.posts ?? [])].join('\n')
-  const googlePhone = normalizeUruguayPhone(details.phoneNumber ?? null)
-  const hasPhone = Boolean(googlePhone && phonesInText(bio).map(normalizeUruguayPhone).includes(googlePhone))
+  const hasPhone = profileHasPhone(details, profile)
   // La web de Google sólo confirma: un perfil que la enlaza, o que es el Instagram que Google tiene para el lugar.
-  const linkedHosts = [websiteUrl, details.websiteUri ?? null]
-    .filter((url): url is string => Boolean(url && !instagramProfileUrl(url) && !isSocialUrl(url)))
-    .map(hostname).filter(Boolean)
-  const hasWebsiteCrossLink = profile.links.some((link) => linkedHosts.includes(hostname(link)))
-  if (details.websiteUri && instagramProfileUrl(details.websiteUri) === instagramProfileUrl(profile.url)) return { accepted: true, rule: 'google_website_match' }
+  const hasWebsiteCrossLink = profileLinksWebsite(details, profile, websiteUrl)
+  if (isGoogleWebsiteProfile(details, profile)) return { accepted: true, rule: 'google_website_match' }
   const mismatch: InstagramMatchRule | null = nonGastronomyProfile(profile) ? 'non_gastronomy_profile'
     : otherAddressInBio(profile.bio, details.anchor.address) ? 'other_address_in_bio' : null
   if (mismatch) {
@@ -898,6 +939,23 @@ function withOrigins(candidates: InstagramAuditCandidate[], origins: ReadonlyMap
   })
 }
 
+/** Suma al uso del clasificador del logo el de las fotos clasificadas al elegir el perfil. */
+export function withPictureClassifications(logo: LogoOutcome, pictures: (PictureClassification | null)[]): LogoOutcome {
+  const usages = [logo.classification, ...pictures.map((picture) => picture?.classification ?? null)]
+    .filter((item): item is NonNullable<LogoOutcome['classification']> => item !== null)
+  if (usages.length <= 1) return { ...logo, classification: usages[0] ?? null }
+  const sum = (field: keyof LlmUsage) => usages.some((item) => item.usage[field] !== null)
+    ? usages.reduce((total, item) => total + (item.usage[field] ?? 0), 0)
+    : null
+  return {
+    ...logo,
+    classification: {
+      model: usages[0].model,
+      usage: { inputTokens: sum('inputTokens'), cachedInputTokens: sum('cachedInputTokens'), cacheWriteTokens: sum('cacheWriteTokens'), outputTokens: sum('outputTokens'), gatewayCostUsd: sum('gatewayCostUsd') },
+    },
+  }
+}
+
 type InstagramTieBreak = InstagramTieBreakRule
 /** tieHandles: los perfiles válidos que empataron (falta sin empate). */
 type InstagramValidation = { profile: InstagramProfileData | null; candidates: InstagramAuditCandidate[]; tieBreak?: InstagramTieBreak; tieHandles?: string[] }
@@ -912,6 +970,8 @@ async function validatedInstagram(
   websiteUrl: string | null = null,
   // Cupo de Apify (y reintentos ante 429) alrededor de la llamada.
   limited: <T>(operation: () => Promise<T>) => Promise<T> = (operation) => withServiceLimit('apify', operation),
+  pictureStatus: PictureStatus = defaultPictureStatus,
+  pictureKind: PictureKind = noPictureKind,
 ): Promise<InstagramValidation> {
   const handles = candidates.map(instagramHandle).filter((handle): handle is string => Boolean(handle))
   if (candidates.length === 0) return { profile: null, candidates: [] }
@@ -927,7 +987,7 @@ async function validatedInstagram(
     throw new InstagramProviderFailure(error)
   }
   // Varios válidos en la primera pasada: se desempata igual (la regla de la primera pasada no aplica).
-  return selectInstagram(details, candidates, profiles, websiteUrl, false, { firstPassUrls: new Set() })
+  return selectInstagram(details, candidates, profiles, websiteUrl, false, { firstPassUrls: new Set(), pictureStatus, pictureKind })
 }
 
 /** Elige el perfil validado entre los candidatos; sólo vale si queda uno. */
@@ -946,12 +1006,24 @@ function highest(profiles: InstagramProfileData[], value: (profile: InstagramPro
   return max === -Infinity ? profiles : profiles.filter((_, index) => values[index] === max)
 }
 
+/** Si la foto de perfil es real, el avatar genérico de Instagram o no se pudo saber. */
+type PictureStatus = (profile: InstagramProfileData) => Promise<ProfilePictureStatus>
+const defaultPictureStatus: PictureStatus = (profile) => profilePictureStatus(profile.profilePicUrl)
+/** Qué muestra la foto de perfil (logo, persona…), o null si no se pudo saber. */
+type PictureKind = (profile: InstagramProfileData) => Promise<LogoKind | null>
+const noPictureKind: PictureKind = async () => null
+
 /**
  * Entre varios perfiles válidos: primero el que también fue candidato de la primera pasada (vino de las
- * fuentes del lugar), después el único con rubro gastronómico, después el del post más reciente y por último el
- * de más seguidores. Cada regla achica el grupo para la siguiente. Si sigue el empate, ninguno.
+ * fuentes del lugar), después el único con rubro gastronómico, después el que tiene foto real frente al
+ * avatar genérico de Instagram (los que no se pudieron revisar siguen), después el del post más reciente y
+ * por último el de más seguidores. Cada regla achica el grupo para la siguiente. Si sigue el empate, ninguno.
  */
-export function breakInstagramTie(tied: InstagramProfileData[], firstPassUrls: ReadonlySet<string>): { profile: InstagramProfileData | null; tieBreak: InstagramTieBreak } {
+export async function breakInstagramTie(
+  tied: InstagramProfileData[],
+  firstPassUrls: ReadonlySet<string>,
+  pictureStatus: PictureStatus = defaultPictureStatus,
+): Promise<{ profile: InstagramProfileData | null; tieBreak: InstagramTieBreak }> {
   let remaining = tied
   const fromSources = remaining.filter((profile) => firstPassUrls.has(profile.url))
   if (fromSources.length === 1) return { profile: fromSources[0], tieBreak: 'first_pass_candidate' }
@@ -959,6 +1031,12 @@ export function breakInstagramTie(tied: InstagramProfileData[], firstPassUrls: R
   const gastronomy = remaining.filter(hasGastronomyCategory)
   if (gastronomy.length === 1) return { profile: gastronomy[0], tieBreak: 'gastronomy' }
   if (gastronomy.length > 1) remaining = gastronomy
+  // Sólo baja las fotos si hace falta llegar acá (como mucho los empatados).
+  const pictures = await Promise.all(remaining.map(pictureStatus))
+  if (pictures.includes('real') && pictures.includes('generic')) {
+    remaining = remaining.filter((_, index) => pictures[index] !== 'generic')
+    if (remaining.length === 1) return { profile: remaining[0], tieBreak: 'profile_picture' }
+  }
   const latest = highest(remaining, (profile) => profile.latestPostAt ? Date.parse(profile.latestPostAt) : null)
   if (latest.length === 1) return { profile: latest[0], tieBreak: 'latest_post' }
   const followed = highest(latest, (profile) => profile.followers ?? null)
@@ -966,29 +1044,35 @@ export function breakInstagramTie(tied: InstagramProfileData[], firstPassUrls: R
   return { profile: null, tieBreak: 'unresolved' }
 }
 
-function selectInstagram(
+async function selectInstagram(
   details: GooglePlaceDetailsResponse,
   candidates: string[],
   profiles: InstagramProfileData[],
   websiteUrl: string | null,
   strict = false,
-  // Sólo en el respaldo: con varios válidos, se desempata (los de la primera pasada ganan primero).
-  tie: { firstPassUrls: ReadonlySet<string> } | null = null,
-): InstagramValidation {
+  // Con varios válidos se desempata (los de la primera pasada ganan primero). pictureKind clasifica la foto de los
+  // aceptados sin señales de negocio.
+  tie: { firstPassUrls: ReadonlySet<string>; pictureStatus: PictureStatus; pictureKind?: PictureKind } | null = null,
+): Promise<InstagramValidation> {
   const requestedProfiles = new Set(candidates.map(instagramProfileUrl).filter(Boolean))
   const rules = new Map<string, InstagramMatchRule>()
-  const accepted = profiles.flatMap((profile) => {
+  const accepted: InstagramProfileData[] = []
+  for (const profile of profiles) {
     const profileUrl = instagramProfileUrl(profile.url)
-    if (!profileUrl || !requestedProfiles.has(profileUrl)) return []
-    const match = instagramProfileMatch(details, profile, websiteUrl, strict)
+    if (!profileUrl || !requestedProfiles.has(profileUrl)) continue
+    let match = instagramProfileMatch(details, profile, websiteUrl, strict)
+    // Aceptado sólo por el nombre, sin ninguna señal de negocio y con la foto de una persona: es una cuenta personal
+    // con el nombre de la marca. Si la foto no se pudo clasificar, se acepta como antes.
+    if (match.accepted && profileBusinessSignals(details, profile, websiteUrl).length === 0 && await (tie?.pictureKind ?? noPictureKind)(profile) === 'person') {
+      match = { accepted: false, rule: 'personal_account' }
+    }
     rules.set(profileUrl, match.rule)
-    if (!match.accepted) return []
-    return [{ ...profile, url: profileUrl }]
-  })
+    if (match.accepted) accepted.push({ ...profile, url: profileUrl })
+  }
   const unique = new Map(accepted.flatMap((profile) => {
     return [[profile.url, profile] as const]
   }))
-  const tieBroken = tie && unique.size > 1 ? breakInstagramTie([...unique.values()], tie.firstPassUrls) : null
+  const tieBroken = tie && unique.size > 1 ? await breakInstagramTie([...unique.values()], tie.firstPassUrls, tie.pictureStatus) : null
   const selected = unique.size === 1 ? [...unique.values()][0] : tieBroken?.profile ?? null
   const acceptedUrls = new Set(accepted.map((profile) => profile.url))
   return {
@@ -1003,7 +1087,8 @@ function selectInstagram(
       if (selected?.url === url) return [{ handle, decision: 'selected' as const, reason: 'validated_exact_place_profile', ...withRule }]
       if (acceptedUrls.has(url)) return [{ handle, decision: 'discarded' as const, reason: selected ? 'tie_break_lost' : 'multiple_valid_profiles', ...withRule }]
       const profile = profiles.find((item) => instagramProfileUrl(item.url) === url)
-      return [{ handle, decision: 'discarded' as const, reason: profile ? 'identity_or_location_mismatch' : 'not_returned_by_provider', ...withRule }]
+      const reason = !profile ? 'not_returned_by_provider' : rule === 'personal_account' ? 'personal_account' : 'identity_or_location_mismatch'
+      return [{ handle, decision: 'discarded' as const, reason, ...withRule }]
     }),
   }
 }
@@ -1038,6 +1123,8 @@ async function searchedInstagram(
   firstPassCandidates: string[] = [],
   // Cuentas de otros lugares (agregadoras): tampoco valen si las trae la búsqueda.
   excluded: ReadonlySet<string> = new Set(),
+  pictureStatus: PictureStatus = defaultPictureStatus,
+  pictureKind: PictureKind = noPictureKind,
 ): Promise<InstagramSearchOutcome> {
   const candidates = new Set<string>()
   const decisions = new Map<string, InstagramAuditCandidate>()
@@ -1060,7 +1147,7 @@ async function searchedInstagram(
     const fresh = urls.filter((url) => !candidates.has(url)).slice(0, remaining)
     const found = urls.filter((url) => candidates.has(url) || fresh.includes(url))
     fresh.forEach((url) => candidates.add(url))
-    const validation = selectInstagram(details, found, search.profiles, websiteUrl, true, { firstPassUrls })
+    const validation = await selectInstagram(details, found, search.profiles, websiteUrl, true, { firstPassUrls, pictureStatus, pictureKind })
     if (validation.tieBreak) {
       tieBreak = validation.tieBreak
       tieHandles = validation.tieHandles
@@ -1077,9 +1164,9 @@ async function searchedInstagram(
   return { candidates: [...candidates], validation: { profile, candidates: [...decisions.values()], ...(tieBreak ? { tieBreak, tieHandles } : {}) }, chargedResults, terms }
 }
 
-// Motivos de rechazo de la primera pasada que justifican buscar: el perfil no era, Apify no lo trajo o la cuenta
-// era de otro lugar (agregadora).
-const SEARCHABLE_REJECTIONS = new Set(['identity_or_location_mismatch', 'not_returned_by_provider', 'shared_with_other_place'])
+// Motivos de rechazo de la primera pasada que justifican buscar: el perfil no era, Apify no lo trajo, la cuenta
+// era de otro lugar (agregadora) o era una cuenta personal con el nombre de la marca.
+const SEARCHABLE_REJECTIONS = new Set(['identity_or_location_mismatch', 'not_returned_by_provider', 'shared_with_other_place', 'personal_account'])
 
 /**
  * Por qué corre el respaldo, o null si no corre: sin candidatos, o con todos los candidatos rechazados
@@ -1108,7 +1195,11 @@ function brandNamedInSources(brand: string, website: WebsitePageData | null, exa
 /** Une la primera pasada con el respaldo: el perfil es el del respaldo y, por handle, gana su decisión. */
 function mergedInstagramValidation(first: InstagramValidation | null, fallback: InstagramValidation): InstagramValidation {
   const decisions = new Map((first?.candidates ?? []).map((candidate) => [candidate.handle, candidate]))
-  for (const candidate of fallback.candidates) decisions.set(candidate.handle, candidate)
+  for (const candidate of fallback.candidates) {
+    // Una cuenta personal sigue anotada como tal aunque el respaldo (estricto) la descarte por otra regla.
+    if (decisions.get(candidate.handle)?.reason === 'personal_account' && candidate.decision !== 'selected') continue
+    decisions.set(candidate.handle, candidate)
+  }
   return { profile: fallback.profile, candidates: [...decisions.values()] }
 }
 
@@ -1195,7 +1286,6 @@ function addUnique<T extends string>(values: T[], value: T) {
   if (!values.includes(value)) values.push(value)
 }
 
-/** Una cocina se acepta sólo si algún texto la nombra: su label o un sinónimo de tags.ts, sin acentos. */
 /**
  * Un tag puede ir en signature salvo servicios y logística. Un momento sólo si define al lugar:
  * lo nombra el nombre o la primera oración de la descripción, la que dice qué es el lugar.
@@ -1208,8 +1298,43 @@ export function signatureAllowed(id: string, name: string, description: string) 
   return [moment.label.es, ...moment.synonyms.es].some((phrase) => hasPhrase(definition, phrase))
 }
 
+/** Algún texto nombra la cocina: su label o un sinónimo de tags.ts, sin acentos. */
 export function cuisineMentioned(id: string, texts: string[]) {
   return Object.hasOwn(CUISINES, id) && tagMentioned(id, texts)
+}
+
+// Con nikkei aceptada, a estas les alcanza un plato típico (sushi → japonesa, ceviche → peruana).
+const NIKKEI_PARTNERS = new Set(['japanese', 'peruvian'])
+
+/**
+ * Respaldo de una cocina en los facts: alguno la nombra (label o sinónimo), o aparecen al menos dos platos típicos
+ * distintos de ella (tags.ts, en español como los facts). Un plato suelto no alcanza, salvo para japonesa y peruana
+ * en un lugar nikkei. Devuelve la evidencia: explícita si la nombran, inferida con los platos si no.
+ */
+export function cuisineSupport(id: string, facts: { id: string; text: string }[], acceptedCuisines: readonly string[] = []): TagEvidence | null {
+  if (!Object.hasOwn(CUISINES, id)) return null
+  for (const fact of facts) {
+    const phrase = tagMention(id, [fact.text])
+    if (phrase) return { tag: id, mode: 'explicit', signals: [phrase], factIds: [fact.id] }
+  }
+  const matches = (CUISINES[id as keyof typeof CUISINES].dishes?.es ?? []).flatMap((dish) => {
+    const fact = facts.find((candidate) => dishSupportedBy(dish, candidate.text))
+    return fact ? [{ dish, factId: fact.id }] : []
+  })
+  const needed = acceptedCuisines.includes('nikkei') && NIKKEI_PARTNERS.has(id) ? 1 : 2
+  if (matches.length < needed) return null
+  return { tag: id, mode: 'inferred', signals: matches.map((match) => match.dish), factIds: [...new Set(matches.map((match) => match.factId))] }
+}
+
+/** Respaldo de cada cocina propuesta; nikkei se resuelve primero porque baja el umbral de japonesa y peruana. */
+export function supportedCuisines(ids: string[], facts: { id: string; text: string }[]) {
+  const accepted = ids.includes('nikkei') && cuisineSupport('nikkei', facts) ? ['nikkei'] : []
+  const supported = new Map<string, TagEvidence>()
+  for (const id of ids) {
+    const evidence = cuisineSupport(id, facts, accepted)
+    if (evidence) supported.set(id, evidence)
+  }
+  return supported
 }
 
 /** Algún texto contiene el label o un sinónimo del tag (es o en), como frase completa y sin acentos. */
@@ -1265,6 +1390,47 @@ type ProcessedExtraction = Omit<PlaceExtraction, 'hours' | 'facts' | 'support' |
   categories: CategoryId[]
   tags: TagId[]
   hours: { raw: string | null; display: { es: string; en: string } | null; slots: HoursSlot[] }
+}
+
+// Íconos de comida al paso: sin señales ni precio, el lugar es casual. Cualquier otro, intermedio.
+const CASUAL_ICONS = new Set(['hot_dog', 'burger', 'fries', 'pizza', 'sandwich', 'beer_pub', 'ice_cream'])
+
+/** style sin señales: del precio (low → casual, moderate → intermedio, high o más → cuidado) y, sin precio, del ícono. */
+export function fallbackStyle(price: PlaceExtraction['price'], iconCategory: string): { style: StyleId; evidence: TagEvidence & { basis: 'price' | 'icon' } } {
+  if (price !== 'unknown') {
+    const style: StyleId = price === 'low' ? 'casual' : price === 'moderate' ? 'intermedio' : 'cuidado'
+    return { style, evidence: { tag: style, mode: 'inferred', basis: 'price', signals: [`precio: ${price}`], factIds: [] } }
+  }
+  const style: StyleId = CASUAL_ICONS.has(iconCategory) ? 'casual' : 'intermedio'
+  return { style, evidence: { tag: style, mode: 'inferred', basis: 'icon', signals: [`ícono: ${iconCategory}`], factIds: [] } }
+}
+
+type SearchTextFields = Pick<PlaceEnrichmentDraft, 'name' | 'neighborhoodId' | 'description' | 'locatedIn' | 'dietary' | 'highlights' | 'dishes' | 'style'> & {
+  categories: readonly string[]
+  tags: readonly string[]
+  signature: string[]
+}
+
+/**
+ * Lo que entra en embeddingText y keywordText: nombre, barrio, descripción, categorías, tags, dietas, highlights,
+ * platos, signature y style. Los facts no entran. Lo usan postProcess y el replay que reescribe el style.
+ */
+export function searchTextInput(place: SearchTextFields) {
+  const tags = [...place.categories, ...place.tags,
+    ...(place.dietary.vegan === 'has_options' || place.dietary.vegan === 'fully' ? ['vegan'] : []),
+    ...(place.dietary.vegetarian === 'has_options' || place.dietary.vegetarian === 'fully' ? ['vegetarian'] : []),
+    ...(place.dietary.glutenFree === 'has_options' || place.dietary.glutenFree === 'fully' ? ['gluten_free'] : [])]
+  return {
+    name: place.name,
+    neighborhood: neighborhoodDisplayName(place.neighborhoodId) ?? 'Montevideo',
+    description: place.description,
+    locatedIn: place.locatedIn,
+    tags: [...new Set(tags)],
+    highlights: place.highlights,
+    dishes: place.dishes,
+    signature: place.signature,
+    style: place.style,
+  }
 }
 
 function tagsOfGroup(tags: TagId[], group: TagGroupName) {
@@ -1701,7 +1867,6 @@ export function postProcess(
   const retainTags = <T extends string>(group: keyof typeof ALLOWED_TAG_GROUPS): T[] =>
     [...new Set(result.tags.filter((item) => item.group === group && knownTag(item) && supported(`${group}.${item.id}`)).map((item) => item.id))] as T[]
   const categories = retainTags<CategoryId>('categories')
-  const factTexts = facts.map((fact) => fact.text)
   // Facts que arma el código desde el texto de una fuente (ids C1, C2…), para que el tag tenga respaldo auditable.
   const addCodeFact = (field: string, text: string, source: Source) => {
     let index = 1
@@ -1763,12 +1928,13 @@ export function postProcess(
   }
 
   for (const seedCategory of context.seedCategories ?? []) addUnique(categories, seedCategory)
+  // Una cocina del modelo necesita respaldo en los facts (la nombran o dos platos típicos); reviewExtraction anota las descartadas.
+  const cuisineEvidence = supportedCuisines(retainTags<TagId>('cuisines'), facts)
   const tags: TagId[] = [...new Set<TagId>([
     // late_night jamás se toma del modelo: depende exclusivamente de los horarios.
     ...retainTags<TagId>('moments').filter((moment) => moment !== 'late_night'),
     ...LLM_TAG_GROUPS.filter((group) => group !== 'moments').flatMap((group) => retainTags<TagId>(group)),
-  // Una cocina del modelo necesita un fact que la nombre; reviewExtraction anota las descartadas.
-  ].filter((id) => groupOf(id) !== 'cuisines' || cuisineMentioned(id, factTexts))
+  ].filter((id) => groupOf(id) !== 'cuisines' || cuisineEvidence.has(id))
   // FEATURES, GOOD_FOR, OFFERS y ATMOSPHERE necesitan un fact que no sea del resumen de Exa; FEATURES,
   // GOOD_FOR y ATMOSPHERE, además, uno de esos facts tiene que nombrar el tag (label o sinónimo).
     .filter((id) => {
@@ -1817,10 +1983,10 @@ export function postProcess(
     const signals = id === 'intermedio' ? null : sufficientSignals(signalsIn(STYLE_SIGNALS[id], eligible), signalsIn(STYLE_SIGNALS[id], summaryFacts(field)))
     if (signals) {
       style = id
-      tagEvidence.push(inferredEvidence(id, signals))
+      tagEvidence.push({ ...inferredEvidence(id, signals), basis: 'signals' })
     } else if (id === 'intermedio' && eligible.length > 0) {
       style = id
-      tagEvidence.push({ tag: id, mode: 'inferred', signals: [], factIds: eligible.map((fact) => fact.id) })
+      tagEvidence.push({ tag: id, mode: 'inferred', basis: 'signals', signals: [], factIds: eligible.map((fact) => fact.id) })
     }
   }
   // Un style descartado no deja sus facts como si respaldaran algo.
@@ -1836,7 +2002,7 @@ export function postProcess(
       const factIds = [...new Set(signals.map((match) => match.factId))]
       style = id
       support.set(`style.${id}`, factIds)
-      tagEvidence.push(inferredEvidence(id, signals))
+      tagEvidence.push({ ...inferredEvidence(id, signals), basis: 'signals' })
     }
   }
   // Un highlight tiene que citar un fact válido y aparecer en alguna fuente, en español o en inglés.
@@ -1900,6 +2066,12 @@ export function postProcess(
   // Un precio por persona publicado en las fuentes tiene precedencia sobre la
   // clasificación del modelo, incluso cuando el modelo no lo haya citado.
   processed.price = deterministicPrice(sources) ?? processed.price
+  // style nunca queda vacío: sin señales, sale del precio y, sin precio, del ícono.
+  if (!style) {
+    const fallback = fallbackStyle(processed.price, result.iconCategory)
+    style = fallback.style
+    tagEvidence.push({ ...fallback.evidence, factIds: fallback.evidence.basis === 'price' ? support.get('price') ?? [] : [] })
+  }
   for (const field of ['phone', 'whatsapp', 'instagram', 'website', 'menuUrl', 'reservationUrl'] as const) {
     if (processed.contact[field] && !supported(`contact.${field}`)) processed.contact[field] = null
   }
@@ -1969,22 +2141,7 @@ export function postProcess(
     supports: supportsByFact.get(fact.id) ?? [],
   }))
 
-  // Los facts no entran en el texto de búsqueda: sólo nombre, barrio, descripción, tags y highlights.
-  const searchTags = [...processed.categories, ...processed.tags,
-    ...(processed.dietary.vegan === 'has_options' || processed.dietary.vegan === 'fully' ? ['vegan'] : []),
-    ...(processed.dietary.vegetarian === 'has_options' || processed.dietary.vegetarian === 'fully' ? ['vegetarian'] : []),
-    ...(processed.dietary.glutenFree === 'has_options' || processed.dietary.glutenFree === 'fully' ? ['gluten_free'] : [])]
-  const searchInput = {
-    name: processed.name,
-    neighborhood: neighborhoodDisplayName(target.neighborhoodId) ?? 'Montevideo',
-    description: processed.description,
-    locatedIn: processed.locatedIn,
-    tags: [...new Set(searchTags)],
-    highlights: processed.highlights,
-    dishes,
-    signature,
-    style,
-  }
+  const searchInput = searchTextInput({ ...processed, neighborhoodId: target.neighborhoodId, dishes, signature, style })
   // Seguidores de una sucursal de cadena: son de la marca y no dicen nada de este local.
   const prominence = context.prominenceSignals ?? NO_PROMINENCE_SIGNALS
   const signals = { igFollowers: chain || instagramRejected ? null : prominence.instagramFollowers }
@@ -1994,7 +2151,11 @@ export function postProcess(
     // De la marca, como las categorías: no depende de la sucursal ni lleva support.
     iconCategory: result.iconCategory,
     style,
-    tagEvidence,
+    // Las cocinas que entraron por platos muestran cuáles; las que nombra un fact ya se ven en sus facts.
+    tagEvidence: [
+      ...tagEvidence,
+      ...[...cuisineEvidence.values()].filter((evidence) => evidence.mode === 'inferred' && processed.tags.includes(evidence.tag as TagId)),
+    ],
     hours: normalizedHours,
     dishes,
     signature,
@@ -2136,9 +2297,9 @@ export function reviewExtraction(
     ...data.tags.filter((item) => item.group === 'cuisines').map((item) => item.id.trim()),
     ...data.facts.map((fact) => fact.proposedTag?.trim() ?? '').filter((id) => groupOf(id) === 'cuisines'),
   ]
-  const factTexts = place.placeFacts.map((fact) => fact.text)
+  const supported = supportedCuisines([...new Set(proposedCuisines)], place.placeFacts)
   const unmentioned = [...new Set(proposedCuisines)]
-    .filter((id) => Object.hasOwn(CUISINES, id) && !tags.includes(id) && !cuisineMentioned(id, factTexts))
+    .filter((id) => Object.hasOwn(CUISINES, id) && !tags.includes(id) && !supported.has(id))
   if (unmentioned.length > 0) anomalies.push({ type: 'cuisine_unmentioned', detail: unmentioned.join(', ') })
 
   return {
@@ -2506,10 +2667,27 @@ export class PlaceExtractionService implements PlaceExtractor {
       const ownCandidates = candidates.filter((candidate) => !shared.has(instagramHandle(candidate) ?? ''))
       const instagramFallback: NonNullable<PlaceReview['instagramFallback']> = { attempted: false, reason: '', terms: [], handles: [], costUsd: 0 }
       let firstPass: InstagramValidation | null = null
+      // Desempate por foto de perfil: la misma detección del avatar genérico que el logo, con su fetcher.
+      const pictureStatus: PictureStatus = (profile) => profilePictureStatus(profile.profilePicUrl, this.logoFetcher)
+      // Cuentas personales: la foto de los aceptados sin señales de negocio se clasifica con el modelo del logo, una
+      // vez por perfil aunque aparezca en las dos pasadas. El logo reusa la del elegido.
+      const pictureClassifications = new Map<string, Promise<PictureClassification | null>>()
+      const classifyPicture = (profile: InstagramProfileData) => {
+        const key = instagramProfileUrl(profile.url) ?? profile.url
+        if (!pictureClassifications.has(key)) {
+          pictureClassifications.set(key, classifyProfilePicture(profile.profilePicUrl, {
+            classify: (image, model) => this.limited('llm', rateLimits, () => this.classifyLogo(image, model)),
+            model: this.logoModel,
+            fetcher: this.logoFetcher,
+          }))
+        }
+        return pictureClassifications.get(key)!
+      }
+      const pictureKind: PictureKind = async (profile) => (await classifyPicture(profile))?.kind ?? null
       let fallbackValidation: InstagramValidation | null = null
       if (ownCandidates.length > 0) {
         if (this.instagram?.configured) costUsage.instagramRequests = 1
-        firstPass = await timed('instagram', () => validatedInstagram(this.instagram, details, ownCandidates, websiteUrl, (operation) => this.limited('apify', rateLimits, operation)))
+        firstPass = await timed('instagram', () => validatedInstagram(this.instagram, details, ownCandidates, websiteUrl, (operation) => this.limited('apify', rateLimits, operation), pictureStatus, pictureKind))
       }
       if (sharedDecisions.length > 0) firstPass = { ...(firstPass ?? { profile: null }), candidates: [...sharedDecisions, ...(firstPass?.candidates ?? [])] }
       let instagramValidation: InstagramValidation = firstPass ?? { profile: null, candidates: [] }
@@ -2520,7 +2698,7 @@ export class PlaceExtractionService implements PlaceExtractor {
         Object.assign(instagramFallback, { skipped: 'unconfirmed_name', reason: fallbackReason })
       } else if (canSearch && fallbackReason) {
         // Respaldo: sin candidatos o con los de la primera pasada rechazados. Busca la marca en Instagram con Apify.
-        const searched = await timed('instagramSearch', () => searchedInstagram(this.instagram!, details, brand, websiteUrl, (operation) => this.limited('apify', rateLimits, operation), ownCandidates, new Set(shared.keys())))
+        const searched = await timed('instagramSearch', () => searchedInstagram(this.instagram!, details, brand, websiteUrl, (operation) => this.limited('apify', rateLimits, operation), ownCandidates, new Set(shared.keys()), pictureStatus, pictureKind))
         fallbackValidation = searched.validation
         candidates = [...new Set([...candidates, ...searched.candidates])]
         for (const url of searched.candidates) origins.set(url, [...new Set([...(origins.get(url) ?? []), 'apify_search' as const])])
@@ -2544,11 +2722,12 @@ export class PlaceExtractionService implements PlaceExtractor {
       instagramValidation = { ...instagramValidation, candidates: withOrigins(instagramValidation.candidates, origins) }
       const profile = instagramValidation.profile
       // Logo desde la foto de perfil validada, en paralelo con la web y los buses. Nunca falla.
-      const logoPromise = timed('logo', () => fetchPlaceLogo(profile, placeId, {
+      const logoPromise = timed('logo', async () => fetchPlaceLogo(profile, placeId, {
         storage: this.logoStorage,
         classify: (image, model) => this.limited('llm', rateLimits, () => this.classifyLogo(image, model)),
         model: this.logoModel,
         fetcher: this.logoFetcher,
+        known: profile ? await pictureClassifications.get(profile.url) ?? null : null,
       }))
       // Y al revés: sin web todavía, la que enlaza el Instagram validado si su dominio lleva la marca.
       if (!websiteUrl && profile) {
@@ -2587,7 +2766,8 @@ export class PlaceExtractionService implements PlaceExtractor {
       sourceCharacters = sources.reduce((total, source) => total + source.text.slice(0, MAX_CHARS_PER_SOURCE).length, 0)
       const transit = await transitPromise
       if (this.transit) costUsage.transitRequests = 1
-      const logo = await logoPromise
+      // El costo de clasificar fotos suma el del logo y el de las clasificadas al elegir el perfil.
+      const logo = withPictureClassifications(await logoPromise, await Promise.all(pictureClassifications.values()))
       return {
         placeId,
         request,

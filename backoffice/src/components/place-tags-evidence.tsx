@@ -14,6 +14,9 @@ const GROUPS: { group: GroupName; title: string }[] = [
   { group: 'style', title: 'Estilo' },
 ]
 
+// De dónde salió el style.
+const STYLE_BASIS = { signals: 'señales', price: 'precio', icon: 'ícono' } as const
+
 type PlaceTagsEvidenceProps = {
   place: Pick<PlaceEnrichmentDraft, 'categories' | 'tags' | 'placeFacts' | 'style' | 'tagEvidence'>
 }
@@ -50,7 +53,7 @@ export function PlaceTagsEvidence({ place }: PlaceTagsEvidenceProps) {
                   <code className="text-xs text-muted-foreground">{id}</code>
                   {evidence && (
                     <span className="text-xs text-muted-foreground">
-                      {' '}· {evidence.mode === 'explicit' ? 'Explícito' : 'Inferido'}{evidence.signals.length > 0 ? `: ${evidence.signals.join(', ')}` : ''}
+                      {' '}· {evidence.mode === 'explicit' ? 'Explícito' : 'Inferido'}{evidence.basis ? ` por ${STYLE_BASIS[evidence.basis]}` : ''}{evidence.signals.length > 0 ? `: ${evidence.signals.join(', ')}` : ''}
                     </span>
                   )}
                   {facts.length > 0 ? (

@@ -31,7 +31,7 @@ export const LOGO_ISSUES = [
 ] as const satisfies readonly LogoIssue[]
 
 const MAX_REPORT_PLACES = 2000
-const TIE_BREAK_RULES = ['first_pass_candidate', 'gastronomy', 'latest_post', 'followers', 'unresolved'] as const satisfies readonly InstagramTieBreakRule[]
+const TIE_BREAK_RULES = ['first_pass_candidate', 'gastronomy', 'profile_picture', 'latest_post', 'followers', 'unresolved'] as const satisfies readonly InstagramTieBreakRule[]
 const text = z.string().trim().min(1).max(1000)
 
 export const extractionReportRequestSchema = z.object({

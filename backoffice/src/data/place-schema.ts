@@ -89,6 +89,7 @@ export const PlaceDraft = z.object({
   tagEvidence: z.array(z.object({
     tag: z.string(),
     mode: z.enum(['explicit', 'inferred']),
+    basis: z.enum(['signals', 'price', 'icon']).optional(),
     signals: z.array(z.string()),
     factIds: z.array(z.string()),
   })).default([]),

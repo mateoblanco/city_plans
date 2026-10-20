@@ -26,6 +26,10 @@ const base: PlaceExtraction = {
 
 const web = (text: string): Source => ({ id: 'S1', kind: 'web', trust: 'official', url: 'https://bar.example/', text })
 
+/** El style y de dónde salió. Sin señales, base (ícono beer, sin precio) cae a intermedio por ícono. */
+const styleOf = (place: ReturnType<typeof run>) => [place.style, place.tagEvidence?.find((item) => item.tag === place.style)?.basis]
+const BY_ICON = ['intermedio', 'icon']
+
 /** Facts F1, F2… de la fuente S1 y un tag que los cita a todos. */
 function run(texts: string[], tags: PlaceExtraction['tags'], sourceText = texts.join('. ')) {
   const facts = texts.map((text, index) => ({ id: `F${index + 1}`, text, sourceId: 'S1', kind: 'other' as const, proposedTag: null }))
@@ -146,39 +150,61 @@ describe('postProcess: style', () => {
   it('casual con una señal', () => {
     const place = run(['Pizza por porción en el mostrador'], [{ group: 'style', id: 'casual', facts: ['F1'] }])
     expect(place.style).toBe('casual')
-    expect(place.tagEvidence).toContainEqual({ tag: 'casual', mode: 'inferred', signals: ['por porción'], factIds: ['F1'] })
+    expect(place.tagEvidence).toContainEqual({ tag: 'casual', mode: 'inferred', basis: 'signals', signals: ['por porción'], factIds: ['F1'] })
     expect(place.embeddingText).toContain('Estilo casual')
     expect(place.keywordText).toContain('de barrio')
   })
 
-  it('cuidado sin señal queda null, nunca intermedio', () => {
+  it('cuidado sin señal no queda: sale del ícono', () => {
     const place = run(['Abre de noche'], [{ group: 'style', id: 'cuidado', facts: ['F1'] }])
-    expect(place.style).toBeNull()
+    expect(styleOf(place)).toEqual(BY_ICON)
     expect(place.placeFacts.find((fact) => fact.id === 'F1')?.supports).not.toContain('style.cuidado')
   })
 
   it('intermedio necesita algún fact', () => {
-    expect(run(['Carta de minutas y pastas'], [{ group: 'style', id: 'intermedio', facts: ['F1'] }]).style).toBe('intermedio')
-    expect(run(['Carta de minutas y pastas'], [{ group: 'style', id: 'intermedio', facts: [] }]).style).toBeNull()
+    expect(styleOf(run(['Carta de minutas y pastas'], [{ group: 'style', id: 'intermedio', facts: ['F1'] }]))).toEqual(['intermedio', 'signals'])
+    expect(styleOf(run(['Carta de minutas y pastas'], [{ group: 'style', id: 'intermedio', facts: [] }]))).toEqual(BY_ICON)
   })
 
-  it('dos styles distintos se contradicen: null', () => {
+  it('dos styles distintos se contradicen: sale del ícono', () => {
     const place = run(['Cocina de autor', 'Por porción'], [{ group: 'style', id: 'cuidado', facts: ['F1'] }, { group: 'style', id: 'casual', facts: ['F2'] }])
-    expect(place.style).toBeNull()
+    expect(styleOf(place)).toEqual(BY_ICON)
   })
 
   it('sin style del modelo, lo deduce de las señales de un solo estilo', () => {
     const place = run(['Ambiente informal y a la moda'], [])
     expect(place.style).toBe('casual')
-    expect(place.tagEvidence).toContainEqual({ tag: 'casual', mode: 'inferred', signals: ['informal'], factIds: ['F1'] })
+    expect(place.tagEvidence).toContainEqual({ tag: 'casual', mode: 'inferred', basis: 'signals', signals: ['informal'], factIds: ['F1'] })
     expect(place.placeFacts.find((fact) => fact.id === 'F1')?.supports).toContain('style.casual')
-    expect(run(['Ambiente informal', 'Cocina de autor'], []).style).toBeNull()
-    expect(run(['Abre de noche'], []).style).toBeNull()
+    expect(styleOf(run(['Ambiente informal', 'Cocina de autor'], []))).toEqual(BY_ICON)
+    expect(styleOf(run(['Abre de noche'], []))).toEqual(BY_ICON)
   })
 
   it('toques en vivo cuentan como música para groups', () => {
     const place = run(['Tienen toques en vivo', 'Sirven cócteles'], [{ group: 'goodFor', id: 'groups', facts: allFacts(2) }])
     expect(place.tags).toContain('groups')
+  })
+
+  it('sin señales sale del precio, y sin precio del ícono', () => {
+    const withPrice = (price: PlaceExtraction['price']) => postProcess(target, {
+      ...base, price, facts: [{ id: 'F1', text: 'Platos entre 300 y 500 pesos', sourceId: 'S1', kind: 'price', proposedTag: null }],
+      support: [{ field: 'price', facts: ['F1'] }],
+    }, { sources: [web('Platos entre 300 y 500 pesos')] })
+    expect(styleOf(withPrice('low'))).toEqual(['casual', 'price'])
+    expect(styleOf(withPrice('moderate'))).toEqual(['intermedio', 'price'])
+    expect(styleOf(withPrice('high'))).toEqual(['cuidado', 'price'])
+    expect(styleOf(withPrice('very_high'))).toEqual(['cuidado', 'price'])
+    expect(withPrice('low').tagEvidence).toContainEqual({ tag: 'casual', mode: 'inferred', basis: 'price', signals: ['precio: low'], factIds: ['F1'] })
+    // Las señales ganan al precio.
+    const signals = postProcess(target, {
+      ...base, price: 'very_high', facts: [{ id: 'F1', text: 'Ambiente informal', sourceId: 'S1', kind: 'other', proposedTag: null }],
+    }, { sources: [web('Ambiente informal')] })
+    expect(styleOf(signals)).toEqual(['casual', 'signals'])
+    const icon = (iconCategory: PlaceExtraction['iconCategory']) => postProcess(target, { ...base, iconCategory }, { sources: [web('Bar')] })
+    expect(icon('pizza').tagEvidence).toContainEqual({ tag: 'casual', mode: 'inferred', basis: 'icon', signals: ['ícono: pizza'], factIds: [] })
+    for (const id of ['hot_dog', 'burger', 'fries', 'sandwich', 'beer_pub', 'ice_cream'] as const) expect(styleOf(icon(id)), id).toEqual(['casual', 'icon'])
+    expect(styleOf(icon('wine'))).toEqual(BY_ICON)
+    expect(icon('pizza').embeddingText).toContain('Estilo casual')
   })
 
   it('style no entra en tags', () => {
@@ -216,20 +242,20 @@ describe('resumen de Exa como señal débil', () => {
   })
 
   it('el style no sale sólo del resumen', () => {
-    expect(mixed('Abre de noche', 'Ambiente informal', () => []).style).toBeNull()
+    expect(styleOf(mixed('Abre de noche', 'Ambiente informal', () => []))).toEqual(BY_ICON)
     expect(sufficientSignals([], signalsIn(MOMENT_SIGNALS.quick, [{ id: 'F2', text: 'Se come al paso' }]))).toBeNull()
   })
 })
 
 describe('señales débiles de style', () => {
   it('reservas recomendadas sola no alcanza para cuidado', () => {
-    expect(run(['Se recomienda reservar'], [{ group: 'style', id: 'cuidado', facts: ['F1'] }]).style).toBeNull()
+    expect(styleOf(run(['Se recomienda reservar'], [{ group: 'style', id: 'cuidado', facts: ['F1'] }]))).toEqual(BY_ICON)
   })
 
   it('casual con dos débiles distintas', () => {
-    expect(run(['Hamburguesería'], [{ group: 'style', id: 'casual', facts: ['F1'] }]).style).toBeNull()
+    expect(styleOf(run(['Hamburguesería'], [{ group: 'style', id: 'casual', facts: ['F1'] }]))).toEqual(BY_ICON)
     const place = run(['Hamburguesería con combos', 'Ambiente relajado'], [{ group: 'style', id: 'casual', facts: allFacts(2) }])
     expect(place.style).toBe('casual')
-    expect(place.tagEvidence).toContainEqual({ tag: 'casual', mode: 'inferred', signals: ['hamburguesería', 'combos'], factIds: ['F1'] })
+    expect(place.tagEvidence).toContainEqual({ tag: 'casual', mode: 'inferred', basis: 'signals', signals: ['hamburguesería', 'combos'], factIds: ['F1'] })
   })
 })

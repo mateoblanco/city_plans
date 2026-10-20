@@ -115,6 +115,9 @@ describe('reporte de extracción por lote', () => {
           instagramTieBreak: { rule: 'latest_post', pass: 'first', handles: ['cordonbeer', 'cordon.beer'] },
           instagramShared: [{ handle: 'lanocheuy_', places: ['place-2'] }],
         }),
+      }, {
+        name: 'Living Bar', googlePlaceId: 'place-7', stats: stats(),
+        review: review({ instagramTieBreak: { rule: 'profile_picture', pass: 'fallback', handles: ['living.uy', 'living_uy'] } }),
       }],
       apifyErrors: ['place-3', 'place-4', 'place-5'],
       stoppedByApify: true,
@@ -123,7 +126,7 @@ describe('reporte de extracción por lote', () => {
     const report = buildExtractionReport(parsed)
     expect(report.summary.apifyErrors).toEqual({ places: ['place-3', 'place-4', 'place-5'], stopped: true })
     expect(report.summary.rateLimits.transientRetries).toBe(2)
-    expect(report.summary.instagramTieBreaks).toEqual({ latest_post: 1 })
+    expect(report.summary.instagramTieBreaks).toEqual({ latest_post: 1, profile_picture: 1 })
     expect(reportSummary(report)).toContain('Error de Apify: 3 sin procesar · el lote se cortó')
     expect(report.summary.exaErrors).toEqual({ places: ['place-6'], stopped: false })
     expect(reportSummary(report)).toContain('Error de Exa: reintentar · 1 sin procesar')

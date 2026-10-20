@@ -86,7 +86,8 @@ export function classifyTerm(raw: string): Term | null {
   if (TAG_ID_SET.has(value)) return { kind: 'tag', id: value }
   if (isStyleId(value)) return { kind: 'style', id: value }
   const found = canonicalOf(normalize(value.replace(/_/g, ' ')))
-  if (!found) return null
+  // Un plato típico ("tacos") no es un tag: va como plato, no como filtro de cocina.
+  if (!found || found.dish) return null
   if (found.group === 'categories') return { kind: 'category', id: found.id }
   if (found.group === 'style' && isStyleId(found.id)) return { kind: 'style', id: found.id }
   if (found.group === 'dietary') return { kind: 'diet', key: DIET_BY_TAG[found.id] }

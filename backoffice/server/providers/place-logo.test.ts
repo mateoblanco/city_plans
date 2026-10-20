@@ -1,12 +1,14 @@
 import sharp from 'sharp'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  classifyProfilePicture,
   extractLogoColors,
   fetchPlaceLogo,
   GENERIC_AVATAR_HASHES,
   hashDistance,
   imageHash,
   isGenericAvatarHash,
+  profilePictureStatus,
   type LogoDeps,
 } from './place-logo.ts'
 
@@ -173,6 +175,16 @@ describe('fetchPlaceLogo', () => {
     expect(options.storage!.put).not.toHaveBeenCalled()
   })
 
+  it('reusa la clasificación hecha al elegir el perfil sin volver a llamar al modelo', async () => {
+    const classify = vi.fn()
+    const known = { kind: 'person' as const, classification: { model: 'anthropic/claude-haiku-5.5', usage: { inputTokens: 900, cachedInputTokens: null, outputTokens: 8, gatewayCostUsd: null } } }
+    const outcome = await fetchPlaceLogo(profile, 'p', deps(await png('<rect width="320" height="320" fill="#123456"/>'), { classify, known }))
+    expect(classify).not.toHaveBeenCalled()
+    expect(outcome.review).toEqual({ status: 'missing', reason: 'person_photo', kind: 'person' })
+    // El costo ya se contó al clasificarla.
+    expect(outcome.classification).toBeNull()
+  })
+
   it('las demás clasificaciones se suben como siempre', async () => {
     for (const kind of ['local', 'food', 'other'] as const) {
       const options = deps(await png('<rect width="320" height="320" fill="#123456"/>'), { classify: vi.fn(async () => ({ kind })) })
@@ -180,5 +192,46 @@ describe('fetchPlaceLogo', () => {
       expect(outcome.logo).toMatchObject({ kind })
       expect(options.storage!.put).toHaveBeenCalledTimes(1)
     }
+  })
+})
+
+describe('profilePictureStatus (desempate de Instagram)', () => {
+  const genericUrl = 'https://scontent.cdninstagram.com/v/t51.2885-19/573323465_1219825463302212_7278921664109726296_n.png?x=1'
+  const serve = (image: Buffer | Response) => vi.fn(async () => image instanceof Response ? image : new Response(new Uint8Array(image), { status: 200 })) as never
+
+  it('reconoce el avatar genérico por el nombre de archivo, sin descargarlo, o por el hash', async () => {
+    const fetcher = serve(Buffer.alloc(0))
+    expect(await profilePictureStatus(genericUrl, fetcher)).toBe('generic')
+    expect(fetcher).not.toHaveBeenCalled()
+
+    const avatar = await sharp(Buffer.from(GENERIC_AVATAR_HASHES[0], 'hex'), { raw: { width: 8, height: 8, channels: 1 } })
+      .resize(150, 150).jpeg({ quality: 70 }).toBuffer()
+    expect(await profilePictureStatus('https://cdn.example/otro-nombre.jpg', serve(avatar))).toBe('generic')
+  })
+
+  it('una foto real es real; sin foto, sin descarga o si no es imagen, unknown', async () => {
+    const logo = await png('<rect width="320" height="320" fill="#1d3b48"/><circle cx="160" cy="160" r="90" fill="#f2c14e"/>')
+    expect(await profilePictureStatus('https://cdn.example/logo.jpg', serve(logo))).toBe('real')
+    expect(await profilePictureStatus(undefined, serve(logo))).toBe('unknown')
+    expect(await profilePictureStatus('https://cdn.example/logo.jpg', serve(new Response('no', { status: 404 })))).toBe('unknown')
+    expect(await profilePictureStatus('https://cdn.example/logo.jpg', serve(Buffer.from('no es una imagen')))).toBe('unknown')
+  })
+})
+
+describe('classifyProfilePicture', () => {
+  it('clasifica la foto con su uso, y devuelve null sin foto, con el avatar genérico, sin descarga o si el modelo falla', async () => {
+    const image = await png('<rect width="320" height="320" fill="#a0522d"/>')
+    const classify = vi.fn(async () => ({ kind: 'person' as const, inputTokens: 600, outputTokens: 5, gatewayCostUsd: 0.0007 }))
+    const options = { ...deps(image), classify }
+    expect(await classifyProfilePicture('https://cdn.example/p.jpg', options)).toEqual({
+      kind: 'person',
+      classification: { model: 'anthropic/claude-haiku-5.5', usage: { inputTokens: 600, cachedInputTokens: null, cacheWriteTokens: null, outputTokens: 5, gatewayCostUsd: 0.0007 } },
+    })
+    classify.mockClear()
+    expect(await classifyProfilePicture(undefined, options)).toBeNull()
+    expect(await classifyProfilePicture('https://scontent.cdninstagram.com/v/t51.2885-19/573323465_1219825463302212_7278921664109726296_n.png?x=1', options)).toBeNull()
+    expect(await classifyProfilePicture('https://cdn.example/p.jpg', { ...deps(new Response('', { status: 403 })), classify })).toBeNull()
+    expect(classify).not.toHaveBeenCalled()
+    expect(await classifyProfilePicture('https://cdn.example/p.jpg', { ...options, classify: vi.fn(async () => { throw new Error('gateway') }) })).toBeNull()
   })
 })

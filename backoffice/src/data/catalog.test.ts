@@ -4,7 +4,7 @@ import {
   MONTEVIDEO_NEIGHBORHOODS,
   isMontevideoNeighborhood,
 } from './neighborhoods'
-import { FEATURES, GOOD_FOR, TAG_IDS, buildEmbeddingText, buildKeywordText, groupOf, tagsForFilter, toCanonical } from './tags'
+import { CUISINES, FEATURES, GOOD_FOR, TAG_IDS, buildEmbeddingText, buildKeywordText, groupOf, tagsForFilter, toCanonical, type TagDef } from './tags'
 
 describe('catálogos permitidos', () => {
   it('incluye los 166 tipos oficiales de Food and Drink sin duplicados', () => {
@@ -86,6 +86,33 @@ describe('catálogos permitidos', () => {
     expect(TAG_IDS).not.toContain('family')
     expect(TAG_IDS).not.toContain('sports_screens')
     expect(TAG_IDS).not.toContain('merienda_for_two')
+  })
+
+  it('cada cocina tiene sinónimos en los dos idiomas y los platos típicos no pisan otros términos', () => {
+    for (const [id, definition] of Object.entries(CUISINES) as [string, TagDef][]) {
+      expect(definition.synonyms.es.length, id).toBeGreaterThan(0)
+      expect(definition.synonyms.en.length, id).toBeGreaterThan(0)
+      for (const dish of definition.dishes?.es ?? []) {
+        // Un plato es de una sola cocina y no es el nombre de ninguna (si es de otro grupo, como sushi, gana ese tag).
+        const found = toCanonical(dish)
+        if (found?.group === 'cuisines') expect(found, dish).toEqual({ group: 'cuisines', id, dish: true })
+      }
+    }
+  })
+
+  it('resuelve las cocinas y sus platos típicos sin sacarle palabras a otros tags', () => {
+    expect(toCanonical('nikkei')).toEqual({ group: 'cuisines', id: 'nikkei' })
+    expect(toCanonical('francesa')).toEqual({ group: 'cuisines', id: 'french' })
+    expect(toCanonical('brasilero')).toEqual({ group: 'cuisines', id: 'brazilian' })
+    expect(toCanonical('asiática')).toEqual({ group: 'cuisines', id: 'asian' })
+    expect(toCanonical('cevichería')).toEqual({ group: 'cuisines', id: 'peruvian' })
+    expect(toCanonical('tacos')).toBeNull()
+    expect(toCanonical('taco')).toEqual({ group: 'cuisines', id: 'mexican', dish: true })
+    expect(toCanonical('ceviche')).toEqual({ group: 'cuisines', id: 'peruvian', dish: true })
+    expect(toCanonical('curry')).toEqual({ group: 'cuisines', id: 'indian', dish: true })
+    expect(toCanonical('burrito')).toEqual({ group: 'foods', id: 'wraps' })
+    expect(toCanonical('sushi')).toEqual({ group: 'foods', id: 'sushi' })
+    expect(toCanonical('wok')).toEqual({ group: 'foods', id: 'wok' })
   })
 
   it('resuelve los sinónimos nuevos a su tag', () => {

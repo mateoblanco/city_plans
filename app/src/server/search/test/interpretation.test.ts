@@ -48,6 +48,12 @@ describe('atajo con diccionario', () => {
     const dish = interpretWithDictionary('milanesa napolitana en parque rodo')
     expect(dish?.dishes).toEqual([{ name: 'milanesa napolitana', relatedTags: ['milanesa'], relatedCategories: [] }])
     expect(dish?.must.neighborhoods).toEqual(['PARQUE RODO'])
+    // Un plato típico de una cocina va como plato con la cocina de respaldo, no como filtro de cocina.
+    const tacos = interpretWithDictionary('tacos en cordon')
+    expect(tacos?.dishes).toEqual([{ name: 'tacos', relatedTags: ['mexican'], relatedCategories: [] }])
+    expect(tacos?.must.tags).toEqual([])
+    expect(interpretWithDictionary('comida mexicana')?.must.tags).toEqual(['mexican'])
+    expect(interpretWithDictionary('nikkei')?.must.tags).toEqual(['nikkei'])
     expect(interpretWithDictionary(normalizeQuery('brunch vegano con terraza en cordón el domingo'))?.must).toMatchObject({
       tags: ['brunch', 'terrace'],
       diet: { vegan: true },
@@ -103,6 +109,8 @@ describe('validateInterpretation', () => {
     expect(classifyTerm('cafe')).toEqual({ kind: 'category', id: 'cafe' })
     expect(classifyTerm('gluten_free')).toEqual({ kind: 'diet', key: 'glutenFree' })
     expect(classifyTerm('inventado')).toBeNull()
+    expect(classifyTerm('tacos')).toBeNull()
+    expect(classifyTerm('Mexicana')).toEqual({ kind: 'tag', id: 'mexican' })
   })
 
   it('descarta ids y barrios inválidos y corrige el grupo', () => {

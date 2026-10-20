@@ -176,6 +176,8 @@ export type LogoDeps = {
   model: string
   fetcher?: typeof fetch
   now?: () => Date
+  /** Clasificación ya hecha al elegir el perfil (classifyProfilePicture): no se vuelve a pagar. */
+  known?: PictureClassification | null
 }
 
 export type LogoOutcome = {
@@ -183,6 +185,36 @@ export type LogoOutcome = {
   review: PlaceReview['logo']
   /** Uso del modelo de clasificación, si se llegó a llamar; el costo lo calcula el servicio. */
   classification: { model: string; usage: LlmUsage } | null
+}
+
+/** Qué muestra la foto y el uso del modelo que la clasificó. */
+export type PictureClassification = { kind: LogoKind; classification: NonNullable<LogoOutcome['classification']> }
+
+/** La foto a 512 px sobre blanco, en JPEG: lo que ve el clasificador. */
+function classificationPreview(original: Buffer): Promise<Buffer> {
+  return sharp(original).rotate().resize(512, 512, { fit: 'inside', withoutEnlargement: true }).flatten({ background: '#ffffff' }).jpeg({ quality: 85 }).toBuffer()
+}
+
+/** Clasifica la vista previa; null si el modelo falla. */
+async function runClassifier(preview: Buffer, classify: LogoClassifier, model: string): Promise<PictureClassification | null> {
+  try {
+    const { kind, ...usage } = await classify(preview, model)
+    return {
+      kind,
+      classification: {
+        model,
+        usage: {
+          inputTokens: usage.inputTokens ?? null,
+          cachedInputTokens: usage.cachedInputTokens ?? null,
+          cacheWriteTokens: usage.cacheWriteTokens ?? null,
+          outputTokens: usage.outputTokens ?? null,
+          gatewayCostUsd: usage.gatewayCostUsd ?? null,
+        },
+      },
+    }
+  } catch {
+    return null
+  }
 }
 
 // Sin foto usable es "missing"; si un paso falló con una foto válida, "failed".
@@ -216,6 +248,42 @@ async function download(url: string, fetcher: typeof fetch): Promise<Download> {
   } catch (error) {
     return { error: error instanceof DOMException && (error.name === 'TimeoutError' || error.name === 'AbortError') ? 'timeout' : 'red' }
   }
+}
+
+export type ProfilePictureStatus = 'real' | 'generic' | 'unknown'
+
+/**
+ * Si la foto de perfil es el avatar genérico de Instagram, con la misma detección que el logo: el nombre de
+ * archivo del CDN y, si no alcanza, el hash perceptual. unknown: sin foto, sin poder bajarla o si no es imagen.
+ */
+export async function profilePictureStatus(url: string | undefined, fetcher: typeof fetch = fetch): Promise<ProfilePictureStatus> {
+  if (!url) return 'unknown'
+  if (isGenericAvatarUrl(url)) return 'generic'
+  const downloaded = await download(url, fetcher)
+  if ('error' in downloaded) return 'unknown'
+  try {
+    return isGenericAvatarHash(await imageHash(downloaded.body)) ? 'generic' : 'real'
+  } catch {
+    return 'unknown'
+  }
+}
+
+/**
+ * Qué muestra la foto de perfil (logo, local, comida, persona u otra), para decidir el perfil antes del paso del
+ * logo. null sin foto, con el avatar genérico, si no se pudo bajar, si no es imagen o si el modelo falló.
+ */
+export async function classifyProfilePicture(url: string | undefined, deps: Pick<LogoDeps, 'classify' | 'model' | 'fetcher'>): Promise<PictureClassification | null> {
+  if (!url || isGenericAvatarUrl(url)) return null
+  const downloaded = await download(url, deps.fetcher ?? fetch)
+  if ('error' in downloaded) return null
+  let preview: Buffer
+  try {
+    if (isGenericAvatarHash(await imageHash(downloaded.body))) return null
+    preview = await classificationPreview(downloaded.body)
+  } catch {
+    return null
+  }
+  return runClassifier(preview, deps.classify, deps.model)
 }
 
 /**
@@ -252,30 +320,16 @@ export async function fetchPlaceLogo(profile: InstagramProfileData | null, googl
     // Colores sobre el mismo recorte que se muestra, a 128 px.
     const raw = await sharp(original).rotate().resize(128, 128, { fit: 'cover', position: 'centre' }).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
     colors = extractLogoColors(raw.data, raw.info.width, raw.info.height)
-    preview = await sharp(original).rotate().resize(512, 512, { fit: 'inside', withoutEnlargement: true }).flatten({ background: '#ffffff' }).jpeg({ quality: 85 }).toBuffer()
+    preview = deps.known ? original : await classificationPreview(original)
   } catch {
     return withoutLogo('processing_failed')
   }
 
-  // La clasificación se guarda siempre que se pueda; si falla, se sigue con kind null.
-  let kind: LogoKind | null = null
-  let classification: LogoOutcome['classification'] = null
-  try {
-    const { kind: classified, ...usage } = await deps.classify(preview, deps.model)
-    kind = classified
-    classification = {
-      model: deps.model,
-      usage: {
-        inputTokens: usage.inputTokens ?? null,
-        cachedInputTokens: usage.cachedInputTokens ?? null,
-        cacheWriteTokens: usage.cacheWriteTokens ?? null,
-        outputTokens: usage.outputTokens ?? null,
-        gatewayCostUsd: usage.gatewayCostUsd ?? null,
-      },
-    }
-  } catch {
-    kind = null
-  }
+  // La clasificación se guarda siempre que se pueda; si falla, se sigue con kind null. Si ya se clasificó al
+  // elegir el perfil, se usa esa (su costo ya se contó ahí).
+  const classified = deps.known ?? await runClassifier(preview, deps.classify, deps.model)
+  const kind: LogoKind | null = classified?.kind ?? null
+  const classification: LogoOutcome['classification'] = deps.known ? null : classified?.classification ?? null
 
   // Una foto de una persona no sirve de logo: no se sube y el lugar queda sin logo.
   if (kind === 'person') return withoutLogo('person_photo', kind, classification)
