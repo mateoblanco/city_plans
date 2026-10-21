@@ -1,0 +1,2 @@
+ALTER TABLE "places" DROP CONSTRAINT "places_review_reasons_check";--> statement-breakpoint
+ALTER TABLE "places" ADD CONSTRAINT "places_review_reasons_check" CHECK ("places"."review_reasons" <@ array['not_open_yet', 'no_place_facts', 'unconfirmed_place', 'restaurant_without_food', 'bar_without_drinks']::text[]);

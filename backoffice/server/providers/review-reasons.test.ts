@@ -32,6 +32,20 @@ describe('reviewReasonsFor', () => {
     expect(reviewReasonsFor({ placeFacts: [] }, review({ doubts }))).toEqual(['no_place_facts'])
   })
 
+  it('Mob Garden: la duda con «Local no confirmado:» manda a revisión; descartar fuentes de otro local, no', () => {
+    expect(reviewReasonsFor({ placeFacts: OPEN }, review({ doubts: ['Local no confirmado: las fuentes describen Mob Garden en el Prado, no el local de Punta Carretas.'] }))).toEqual(['unconfirmed_place'])
+    expect(reviewReasonsFor({ placeFacts: OPEN }, review({ doubts: ['LOCAL NO CONFIRMADO: otra dirección'] }))).toEqual(['unconfirmed_place'])
+    for (const doubt of [
+      'Horario de terceros corresponde a otra sucursal, no se cargó',
+      'Las fuentes de terceros sobre La Ronda Café (Ciudadela) son de otro local y se ignoraron',
+      'Instagram rechazado: @mobgarden__ es de otro local',
+    ]) {
+      expect(reviewReasonsFor({ placeFacts: OPEN }, review({ doubts: [doubt] })), doubt).toEqual([])
+    }
+    // Sin facts alcanza con no_place_facts.
+    expect(reviewReasonsFor({ placeFacts: [] }, review({ doubts: ['Local no confirmado: otra sucursal'] }))).toEqual(['no_place_facts'])
+  })
+
   it('restaurant_without_food y bar_without_drinks mandan a revisión; cuisine_unmentioned y el resto, no', () => {
     const anomalies: PlaceReview['anomalies'] = [
       { type: 'restaurant_without_food', detail: 'restaurant' },

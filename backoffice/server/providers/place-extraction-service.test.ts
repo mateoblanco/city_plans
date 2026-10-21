@@ -29,6 +29,8 @@ import {
   hasGastronomyCategory,
   isForeignSource,
   resolveDeterministicContact,
+  isListingSource,
+  placeText,
   SYSTEM_PROMPT,
   HOURS_RETRY_PROMPT,
   hoursModelConfig,
@@ -1369,6 +1371,59 @@ describe('PlaceExtractionService', () => {
       const fromNeighborhood = postProcess(branch, fromSource('S3'), { sources: [web, byNeighborhood] })
       expect(fromNeighborhood.hours.status).toBe('exact')
       expect(fromNeighborhood.tags).toContain('terrace')
+    })
+  })
+
+  describe('páginas que listan varios locales', () => {
+    // Directorio real de pocitospuntacarretas.com (recortado): MOB recibió de acá el teléfono de El Viejo Sosa.
+    const directory: Source = {
+      id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://www.pocitospuntacarretas.com/directorio.php?c=9.0',
+      text: 'Gastronomía | Pocitos Punta Carretas\n\nLa Kanti \n\n Francisco Ros 2748, Montevideo, Uruguay \n\nEl Viejo Sosa\n\n Coronel Mora 603, 11300 \n\n| 2712 6737 |\n| --- |\n\nVera \n\n Agr Francisco Ros 2758, 11300 \n\n| 098 462 655 |\n| --- |\n\nPomelo\n\n Miñones 461, Montevideo, Uruguay 11300\n\nLa Croissantería \n\n José Ellauri 534, Montevideo, Uruguay 11300\n\n| 2712 0777 | Sitio web |\n| --- | --- |',
+    }
+    const details = (name: string) => ({ ...googleDetails, anchor: { ...googleDetails.anchor, name } })
+
+    it('reconoce el directorio por la ruta o por tener 3+ teléfonos; una ficha de un solo local, no', () => {
+      expect(isListingSource(directory, 'MOB')).toBe(true)
+      expect(isListingSource({ ...directory, url: 'https://guia.example/lugares' }, 'MOB')).toBe(true)
+      expect(isListingSource({ id: 'S2', kind: 'exa', trust: 'third_party', url: 'https://www.rappi.com.uy/restaurantes/1-negroni', text: 'Negroni · Guipuzcoa 352 · Tel 2716 7903 · WhatsApp 093 661 919' }, 'Negroni')).toBe(false)
+    })
+
+    it('la web de la marca y la ficha del lugar no son listados aunque muestren varios teléfonos', () => {
+      // Don Peperone lista sus sucursales; la ficha de guiacomercial muestra locales cercanos.
+      expect(isListingSource({ ...directory, url: 'https://donpeperone.com.uy/' }, 'Don Peperone')).toBe(false)
+      expect(isListingSource({ ...directory, url: 'https://guiacomercial.uy/ficha/grasa-burger-club-montevideo/' }, 'Grasa Burger Club')).toBe(false)
+      expect(isListingSource({ ...directory, url: 'https://salimos.uy/listado/vereda/' }, 'Vereda')).toBe(false)
+      expect(isListingSource({ ...directory, url: 'https://montevideo.evisos.com.uy/restaurantes-bares-sc-158-p-3' }, 'Impulsus')).toBe(true)
+    })
+
+    it('sólo da el teléfono que está junto a la marca', () => {
+      expect(resolveDeterministicContact(details('MOB Punta Carretas'), [directory]).phone).toBeUndefined()
+      expect(resolveDeterministicContact(details('El Viejo Sosa'), [directory]).phone).toBe('+598 2712 6737')
+      // Pomelo no tiene teléfono en el directorio: no se lleva el de La Croissantería, que viene después.
+      expect(resolveDeterministicContact(details('Pomelo'), [directory]).phone).toBeUndefined()
+      expect(placeText(directory, 'Pomelo')).toContain('Miñones 461')
+    })
+
+    it('una ficha de un solo local sigue dando su teléfono', () => {
+      const card: Source = { id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://1122.com.uy/local/negroni/LOC1', text: '# NEGRONI\n## GUIPUZCOA 352 - Punta Carretas\n### 27167903' }
+      expect(resolveDeterministicContact(details('Negroni'), [card]).phone).toBe('+598 2716 7903')
+    })
+
+    it('el teléfono y la dirección del modelo citados de un directorio sólo valen junto a la marca', () => {
+      const mob = { ...target, name: 'MOB Punta Carretas' }
+      const data = {
+        ...emptyExtraction,
+        facts: [{ id: 'F1', text: 'Teléfono 2712 6737, Coronel Mora 603', sourceId: 'S1', kind: 'contact' as const, proposedTag: null }],
+        contact: { ...emptyExtraction.contact, phone: '2712 6737', website: '', instagram: '' },
+        address: 'Coronel Mora 603',
+        support: [{ field: 'contact.phone', facts: ['F1'] }, { field: 'address', facts: ['F1'] }],
+      }
+      const mobPlace = postProcess(mob, data, { sources: [directory] })
+      expect(mobPlace.contact.phone).toBeNull()
+      expect(mobPlace.address).toBeNull()
+      const sosa = postProcess({ ...target, name: 'El Viejo Sosa' }, data, { sources: [directory] })
+      expect(sosa.contact.phone).toBe('+598 2712 6737')
+      expect(sosa.address).toBe('Coronel Mora 603')
     })
   })
 

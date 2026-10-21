@@ -3,6 +3,7 @@
 export const REVIEW_REASONS = {
   not_open_yet: 'Todavía no abrió',
   no_place_facts: 'Sin datos del local: las fuentes eran de otros lugares',
+  unconfirmed_place: 'Local no confirmado: las fuentes pueden ser de otro local o sucursal',
   restaurant_without_food: 'Restaurante sin comidas',
   bar_without_drinks: 'Bar sin bebidas',
 } as const

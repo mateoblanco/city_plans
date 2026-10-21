@@ -19,6 +19,14 @@ const BLOCKING_ANOMALIES: readonly (PlaceReviewAnomalyType & ReviewReason)[] = [
 
 const normalize = (text: string) => text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 
+// El prompt pide este prefijo cuando no puede confirmar que los datos que usó son de este local. Sin prefijo no
+// cuenta: "descarté las fuentes de otra sucursal" es el modelo haciendo bien su trabajo, no un local dudoso.
+const UNCONFIRMED_PLACE_PREFIX = /^local no confirmado\s*:/
+
+export function soundsUnconfirmedPlace(doubt: string) {
+  return UNCONFIRMED_PLACE_PREFIX.test(normalize(doubt.trim()))
+}
+
 export function soundsNotOpenYet(text: string) {
   const value = normalize(text)
   return NOT_OPEN_YET.some((pattern) => pattern.test(value))
@@ -74,6 +82,8 @@ export function reviewReasonsFor(
   const saysNotOpen = [...place.placeFacts.map((fact) => fact.text), ...review.doubts].some(soundsNotOpenYet)
   if (saysNotOpen && !signals.instagramOperating) reasons.push('not_open_yet')
   if (place.placeFacts.length === 0) reasons.push('no_place_facts')
+  // Sin facts ya va por no_place_facts: el motivo nuevo es para cuando hay datos y pueden ser de otro local.
+  else if (review.doubts.some(soundsUnconfirmedPlace)) reasons.push('unconfirmed_place')
   const anomalies = new Set(review.anomalies.map((anomaly) => anomaly.type))
   for (const type of BLOCKING_ANOMALIES) if (anomalies.has(type)) reasons.push(type)
   return reasons

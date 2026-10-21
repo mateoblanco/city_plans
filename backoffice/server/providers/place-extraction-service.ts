@@ -418,6 +418,9 @@ HIGHLIGHTS Y DESCRIPCIÓN
 - description.es: 2-3 frases en rioplatense, cercanas y sin exagerar, con palabras propias: qué es el lugar, su ambiente y por qué es conocido. Puede nombrar los platos o bebidas característicos, pero no enumerar la carta. Sin horarios y sin mencionar empresas ni terceros irrelevantes. description.en: la misma idea en inglés natural.
 - La descripción sólo puede mencionar cosas que estén en facts, y todo lo que mencione tiene que estar en los tags: si decís DJ → dj; tragos o cócteles → classic_cocktails o signature_cocktails; after office → after_office; celebraciones → celebration; patio → patio. No menciones nada que no hayas tagueado.
 - doubts: anotá en doubts lo que no supiste resolver (máx. 5). No inventes dudas.
+- Si no podés confirmar que los datos que usaste son de este local (las fuentes pueden ser de otro local o de otra sucursal: otra dirección, otro barrio u otro negocio con el mismo nombre), anotalo en doubts empezando con «Local no confirmado:». Es sobre los datos que QUEDARON, no sobre los que descartaste.
+  - SÍ lleva el prefijo: «Local no confirmado: las fuentes hablan de Mob Garden en el Prado y no puedo confirmar que los datos que usé sean de la sucursal de Punta Carretas.» o «Local no confirmado: las fuentes nombran otra marca parecida y no está claro que sea este local.»
+  - NO lleva el prefijo (anotalo sin él, si querés): «La fuente S7 corresponde a otra sucursal en Ciudad Vieja y se descartó.» o «El horario de terceros es de otra sucursal, no se cargó.» Descartar una fuente de otro local es lo correcto: si lo que quedó es de este local, el local está confirmado.
 - Si las fuentes dicen que el local todavía no abrió (próximamente, abre pronto, próxima apertura), anotalo en doubts empezando con «Todavía no abrió:».
 - Si el Instagram oficial muestra el local funcionando (posts recientes, horarios), vale más que la web o terceros para decidir si está abierto o cerrado: no anotes «Todavía no abrió:» ni tomes como fact un cierre que informan terceros.
 - Si el Instagram OFICIAL no es de este local (otro rubro, otra dirección u otro negocio con el mismo nombre), dejá contact.instagram vacío, no tomes facts de esa fuente y anotalo en doubts empezando con «Instagram rechazado:».
@@ -1736,11 +1739,67 @@ function preferredInstagramHandle(name: string, sources: Source[], extraLinks: s
   return scored[0]?.score >= 0.55 ? scored[0].handle : null
 }
 
-/** Primer teléfono uruguayo que aparece en el texto o los links de las fuentes. */
-function firstSourcePhone(sources: Source[]): string | null {
+// Una página que lista varios locales (directorio, guía del barrio, ranking): la ruta lo dice o tiene 3+ teléfonos
+// distintos. Una ficha de un solo local trae uno o dos (fijo y WhatsApp).
+const LISTING_PATH = /(?:directorio|listado|\/barrio\/|categoria|mejores|ranking|\/top-)/
+const LISTING_MIN_PHONES = 3
+
+/**
+ * Página que lista varios locales. No lo es la web de la marca (el dominio la nombra, aunque liste sus sucursales)
+ * ni la ficha del lugar (la ruta lo nombra: /ficha/grasa-burger-club-montevideo/, /listado/vereda/), aunque la
+ * ficha muestre locales cercanos.
+ */
+export function isListingSource(source: Source, brand: string): boolean {
+  if (source.url === EXA_SUMMARY_URL || source.trust === 'official') return false
+  let path = ''
+  let host = ''
+  try {
+    const url = new URL(source.url)
+    host = url.hostname
+    path = canonical(decodeURIComponent(url.pathname + url.search))
+  } catch { /* URL inválida: sólo el texto */ }
+  if (host && matchesPlaceDomain(host, brand)) return false
+  const brandWords = canonical(brand).split(/[^a-z0-9]+/).filter(Boolean)
+  if (brandWords.length > 0 && ` ${path.split(/[^a-z0-9]+/).join(' ')} `.includes(` ${brandWords.join(' ')} `)) return false
+  if (LISTING_PATH.test(path)) return true
+  return new Set(phonesInText(source.text).map(normalizeUruguayPhone).filter(Boolean)).size >= LISTING_MIN_PHONES
+}
+
+// En un directorio cada local ocupa unos pocos renglones (nombre, dirección, teléfono): el dato de un local está en
+// el renglón que lo nombra o en los siguientes, hasta el próximo título.
+const LISTING_ENTRY_LINES = 2
+
+/**
+ * Texto de la fuente que habla del lugar. En una página de varios locales, sólo el renglón que nombra la marca y
+ * los LISTING_ENTRY_LINES renglones no vacíos que le siguen: el teléfono o la dirección de otro renglón es de otro
+ * local. En las demás, el texto entero.
+ */
+export function placeText(source: Source, brand: string): string {
+  if (!isListingSource(source, brand)) return source.text
+  const lines = source.text.split('\n').map((line) => line.trim()).filter(Boolean)
+  const entries: string[] = []
+  lines.forEach((line, index) => {
+    if (!hasPhrase(line, brand)) return
+    const entry = [line]
+    for (const next of lines.slice(index + 1)) {
+      if (entry.length > LISTING_ENTRY_LINES || /^#{1,6}\s/.test(next)) break
+      entry.push(next)
+    }
+    entries.push(entry.join('\n'))
+  })
+  return entries.join('\n\n')
+}
+
+/**
+ * Primer teléfono uruguayo que aparece en el texto o los links de las fuentes. En una página de varios locales,
+ * sólo el que está junto a la marca, y sin sus links (no se sabe de qué local son).
+ */
+function firstSourcePhone(sources: Source[], brand: string): string | null {
   return sources
     // De los links, sólo tel: y WhatsApp: cualquier otra URL puede tener dígitos que no son un teléfono.
-    .flatMap((source) => [...phonesInText(source.text), ...sourceLinks(source).filter((link) => /^tel:/i.test(link) || whatsappNumber(link) !== link).map(whatsappNumber)])
+    .flatMap((source) => isListingSource(source, brand)
+      ? phonesInText(placeText(source, brand))
+      : [...phonesInText(source.text), ...sourceLinks(source).filter((link) => /^tel:/i.test(link) || whatsappNumber(link) !== link).map(whatsappNumber)])
     .map(normalizeUruguayPhone)
     .find((value): value is string => Boolean(value)) ?? null
 }
@@ -1764,7 +1823,7 @@ export function resolveDeterministicContact(
     .flatMap(sourceLinks)
     .map(httpsUrl)
     .find((url): url is string => Boolean(url && hostedBy(url, reservationHosts))) ?? null
-  const phone = firstSourcePhone(sources)
+  const phone = firstSourcePhone(sources, brandFromGoogleName(details.anchor.name))
   const instagram = preferredInstagramHandle(brandFromGoogleName(details.anchor.name), sources)
   return {
     ...(reservationUrl ? { reservationUrl } : {}),
@@ -2044,7 +2103,9 @@ export function postProcess(
   const sourcedText = (field: 'name' | 'address') => {
     const value = result[field].trim()
     const citedSources = (support.get(field) ?? []).map((id) => factsById.get(id)!.source)
-    return value && citedSources.some((source) => hasPhrase(source.text, value)) ? value : null
+    // La dirección de una página de varios locales sólo vale junto a la marca.
+    const text = (source: Source) => field === 'address' ? placeText(source, brand) : source.text
+    return value && citedSources.some((source) => hasPhrase(text(source), value)) ? value : null
   }
 
   // En una cadena la dirección además tiene que ser la de esta sucursal, no la de otra de la misma fuente.
@@ -2085,13 +2146,19 @@ export function postProcess(
   for (const field of ['phone', 'whatsapp'] as const) {
     if (processed.contact[field] && !branchOnly(`contact.${field}`)) processed.contact[field] = null
   }
+  // Teléfono y web de una página de varios locales: sólo si aparecen junto a la marca en alguna fuente citada.
+  for (const field of ['phone', 'website'] as const) {
+    const value = processed.contact[field]
+    const cited = (support.get(`contact.${field}`) ?? []).map((id) => factsById.get(id)!.source)
+    if (value && cited.length > 0 && !cited.some((source) => !isListingSource(source, brand) || nearBrand(field, value, placeText(source, brand)))) processed.contact[field] = null
+  }
 
   processed.contact = normalizeContact(processed.contact)
   if (context.deterministicContact) {
     // El teléfono del modelo, con su support, gana; el que aparece en el texto de las fuentes es respaldo.
     // En una cadena, el teléfono de respaldo sólo de fuentes que hablan de esta sucursal.
     const { phone: anyPhone, ...deterministic } = context.deterministicContact
-    const phone = chain ? firstSourcePhone(sources.filter((source) => mentionsBranch(source, target))) : anyPhone
+    const phone = chain ? firstSourcePhone(sources.filter((source) => mentionsBranch(source, target)), brand) : anyPhone
     processed.contact = normalizeContact({ ...processed.contact, ...deterministic, phone: processed.contact.phone ?? phone ?? null })
   }
   // El Instagram validado por Apify no queda si el modelo lo rechazó (vio que es de otro negocio).
@@ -2219,10 +2286,19 @@ export function isChainBranch(target: Pick<Target, 'name'>, sources: Source[]): 
  * La fuente habla de esta sucursal: menciona su dirección o su barrio. El resumen de Exa no
  * cuenta: en una cadena junta datos de varias sucursales.
  */
-export function mentionsBranch(source: Source, target: Pick<Target, 'address' | 'neighborhoodId'>): boolean {
+export function mentionsBranch(source: Source, target: Pick<Target, 'name' | 'address' | 'neighborhoodId'>): boolean {
   if (source.url === EXA_SUMMARY_URL) return false
   const neighborhood = neighborhoodDisplayName(target.neighborhoodId ?? null)
-  return mentionsAddress(source.text, target.address) || Boolean(neighborhood && hasPhrase(source.text, neighborhood))
+  // En una página de varios locales, nombrar el barrio no alcanza: tiene que ser junto a la marca.
+  const text = placeText(source, brandFromGoogleName(target.name))
+  return mentionsAddress(text, target.address) || Boolean(neighborhood && hasPhrase(text, neighborhood))
+}
+
+/** El teléfono o la web aparece en el texto (el teléfono comparado ya normalizado, la web por su host). */
+function nearBrand(field: 'phone' | 'website', value: string, text: string): boolean {
+  if (field === 'phone') return phonesInText(text).map(normalizeUruguayPhone).includes(normalizeUruguayPhone(value))
+  const host = hostname(value)?.replace(/^www\./, '')
+  return Boolean(host && canonical(text).includes(canonical(host)))
 }
 
 const INSTAGRAM_REJECTED_PREFIX = /^instagram rechazado:/i
