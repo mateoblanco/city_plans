@@ -31,7 +31,7 @@ export const LOGO_ISSUES = [
 ] as const satisfies readonly LogoIssue[]
 
 const MAX_REPORT_PLACES = 2000
-const TIE_BREAK_RULES = ['first_pass_candidate', 'gastronomy', 'profile_picture', 'latest_post', 'followers', 'unresolved'] as const satisfies readonly InstagramTieBreakRule[]
+const TIE_BREAK_RULES = ['gastronomy', 'profile_picture', 'latest_post', 'followers', 'unresolved'] as const satisfies readonly InstagramTieBreakRule[]
 const text = z.string().trim().min(1).max(1000)
 
 export const extractionReportRequestSchema = z.object({
@@ -72,18 +72,9 @@ export const extractionReportRequestSchema = z.object({
         recovered: z.boolean(),
         transientRetries: z.number().int().min(0).max(100).optional(),
       })).max(3).default([]),
-      instagramFallback: z.object({
-        attempted: z.boolean(),
-        skipped: z.enum(['unconfirmed_name']).optional(),
-        reason: z.string().max(1000).default(''),
-        terms: z.array(z.string().max(200)).max(6).default([]),
-        handles: z.array(z.string().max(60)).max(10),
-        costUsd: z.number().min(0).max(100),
-        tieBreak: z.enum(TIE_BREAK_RULES).optional(),
-      }).optional(),
+      instagramManual: z.object({ handle: z.string().max(60).nullable() }).optional(),
       instagramTieBreak: z.object({
         rule: z.enum(TIE_BREAK_RULES),
-        pass: z.enum(['first', 'fallback']),
         handles: z.array(z.string().max(60)).max(10),
       }).optional(),
       instagramShared: z.array(z.object({ handle: z.string().max(60), places: z.array(z.string().max(300)).max(50) })).max(10).optional(),
@@ -136,6 +127,8 @@ export type ExtractionReport = {
     exaErrors: { places: string[]; stopped: boolean }
     /** Desempates de Instagram por regla. */
     instagramTieBreaks: Partial<Record<InstagramTieBreakRule, number>>
+    /** Instagram de la revisión manual: cargados a mano y marcados "No tiene Instagram". */
+    instagramManual: { handle: number; none: number }
     /** Lugares que se guardan con status review y cuántos por motivo (un lugar puede tener varios). */
     review: { places: number; byReason: Partial<Record<ReviewReason, number>> }
   }
@@ -233,6 +226,10 @@ export function buildExtractionReport({ places, apifyErrors = [], stoppedByApify
       apifyErrors: { places: apifyErrors, stopped: stoppedByApify },
       exaErrors: { places: exaErrors, stopped: stoppedByExa },
       instagramTieBreaks: tally(places.map((place) => place.review?.instagramTieBreak?.rule ?? null)),
+      instagramManual: {
+        handle: count((place) => Boolean(place.review?.instagramManual?.handle)),
+        none: count((place) => place.review?.instagramManual?.handle === null),
+      },
       review: {
         places: count((place) => (place.reviewReasons ?? []).length > 0),
         byReason: tally(places.flatMap((place) => place.reviewReasons ?? [])),
@@ -251,6 +248,9 @@ export function reportSummary(report: ExtractionReport): string {
     `Horarios recuperados con la segunda búsqueda: ${summary.hoursRecoveredBySecondSearch} de ${summary.hoursSecondSearchAttempted} (USD ${summary.hoursSecondSearchCostUsd.toFixed(4)})`,
     `A revisar: ${summary.review.places}${summary.review.places > 0 ? ` (${Object.entries(summary.review.byReason).map(([reason, count]) => `${reason} ${count}`).join(' · ')})` : ''}`,
     `Logos: ${summary.logos.ok} subidos · ${summary.logos.missing} sin foto usable · ${summary.logos.failed} con fallas`,
+    ...(summary.instagramManual.handle + summary.instagramManual.none > 0
+      ? [`Instagram de la revisión: ${summary.instagramManual.handle} cargados a mano · ${summary.instagramManual.none} sin Instagram`]
+      : []),
     `Costo USD ${summary.cost.totalUsd.toFixed(4)}: fuentes ${summary.cost.sourcesUsd.toFixed(4)} · LLM principal ${summary.cost.mainLlmUsd.toFixed(4)} · segunda búsqueda ${summary.cost.hoursSecondSearchUsd.toFixed(4)} · logo ${summary.cost.logoUsd.toFixed(4)}`,
     `Tokens cacheados: ${summary.tokens.cachedInput} de ${summary.tokens.input} (${Math.round(summary.tokens.cachedShare * 100)}%) · escritos en cache: ${summary.tokens.cacheWrite}`,
     ...(summary.rateLimits.places > 0

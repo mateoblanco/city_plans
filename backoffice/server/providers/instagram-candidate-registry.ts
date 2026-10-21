@@ -50,3 +50,9 @@ export class InstagramCandidateRegistry {
 
 /** Lugares de la base que ya tienen guardado alguno de los handles, sin contar el que se procesa. */
 export type InstagramOwners = (handles: readonly string[], exceptPlaceId: string) => Promise<{ handle: string; googlePlaceId: string; name: string }[]>
+
+/**
+ * Instagram cargado a mano en un procesamiento anterior del lugar (con `instagram` en manual_overrides): el handle, o
+ * null si se marcó "No tiene Instagram". null si el lugar no está guardado o no tiene el override.
+ */
+export type ManualInstagramLookup = (googlePlaceId: string) => Promise<{ handle: string | null } | null>

@@ -7,7 +7,7 @@ import type { ReviewReason } from '../../src/data/review-reasons.ts'
 import type { PlaceLogo } from '../../src/types/places.ts'
 import { places } from '../db/schema.ts'
 import { logoUrl } from '../providers/logo-storage.ts'
-import type { InstagramOwners } from '../providers/instagram-candidate-registry.ts'
+import type { InstagramOwners, ManualInstagramLookup } from '../providers/instagram-candidate-registry.ts'
 
 export type PlaceListItem = {
   id: string
@@ -102,5 +102,18 @@ export function drizzleInstagramOwners(db: NeonHttpDatabase<typeof schema>): Ins
       .from(places)
       .where(and(inArray(handle, handles.map((item) => item.toLowerCase())), ne(places.googlePlaceId, exceptPlaceId)))
     return rows.flatMap((row) => row.googlePlaceId ? [{ handle: row.handle, googlePlaceId: row.googlePlaceId, name: row.name }] : [])
+  }
+}
+
+/** El Instagram cargado a mano del lugar (manual_overrides con `instagram`): el handle, o null si no tiene. */
+export function drizzleManualInstagram(db: NeonHttpDatabase<typeof schema>): ManualInstagramLookup {
+  return async (googlePlaceId) => {
+    const [row] = await db
+      .select({ instagram: places.instagram, manualOverrides: places.manualOverrides })
+      .from(places)
+      .where(eq(places.googlePlaceId, googlePlaceId))
+      .limit(1)
+    if (!row?.manualOverrides.includes('instagram')) return null
+    return { handle: row.instagram?.replace(/^@/, '').toLowerCase() || null }
   }
 }

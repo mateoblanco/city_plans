@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createApp } from './app.ts'
-import { ExaProviderFailure, InstagramProviderFailure, PlacesProviderError, type PlacesProvider } from './providers/places-provider.ts'
+import { DiscoveryExpired, ExaProviderFailure, InstagramNotFound, InstagramProviderFailure, PlacesProviderError, type PlacesProvider } from './providers/places-provider.ts'
 
 const validRequest = {
   mode: 'filters',
@@ -475,6 +475,45 @@ describe('exploración multi-fuente', () => {
     expect(await response.json()).toEqual({
       error: { code: 'EXA_PROVIDER_ERROR', message: 'Error de Exa: no se pudo consultar Exa. Exa no pudo completar la consulta.' },
     })
+  })
+
+  it('procesa en dos pasos: descubre y completa con el Instagram elegido, validando el handle', async () => {
+    const discovery = { googlePlaceId: 'place-1', status: 'doubtful', handle: 'cafebrasilero', doubt: 'name_only', candidates: [], costUsd: 0.04 }
+    const discoverPlace = vi.fn().mockResolvedValue(discovery)
+    const completePlace = vi.fn().mockResolvedValue({ source: 'llm', status: 'ok' })
+    const app = createApp({ extractor: { configured: true, extract: vi.fn(), discoverPlace, completePlace } })
+    const post = (path: string, body: unknown) => app.request(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+
+    const discovered = await post('/api/extract/discover', { googlePlaceId: 'place-1', seedCategories: ['cafe'], neighborhoodId: 'CIUDAD VIEJA' })
+    expect(discovered.status).toBe(200)
+    expect(await discovered.json()).toEqual(discovery)
+    expect(discoverPlace).toHaveBeenCalledWith('place-1', { seedCategories: ['cafe'], neighborhoodId: 'CIUDAD VIEJA' })
+    expect((await post('/api/extract/discover', { googlePlaceId: 'place-1', seedCategories: ['otra'] })).status).toBe(400)
+
+    for (const instagram of [{ mode: 'auto' }, { mode: 'manual', handle: 'cafe.brasilero_uy' }, { mode: 'none' }]) {
+      expect((await post('/api/extract/complete', { googlePlaceId: 'place-1', instagram })).status).toBe(200)
+    }
+    expect(completePlace).toHaveBeenNthCalledWith(2, 'place-1', { mode: 'manual', handle: 'cafe.brasilero_uy' })
+    for (const instagram of [{ mode: 'manual', handle: '@cafebrasilero' }, { mode: 'manual', handle: 'https://instagram.com/x' }, { mode: 'manual', handle: 'Cafe' }, { mode: 'otro' }, undefined]) {
+      expect((await post('/api/extract/complete', { googlePlaceId: 'place-1', instagram })).status).toBe(400)
+    }
+    expect(completePlace).toHaveBeenCalledTimes(3)
+  })
+
+  it('el paso 2 avisa el handle inexistente (422) y el descubrimiento vencido (409); sin los pasos, 503', async () => {
+    const completePlace = vi.fn()
+      .mockRejectedValueOnce(new InstagramNotFound('cafe.brasilerro'))
+      .mockRejectedValueOnce(new DiscoveryExpired())
+    const app = createApp({ extractor: { configured: true, extract: vi.fn(), completePlace } })
+    const complete = () => app.request('/api/extract/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ googlePlaceId: 'place-1', instagram: { mode: 'manual', handle: 'cafe.brasilerro' } }) })
+
+    const notFound = await complete()
+    expect(notFound.status).toBe(422)
+    expect(await notFound.json()).toEqual({ error: { code: 'INSTAGRAM_NOT_FOUND', message: 'No existe el perfil @cafe.brasilerro en Instagram.' } })
+    const expired = await complete()
+    expect(expired.status).toBe(409)
+    expect((await expired.json()).error.code).toBe('DISCOVERY_EXPIRED')
+    expect((await app.request('/api/extract/discover', { method: 'POST' })).status).toBe(503)
   })
 
   it('consulta Exa con un nombre validado y conserva la respuesta estructurada', async () => {

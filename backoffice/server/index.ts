@@ -30,7 +30,6 @@ const exaProvider = new ExaPlaceSearchProvider()
 const instagramProvider = new ApifyInstagramProvider({
   token: process.env.APIFY_API_TOKEN,
   actorId: process.env.APIFY_INSTAGRAM_ACTOR_ID,
-  searchActorId: process.env.APIFY_INSTAGRAM_SEARCH_ACTOR_ID,
   memoryMbytes: Number(process.env.APIFY_MEMORY_MB) || undefined,
 })
 const matchProviders = {
@@ -47,12 +46,17 @@ const websiteScraper = new PlaywrightWebsiteScraper()
 // Neon es opcional: sin DATABASE_URL el server arranca igual y /api/places responde 503.
 const database = process.env.DATABASE_URL?.trim()
   ? await (async () => {
-      const [{ db }, { drizzlePlacesStore, placesSaver }, { drizzleInstagramOwners, drizzlePlacesReader }] = await Promise.all([
+      const [{ db }, { drizzlePlacesStore, placesSaver }, { drizzleInstagramOwners, drizzleManualInstagram, drizzlePlacesReader }] = await Promise.all([
         import('./db/index.ts'),
         import('./places/save.ts'),
         import('./places/list.ts'),
       ])
-      return { placesSaver: placesSaver(drizzlePlacesStore(db)), placesReader: drizzlePlacesReader(db), instagramOwners: drizzleInstagramOwners(db) }
+      return {
+        placesSaver: placesSaver(drizzlePlacesStore(db)),
+        placesReader: drizzlePlacesReader(db),
+        instagramOwners: drizzleInstagramOwners(db),
+        manualInstagram: drizzleManualInstagram(db),
+      }
     })()
   : undefined
 const extractor = provider
@@ -68,6 +72,8 @@ const extractor = provider
       snapshots: fileSnapshotStore(),
       // Un Instagram ya guardado para otro lugar no es candidato (cuentas agregadoras).
       instagramOwners: database?.instagramOwners,
+      // El Instagram cargado a mano en un procesamiento anterior gana al reprocesar.
+      manualInstagram: database?.manualInstagram,
     })
   : undefined
 const apiPort = Number(process.env.BACKOFFICE_API_PORT ?? 8787)

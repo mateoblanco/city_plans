@@ -8,6 +8,7 @@ import type {
   ApiErrorResponse,
   ExaPlaceResponse,
   GooglePlaceDetailsResponse,
+  InstagramDiscovery,
   MatchSource,
   NeighborhoodSweepEvent,
   PlaceEnrichmentResponse,
@@ -16,7 +17,7 @@ import type {
 import type { PlaceMatchProvider } from './providers/place-match-provider.ts'
 import { matchPlace } from './providers/place-match-provider.ts'
 import type { PlacesProvider } from './providers/places-provider.ts'
-import { ExaProviderFailure, InstagramProviderFailure, PlacesProviderError } from './providers/places-provider.ts'
+import { DiscoveryExpired, ExaProviderFailure, InstagramNotFound, InstagramProviderFailure, PlacesProviderError } from './providers/places-provider.ts'
 import type { ExaPlaceProvider } from './providers/exa-place-provider.ts'
 import type { PlaceExtractor } from './providers/place-extraction-service.ts'
 import type { NeighborhoodSweeper } from './providers/neighborhood-sweep.ts'
@@ -64,10 +65,22 @@ const sweepRequestSchema = z.object({
   mode: z.enum(['full', 'ids']).default('full'),
 })
 
+const googlePlaceIdSchema = z.string().regex(/^[A-Za-z0-9_-]{2,256}$/)
+
 const extractRequestSchema = z.object({
-  googlePlaceId: z.string().regex(/^[A-Za-z0-9_-]{2,256}$/),
+  googlePlaceId: googlePlaceIdSchema,
   seedCategories: z.array(z.enum(ids(CATEGORIES))).min(1).max(20),
   neighborhoodId: z.string().refine((value) => NEIGHBORHOOD_IDS.includes(value)).optional(),
+})
+
+// El handle llega normalizado del frontend (sin @ ni URL); acá sólo se valida.
+const completeRequestSchema = z.object({
+  googlePlaceId: googlePlaceIdSchema,
+  instagram: z.discriminatedUnion('mode', [
+    z.object({ mode: z.literal('auto') }),
+    z.object({ mode: z.literal('manual'), handle: z.string().regex(/^[a-z0-9._]{1,30}$/) }),
+    z.object({ mode: z.literal('none') }),
+  ]),
 })
 
 const matchSources = new Set<MatchSource>([
@@ -119,6 +132,13 @@ function providerError(error: PlacesProviderError) {
   // Igual que Apify: el frontend lo cuenta aparte ("Error de Exa: reintentar").
   if (error instanceof ExaProviderFailure) {
     return { status: 502 as const, body: apiError('EXA_PROVIDER_ERROR', error.message) }
+  }
+  // El handle manual no existe: vuelve a la revisión para corregirlo.
+  if (error instanceof InstagramNotFound) {
+    return { status: 422 as const, body: apiError('INSTAGRAM_NOT_FOUND', error.message) }
+  }
+  if (error instanceof DiscoveryExpired) {
+    return { status: 409 as const, body: apiError('DISCOVERY_EXPIRED', error.message) }
   }
   if (error.kind === 'validation') {
     return { status: 400 as const, body: apiError('VALIDATION_ERROR', error.message) }
@@ -322,6 +342,52 @@ export function createApp({ provider, exaProvider, matchProviders = {}, instagra
         apiError('UNKNOWN_ERROR', 'No se pudo extraer la información del lugar.'),
         500,
       )
+    }
+  })
+
+  // Paso 1 del procesamiento con revisión: Google, Exa, la web y la primera pasada de Instagram. El descubrimiento
+  // queda en memoria del server hasta el paso 2.
+  app.post('/api/extract/discover', async (context) => {
+    if (!extractor?.configured || !extractor.discoverPlace) {
+      return context.json(apiError('CONFIGURATION_ERROR', 'Falta configurar AI_GATEWAY_API_KEY en .env.local.'), 503)
+    }
+    const parsed = extractRequestSchema.safeParse(await context.req.json().catch(() => null))
+    if (!parsed.success) {
+      return context.json(apiError('VALIDATION_ERROR', 'La solicitud de extracción no es válida.'), 400)
+    }
+    try {
+      context.header('Cache-Control', 'no-store')
+      const { googlePlaceId, seedCategories, neighborhoodId } = parsed.data
+      const result: InstagramDiscovery = await extractor.discoverPlace(googlePlaceId, { seedCategories, ...(neighborhoodId ? { neighborhoodId } : {}) })
+      return context.json(result)
+    } catch (error) {
+      if (error instanceof PlacesProviderError) {
+        const mapped = providerError(error)
+        return context.json(mapped.body, mapped.status)
+      }
+      return context.json(apiError('UNKNOWN_ERROR', 'No se pudo descubrir el lugar.'), 500)
+    }
+  })
+
+  // Paso 2: el LLM sobre el descubrimiento guardado, con el Instagram elegido en la revisión.
+  app.post('/api/extract/complete', async (context) => {
+    if (!extractor?.configured || !extractor.completePlace) {
+      return context.json(apiError('CONFIGURATION_ERROR', 'Falta configurar AI_GATEWAY_API_KEY en .env.local.'), 503)
+    }
+    const parsed = completeRequestSchema.safeParse(await context.req.json().catch(() => null))
+    if (!parsed.success) {
+      return context.json(apiError('VALIDATION_ERROR', 'La solicitud de extracción no es válida.'), 400)
+    }
+    try {
+      context.header('Cache-Control', 'no-store')
+      const result: PlaceEnrichmentResponse = await extractor.completePlace(parsed.data.googlePlaceId, parsed.data.instagram)
+      return context.json(result)
+    } catch (error) {
+      if (error instanceof PlacesProviderError) {
+        const mapped = providerError(error)
+        return context.json(mapped.body, mapped.status)
+      }
+      return context.json(apiError('UNKNOWN_ERROR', 'No se pudo extraer la información del lugar.'), 500)
     }
   })
 

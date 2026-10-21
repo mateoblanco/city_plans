@@ -71,3 +71,25 @@ export class ExaProviderFailure extends PlacesProviderError {
     this.name = 'ExaProviderFailure'
   }
 }
+
+/**
+ * El Instagram cargado a mano en la revisión no existe (Apify no trajo el perfil): el handle está mal escrito. HTTP
+ * 422 con código INSTAGRAM_NOT_FOUND; el descubrimiento queda guardado para corregirlo sin volver a pagar las fuentes.
+ */
+export class InstagramNotFound extends PlacesProviderError {
+  constructor(handle: string) {
+    super('validation', `No existe el perfil @${handle} en Instagram.`)
+    this.name = 'InstagramNotFound'
+  }
+}
+
+/**
+ * El paso 2 no encontró el descubrimiento del lugar: venció o se reinició el server. HTTP 409 con código
+ * DISCOVERY_EXPIRED; hay que volver a descubrirlo.
+ */
+export class DiscoveryExpired extends PlacesProviderError {
+  constructor() {
+    super('validation', 'Hay que volver a descubrir el lugar: el descubrimiento venció o se reinició el servidor.')
+    this.name = 'DiscoveryExpired'
+  }
+}

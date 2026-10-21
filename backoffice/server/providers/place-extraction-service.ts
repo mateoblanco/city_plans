@@ -33,6 +33,8 @@ import type {
   GooglePlaceDetailsResponse,
   InstagramAuditCandidate,
   InstagramCandidateOrigin,
+  InstagramChoice,
+  InstagramDiscovery,
   InstagramMatchRule,
   InstagramTieBreakRule,
   LogoKind,
@@ -58,19 +60,20 @@ import {
   hostname,
   matchesPlaceDomain,
 } from './source-hosts.ts'
-import { ExaProviderFailure, InstagramProviderFailure, PlacesProviderError } from './places-provider.ts'
+import { DiscoveryExpired, ExaProviderFailure, InstagramNotFound, InstagramProviderFailure, PlacesProviderError } from './places-provider.ts'
+import { DiscoveryStore } from './discovery-store.ts'
 import { APIFY_TRANSIENT_DELAYS_MS, RateLimitLog, withRateLimitRetry, type RateLimitRetryOptions } from './rate-limit.ts'
 import type { LimitedService } from './service-limits.ts'
 import { withServiceLimit } from './service-limits.ts'
 import type { TransitInfo } from './montevideo-bus-provider.ts'
 import type { ExaPlaceProvider } from './exa-place-provider.ts'
-import { INSTAGRAM_SEARCH_LIMIT, instagramSearchText, type ApifyInstagramProvider, type InstagramProfileData, type InstagramSearchResult } from './apify-instagram-provider.ts'
+import type { ApifyInstagramProvider, InstagramProfileData } from './apify-instagram-provider.ts'
 import type { PlaywrightWebsiteScraper, WebsitePageData } from './website-scraper.ts'
 import { logoUrl, type LogoStore } from './logo-storage.ts'
 import { isMomentId, MOMENT_IDS, MOMENT_SIGNALS, NOT_FOR_DEDUCTION, signalsIn, STYLE_SIGNALS, sufficientSignals, type SignalMatch } from './moment-signals.ts'
 import type { ExtractionSnapshotStore } from './extraction-snapshots.ts'
 import { classifyLogo, classifyProfilePicture, fetchPlaceLogo, logoModel, profilePictureStatus, type LogoClassifier, type LogoOutcome, type PictureClassification, type ProfilePictureStatus } from './place-logo.ts'
-import { brandKey, InstagramCandidateRegistry, type InstagramOwners, type SharedInstagram } from './instagram-candidate-registry.ts'
+import { brandKey, InstagramCandidateRegistry, type InstagramOwners, type ManualInstagramLookup, type SharedInstagram } from './instagram-candidate-registry.ts'
 import { instagramActivity, instagramOperating, reviewReasonsFor, type InstagramActivity } from './review-reasons.ts'
 
 const DEFAULT_EXTRACTION_MODEL = 'anthropic/claude-sonnet-5.5'
@@ -214,6 +217,10 @@ export const HOURS_RETRY_PROMPT = `Buscás el horario de UNA sucursal en Montevi
 export type PlaceExtractor = {
   readonly configured: boolean
   extract(placeId: string, request: PlaceExtractionRequest): Promise<PlaceEnrichmentResponse>
+  /** Paso 1 del procesamiento con revisión: guarda el descubrimiento y devuelve el resumen del Instagram. */
+  discoverPlace?(placeId: string, request: PlaceExtractionRequest): Promise<InstagramDiscovery>
+  /** Paso 2: el LLM sobre el descubrimiento guardado, con el Instagram elegido en la revisión. */
+  completePlace?(placeId: string, instagram: InstagramChoice): Promise<PlaceEnrichmentResponse>
 }
 
 export type PlaceExtractionRequest = {
@@ -251,7 +258,7 @@ export function providerOptionsFor(config: ExtractionModelConfig): Record<string
 }
 
 type DetailsProvider = { getDetails(placeId: string): Promise<GooglePlaceDetailsResponse> }
-type InstagramProvider = Pick<ApifyInstagramProvider, 'configured' | 'scrapeMany'> & Partial<Pick<ApifyInstagramProvider, 'searchProfiles'>>
+type InstagramProvider = Pick<ApifyInstagramProvider, 'configured' | 'scrapeMany'>
 type WebsiteProvider = Pick<PlaywrightWebsiteScraper, 'configured' | 'scrape'>
 type TransitProvider = { findNearbyLines(latitude: number, longitude: number): Promise<TransitInfo> }
 export type LlmUsage = {
@@ -274,8 +281,6 @@ type ExtractionCostRates = {
   exaContentPageUsd: number
   exaHighlightPageUsd: number
   instagramRunUsd: number
-  /** Búsqueda de usuarios de Instagram en Apify: se cobra por resultado. */
-  instagramSearchResultUsd: number
   scrapingRequestUsd: number
   transitRequestUsd: number
 }
@@ -286,8 +291,6 @@ type ExtractionCostUsage = {
   exaContentPages: number
   exaHighlightPages: number
   instagramRequests: number
-  /** Resultados cobrados de la búsqueda de usuarios de Instagram (respaldo); falta en fuentes de antes. */
-  instagramSearchResults?: number
   scrapingRequests: number
   transitRequests: number
 }
@@ -301,8 +304,6 @@ const DEFAULT_COST_RATES: ExtractionCostRates = {
   exaContentPageUsd: 0,
   exaHighlightPageUsd: 0,
   instagramRunUsd: 0,
-  // apify~instagram-search-scraper, plan FREE (los planes pagos bajan el precio por resultado).
-  instagramSearchResultUsd: 0.0027,
   scrapingRequestUsd: 0,
   transitRequestUsd: 0,
 }
@@ -329,7 +330,6 @@ function extractionCostRates(overrides: Partial<ExtractionCostRates> = {}): Extr
     exaContentPageUsd: configuredCostRate('EXTRACTION_COST_EXA_CONTENT_PAGE_USD', overrides.exaContentPageUsd ?? DEFAULT_COST_RATES.exaContentPageUsd),
     exaHighlightPageUsd: configuredCostRate('EXTRACTION_COST_EXA_HIGHLIGHT_PAGE_USD', overrides.exaHighlightPageUsd ?? DEFAULT_COST_RATES.exaHighlightPageUsd),
     instagramRunUsd: configuredCostRate('EXTRACTION_COST_INSTAGRAM_RUN_USD', overrides.instagramRunUsd ?? DEFAULT_COST_RATES.instagramRunUsd),
-    instagramSearchResultUsd: configuredCostRate('EXTRACTION_COST_INSTAGRAM_SEARCH_RESULT_USD', overrides.instagramSearchResultUsd ?? DEFAULT_COST_RATES.instagramSearchResultUsd),
     scrapingRequestUsd: configuredCostRate('EXTRACTION_COST_SCRAPING_REQUEST_USD', overrides.scrapingRequestUsd ?? DEFAULT_COST_RATES.scrapingRequestUsd),
     transitRequestUsd: configuredCostRate('EXTRACTION_COST_TRANSIT_REQUEST_USD', overrides.transitRequestUsd ?? DEFAULT_COST_RATES.transitRequestUsd),
   }
@@ -595,18 +595,13 @@ export function profileBusinessSignals(details: GooglePlaceDetailsResponse, prof
 }
 
 /**
- * Valida un perfil de Instagram para el local y devuelve qué regla lo aceptó o lo rechazó.
- * `strict` (candidatos de la búsqueda por nombre, que trae homónimos de cualquier lado): además del
- * nombre exige una señal fuerte (Montevideo, la dirección, el teléfono o un link a la web oficial);
- * Uruguay, "uy" o "mvd" sueltos no alcanzan. Un handle que es la marca + sufijo de ubicación
- * (panchova_uy, brookies.mvd) cuenta como señal, salvo que la bio nombre otra ciudad u otro país; la
- * marca sola o + rubro (hakuna_matata_pizzabar) cuenta como nombre, no como ubicación.
- * Sin `strict` (candidatos de las fuentes del lugar), un handle que es la marca, sola o con sufijo de
- * ubicación o de rubro (cardenalcafe), alcanza si la bio no nombra otra ciudad u otro país.
+ * Valida un perfil de Instagram (candidato de las fuentes del lugar) y devuelve qué regla lo aceptó o lo
+ * rechazó. Un handle que es la marca, sola o con sufijo de ubicación o de rubro (cardenalcafe, brookies.mvd),
+ * alcanza si la bio no nombra otra ciudad u otro país.
  * Si el perfil se presenta con un rubro no gastronómico (barbería, ropa…) o publica otra dirección, ni el
  * handle ni el nombre alcanzan: sólo el teléfono del local en la bio o un link a su web oficial.
  */
-export function instagramProfileMatch(details: GooglePlaceDetailsResponse, profile: InstagramProfileData, websiteUrl: string | null, strict = false): { accepted: boolean; rule: InstagramMatchRule } {
+export function instagramProfileMatch(details: GooglePlaceDetailsResponse, profile: InstagramProfileData, websiteUrl: string | null): { accepted: boolean; rule: InstagramMatchRule } {
   const values = [profile.url, profile.name, profile.bio, ...profile.links, ...(profile.posts ?? [])]
   const normalized = canonical(values.join(' '))
   if (FOREIGN_PROFILE.test(canonical([profile.url, profile.name, profile.bio, ...profile.links].join(' ')))) return { accepted: false, rule: 'foreign_profile' }
@@ -624,11 +619,9 @@ export function instagramProfileMatch(details: GooglePlaceDetailsResponse, profi
     return { accepted: false, rule: mismatch }
   }
   const handleMatch = brandHandleMatch(instagramHandle(profile.url) ?? '', brand)
-  if (handleMatch && (!strict || handleMatch === 'location')) {
-    if (!otherPlaceInBio(details, profile)) return { accepted: true, rule: `handle_${handleMatch}` }
-  }
-  const hasName = samePlaceName(brand, profile.name) || Boolean(strict && handleMatch)
-  const hasLocalSignal = strict ? /\bmontevideo\b/.test(normalized) : /\bmontevideo\b|\buruguay\b|\buru\b|\b(?:uy|mvd)\b/.test(normalized)
+  if (handleMatch && !otherPlaceInBio(details, profile)) return { accepted: true, rule: `handle_${handleMatch}` }
+  const hasName = samePlaceName(brand, profile.name)
+  const hasLocalSignal = /\bmontevideo\b|\buruguay\b|\buru\b|\b(?:uy|mvd)\b/.test(normalized)
   const addressNumbers = canonical(details.anchor.address).match(/\b\d{2,}\b/g) ?? []
   const hasAddress = addressNumbers.some((number) => new RegExp(`\\b${number}\\b`).test(normalized))
   if (hasName && hasLocalSignal) return { accepted: true, rule: 'name_and_local_signal' }
@@ -989,8 +982,8 @@ async function validatedInstagram(
     // Ya con los reintentos: el lugar no sigue, para no guardarlo sin Instagram.
     throw new InstagramProviderFailure(error)
   }
-  // Varios válidos en la primera pasada: se desempata igual (la regla de la primera pasada no aplica).
-  return selectInstagram(details, candidates, profiles, websiteUrl, false, { firstPassUrls: new Set(), pictureStatus, pictureKind })
+  // Varios válidos: se desempata.
+  return selectInstagram(details, candidates, profiles, websiteUrl, { pictureStatus, pictureKind })
 }
 
 /** Elige el perfil validado entre los candidatos; sólo vale si queda uno. */
@@ -1017,20 +1010,15 @@ type PictureKind = (profile: InstagramProfileData) => Promise<LogoKind | null>
 const noPictureKind: PictureKind = async () => null
 
 /**
- * Entre varios perfiles válidos: primero el que también fue candidato de la primera pasada (vino de las
- * fuentes del lugar), después el único con rubro gastronómico, después el que tiene foto real frente al
- * avatar genérico de Instagram (los que no se pudieron revisar siguen), después el del post más reciente y
+ * Entre varios perfiles válidos: primero el único con rubro gastronómico, después el que tiene foto real frente
+ * al avatar genérico de Instagram (los que no se pudieron revisar siguen), después el del post más reciente y
  * por último el de más seguidores. Cada regla achica el grupo para la siguiente. Si sigue el empate, ninguno.
  */
 export async function breakInstagramTie(
   tied: InstagramProfileData[],
-  firstPassUrls: ReadonlySet<string>,
   pictureStatus: PictureStatus = defaultPictureStatus,
 ): Promise<{ profile: InstagramProfileData | null; tieBreak: InstagramTieBreak }> {
   let remaining = tied
-  const fromSources = remaining.filter((profile) => firstPassUrls.has(profile.url))
-  if (fromSources.length === 1) return { profile: fromSources[0], tieBreak: 'first_pass_candidate' }
-  if (fromSources.length > 1) remaining = fromSources
   const gastronomy = remaining.filter(hasGastronomyCategory)
   if (gastronomy.length === 1) return { profile: gastronomy[0], tieBreak: 'gastronomy' }
   if (gastronomy.length > 1) remaining = gastronomy
@@ -1052,10 +1040,8 @@ async function selectInstagram(
   candidates: string[],
   profiles: InstagramProfileData[],
   websiteUrl: string | null,
-  strict = false,
-  // Con varios válidos se desempata (los de la primera pasada ganan primero). pictureKind clasifica la foto de los
-  // aceptados sin señales de negocio.
-  tie: { firstPassUrls: ReadonlySet<string>; pictureStatus: PictureStatus; pictureKind?: PictureKind } | null = null,
+  // Con varios válidos se desempata. pictureKind clasifica la foto de los aceptados sin señales de negocio.
+  tie: { pictureStatus: PictureStatus; pictureKind?: PictureKind } | null = null,
 ): Promise<InstagramValidation> {
   const requestedProfiles = new Set(candidates.map(instagramProfileUrl).filter(Boolean))
   const rules = new Map<string, InstagramMatchRule>()
@@ -1063,7 +1049,7 @@ async function selectInstagram(
   for (const profile of profiles) {
     const profileUrl = instagramProfileUrl(profile.url)
     if (!profileUrl || !requestedProfiles.has(profileUrl)) continue
-    let match = instagramProfileMatch(details, profile, websiteUrl, strict)
+    let match = instagramProfileMatch(details, profile, websiteUrl)
     // Aceptado sólo por el nombre, sin ninguna señal de negocio y con la foto de una persona: es una cuenta personal
     // con el nombre de la marca. Si la foto no se pudo clasificar, se acepta como antes.
     if (match.accepted && profileBusinessSignals(details, profile, websiteUrl).length === 0 && await (tie?.pictureKind ?? noPictureKind)(profile) === 'person') {
@@ -1075,7 +1061,7 @@ async function selectInstagram(
   const unique = new Map(accepted.flatMap((profile) => {
     return [[profile.url, profile] as const]
   }))
-  const tieBroken = tie && unique.size > 1 ? await breakInstagramTie([...unique.values()], tie.firstPassUrls, tie.pictureStatus) : null
+  const tieBroken = tie && unique.size > 1 ? await breakInstagramTie([...unique.values()], tie.pictureStatus) : null
   const selected = unique.size === 1 ? [...unique.values()][0] : tieBroken?.profile ?? null
   const acceptedUrls = new Set(accepted.map((profile) => profile.url))
   return {
@@ -1094,116 +1080,6 @@ async function selectInstagram(
       return [{ handle, decision: 'discarded' as const, reason, ...withRule }]
     }),
   }
-}
-
-/**
- * Términos de la búsqueda por nombre, en orden: la marca tal cual (sin los signos que el actor rechaza),
- * sin espacios ni signos, entera + "uy", sin palabras genéricas + "uy" (si queda algo), y lo mismo con "mvd".
- */
-export function instagramSearchTerms(brand: string): string[] {
-  const asIs = instagramSearchText(brand)
-  const { full, withoutGeneric } = compactBrand(asIs)
-  const suffixed = ['uy', 'mvd'].flatMap((suffix) => [full && `${full}${suffix}`, withoutGeneric && `${withoutGeneric}${suffix}`])
-  return [...new Set([asIs, full, ...suffixed].filter(Boolean))]
-}
-
-// Perfiles distintos que revisa el respaldo por lugar, sumando todas las variantes.
-const MAX_FALLBACK_PROFILES = 10
-
-type InstagramSearchOutcome = { candidates: string[]; validation: InstagramValidation; chargedResults: number; terms: string[] }
-
-/**
- * Respaldo: busca la marca en Instagram (Apify) y valida esos perfiles con los datos que trae la
- * búsqueda, sin volver a pedirlos, y en modo estricto. Cada término corre sólo si los anteriores no
- * dieron un perfil válido, hasta revisar MAX_FALLBACK_PROFILES perfiles. Si Apify falla (ya con los reintentos), lanza InstagramProviderFailure.
- */
-async function searchedInstagram(
-  provider: InstagramProvider,
-  details: GooglePlaceDetailsResponse,
-  brand: string,
-  websiteUrl: string | null,
-  limited: <T>(operation: () => Promise<T>) => Promise<T>,
-  firstPassCandidates: string[] = [],
-  // Cuentas de otros lugares (agregadoras): tampoco valen si las trae la búsqueda.
-  excluded: ReadonlySet<string> = new Set(),
-  pictureStatus: PictureStatus = defaultPictureStatus,
-  pictureKind: PictureKind = noPictureKind,
-): Promise<InstagramSearchOutcome> {
-  const candidates = new Set<string>()
-  const decisions = new Map<string, InstagramAuditCandidate>()
-  const firstPassUrls = new Set(firstPassCandidates.map(instagramProfileUrl).filter((url): url is string => Boolean(url)))
-  let profile: InstagramProfileData | null = null
-  let tieBreak: InstagramTieBreak | undefined
-  let tieHandles: string[] | undefined
-  let chargedResults = 0
-  const terms: string[] = []
-  for (const term of instagramSearchTerms(brand)) {
-    const remaining = MAX_FALLBACK_PROFILES - candidates.size
-    if (remaining <= 0) break
-    terms.push(term)
-    const search: InstagramSearchResult = await limited(() => provider.searchProfiles!(term, Math.min(INSTAGRAM_SEARCH_LIMIT, remaining))).catch((error: unknown) => {
-      throw new InstagramProviderFailure(error)
-    })
-    chargedResults += search.chargedResults
-    const urls = [...new Set(search.profiles.map((item) => instagramProfileUrl(item.url)).filter((url): url is string => url !== null && !excluded.has(instagramHandle(url) ?? '')))]
-    // Los que ya salieron en otra variante no cuentan de nuevo; los nuevos, hasta el tope.
-    const fresh = urls.filter((url) => !candidates.has(url)).slice(0, remaining)
-    const found = urls.filter((url) => candidates.has(url) || fresh.includes(url))
-    fresh.forEach((url) => candidates.add(url))
-    const validation = await selectInstagram(details, found, search.profiles, websiteUrl, true, { firstPassUrls, pictureStatus, pictureKind })
-    if (validation.tieBreak) {
-      tieBreak = validation.tieBreak
-      tieHandles = validation.tieHandles
-    }
-    // Un perfil que ya salió en otra búsqueda conserva su primera decisión, salvo que ahora quede elegido.
-    for (const decision of validation.candidates) {
-      if (!decisions.has(decision.handle) || decision.decision === 'selected') decisions.set(decision.handle, decision)
-    }
-    if (validation.profile) {
-      profile = validation.profile
-      break
-    }
-  }
-  return { candidates: [...candidates], validation: { profile, candidates: [...decisions.values()], ...(tieBreak ? { tieBreak, tieHandles } : {}) }, chargedResults, terms }
-}
-
-// Motivos de rechazo de la primera pasada que justifican buscar: el perfil no era, Apify no lo trajo, la cuenta
-// era de otro lugar (agregadora) o era una cuenta personal con el nombre de la marca.
-const SEARCHABLE_REJECTIONS = new Set(['identity_or_location_mismatch', 'not_returned_by_provider', 'shared_with_other_place', 'personal_account'])
-
-/**
- * Por qué corre el respaldo, o null si no corre: sin candidatos, o con todos los candidatos rechazados
- * por identidad o porque Apify no los trajo (no si Apify falló o hubo varios perfiles válidos).
- */
-export function instagramFallbackReason(candidates: string[], validation: InstagramValidation | null): string | null {
-  if (candidates.length === 0) return 'sin candidato'
-  if (!validation || validation.profile || validation.candidates.length === 0) return null
-  if (!validation.candidates.every((candidate) => candidate.decision === 'discarded' && SEARCHABLE_REJECTIONS.has(candidate.reason))) return null
-  return `candidato rechazado: ${validation.candidates.map((candidate) => `${candidate.handle}, ${candidate.reason}`).join('; ')}`
-}
-
-/**
- * El nombre está confirmado antes del LLM: la web o algún resultado de Exa (no extranjero) nombra la
- * marca. Es la misma regla que `brandConfirmed` en postProcess; el resumen de Exa no cuenta porque sale
- * de una búsqueda con ese nombre. Sin nombre confirmado no se busca la marca en Instagram.
- */
-function brandNamedInSources(brand: string, website: WebsitePageData | null, exa: ExaPlaceResponse | null): boolean {
-  const candidates = [
-    ...(website ? [sourceFromWebsite(website)] : []),
-    ...(exa ? sourceFromExa(exa).filter((source) => !isForeignSource(source.url, source.text)) : []),
-  ]
-  return filterSources(candidates).some((source) => hasPhrase(source.text, brand))
-}
-
-/** Une la primera pasada con el respaldo: el perfil es el del respaldo y, por handle, gana su decisión. */
-function mergedInstagramValidation(first: InstagramValidation | null, fallback: InstagramValidation): InstagramValidation {
-  const decisions = new Map((first?.candidates ?? []).map((candidate) => [candidate.handle, candidate]))
-  for (const candidate of fallback.candidates) {
-    // Una cuenta personal sigue anotada como tal aunque el respaldo (estricto) la descarte por otra regla.
-    if (decisions.get(candidate.handle)?.reason === 'personal_account' && candidate.decision !== 'selected') continue
-    decisions.set(candidate.handle, candidate)
-  }
-  return { profile: fallback.profile, candidates: [...decisions.values()] }
 }
 
 function sourceFromInstagram(profile: InstagramProfileData): SourceCandidate {
@@ -1870,7 +1746,7 @@ type TaggedItem = PlaceExtraction['tags'][number]
 export function postProcess(
   target: Target,
   data: PlaceExtraction,
-  context: { sources?: Source[]; seedCategories?: CategoryId[]; categoryFallback?: string[]; deterministicContact?: DeterministicContact; prominenceSignals?: ProminenceSourceSignals } = {},
+  context: { sources?: Source[]; seedCategories?: CategoryId[]; categoryFallback?: string[]; deterministicContact?: DeterministicContact; prominenceSignals?: ProminenceSourceSignals; instagramManual?: InstagramManual } = {},
 ): PlaceEnrichmentDraft {
   const sources = context.sources ?? []
   const sourcesById = new Map(sources.map((source) => [source.id, source]))
@@ -2186,9 +2062,11 @@ export function postProcess(
     const phone = chain ? firstSourcePhone(sources.filter((source) => mentionsBranch(source, target)), brand) : anyPhone
     processed.contact = normalizeContact({ ...processed.contact, ...deterministic, phone: processed.contact.phone ?? phone ?? null })
   }
-  // El Instagram validado por Apify no queda si el modelo lo rechazó (vio que es de otro negocio).
-  const instagramRejected = Boolean(processed.contact.instagram && instagramRejectedByModel(data, processed.contact.instagram))
+  // El Instagram validado por Apify no queda si el modelo lo rechazó (vio que es de otro negocio). El cargado a mano
+  // en la revisión gana siempre, también "No tiene Instagram".
+  const instagramRejected = !context.instagramManual && Boolean(processed.contact.instagram && instagramRejectedByModel(data, processed.contact.instagram))
   if (instagramRejected) processed.contact.instagram = null
+  if (context.instagramManual) processed.contact.instagram = context.instagramManual.handle
   // La web que el modelo respalda con un fact gana; si no hay, la home de la web oficial scrapeada.
   processed.contact.website ??= officialWebsiteHome(sources)
   if (processed.contact.reservationUrl && (processed.reservations === 'unknown' || processed.reservations === 'no_reservations')) {
@@ -2362,7 +2240,7 @@ export function reviewExtraction(
   hoursRetry: PlaceReview['hoursRetry'] = { attempted: false, recovered: false, costUsd: 0 },
   logo: PlaceReview['logo'] = NO_LOGO.review,
   rateLimits: NonNullable<PlaceReview['rateLimits']> = [],
-  instagramFallback: PlaceReview['instagramFallback'] = undefined,
+  instagramManual: PlaceReview['instagramManual'] = undefined,
   instagramTieBreak: PlaceReview['instagramTieBreak'] = undefined,
   instagramShared: PlaceReview['instagramShared'] = undefined,
 ): PlaceReview {
@@ -2412,7 +2290,7 @@ export function reviewExtraction(
 
   return {
     unmappedFacts, doubts, anomalies, hoursRetry, logo, rateLimits,
-    ...(instagramFallback?.attempted || instagramFallback?.skipped ? { instagramFallback } : {}),
+    ...(instagramManual ? { instagramManual } : {}),
     ...(instagramTieBreak ? { instagramTieBreak } : {}),
     ...(instagramShared?.length ? { instagramShared } : {}),
   }
@@ -2499,7 +2377,7 @@ function extractionCost(
   const googleCost = usage.googleRequests * rates.googleDetailsRequestUsd
   const exaCost = usage.exaRequests * rates.exaSearchRequestUsd + usage.exaContentPages * rates.exaContentPageUsd +
     usage.exaHighlightPages * rates.exaHighlightPageUsd
-  const instagramCost = usage.instagramRequests * rates.instagramRunUsd + (usage.instagramSearchResults ?? 0) * rates.instagramSearchResultUsd
+  const instagramCost = usage.instagramRequests * rates.instagramRunUsd
   const scrapingCost = usage.scrapingRequests * rates.scrapingRequestUsd
   const transitCost = usage.transitRequests * rates.transitRequestUsd
   const price = llm ? llmPrice(model) : null
@@ -2584,6 +2462,9 @@ function extractionPerformance(
 }
 
 /** Fuentes ya buscadas de un lugar. Se pueden pasar varias veces a extractFrom con distintos modelos. */
+/** Instagram cargado a mano en la revisión: el handle, o null si se marcó "No tiene Instagram". */
+export type InstagramManual = { handle: string | null }
+
 export type CollectedSources = {
   placeId: string
   request: PlaceExtractionRequest
@@ -2593,13 +2474,13 @@ export type CollectedSources = {
   deterministicContact: DeterministicContact
   instagramCandidates: string[]
   instagramValidation: InstagramValidation
-  /** Búsqueda de respaldo del Instagram (sólo si la primera pasada no dejó candidatos). */
-  instagramFallback?: NonNullable<PlaceReview['instagramFallback']>
+  /** Instagram cargado a mano (en esta revisión o en una anterior, por manual_overrides): el modelo no lo rechaza. */
+  instagramManual?: InstagramManual
   /** Señales de actividad del Instagram validado (null sin Instagram): si está funcionando, no va a not_open_yet. */
   instagramActivity?: InstagramActivity | null
   /** Handles descartados por ser de un lugar de otra marca, con esos lugares: el contacto no puede quedar con uno de ellos. */
   sharedInstagram?: NonNullable<PlaceReview['instagramShared']>
-  /** Desempate entre perfiles válidos (el del respaldo, si hubo, pisa al de la primera pasada). */
+  /** Desempate entre perfiles válidos de la primera pasada. */
   instagramTieBreak?: NonNullable<PlaceReview['instagramTieBreak']>
   /** Seguidores del Instagram validado; postProcess decide igFollowers (null en cadenas). */
   prominenceSignals?: ProminenceSourceSignals
@@ -2610,6 +2491,88 @@ export type CollectedSources = {
   costUsage: ExtractionCostUsage
   timings: Record<string, number>
   elapsedMs: number
+}
+
+/**
+ * Paso 1: Google, Exa, la web oficial, los buses y la primera pasada de Instagram (candidatos y validación). Queda en
+ * memoria del server (DiscoveryStore) hasta el paso 2, que no vuelve a pagar estas fuentes. Tiene datos de Google: no
+ * se escribe a disco.
+ */
+export type Discovery = {
+  placeId: string
+  request: PlaceExtractionRequest
+  details: GooglePlaceDetailsResponse
+  exa: ExaPlaceResponse | null
+  website: WebsitePageData | null
+  websiteUrl: string | null
+  candidates: string[]
+  origins: Map<string, InstagramCandidateOrigin[]>
+  shared: SharedInstagram
+  firstPass: InstagramValidation
+  /** Fotos de perfil ya clasificadas, por URL del perfil: el logo reusa la del elegido y su costo se suma una vez. */
+  pictureClassifications: Map<string, PictureClassification | null>
+  transit: TransitInfo
+  /** Instagram cargado a mano en un procesamiento anterior (manual_overrides). Falta si no hay. */
+  savedInstagram?: InstagramManual
+  rateLimits: RateLimitLog
+  costUsage: ExtractionCostUsage
+  timings: Record<string, number>
+  elapsedMs: number
+}
+
+/** Mide cada etapa en `timings`. */
+function stageTimer(timings: Record<string, number>) {
+  return async <T>(stage: string, operation: () => Promise<T>): Promise<T> => {
+    const stageStartedAt = performance.now()
+    try {
+      return await operation()
+    } finally {
+      timings[stage] = Math.round(performance.now() - stageStartedAt)
+    }
+  }
+}
+
+/** Con `auto`, el Instagram cargado a mano en un procesamiento anterior gana: reprocesar no lo pisa. */
+function effectiveInstagram(discovery: Pick<Discovery, 'savedInstagram'>, choice: InstagramChoice): InstagramManual | null {
+  if (choice.mode === 'manual') return { handle: choice.handle }
+  if (choice.mode === 'none') return { handle: null }
+  return discovery.savedInstagram ?? null
+}
+
+/** La auditoría con el Instagram cargado a mano: el manual queda elegido y el que había elegido el pipeline, descartado. */
+function manualValidation(firstPass: InstagramValidation, profile: InstagramProfileData | null, handle: string | null): InstagramValidation {
+  const others = firstPass.candidates
+    .filter((candidate) => candidate.handle !== handle)
+    .map((candidate) => candidate.decision === 'selected' ? { ...candidate, decision: 'discarded' as const, reason: 'manual_override' } : candidate)
+  return {
+    profile,
+    candidates: handle ? [{ handle, decision: 'selected', reason: 'manual', origins: ['manual'] }, ...others] : others,
+  }
+}
+
+/**
+ * Resumen del paso 1 para la revisión. approved: la validación eligió un perfil con alguna señal de negocio (teléfono,
+ * dirección, link a la web oficial o rubro gastronómico). doubtful: lo eligió sólo por el nombre o el handle, hubo
+ * empate sin resolver o rechazó todos los candidatos (handle es el primero). none: sin candidatos.
+ */
+export function instagramDiscoverySummary(discovery: Pick<Discovery, 'placeId' | 'details' | 'websiteUrl' | 'firstPass' | 'savedInstagram'> & Partial<Pick<Discovery, 'shared'>>, costUsd: number): InstagramDiscovery {
+  const { firstPass, details, websiteUrl } = discovery
+  const candidates = firstPass.candidates.map(({ handle, decision, reason }) => ({ handle, decision, reason }))
+  const shared = [...discovery.shared ?? []].map(([handle, places]) => ({ handle, places }))
+  const base = {
+    googlePlaceId: discovery.placeId, candidates, costUsd,
+    ...(discovery.savedInstagram ? { saved: discovery.savedInstagram } : {}),
+    ...(shared.length > 0 ? { shared } : {}),
+  }
+  const profile = firstPass.profile
+  if (profile) {
+    const handle = instagramHandle(profile.url)
+    const approved = profileBusinessSignals(details, profile, websiteUrl).length > 0
+    return { ...base, status: approved ? 'approved' : 'doubtful', handle, doubt: approved ? null : 'name_only' }
+  }
+  if (candidates.length === 0) return { ...base, status: 'none', handle: null, doubt: null }
+  const tied = candidates.find((candidate) => candidate.reason === 'multiple_valid_profiles')
+  return { ...base, status: 'doubtful', handle: (tied ?? candidates[0]).handle, doubt: tied ? 'tie' : 'rejected' }
 }
 
 export class PlaceExtractionService implements PlaceExtractor {
@@ -2633,8 +2596,10 @@ export class PlaceExtractionService implements PlaceExtractor {
   private readonly snapshots?: ExtractionSnapshotStore
   private readonly candidateRegistry: Pick<InstagramCandidateRegistry, 'claim'>
   private readonly instagramOwners?: InstagramOwners
+  private readonly manualInstagram?: ManualInstagramLookup
+  private readonly discoveries: DiscoveryStore
 
-  constructor(config: { apiKey?: string; details: DetailsProvider; exa?: ExaPlaceProvider; instagram?: InstagramProvider; website?: WebsiteProvider; transit?: TransitProvider; generate?: GenerateExtraction; generateHours?: GenerateHours; costRates?: Partial<ExtractionCostRates>; reservationHosts?: readonly string[]; model?: ExtractionModelConfig; hoursModel?: ExtractionModelConfig; logoStorage?: LogoStore; classifyLogo?: LogoClassifier; logoModel?: string; logoFetcher?: typeof fetch; rateLimitRetry?: RateLimitRetryOptions; snapshots?: ExtractionSnapshotStore; candidateRegistry?: Pick<InstagramCandidateRegistry, 'claim'>; instagramOwners?: InstagramOwners }) {
+  constructor(config: { apiKey?: string; details: DetailsProvider; exa?: ExaPlaceProvider; instagram?: InstagramProvider; website?: WebsiteProvider; transit?: TransitProvider; generate?: GenerateExtraction; generateHours?: GenerateHours; costRates?: Partial<ExtractionCostRates>; reservationHosts?: readonly string[]; model?: ExtractionModelConfig; hoursModel?: ExtractionModelConfig; logoStorage?: LogoStore; classifyLogo?: LogoClassifier; logoModel?: string; logoFetcher?: typeof fetch; rateLimitRetry?: RateLimitRetryOptions; snapshots?: ExtractionSnapshotStore; candidateRegistry?: Pick<InstagramCandidateRegistry, 'claim'>; instagramOwners?: InstagramOwners; manualInstagram?: ManualInstagramLookup; discoveries?: DiscoveryStore }) {
     this.configured = Boolean(config.apiKey?.trim())
     this.details = config.details
     this.exa = config.exa
@@ -2655,6 +2620,8 @@ export class PlaceExtractionService implements PlaceExtractor {
     this.rateLimitRetry = config.rateLimitRetry ?? {}
     this.candidateRegistry = config.candidateRegistry ?? new InstagramCandidateRegistry()
     this.instagramOwners = config.instagramOwners
+    this.manualInstagram = config.manualInstagram
+    this.discoveries = config.discoveries ?? new DiscoveryStore()
   }
 
   /**
@@ -2693,12 +2660,41 @@ export class PlaceExtractionService implements PlaceExtractor {
     return this.extractFrom(await this.collectSources(placeId, request))
   }
 
-  /** Google, Exa, scraping, Instagram y buses: todo lo que no es el LLM. */
+  async discoverPlace(placeId: string, request: PlaceExtractionRequest): Promise<InstagramDiscovery> {
+    if (!this.configured) throw new PlacesProviderError('configuration', 'Falta configurar AI_GATEWAY_API_KEY en .env.local.')
+    const discovery = await this.discover(placeId, request)
+    this.discoveries.set(discovery)
+    return instagramDiscoverySummary(discovery, this.discoveryCostUsd(discovery))
+  }
+
+  /**
+   * Termina con el descubrimiento guardado y lo borra. Con un handle manual que no existe lo deja, para corregirlo
+   * sin volver a pagar las fuentes.
+   */
+  async completePlace(placeId: string, instagram: InstagramChoice): Promise<PlaceEnrichmentResponse> {
+    if (!this.configured) throw new PlacesProviderError('configuration', 'Falta configurar AI_GATEWAY_API_KEY en .env.local.')
+    const discovery = this.discoveries.get(placeId)
+    if (!discovery) throw new DiscoveryExpired()
+    const result = await this.extractFrom(await this.completeSources(discovery, instagram))
+    this.discoveries.delete(placeId)
+    return result
+  }
+
+  /** Google, Exa, scraping, Instagram y buses: todo lo que no es el LLM, con el Instagram que validó el pipeline. */
   async collectSources(placeId: string, request: PlaceExtractionRequest): Promise<CollectedSources> {
+    return this.completeSources(await this.discover(placeId, request), { mode: 'auto' })
+  }
+
+  private scrapeWebsite(url: string | null, timed: ReturnType<typeof stageTimer>) {
+    return this.website?.configured && url
+      ? timed('scraping', () => this.website!.scrape(url)).catch(() => null)
+      : Promise.resolve(null)
+  }
+
+  /** Paso 1: Google, Exa (principal y dirigida a Instagram), la web oficial, los buses y la primera pasada de Instagram. */
+  async discover(placeId: string, request: PlaceExtractionRequest): Promise<Discovery> {
     const startedAt = performance.now()
     const timings: Record<string, number> = {}
-    let sourceCount = 0
-    let sourceCharacters = 0
     const costUsage: ExtractionCostUsage = {
       googleRequests: 0,
       exaRequests: 0,
@@ -2709,15 +2705,15 @@ export class PlaceExtractionService implements PlaceExtractor {
       transitRequests: 0,
     }
     const rateLimits = new RateLimitLog(placeId)
-    const timed = async <T>(stage: string, operation: () => Promise<T>): Promise<T> => {
-      const stageStartedAt = performance.now()
-      try {
-        return await operation()
-      } finally {
-        timings[stage] = Math.round(performance.now() - stageStartedAt)
-      }
-    }
+    const timed = stageTimer(timings)
     try {
+      // Instagram cargado a mano antes (manual_overrides). Si la base falla, sigue como si no hubiera.
+      const savedPromise = this.manualInstagram
+        ? this.manualInstagram(placeId).catch((error: unknown) => {
+          console.warn(JSON.stringify({ event: 'manual_instagram_failed', placeId, error: String(error) }))
+          return null
+        })
+        : Promise.resolve(null)
       const detailsPromise = timed('google', () => this.details.getDetails(placeId))
       // El request no trae nombre: Exa busca con la marca (nombre de Google sin sucursal) y el tipo de
       // lugar de Google, para no mezclar homónimos; el provider agrega Montevideo. La búsqueda principal
@@ -2747,10 +2743,6 @@ export class PlaceExtractionService implements PlaceExtractor {
         .catch(() => ({ status: 'unavailable' as const, lines: [] })))
       const details = await detailsPromise
       costUsage.googleRequests = 1
-      const { coordinates } = targetFromDetails(placeId, details, request, { status: 'unavailable', lines: [] })
-      const scrapeWebsite = (url: string | null) => this.website?.configured && url
-        ? timed('scraping', () => this.website!.scrape(url)).catch(() => null)
-        : Promise.resolve(null)
       const brand = brandFromGoogleName(details.anchor.name)
       // La web de Google (websiteUri) no es fuente: sólo confirma una web o un Instagram que trajo otra fuente.
       const googleWebsite = details.websiteUri ?? null
@@ -2758,14 +2750,14 @@ export class PlaceExtractionService implements PlaceExtractor {
       const exa = await exaPromise
       if (exa instanceof ExaProviderFailure) throw exa
       // La web oficial sale de los resultados de Exa (marca en el dominio, o la misma que tiene Google).
-      let websiteUrl = exa ? brandWebsite(exa.results.map((result) => result.url), brand, this.reservationHosts, googleWebsite) : null
-      const websitePromise = scrapeWebsite(websiteUrl)
+      const websiteUrl = exa ? brandWebsite(exa.results.map((result) => result.url), brand, this.reservationHosts, googleWebsite) : null
+      const websitePromise = this.scrapeWebsite(websiteUrl, timed)
       if (exa) {
         costUsage.exaRequests = 1
         costUsage.exaContentPages = exa.results.length
       }
       // Los links de la web oficial también proponen el Instagram, así que Instagram espera a la web.
-      let website = await websitePromise
+      const website = await websitePromise
       const instagramSearch = await instagramSearchPromise
       if (instagramSearch instanceof ExaProviderFailure) throw instagramSearch
       if (instagramSearch) {
@@ -2774,19 +2766,17 @@ export class PlaceExtractionService implements PlaceExtractor {
       }
       const directedHandles = instagramSearch ? instagramHandlesFromResults(instagramSearch.results) : []
       const origins = instagramCandidateOrigins(exa, website ? [...website.instagramUrls, ...(website.links ?? [])] : [], directedHandles)
-      let candidates = [...origins.keys()]
+      const candidates = [...origins.keys()]
       // Cuentas agregadoras: candidatas de otro lugar. Se descartan sin pedirlas a Apify.
       const shared = await this.sharedInstagram(placeId, details.anchor.name, candidates)
       const sharedDecisions: InstagramAuditCandidate[] = [...shared.keys()].map((handle) => ({ handle, decision: 'discarded', reason: 'shared_with_other_place' }))
       const ownCandidates = candidates.filter((candidate) => !shared.has(instagramHandle(candidate) ?? ''))
-      const instagramFallback: NonNullable<PlaceReview['instagramFallback']> = { attempted: false, reason: '', terms: [], handles: [], costUsd: 0 }
-      let firstPass: InstagramValidation | null = null
       // Desempate por foto de perfil: la misma detección del avatar genérico que el logo, con su fetcher.
       const pictureStatus: PictureStatus = (profile) => profilePictureStatus(profile.profilePicUrl, this.logoFetcher)
       // Cuentas personales: la foto de los aceptados sin señales de negocio se clasifica con el modelo del logo, una
-      // vez por perfil aunque aparezca en las dos pasadas. El logo reusa la del elegido.
+      // vez por perfil. El logo reusa la del elegido.
       const pictureClassifications = new Map<string, Promise<PictureClassification | null>>()
-      const classifyPicture = (profile: InstagramProfileData) => {
+      const pictureKind: PictureKind = async (profile) => {
         const key = instagramProfileUrl(profile.url) ?? profile.url
         if (!pictureClassifications.has(key)) {
           pictureClassifications.set(key, classifyProfilePicture(profile.profilePicUrl, {
@@ -2795,58 +2785,96 @@ export class PlaceExtractionService implements PlaceExtractor {
             fetcher: this.logoFetcher,
           }))
         }
-        return pictureClassifications.get(key)!
+        return (await pictureClassifications.get(key)!)?.kind ?? null
       }
-      const pictureKind: PictureKind = async (profile) => (await classifyPicture(profile))?.kind ?? null
-      let fallbackValidation: InstagramValidation | null = null
+      let firstPass: InstagramValidation = { profile: null, candidates: [] }
       if (ownCandidates.length > 0) {
         if (this.instagram?.configured) costUsage.instagramRequests = 1
         firstPass = await timed('instagram', () => validatedInstagram(this.instagram, details, ownCandidates, websiteUrl, (operation) => this.limited('apify', rateLimits, operation), pictureStatus, pictureKind))
       }
-      if (sharedDecisions.length > 0) firstPass = { ...(firstPass ?? { profile: null }), candidates: [...sharedDecisions, ...(firstPass?.candidates ?? [])] }
-      let instagramValidation: InstagramValidation = firstPass ?? { profile: null, candidates: [] }
-      const fallbackReason = instagramFallbackReason(candidates, firstPass)
-      const canSearch = Boolean(fallbackReason && this.instagram?.configured && this.instagram.searchProfiles)
-      if (canSearch && !brandNamedInSources(brand, website, exa)) {
-        // Sin nombre confirmado la marca no está respaldada: no se busca (la primera pasada queda como está).
-        Object.assign(instagramFallback, { skipped: 'unconfirmed_name', reason: fallbackReason })
-      } else if (canSearch && fallbackReason) {
-        // Respaldo: sin candidatos o con los de la primera pasada rechazados. Busca la marca en Instagram con Apify.
-        const searched = await timed('instagramSearch', () => searchedInstagram(this.instagram!, details, brand, websiteUrl, (operation) => this.limited('apify', rateLimits, operation), ownCandidates, new Set(shared.keys()), pictureStatus, pictureKind))
-        fallbackValidation = searched.validation
-        candidates = [...new Set([...candidates, ...searched.candidates])]
-        for (const url of searched.candidates) origins.set(url, [...new Set([...(origins.get(url) ?? []), 'apify_search' as const])])
-        instagramValidation = mergedInstagramValidation(firstPass, searched.validation)
-        costUsage.instagramSearchResults = searched.chargedResults
-        Object.assign(instagramFallback, {
-          attempted: true,
-          reason: fallbackReason,
-          terms: searched.terms,
-          handles: searched.candidates.map(instagramHandle).filter((handle): handle is string => Boolean(handle)),
-          costUsd: roundUsd(searched.chargedResults * this.costRates.instagramSearchResultUsd),
-          ...(searched.validation.tieBreak ? { tieBreak: searched.validation.tieBreak } : {}),
-        })
-      }
-      const tied = fallbackValidation?.tieBreak ? { validation: fallbackValidation, pass: 'fallback' as const }
-        : firstPass?.tieBreak ? { validation: firstPass, pass: 'first' as const } : null
-      const instagramTieBreak: CollectedSources['instagramTieBreak'] = tied
-        ? { rule: tied.validation.tieBreak!, pass: tied.pass, handles: tied.validation.tieHandles ?? [] }
-        : undefined
+      if (sharedDecisions.length > 0) firstPass = { ...firstPass, candidates: [...sharedDecisions, ...firstPass.candidates] }
       // Auditoría: de dónde salió cada handle (queda en el snapshot y en sourceAudit).
-      instagramValidation = { ...instagramValidation, candidates: withOrigins(instagramValidation.candidates, origins) }
-      const profile = instagramValidation.profile
-      // Logo desde la foto de perfil validada, en paralelo con la web y los buses. Nunca falla.
+      firstPass = { ...firstPass, candidates: withOrigins(firstPass.candidates, origins) }
+      const classified = new Map(await Promise.all([...pictureClassifications].map(async ([url, promise]) => [url, await promise] as const)))
+      const transit = await transitPromise
+      if (this.transit) costUsage.transitRequests = 1
+      const saved = await savedPromise
+      return {
+        placeId,
+        request,
+        details,
+        exa,
+        website,
+        websiteUrl,
+        candidates,
+        origins,
+        shared,
+        firstPass,
+        pictureClassifications: classified,
+        transit,
+        ...(saved ? { savedInstagram: saved } : {}),
+        rateLimits,
+        costUsage,
+        timings,
+        elapsedMs: performance.now() - startedAt,
+      }
+    } catch (error) {
+      console.error(JSON.stringify({ event: 'place_extraction_error', stage: 'discovery', placeId, error: errorChain(error) }))
+      throw apiFailure(error)
+    } finally {
+      console.info(JSON.stringify({
+        event: 'place_extraction_discovery_timing',
+        placeId,
+        totalMs: Math.round(performance.now() - startedAt),
+        timingsMs: timings,
+      }))
+    }
+  }
+
+  /** Lo que cuesta el paso 1 hasta acá, para la revisión. */
+  discoveryCostUsd(discovery: Discovery): number {
+    const cost = extractionCost(this.costRates, discovery.costUsage, this.modelConfig.model, null, null, withPictureClassifications(NO_LOGO, [...discovery.pictureClassifications.values()]).classification)
+    return cost.totalUsd
+  }
+
+  /**
+   * Paso 2 sin el LLM: el Instagram elegido (el validado, uno cargado a mano o ninguno), el logo, la web desde el
+   * Instagram y las fuentes. No vuelve a consultar Google ni Exa. Un handle manual se baja con Apify (un solo perfil,
+   * sin validar); si no existe, InstagramNotFound.
+   */
+  async completeSources(discovery: Discovery, choice: InstagramChoice): Promise<CollectedSources> {
+    const startedAt = performance.now()
+    const { placeId, request, details, exa, firstPass, rateLimits } = discovery
+    // Copias: un reintento del paso 2 (handle mal escrito) no suma dos veces.
+    const timings = { ...discovery.timings }
+    const costUsage = { ...discovery.costUsage }
+    const timed = stageTimer(timings)
+    let sourceCount = 0
+    try {
+      const brand = brandFromGoogleName(details.anchor.name)
+      const googleWebsite = details.websiteUri ?? null
+      const manual = effectiveInstagram(discovery, choice)
+      let profile = firstPass.profile
+      if (manual) {
+        profile = manual.handle ? await timed('instagramManual', () => this.manualProfile(manual.handle!, rateLimits)) : null
+        if (manual.handle) costUsage.instagramRequests += 1
+      }
+      const instagramValidation = manual ? manualValidation(firstPass, profile, manual.handle) : firstPass
+      const instagramTieBreak: CollectedSources['instagramTieBreak'] = !manual && firstPass.tieBreak
+        ? { rule: firstPass.tieBreak, handles: firstPass.tieHandles ?? [] }
+        : undefined
+      // Logo desde la foto de perfil elegida, en paralelo con la web. Nunca falla.
       const logoPromise = timed('logo', async () => fetchPlaceLogo(profile, placeId, {
         storage: this.logoStorage,
         classify: (image, model) => this.limited('llm', rateLimits, () => this.classifyLogo(image, model)),
         model: this.logoModel,
         fetcher: this.logoFetcher,
-        known: profile ? await pictureClassifications.get(profile.url) ?? null : null,
+        known: profile ? discovery.pictureClassifications.get(profile.url) ?? null : null,
       }))
-      // Y al revés: sin web todavía, la que enlaza el Instagram validado si su dominio lleva la marca.
-      if (!websiteUrl && profile) {
-        websiteUrl = brandWebsite(profile.links, brand, this.reservationHosts, googleWebsite)
-        website = await scrapeWebsite(websiteUrl)
+      // Y al revés: sin web todavía, la que enlaza el Instagram elegido si su dominio lleva la marca.
+      let website = discovery.website
+      if (!discovery.websiteUrl && profile) {
+        website = await this.scrapeWebsite(brandWebsite(profile.links, brand, this.reservationHosts, googleWebsite), timed)
       }
       if (website) costUsage.scrapingRequests = 1
       // Las páginas de otros países (otra marca con el mismo nombre) no son fuentes del local.
@@ -2877,30 +2905,28 @@ export class PlaceExtractionService implements PlaceExtractor {
       const deduplicated = deduplicateSourceText(reindexSources(used.map(({ source }) => source)))
       const sources = deduplicated.sources
       sourceCount = sources.length
-      sourceCharacters = sources.reduce((total, source) => total + source.text.slice(0, MAX_CHARS_PER_SOURCE).length, 0)
-      const transit = await transitPromise
-      if (this.transit) costUsage.transitRequests = 1
       // El costo de clasificar fotos suma el del logo y el de las clasificadas al elegir el perfil.
-      const logo = withPictureClassifications(await logoPromise, await Promise.all(pictureClassifications.values()))
+      const logo = withPictureClassifications(await logoPromise, [...discovery.pictureClassifications.values()])
+      const { coordinates } = targetFromDetails(placeId, details, request, discovery.transit)
       return {
         placeId,
         request,
-        target: { ...targetFromDetails(placeId, details, request, transit), coordinates },
+        target: { ...targetFromDetails(placeId, details, request, discovery.transit), coordinates },
         sources,
         sourceText: deduplicated.stats,
         deterministicContact: resolveDeterministicContact(details, sources, this.reservationHosts),
-        instagramCandidates: candidates,
+        instagramCandidates: manual?.handle ? [...new Set([...discovery.candidates, `https://www.instagram.com/${manual.handle}/`])] : discovery.candidates,
         instagramValidation,
-        instagramFallback,
+        ...(manual ? { instagramManual: manual } : {}),
         ...(instagramTieBreak ? { instagramTieBreak } : {}),
         instagramActivity: profile ? instagramActivity(profile) : null,
-        sharedInstagram: [...shared].map(([handle, places]) => ({ handle, places })),
+        sharedInstagram: [...discovery.shared].map(([handle, places]) => ({ handle, places })),
         prominenceSignals,
         logo,
         rateLimits,
         costUsage,
         timings,
-        elapsedMs: performance.now() - startedAt,
+        elapsedMs: discovery.elapsedMs + (performance.now() - startedAt),
       }
     } catch (error) {
       console.error(JSON.stringify({ event: 'place_extraction_error', stage: 'sources', placeId, error: errorChain(error) }))
@@ -2909,12 +2935,26 @@ export class PlaceExtractionService implements PlaceExtractor {
       console.info(JSON.stringify({
         event: 'place_extraction_sources_timing',
         placeId,
-        totalMs: Math.round(performance.now() - startedAt),
+        totalMs: Math.round(discovery.elapsedMs + (performance.now() - startedAt)),
         timingsMs: timings,
         sourceCount,
-        sourceCharacters,
       }))
     }
+  }
+
+  /** Perfil cargado a mano: un solo perfil con Apify, sin validar. Si no existe, InstagramNotFound. */
+  private async manualProfile(handle: string, rateLimits: RateLimitLog): Promise<InstagramProfileData> {
+    if (!this.instagram?.configured) throw new PlacesProviderError('configuration', 'Falta configurar APIFY_API_TOKEN en .env.local.')
+    const url = `https://www.instagram.com/${handle}/`
+    let profiles: InstagramProfileData[]
+    try {
+      profiles = await this.limited('apify', rateLimits, () => this.instagram!.scrapeMany([url]))
+    } catch (error) {
+      throw new InstagramProviderFailure(error)
+    }
+    const profile = profiles.find((item) => instagramHandle(item.url) === handle)
+    if (!profile) throw new InstagramNotFound(handle)
+    return { ...profile, url: instagramProfileUrl(profile.url) ?? url }
   }
 
   /**
@@ -2990,6 +3030,7 @@ export class PlaceExtractionService implements PlaceExtractor {
         seedCategories: collected.request.seedCategories,
         deterministicContact: collected.deterministicContact,
         prominenceSignals: collected.prominenceSignals,
+        instagramManual: collected.instagramManual,
         categoryFallback: [],
       }
       let data = extracted
@@ -3030,9 +3071,10 @@ export class PlaceExtractionService implements PlaceExtractor {
           place = { ...place, hours: { ...place.hours, missingReason: 'chain_branch_not_found' } }
         }
       }
-      // Instagram rechazado por el modelo: tampoco su foto como logo ni su actividad para el estado.
+      // Instagram rechazado por el modelo: tampoco su foto como logo ni su actividad para el estado. El cargado a mano
+      // no se rechaza.
       const validatedHandle = collected.instagramValidation.profile ? instagramHandle(collected.instagramValidation.profile.url) : null
-      const modelRejectedInstagram = Boolean(validatedHandle) && instagramRejectedByModel(data, validatedHandle)
+      const modelRejectedInstagram = !collected.instagramManual && Boolean(validatedHandle) && instagramRejectedByModel(data, validatedHandle)
       const placeLogo = modelRejectedInstagram ? NO_LOGO : logo
       place = { ...place, logo: placeLogo.logo }
       // Una cuenta agregadora tampoco queda como contacto aunque la cite una fuente de terceros.
@@ -3056,11 +3098,11 @@ export class PlaceExtractionService implements PlaceExtractor {
           validated: validatedHandle,
           modelRejected: modelRejectedInstagram,
           saved: place.contact.instagram,
-          ...(collected.instagramFallback ? { fallback: collected.instagramFallback } : {}),
+          ...(collected.instagramManual ? { manual: collected.instagramManual } : {}),
           ...(collected.instagramTieBreak ? { tieBreak: collected.instagramTieBreak } : {}),
         },
       }).catch((error: unknown) => console.warn(JSON.stringify({ event: 'extraction_snapshot_failed', placeId: target.googlePlaceId, error: String(error) })))
-      const review = reviewExtraction(place, data, hoursRetry, placeLogo.review, rateLimits.summary(), collected.instagramFallback, collected.instagramTieBreak, collected.sharedInstagram)
+      const review = reviewExtraction(place, data, hoursRetry, placeLogo.review, rateLimits.summary(), collected.instagramManual, collected.instagramTieBreak, collected.sharedInstagram)
       const activity = modelRejectedInstagram ? null : collected.instagramActivity
       place = { ...place, reviewReasons: reviewReasonsFor(place, review, { instagramOperating: instagramOperating(activity, new Date()) }) }
       return {

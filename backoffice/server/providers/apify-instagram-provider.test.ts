@@ -140,43 +140,12 @@ describe('ApifyInstagramProvider', () => {
     })
   })
 
-  it('busca usuarios con el actor de búsqueda, hasta 5, y devuelve los perfiles con sus datos', async () => {
-    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify([
-      { username: 'el.mingus', fullName: 'El Mingus', biography: 'Jazz bar · Montevideo', url: 'https://www.instagram.com/el.mingus', profilePicUrlHD: 'https://cdn.example/m.jpg', followersCount: 9_000 },
-      { username: 'mingus_electric', fullName: 'Brian Echols', biography: '' },
-    ]), { status: 200 }))
-    const provider = new ApifyInstagramProvider({ token: 'secret' }, fetcher)
-
-    const result = await provider.searchProfiles('El Mingus, bar!')
-
-    expect(result.chargedResults).toBe(2)
-    expect(result.profiles.map((profile) => profile.name)).toEqual(['El Mingus', 'Brian Echols'])
-    expect(result.profiles[0]).toMatchObject({ bio: 'Jazz bar · Montevideo', followers: 9_000, profilePicUrl: 'https://cdn.example/m.jpg' })
-    const [url, init] = fetcher.mock.calls[0]
-    expect(String(url)).toContain('/v2/actors/apify~instagram-search-scraper/run-sync-get-dataset-items')
-    // El actor rechaza los signos (y la coma separa términos): se sacan.
-    expect(JSON.parse(init.body)).toEqual({ search: 'El Mingus bar', searchType: 'user', searchLimit: 5 })
-  })
-
-  it('sin resultados el actor escribe un ítem de error, que se cobra', async () => {
-    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify([{ error: 'no_items', errorDescription: 'Empty or private data for provided input' }]), { status: 200 }))
-    const provider = new ApifyInstagramProvider({ token: 'secret' }, fetcher)
-
-    await expect(provider.searchProfiles('Nadie')).resolves.toEqual({ profiles: [], chargedResults: 1 })
-  })
-
-  it('la búsqueda convierte un 429 en RateLimitError y exige token', async () => {
-    const limited = new ApifyInstagramProvider({ token: 'secret' }, vi.fn().mockResolvedValue(new Response('', { status: 429 })))
-    await expect(limited.searchProfiles('El Mingus')).rejects.toBeInstanceOf(RateLimitError)
-    await expect(new ApifyInstagramProvider({}).searchProfiles('El Mingus')).rejects.toMatchObject({ kind: 'configuration' })
-  })
-
   it('lee el rubro de la cuenta e ignora "None"', async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify([
       { username: 'living.uy', fullName: 'L I V I N G', businessCategoryName: 'Bar' },
       { username: 'plazadechueca_pde', fullName: 'Plaza de Chueca PdE', businessCategoryName: 'None' },
     ]), { status: 200 }))
-    const { profiles } = await new ApifyInstagramProvider({ token: 'secret' }, fetcher).searchProfiles('living')
+    const profiles = await new ApifyInstagramProvider({ token: 'secret' }, fetcher).scrapeMany(['https://www.instagram.com/living.uy/', 'https://www.instagram.com/plazadechueca_pde/'])
     expect(profiles[0].category).toBe('Bar')
     expect(profiles[1]).not.toHaveProperty('category')
   })
@@ -204,10 +173,9 @@ describe('ApifyInstagramProvider', () => {
     expect(url.searchParams.get('timeout')).toBe('120')
     expect(url.searchParams.get('memory')).toBe('512')
 
-    const search = ok()
-    await new ApifyInstagramProvider({ token: 'secret' }, search).searchProfiles('Cordón Beer')
-    expect(new URL(String(search.mock.calls[0][0])).searchParams.get('timeout')).toBe('120')
-    expect(new URL(String(search.mock.calls[0][0])).searchParams.has('memory')).toBe(false)
+    const withoutMemory = ok()
+    await new ApifyInstagramProvider({ token: 'secret' }, withoutMemory).scrape('https://instagram.com/cafe/')
+    expect(new URL(String(withoutMemory.mock.calls[0][0])).searchParams.has('memory')).toBe(false)
 
     const invalid = ok()
     await new ApifyInstagramProvider({ token: 'secret', memoryMbytes: 500 }, invalid).scrape('https://instagram.com/cafe/')

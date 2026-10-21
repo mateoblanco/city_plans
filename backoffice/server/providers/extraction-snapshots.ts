@@ -32,14 +32,15 @@ export type ExtractionSnapshot = {
   llmOutput: PlaceExtraction
   /**
    * Para diagnosticar el Instagram: cada candidato con sus fuentes (origins), la decisión y la regla que lo aceptó o
-   * rechazó; el que validó Apify, si el modelo lo rechazó y el que quedó guardado. Falta en snapshots de antes.
+   * rechazó; el que validó Apify, si el modelo lo rechazó, el que quedó guardado y el cargado a mano. Falta en snapshots de antes.
    */
   instagramAudit?: {
     candidates: InstagramAuditCandidate[]
     validated: string | null
     modelRejected: boolean
     saved: string | null
-    fallback?: PlaceReview['instagramFallback']
+    /** Instagram cargado a mano en la revisión (null: "No tiene Instagram"). Falta si salió del pipeline. */
+    manual?: PlaceReview['instagramManual']
     tieBreak?: PlaceReview['instagramTieBreak']
   }
 }
@@ -73,6 +74,7 @@ export async function replaySnapshot(snapshot: ExtractionSnapshot, details: { ge
     seedCategories: snapshot.request.seedCategories,
     deterministicContact: snapshot.deterministicContact,
     prominenceSignals: snapshot.prominenceSignals ?? undefined,
+    instagramManual: snapshot.instagramAudit?.manual,
     categoryFallback: [],
   })
 }

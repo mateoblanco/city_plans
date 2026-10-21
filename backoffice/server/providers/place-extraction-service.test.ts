@@ -22,9 +22,8 @@ import {
   instagramHandlesFromResults,
   exaProfileCandidate,
   instagramProfileMatch,
+  instagramDiscoverySummary,
   instagramRejectedByModel,
-  instagramSearchTerms,
-  instagramFallbackReason,
   brandHandleMatch,
   hasGastronomyCategory,
   isForeignSource,
@@ -43,7 +42,8 @@ import {
   type Source,
 } from './place-extraction-service.ts'
 import { RateLimitError, TransientProviderError } from './rate-limit.ts'
-import { ExaProviderFailure, InstagramProviderFailure, PlacesProviderError } from './places-provider.ts'
+import { DiscoveryExpired, ExaProviderFailure, InstagramNotFound, InstagramProviderFailure, PlacesProviderError } from './places-provider.ts'
+import { DISCOVERY_TTL_MS, DiscoveryStore } from './discovery-store.ts'
 import type { ExtractionSnapshot } from './extraction-snapshots.ts'
 import { CANDIDATE_TTL_MS, InstagramCandidateRegistry, type InstagramOwners } from './instagram-candidate-registry.ts'
 import { ICON_CATEGORIES, ICON_CATEGORY_KEYS } from '../../src/data/icon-categories.ts'
@@ -404,7 +404,6 @@ describe('PlaceExtractionService', () => {
       bio: 'Te esperamos en Isla de flores 1925 esquina Jackson 📍 Lunes a viernes de 10:00 hs a 19:00 hs',
     }
     expect(instagramProfileMatch(sotano, barber, null)).toEqual({ accepted: false, rule: 'non_gastronomy_profile' })
-    expect(instagramProfileMatch(sotano, barber, null, true)).toEqual({ accepted: false, rule: 'non_gastronomy_profile' })
     expect(instagramProfileMatch(sotano, { ...barber, name: 'El Sótano' }, null)).toEqual({ accepted: false, rule: 'other_address_in_bio' })
     // El teléfono del local en la bio sí alcanza.
     expect(instagramProfileMatch(sotano, { ...barber, bio: `${barber.bio} Tel 2407 5593` }, null)).toEqual({ accepted: true, rule: 'mismatch_overridden_by_phone' })
@@ -2277,41 +2276,14 @@ describe('logo desde Instagram', () => {
   })
 })
 
-// Exa con un resultado que nombra la marca (el término de búsqueda): el nombre queda confirmado y el respaldo puede correr.
+// Exa con un resultado que nombra la marca y propone los handles del resumen.
 const exaNaming = (instagram = '') => async (name: string) => exaResponse(instagram, [{ title: name, url: 'https://guia.example.com/lugar', highlights: [name] }])
 
-describe('respaldo del Instagram con la búsqueda de Apify', () => {
+describe('validación del Instagram en la primera pasada', () => {
   const branchDetails = { ...googleDetails, anchor: { ...googleDetails.anchor, name: 'Olisa Café Pocitos', address: 'Bvar. España 2501, 11300 Montevideo' } }
-  type Profile = { url: string; name: string; bio: string; links: string[] }
-  const olisa: Profile = { url: 'https://www.instagram.com/olisa.cafe', name: 'Olisa Café', bio: 'Café de especialidad · Montevideo', links: [] }
-  const serviceWith = (searches: Profile[][], options: { searchPlace?: (name: string) => Promise<ReturnType<typeof exaResponse>>; fail?: boolean; scraped?: Profile[] } = {}) => {
-    let call = 0
-    const searchProfiles = vi.fn(async () => {
-      if (options.fail) throw new Error('Apify caído')
-      const profiles = searches[call++] ?? []
-      return { profiles, chargedResults: Math.max(1, profiles.length) }
-    })
-    const scrapeMany = vi.fn(async () => options.scraped ?? [])
-    const service = new PlaceExtractionService({
-      apiKey: 'test-key',
-      details: { getDetails: async () => branchDetails },
-      exa: { configured: true, searchPlace: options.searchPlace ?? exaNaming() },
-      instagram: { configured: true, scrapeMany, searchProfiles },
-      generate: async () => extraction,
-      costRates: { instagramSearchResultUsd: 0.01, instagramRunUsd: 0 },
-    })
-    return { service, searchProfiles, scrapeMany }
-  }
-
-  it('los términos son tal cual, sin espacios ni signos, entera y sin genéricas + uy, y después + mvd', () => {
-    expect(instagramSearchTerms('Olisa Café')).toEqual(['Olisa Café', 'olisacafe', 'olisacafeuy', 'olisauy', 'olisacafemvd', 'olisamvd'])
-    expect(instagramSearchTerms('Living Bar')).toEqual(['Living Bar', 'livingbar', 'livingbaruy', 'livinguy', 'livingbarmvd', 'livingmvd'])
-    expect(instagramSearchTerms('Pancho Va!')).toEqual(['Pancho Va', 'panchova', 'panchovauy', 'panchovamvd'])
-    expect(instagramSearchTerms('Panadería Intuitiva - Brecha.')).toEqual(['Panadería Intuitiva Brecha', 'panaderiaintuitivabrecha', 'panaderiaintuitivabrechauy', 'panaderiaintuitivabrechamvd'])
-    // Sin genéricas no queda nada: esa query se saltea. Una sola palabra no repite términos.
-    expect(instagramSearchTerms('Casa Bar')).toEqual(['Casa Bar', 'casabar', 'casabaruy', 'casabarmvd'])
-    expect(instagramSearchTerms('mingus')).toEqual(['mingus', 'mingusuy', 'mingusmvd'])
-  })
+  type Profile = { url: string; name: string; bio: string; links: string[]; posts?: string[]; category?: string; latestPostAt?: string; followers?: number; profilePicUrl?: string }
+  const handleOf = (profile: Profile) => profile.url.split('/').filter(Boolean).at(-1)
+  const detailsFor = (name: string, anchor: Partial<typeof branchDetails.anchor> = {}) => ({ ...branchDetails, anchor: { ...branchDetails.anchor, name, ...anchor } })
 
   it('el handle es la marca (entera o sin genéricas), sola o + sufijo de ubicación o de rubro, con o sin separador', () => {
     expect(brandHandleMatch('panchova_uy', 'Pancho Va!')).toBe('location')
@@ -2333,156 +2305,31 @@ describe('respaldo del Instagram con la búsqueda de Apify', () => {
     expect(brandHandleMatch('barmo_uy', 'Bar Mo')).toBe('location')
   })
 
-  it('sin candidatos busca la marca (sin la sucursal) y valida con los datos de la búsqueda, sin otra llamada', async () => {
-    const { service, searchProfiles, scrapeMany } = serviceWith([[{ url: 'https://www.instagram.com/olisa_ny', name: 'Olisa', bio: 'NYC', links: [] }, olisa]])
-
-    const collected = await service.collectSources('place-1', { seedCategories: [] })
-
-    expect(searchProfiles).toHaveBeenCalledOnce()
-    expect(searchProfiles).toHaveBeenCalledWith('Olisa Café', 5)
-    expect(scrapeMany).not.toHaveBeenCalled()
-    expect(collected.instagramValidation.profile?.url).toBe('https://www.instagram.com/olisa.cafe/')
-    expect(collected.instagramValidation.candidates).toMatchObject([
-      { handle: 'olisa_ny', decision: 'discarded', reason: 'identity_or_location_mismatch' },
-      { handle: 'olisa.cafe', decision: 'selected', reason: 'validated_exact_place_profile' },
-    ])
-    expect(collected.instagramFallback).toEqual({ attempted: true, reason: 'sin candidato', terms: ['Olisa Café'], handles: ['olisa_ny', 'olisa.cafe'], costUsd: 0.02 })
-
-    const result = await service.extractFrom(collected)
-    if (result.status !== 'ok') throw new Error('se esperaba ok')
-    expect(result.review.instagramFallback).toEqual(collected.instagramFallback)
-    expect(result.performance.costUsd.providers.instagram).toEqual({ requests: 0, costUsd: 0.02 })
-  })
-
-  it('prueba la marca sin espacios sólo si la primera búsqueda no trae perfiles', async () => {
-    const { service, searchProfiles } = serviceWith([[], [olisa]])
-
-    const collected = await service.collectSources('place-1', { seedCategories: [] })
-
-    expect(searchProfiles.mock.calls).toEqual([['Olisa Café', 5], ['olisacafe', 5]])
-    expect(collected.instagramValidation.profile?.url).toBe('https://www.instagram.com/olisa.cafe/')
-    // Sin perfiles Apify cobra 1 resultado: 1 + 1.
-    expect(collected.instagramFallback).toMatchObject({ terms: ['Olisa Café', 'olisacafe'], costUsd: 0.02 })
-  })
-
-  it('nunca acepta sólo por el nombre: hace falta Montevideo, la dirección, el teléfono o la web', async () => {
-    const onlyName = { url: 'https://www.instagram.com/olisa.cafe', name: 'Olisa Café', bio: 'Café de especialidad 🇺🇾 Uruguay', links: [] }
-    const withAddress = { ...onlyName, bio: 'Café de especialidad · Bvar. España 2501' }
-
-    const rejected = await serviceWith([[onlyName]]).service.collectSources('place-1', { seedCategories: [] })
-    const accepted = await serviceWith([[withAddress]]).service.collectSources('place-1', { seedCategories: [] })
-
-    expect(rejected.instagramValidation.profile).toBeNull()
-    expect(rejected.instagramValidation.candidates).toMatchObject([{ handle: 'olisa.cafe', decision: 'discarded', reason: 'identity_or_location_mismatch' }])
-    expect(accepted.instagramValidation.profile?.url).toBe('https://www.instagram.com/olisa.cafe/')
-  })
-
-  it('con un candidato válido en la primera pasada no busca, y si la búsqueda falla el lugar termina con error de Apify', async () => {
-    const first = serviceWith([[olisa]], { searchPlace: exaNaming('@olisa.cafe'), scraped: [olisa] })
-    const withCandidate = await first.service.collectSources('place-1', { seedCategories: [] })
-    expect(first.searchProfiles).not.toHaveBeenCalled()
-    expect(first.scrapeMany).toHaveBeenCalledOnce()
-    expect(withCandidate.instagramFallback).toMatchObject({ attempted: false })
-    const result = await first.service.extractFrom(withCandidate)
-    if (result.status !== 'ok') throw new Error('se esperaba ok')
-    expect(result.review).not.toHaveProperty('instagramFallback')
-
-    // Si la búsqueda de respaldo falla, el lugar termina con error de Apify (no se guarda sin Instagram).
-    const failing = serviceWith([], { fail: true })
-    await expect(failing.service.collectSources('place-1', { seedCategories: [] })).rejects.toBeInstanceOf(InstagramProviderFailure)
-  })
-  it('cada variante corre sólo si las anteriores no dieron un perfil válido', async () => {
-    // La 1 trae un homónimo que no valida, la 2 nada y la 3 el perfil .uy.
-    const { service, searchProfiles } = serviceWith([
-      [{ url: 'https://www.instagram.com/olisacafe', name: 'Olisa Cafe', bio: 'Coffee in Lagos', links: [] }],
-      [],
-      [{ url: 'https://www.instagram.com/olisacafe.uy', name: 'Olisa', bio: 'Café de especialidad 🇺🇾', links: [] }],
-    ])
-
-    const collected = await service.collectSources('place-1', { seedCategories: [] })
-
-    expect(searchProfiles.mock.calls).toEqual([['Olisa Café', 5], ['olisacafe', 5], ['olisacafeuy', 5]])
-    expect(collected.instagramValidation.profile?.url).toBe('https://www.instagram.com/olisacafe.uy/')
-    expect(collected.instagramValidation.candidates).toMatchObject([
-      { handle: 'olisacafe', decision: 'discarded', reason: 'identity_or_location_mismatch' },
-      { handle: 'olisacafe.uy', decision: 'selected', reason: 'validated_exact_place_profile' },
-    ])
-  })
-
-  it('el sufijo de ubicación cuenta como señal salvo que la bio nombre otra ciudad; "uy" suelto no alcanza', async () => {
-    const pancho = (handle: string, bio: string) => ({ url: `https://www.instagram.com/${handle}`, name: 'Pancho va!', bio, links: [] })
-    const run = async (profile: Profile) => {
-      const service = new PlaceExtractionService({
-        apiKey: 'test-key',
-        details: { getDetails: async () => ({ ...branchDetails, anchor: { ...branchDetails.anchor, name: 'Pancho Va!' } }) },
-        exa: { configured: true, searchPlace: exaNaming() },
-        instagram: { configured: true, scrapeMany: async () => [], searchProfiles: async () => ({ profiles: [profile], chargedResults: 1 }) },
-        generate: async () => extraction,
-      })
-      return (await service.collectSources('place-1', { seedCategories: [] })).instagramValidation.profile?.url ?? null
-    }
-
-    expect(await run(pancho('panchova_uy', 'La peor panchería del Uruguay'))).toBe('https://www.instagram.com/panchova_uy/')
-    expect(await run(pancho('panchova_uy', 'Panchos · Punta del Este'))).toBeNull()
-    expect(await run(pancho('panchova_uy', 'Ahora también en Buenos Aires'))).toBeNull()
-    expect(await run(pancho('panchova', 'La peor panchería uy 🇺🇾 Uruguay'))).toBeNull()
-    expect(await run(pancho('panchovauruguay', 'Panchos'))).toBe('https://www.instagram.com/panchovauruguay/')
-    expect(await run(pancho('panchova.mvd', 'Panchos'))).toBe('https://www.instagram.com/panchova.mvd/')
-    expect(await run(pancho('panchova.mvd', 'Panchos · Buenos Aires'))).toBeNull()
-    // Los posts no cuentan para "otro lugar": sólo la bio.
-    expect(await run({ ...pancho('panchova_uy', 'Panchos'), posts: ['Sorteamos un viaje a Madrid'] } as Profile)).toBe('https://www.instagram.com/panchova_uy/')
-  })
-
   describe('handle de la marca', () => {
-    type FullProfile = Profile & { posts?: string[] }
-    const profileFor = (handle: string, bio: string, extra: Partial<FullProfile> = {}): FullProfile => ({ url: `https://www.instagram.com/${handle}`, name: 'Otro nombre', bio, links: [], ...extra })
-    const detailsFor = (name: string, anchor: Partial<typeof branchDetails.anchor> = {}) => ({ ...branchDetails, anchor: { ...branchDetails.anchor, name, ...anchor } })
-    // Primera pasada: el handle sale de las fuentes del lugar (el resumen de Exa) y Apify lo trae.
-    const firstPass = async (name: string, profile: FullProfile) => {
-      const searchProfiles = vi.fn(async () => ({ profiles: [], chargedResults: 1 }))
-      const service = new PlaceExtractionService({
-        apiKey: 'test-key',
-        details: { getDetails: async () => detailsFor(name) },
-        exa: { configured: true, searchPlace: exaNaming(`@${instagramHandleOf(profile)}`) },
-        instagram: { configured: true, scrapeMany: async () => [profile], searchProfiles },
-        generate: async () => extraction,
-      })
-      const collected = await service.collectSources('place-1', { seedCategories: [] })
-      return { url: collected.instagramValidation.profile?.url ?? null, searched: searchProfiles.mock.calls.length > 0 }
-    }
-    // Respaldo: sin candidatos, la búsqueda trae el perfil y se valida en modo estricto.
-    const fallback = async (name: string, profile: FullProfile, anchor: Partial<typeof branchDetails.anchor> = {}) => {
+    const profileFor = (handle: string, bio: string, extra: Partial<Profile> = {}): Profile => ({ url: `https://www.instagram.com/${handle}`, name: 'Otro nombre', bio, links: [], ...extra })
+    // El handle sale de las fuentes del lugar (el resumen de Exa) y Apify lo trae.
+    const firstPass = async (name: string, profile: Profile, anchor: Partial<typeof branchDetails.anchor> = {}) => {
       const service = new PlaceExtractionService({
         apiKey: 'test-key',
         details: { getDetails: async () => detailsFor(name, anchor) },
-        exa: { configured: true, searchPlace: exaNaming() },
-        instagram: { configured: true, scrapeMany: async () => [], searchProfiles: async () => ({ profiles: [profile], chargedResults: 1 }) },
+        exa: { configured: true, searchPlace: exaNaming(`@${handleOf(profile)}`) },
+        instagram: { configured: true, scrapeMany: async () => [profile] },
         generate: async () => extraction,
       })
       return (await service.collectSources('place-1', { seedCategories: [] })).instagramValidation.profile?.url ?? null
     }
-    const instagramHandleOf = (profile: FullProfile) => profile.url.split('/').filter(Boolean).at(-1)
 
-    it('en la primera pasada alcanza con que el handle sea la marca, sola o con sufijo, salvo otra ciudad en la bio', async () => {
-      expect(await firstPass('Cardenal', profileFor('cardenalcafe', 'Café de especialidad'))).toEqual({ url: 'https://www.instagram.com/cardenalcafe/', searched: false })
-      expect(await firstPass('Cardenal Café', profileFor('cardenalcafe', ''))).toMatchObject({ url: 'https://www.instagram.com/cardenalcafe/' })
-      expect(await firstPass('Hakuna Matata "Pizza Cubana"', profileFor('hakuna_matata_pizzabar', 'Pizza cubana'))).toMatchObject({ url: 'https://www.instagram.com/hakuna_matata_pizzabar/' })
-      expect(await firstPass('Brookies', profileFor('brookies.mvd', 'Cookies'))).toMatchObject({ url: 'https://www.instagram.com/brookies.mvd/' })
-      expect(await firstPass('Cardenal', profileFor('cardenalcafe', 'Café de especialidad · Buenos Aires'))).toEqual({ url: null, searched: true })
-      expect(await firstPass('Cardenal', profileFor('cardenalcafe', 'Café · Madrid'))).toMatchObject({ url: null })
-      expect(await firstPass('Cardenal', profileFor('otrocafe', 'Café de especialidad'))).toMatchObject({ url: null })
-    })
-
-    it('en el respaldo sólo el sufijo de ubicación es señal; la marca sola o + rubro necesita otra', async () => {
-      expect(await fallback('Brookies', profileFor('brookies.mvd', 'Cookies'))).toBe('https://www.instagram.com/brookies.mvd/')
-      expect(await fallback('Brookies', profileFor('brookies.mvd', 'Cookies · Madrid'))).toBeNull()
-      expect(await fallback('Cardenal', profileFor('cardenal', 'Café de especialidad'))).toBeNull()
-      expect(await fallback('Living', profileFor('livingbar', 'Madrid'))).toBeNull()
-      expect(await fallback('Living', profileFor('livingbar', 'Tragos de autor'))).toBeNull()
-      expect(await fallback('Living', profileFor('livingbar', 'Tragos de autor · Montevideo'))).toBe('https://www.instagram.com/livingbar/')
-      expect(await fallback('Living', profileFor('livingbar', 'Bvar. España 2501'))).toBe('https://www.instagram.com/livingbar/')
-      expect(await fallback('Hakuna Matata', profileFor('hakuna_matata_pizzabar', 'Pizza cubana'))).toBeNull()
-      expect(await fallback('Hakuna Matata', profileFor('hakuna_matata_pizzabar', 'Pizza cubana · Bvar. España 2501'))).toBe('https://www.instagram.com/hakuna_matata_pizzabar/')
+    it('alcanza con que el handle sea la marca, sola o con sufijo, salvo otra ciudad en la bio', async () => {
+      expect(await firstPass('Cardenal', profileFor('cardenalcafe', 'Café de especialidad'))).toBe('https://www.instagram.com/cardenalcafe/')
+      expect(await firstPass('Cardenal Café', profileFor('cardenalcafe', ''))).toBe('https://www.instagram.com/cardenalcafe/')
+      expect(await firstPass('Hakuna Matata "Pizza Cubana"', profileFor('hakuna_matata_pizzabar', 'Pizza cubana'))).toBe('https://www.instagram.com/hakuna_matata_pizzabar/')
+      expect(await firstPass('Brookies', profileFor('brookies.mvd', 'Cookies'))).toBe('https://www.instagram.com/brookies.mvd/')
+      expect(await firstPass('Cardenal', profileFor('cardenalcafe', 'Café de especialidad · Buenos Aires'))).toBeNull()
+      expect(await firstPass('Cardenal', profileFor('cardenalcafe', 'Café · Madrid'))).toBeNull()
+      expect(await firstPass('Pancho Va!', profileFor('panchova_uy', 'Panchos · Punta del Este'))).toBeNull()
+      expect(await firstPass('Cardenal', profileFor('otrocafe', 'Café de especialidad'))).toBeNull()
+      // Los posts no cuentan para "otro lugar": sólo la bio.
+      expect(await firstPass('Pancho Va!', profileFor('panchova_uy', 'Panchos', { posts: ['Sorteamos un viaje a Madrid'] }))).toBe('https://www.instagram.com/panchova_uy/')
     })
 
     it('BBC: una cadena que lista sus locales (Punta del Este incluido) y posts de un sorteo a Brasil', async () => {
@@ -2492,168 +2339,56 @@ describe('respaldo del Instagram con la búsqueda de Apify', () => {
         posts: ['Los esperamos hoy en Pocitos con un 2x1 de cerveza Brader para ir entrando en calor.. porque Brasil te espera🇧🇷🎉🇧🇷🎉'],
       })
       const parqueRodo = { latitude: -34.91, longitude: -56.172 }
-      expect(await fallback('BBC - Burger & Sushi Parque Rodo', bbc, parqueRodo)).toBe('https://www.instagram.com/bbc.uy/')
-      // Sin Montevideo ni el barrio del local, una ciudad del interior en la bio sigue rechazando.
-      expect(await fallback('BBC - Burger & Sushi Parque Rodo', { ...bbc, bio: '📍PUNTA DEL ESTE' }, parqueRodo)).toBeNull()
+      expect(await firstPass('BBC - Burger & Sushi Parque Rodo', bbc, parqueRodo)).toBe('https://www.instagram.com/bbc.uy/')
+      // Sin Montevideo ni el barrio del local, una ciudad del interior en la bio rechaza.
+      expect(await firstPass('BBC - Burger & Sushi Parque Rodo', { ...bbc, bio: '📍PUNTA DEL ESTE' }, parqueRodo)).toBeNull()
       // Un país extranjero en la bio rechaza siempre.
-      expect(await fallback('BBC - Burger & Sushi Parque Rodo', { ...bbc, bio: `${bbc.bio}\n📍BUENOS AIRES` }, parqueRodo)).toBeNull()
-    })
-  })
-
-  it('revisa como máximo 10 perfiles distintos sumando las variantes', async () => {
-    const batch = (prefix: string, count = 5) => Array.from({ length: count }, (_, index) => ({ url: `https://www.instagram.com/${prefix}${index}`, name: 'Nada que ver', bio: '', links: [] }))
-    const distinct = serviceWith([batch('a'), batch('b'), batch('c')])
-    const capped = await distinct.service.collectSources('place-1', { seedCategories: [] })
-    expect(distinct.searchProfiles.mock.calls).toEqual([['Olisa Café', 5], ['olisacafe', 5]])
-    expect(capped.instagramFallback).toMatchObject({ terms: ['Olisa Café', 'olisacafe'] })
-    expect(capped.instagramFallback?.handles).toHaveLength(10)
-
-    // Los repetidos no cuentan de nuevo; la última búsqueda pide sólo lo que falta.
-    const repeated = serviceWith([batch('a'), batch('a'), batch('b', 3), batch('c')])
-    await repeated.service.collectSources('place-1', { seedCategories: [] })
-    expect(repeated.searchProfiles.mock.calls).toEqual([['Olisa Café', 5], ['olisacafe', 5], ['olisacafeuy', 5], ['olisauy', 2]])
-  })
-
-  it('la primera pasada acepta el handle que es la marca + sufijo aunque la bio no diga dónde está', async () => {
-    // El perfil real: el nombre con letras separadas no coincide y la bio no dice dónde está.
-    const living = { url: 'https://www.instagram.com/living.uy', name: 'L I V I N G', bio: 'ABIERTO\nJUE - VIE - SÁB', links: [] }
-    const searchProfiles = vi.fn(async () => ({ profiles: [living], chargedResults: 1 }))
-    const scrapeMany = vi.fn(async () => [living])
-    const service = new PlaceExtractionService({
-      apiKey: 'test-key',
-      details: { getDetails: async () => ({ ...branchDetails, anchor: { ...branchDetails.anchor, name: 'Living Bar' } }) },
-      exa: { configured: true, searchPlace: exaNaming('@living.uy') },
-      instagram: { configured: true, scrapeMany, searchProfiles },
-      generate: async () => extraction,
+      expect(await firstPass('BBC - Burger & Sushi Parque Rodo', { ...bbc, bio: `${bbc.bio}\n📍BUENOS AIRES` }, parqueRodo)).toBeNull()
     })
 
-    const collected = await service.collectSources('place-1', { seedCategories: [] })
-
-    expect(scrapeMany).toHaveBeenCalledOnce()
-    expect(searchProfiles).not.toHaveBeenCalled()
-    expect(collected.instagramValidation.profile?.url).toBe('https://www.instagram.com/living.uy/')
-    expect(collected.instagramFallback).toMatchObject({ attempted: false })
-  })
-
-  it('corre también si la primera pasada rechazó su candidato, y lo puede rescatar', async () => {
-    const other = { url: 'https://www.instagram.com/otrobar', name: 'Otro Bar', bio: 'Tragos', links: [] }
-    const living = { url: 'https://www.instagram.com/living.uy', name: 'L I V I N G', bio: 'ABIERTO\nJUE - VIE - SÁB', links: [] }
-    const searchProfiles = vi.fn(async () => ({ profiles: [living], chargedResults: 1 }))
-    const scrapeMany = vi.fn(async () => [other])
-    const service = new PlaceExtractionService({
-      apiKey: 'test-key',
-      details: { getDetails: async () => ({ ...branchDetails, anchor: { ...branchDetails.anchor, name: 'Living Bar' } }) },
-      exa: { configured: true, searchPlace: exaNaming('@otrobar') },
-      instagram: { configured: true, scrapeMany, searchProfiles },
-      generate: async () => extraction,
-      costRates: { instagramSearchResultUsd: 0.01, instagramRunUsd: 0 },
+    it('acepta el handle que es la marca + sufijo aunque el nombre no coincida y la bio no diga dónde está', async () => {
+      const living = { url: 'https://www.instagram.com/living.uy', name: 'L I V I N G', bio: 'ABIERTO\nJUE - VIE - SÁB', links: [] }
+      expect(await firstPass('Living Bar', living)).toBe('https://www.instagram.com/living.uy/')
     })
-
-    const collected = await service.collectSources('place-1', { seedCategories: [] })
-
-    // La primera pasada rechaza el otro perfil; el respaldo valida living.uy por el handle.
-    expect(scrapeMany).toHaveBeenCalledOnce()
-    expect(searchProfiles).toHaveBeenCalledWith('Living Bar', 5)
-    expect(collected.instagramValidation.profile?.url).toBe('https://www.instagram.com/living.uy/')
-    expect(collected.instagramValidation.candidates).toMatchObject([
-      { handle: 'otrobar', decision: 'discarded', reason: 'identity_or_location_mismatch' },
-      { handle: 'living.uy', decision: 'selected', reason: 'validated_exact_place_profile' },
-    ])
-    expect(collected.instagramFallback).toEqual({
-      attempted: true, reason: 'candidato rechazado: otrobar, identity_or_location_mismatch', terms: ['Living Bar'], handles: ['living.uy'], costUsd: 0.01,
-    })
-  })
-
-  describe('sin nombre confirmado no busca', () => {
-    it('sin candidatos: no llama a la búsqueda y lo registra en el review', async () => {
-      // Exa no trae ningún resultado que nombre la marca; el resumen solo no confirma el nombre.
-      const { service, searchProfiles } = serviceWith([[olisa]], { searchPlace: async () => exaResponse() })
-
-      const collected = await service.collectSources('place-1', { seedCategories: [] })
-
-      expect(searchProfiles).not.toHaveBeenCalled()
-      expect(collected.instagramValidation).toEqual({ profile: null, candidates: [] })
-      expect(collected.instagramFallback).toEqual({ attempted: false, skipped: 'unconfirmed_name', reason: 'sin candidato', terms: [], handles: [], costUsd: 0 })
-      const result = await service.extractFrom(collected)
-      if (result.status !== 'ok') throw new Error('se esperaba ok')
-      expect(result.review.instagramFallback).toEqual(collected.instagramFallback)
-      expect(result.performance.costUsd.providers.instagram).toEqual({ requests: 0, costUsd: 0 })
-    })
-
-    it('con el candidato de la primera pasada rechazado: no busca y conserva esa decisión', async () => {
-      const other = { url: 'https://www.instagram.com/otrobar', name: 'Otro Bar', bio: 'Tragos', links: [] }
-      const { service, searchProfiles } = serviceWith([[olisa]], { searchPlace: async () => exaResponse('@otrobar'), scraped: [other] })
-
-      const collected = await service.collectSources('place-1', { seedCategories: [] })
-
-      expect(searchProfiles).not.toHaveBeenCalled()
-      expect(collected.instagramValidation.candidates).toMatchObject([{ handle: 'otrobar', decision: 'discarded', reason: 'identity_or_location_mismatch' }])
-      expect(collected.instagramFallback).toMatchObject({ attempted: false, skipped: 'unconfirmed_name', reason: 'candidato rechazado: otrobar, identity_or_location_mismatch' })
-    })
-
-    it('el nombre en un resultado de Exa lo confirma; en uno de otro país no', async () => {
-      const named = serviceWith([[olisa]], { searchPlace: async () => exaResponse('', [{ title: 'Guía', url: 'https://guia.example.com/x', highlights: ['Olisa Café abrió en Pocitos'] }]) })
-      expect((await named.service.collectSources('place-1', { seedCategories: [] })).instagramFallback).toMatchObject({ attempted: true })
-      expect(named.searchProfiles).toHaveBeenCalled()
-
-      const foreign = serviceWith([[olisa]], { searchPlace: async () => exaResponse('', [{ title: 'Guía', url: 'https://guia.example.com.br/x', highlights: ['Olisa Café em São Paulo'] }]) })
-      expect((await foreign.service.collectSources('place-1', { seedCategories: [] })).instagramFallback).toMatchObject({ skipped: 'unconfirmed_name' })
-      expect(foreign.searchProfiles).not.toHaveBeenCalled()
-    })
-  })
-
-  it('no corre si Apify falló en la primera pasada o hubo varios perfiles válidos', () => {
-    const urls = ['https://www.instagram.com/a/', 'https://www.instagram.com/b/']
-    const rejected = (reason: string, decision: 'discarded' | 'unavailable' = 'discarded') => ({ profile: null, candidates: [{ handle: 'a', decision, reason }, { handle: 'b', decision: 'discarded' as const, reason: 'not_returned_by_provider' }] })
-    expect(instagramFallbackReason([], null)).toBe('sin candidato')
-    expect(instagramFallbackReason(urls, rejected('identity_or_location_mismatch'))).toBe('candidato rechazado: a, identity_or_location_mismatch; b, not_returned_by_provider')
-    expect(instagramFallbackReason(urls, rejected('instagram_provider_failed', 'unavailable'))).toBeNull()
-    expect(instagramFallbackReason(urls, rejected('multiple_valid_profiles'))).toBeNull()
   })
 
   describe('desempate entre varios perfiles válidos', () => {
     // Los dos pasan por el sufijo uy: el bar y una mueblería.
-    const bar = { url: 'https://www.instagram.com/living.uy', name: 'L I V I N G', bio: 'ABIERTO\nJUE - VIE - SÁB', links: [], category: 'Bar' }
-    const furniture = { url: 'https://www.instagram.com/living_uy', name: 'Living Uruguay', bio: 'Creamos tu living 🇺🇾', links: [], category: 'Entrepreneur' }
-    const run = async (profiles: (Profile & { category?: string; latestPostAt?: string; followers?: number })[], firstPass = '') => {
+    const bar: Profile = { url: 'https://www.instagram.com/living.uy', name: 'L I V I N G', bio: 'ABIERTO\nJUE - VIE - SÁB', links: [], category: 'Bar' }
+    const furniture: Profile = { url: 'https://www.instagram.com/living_uy', name: 'Living Uruguay', bio: 'Creamos tu living 🇺🇾', links: [], category: 'Entrepreneur' }
+    const run = async (profiles: Profile[], options: { name?: string; logoFetcher?: typeof fetch } = {}) => {
       const service = new PlaceExtractionService({
         apiKey: 'test-key',
-        details: { getDetails: async () => ({ ...branchDetails, anchor: { ...branchDetails.anchor, name: 'Living Bar' } }) },
-        exa: { configured: true, searchPlace: exaNaming(firstPass) },
-        // En la primera pasada Apify no trae el perfil: corre el respaldo.
-        instagram: { configured: true, scrapeMany: async () => [], searchProfiles: async () => ({ profiles, chargedResults: profiles.length }) },
+        details: { getDetails: async () => detailsFor(options.name ?? 'Living Bar') },
+        exa: { configured: true, searchPlace: exaNaming(profiles.map((profile) => `@${handleOf(profile)}`).join(' ')) },
+        instagram: { configured: true, scrapeMany: async () => profiles },
         generate: async () => extraction,
+        ...(options.logoFetcher ? { logoFetcher: options.logoFetcher } : {}),
       })
       const collected = await service.collectSources('place-1', { seedCategories: [] })
       const result = await service.extractFrom(collected)
       return { collected, review: result.status === 'ok' ? result.review : null }
     }
 
-    it('gana el que también fue candidato de la primera pasada', async () => {
-      const { collected, review } = await run([{ ...furniture, category: 'Bar' }, bar], '@living.uy')
-      expect(collected.instagramValidation.profile?.url).toBe('https://www.instagram.com/living.uy/')
-      expect(collected.instagramValidation.candidates).toMatchObject([
-        { handle: 'living.uy', decision: 'selected', reason: 'validated_exact_place_profile' },
-        { handle: 'living_uy', decision: 'discarded', reason: 'tie_break_lost' },
-      ])
-      expect(review?.instagramFallback).toMatchObject({ reason: 'candidato rechazado: living.uy, not_returned_by_provider', tieBreak: 'first_pass_candidate' })
-    })
-
-    it('sin candidato previo gana el único con rubro gastronómico, por categoría o por la bio', async () => {
+    it('gana el único con rubro gastronómico, por categoría o por la bio', async () => {
       const byCategory = await run([furniture, bar])
       expect(byCategory.collected.instagramValidation.profile?.url).toBe('https://www.instagram.com/living.uy/')
-      expect(byCategory.review?.instagramFallback).toMatchObject({ reason: 'sin candidato', tieBreak: 'gastronomy' })
+      expect(byCategory.collected.instagramValidation.candidates).toMatchObject([
+        { handle: 'living_uy', decision: 'discarded', reason: 'tie_break_lost' },
+        { handle: 'living.uy', decision: 'selected', reason: 'validated_exact_place_profile' },
+      ])
+      expect(byCategory.review?.instagramTieBreak).toEqual({ rule: 'gastronomy', handles: ['living_uy', 'living.uy'] })
 
       const byBio = await run([furniture, { ...bar, category: undefined, bio: 'Tragos de autor · JUE a SÁB' }])
       expect(byBio.collected.instagramValidation.profile?.url).toBe('https://www.instagram.com/living.uy/')
-      expect(byBio.review?.instagramFallback?.tieBreak).toBe('gastronomy')
+      expect(byBio.review?.instagramTieBreak?.rule).toBe('gastronomy')
     })
 
     it('si sigue el empate no elige ninguno', async () => {
       const { collected, review } = await run([{ ...furniture, category: 'Cocktail bar' }, bar])
       expect(collected.instagramValidation.profile).toBeNull()
       expect(collected.instagramValidation.candidates.map((candidate) => candidate.reason)).toEqual(['multiple_valid_profiles', 'multiple_valid_profiles'])
-      expect(review?.instagramFallback?.tieBreak).toBe('unresolved')
+      expect(review?.instagramTieBreak?.rule).toBe('unresolved')
     })
 
     it('con el mismo rubro gana el post más reciente; con la misma fecha, el de más seguidores', async () => {
@@ -2661,140 +2396,58 @@ describe('respaldo del Instagram con la búsqueda de Apify', () => {
       const recent = { ...bar, latestPostAt: '2026-10-10T12:00:00.000Z', followers: 300 }
       const byPost = await run([old, recent])
       expect(byPost.collected.instagramValidation.profile?.url).toBe('https://www.instagram.com/living.uy/')
-      expect(byPost.review?.instagramFallback?.tieBreak).toBe('latest_post')
-      expect(byPost.review?.instagramTieBreak).toEqual({ rule: 'latest_post', pass: 'fallback', handles: ['living_uy', 'living.uy'] })
+      expect(byPost.review?.instagramTieBreak).toEqual({ rule: 'latest_post', handles: ['living_uy', 'living.uy'] })
 
       const byFollowers = await run([{ ...old, latestPostAt: recent.latestPostAt }, recent])
       expect(byFollowers.collected.instagramValidation.profile?.url).toBe('https://www.instagram.com/living_uy/')
-      expect(byFollowers.review?.instagramTieBreak).toMatchObject({ rule: 'followers', pass: 'fallback' })
+      expect(byFollowers.review?.instagramTieBreak?.rule).toBe('followers')
     })
 
-    it('desempata también en la primera pasada (Cordón Beer: @cordonbeer vs @cordon.beer)', async () => {
-      const profiles = [
+    it('el avatar genérico de Instagram pierde (Cordón Beer: @cordonbeer vs @cordon.beer)', async () => {
+      const profiles: Profile[] = [
         { url: 'https://www.instagram.com/cordonbeer', name: 'Cordón Beer', bio: 'Cervecería artesanal · Montevideo', links: [], latestPostAt: '2024-01-10T12:00:00.000Z', followers: 12000 },
         { url: 'https://www.instagram.com/cordon.beer', name: 'Cordón Beer', bio: 'Cervecería artesanal · Montevideo', links: [], latestPostAt: '2026-10-15T12:00:00.000Z', followers: 8000 },
       ]
-      const searchProfiles = vi.fn()
-      const run = async (pictures: [string | undefined, string | undefined], logoFetcher?: typeof fetch) => {
-        const service = new PlaceExtractionService({
-          apiKey: 'test-key',
-          details: { getDetails: async () => ({ ...branchDetails, anchor: { ...branchDetails.anchor, name: 'Cordón Beer' } }) },
-          exa: { configured: true, searchPlace: exaNaming('@cordonbeer @cordon.beer') },
-          instagram: { configured: true, scrapeMany: async () => profiles.map((profile, index) => ({ ...profile, ...(pictures[index] ? { profilePicUrl: pictures[index] } : {}) })), searchProfiles },
-          generate: async () => extraction,
-          ...(logoFetcher ? { logoFetcher } : {}),
-        })
-        const collected = await service.collectSources('place-1', { seedCategories: [] })
-        const result = await service.extractFrom(collected)
-        if (result.status !== 'ok') throw new Error('se esperaba ok')
-        return { collected, review: result.review }
-      }
+      const withPictures = (pictures: (string | undefined)[]) => profiles.map((profile, index) => ({ ...profile, ...(pictures[index] ? { profilePicUrl: pictures[index] } : {}) }))
       const genericAvatar = 'https://scontent.cdninstagram.com/v/t51.2885-19/573323465_1219825463302212_7278921664109726296_n.png?x=1'
       const realLogo = await sharp({ create: { width: 200, height: 200, channels: 3, background: '#1d3b48' } })
         .composite([{ input: Buffer.from('<svg width="200" height="200"><circle cx="100" cy="100" r="60" fill="#f2c14e"/></svg>') }]).png().toBuffer()
-      const serveLogo = vi.fn(async () => new Response(new Uint8Array(realLogo), { status: 200 })) as unknown as typeof fetch
+      const logoFetcher = vi.fn(async () => new Response(new Uint8Array(realLogo), { status: 200 })) as unknown as typeof fetch
 
       // @cordon.beer tiene el post más reciente pero el avatar genérico: gana @cordonbeer por la foto.
-      const byPicture = await run(['https://cdn.example/cordonbeer.jpg', genericAvatar], serveLogo)
+      const byPicture = await run(withPictures(['https://cdn.example/cordonbeer.jpg', genericAvatar]), { name: 'Cordón Beer', logoFetcher })
       expect(byPicture.collected.instagramValidation.profile?.url).toBe('https://www.instagram.com/cordonbeer/')
       expect(byPicture.collected.instagramValidation.candidates).toMatchObject([
         { handle: 'cordonbeer', decision: 'selected', reason: 'validated_exact_place_profile' },
         { handle: 'cordon.beer', decision: 'discarded', reason: 'tie_break_lost' },
       ])
-      expect(searchProfiles).not.toHaveBeenCalled()
-      expect(byPicture.review.instagramTieBreak).toEqual({ rule: 'profile_picture', pass: 'first', handles: ['cordonbeer', 'cordon.beer'] })
+      expect(byPicture.review?.instagramTieBreak).toEqual({ rule: 'profile_picture', handles: ['cordonbeer', 'cordon.beer'] })
 
       // Los dos con foto real, o uno sin foto que revisar: la foto no decide y sigue el post más reciente.
-      for (const pictures of [['https://cdn.example/a.jpg', 'https://cdn.example/b.jpg'], ['https://cdn.example/a.jpg', undefined]] as [string, string | undefined][]) {
-        const { collected, review } = await run(pictures, serveLogo)
+      for (const pictures of [['https://cdn.example/a.jpg', 'https://cdn.example/b.jpg'], ['https://cdn.example/a.jpg', undefined]]) {
+        const { collected, review } = await run(withPictures(pictures), { name: 'Cordón Beer', logoFetcher })
         expect(collected.instagramValidation.profile?.url).toBe('https://www.instagram.com/cordon.beer/')
-        expect(review.instagramTieBreak).toMatchObject({ rule: 'latest_post', pass: 'first' })
+        expect(review?.instagramTieBreak?.rule).toBe('latest_post')
       }
     })
 
-    it('rechaza una cuenta personal con el nombre de la marca y sigue con el respaldo (Brujona)', async () => {
-      const photo = await sharp({ create: { width: 200, height: 200, channels: 3, background: '#a0522d' } }).png().toBuffer()
-      const logoFetcher = vi.fn(async () => new Response(new Uint8Array(photo), { status: 200 })) as unknown as typeof fetch
-      // Sin bio, sin categoría y con foto de una persona: sólo el handle es la marca.
-      const personal = { url: 'https://www.instagram.com/brujona', name: 'jona Bru', bio: '', links: [], profilePicUrl: 'https://cdn.example/brujona.jpg' }
-      const real = { url: 'https://www.instagram.com/brujonauy', name: 'Brujona', bio: 'Montevideo', links: [], category: 'Bar', profilePicUrl: 'https://cdn.example/brujonauy.jpg' }
-      const classifyLogo = vi.fn(async () => ({ kind: 'person' as const, inputTokens: 600, outputTokens: 5, gatewayCostUsd: 0.0007 }))
-      const searchProfiles = vi.fn(async (term: string) => ({ profiles: term.toLowerCase() === 'brujona' ? [personal] : [real], chargedResults: 1 }))
-      const service = new PlaceExtractionService({
-        apiKey: 'test-key',
-        details: { getDetails: async () => ({ ...branchDetails, anchor: { ...branchDetails.anchor, name: 'Brujona' } }) },
-        exa: { configured: true, searchPlace: exaNaming('@brujona') },
-        instagram: { configured: true, scrapeMany: async () => [personal], searchProfiles },
-        generate: async () => extraction,
-        classifyLogo,
-        logoFetcher,
-      })
-
-      const collected = await service.collectSources('place-1', { seedCategories: [] })
-      expect(collected.instagramValidation.profile?.url).toBe('https://www.instagram.com/brujonauy/')
-      expect(collected.instagramValidation.candidates).toEqual(expect.arrayContaining([
-        expect.objectContaining({ handle: 'brujona', decision: 'discarded', reason: 'personal_account', rule: 'personal_account' }),
-        expect.objectContaining({ handle: 'brujonauy', decision: 'selected' }),
-      ]))
-      expect(searchProfiles.mock.calls.map(([term]) => term)).toEqual(['Brujona', 'brujona', 'brujonauy'])
-      // @brujona salió en las dos pasadas pero se clasificó una vez; @brujonauy tiene rubro y no se clasifica.
-      expect(classifyLogo).toHaveBeenCalledTimes(1)
-      expect(collected.logo?.classification?.usage).toMatchObject({ inputTokens: 600, gatewayCostUsd: 0.0007 })
-    })
-
-    it('con foto de persona y señales de negocio, o sin poder clasificar la foto, el perfil se acepta como antes', async () => {
-      const photo = await sharp({ create: { width: 200, height: 200, channels: 3, background: '#a0522d' } }).png().toBuffer()
-      const logoFetcher = vi.fn(async () => new Response(new Uint8Array(photo), { status: 200 })) as unknown as typeof fetch
-      const run = async (profile: { url: string; name: string; bio: string; links: string[]; category?: string; profilePicUrl: string }, classifyLogo: LogoClassifier) => {
-        const service = new PlaceExtractionService({
-          apiKey: 'test-key',
-          details: { getDetails: async () => ({ ...branchDetails, anchor: { ...branchDetails.anchor, name: 'Brujona' } }) },
-          exa: { configured: true, searchPlace: exaNaming('@brujona') },
-          instagram: { configured: true, scrapeMany: async () => [profile], searchProfiles: vi.fn() },
-          generate: async () => extraction,
-          classifyLogo,
-          logoFetcher,
-        })
-        return (await service.collectSources('place-1', { seedCategories: [] })).instagramValidation.profile?.url
-      }
-      const person = vi.fn(async () => ({ kind: 'person' as const }))
-      const base = { url: 'https://www.instagram.com/brujona', name: 'Brujona', links: [], profilePicUrl: 'https://cdn.example/brujona.jpg' }
-      expect(await run({ ...base, bio: 'Bar de barrio' }, person)).toBe('https://www.instagram.com/brujona/')
-      expect(await run({ ...base, bio: '', category: 'Restaurant' }, person)).toBe('https://www.instagram.com/brujona/')
-      expect(await run({ ...base, bio: '📍 Bvar. España 2501' }, person)).toBe('https://www.instagram.com/brujona/')
-      expect(person).not.toHaveBeenCalled()
-      const failing = vi.fn(async () => { throw new Error('gateway') })
-      expect(await run({ ...base, bio: '' }, failing)).toBe('https://www.instagram.com/brujona/')
-      expect(failing).toHaveBeenCalledTimes(1)
-    })
-
-    it('el avatar genérico detectado sólo por el hash también pierde en el desempate', async () => {
+    it('el avatar genérico detectado sólo por el hash también pierde', async () => {
       const avatar = await sharp(Buffer.from('f5f5f5f5f5f5f5f5f5f5f5dddcf5f5f5f5f5d08888cbf5f5f5f5bb8888b6f5f5f5f5e8a3a1e6f5f5f5f5d5b2b2d6f5f5f5c288888888c2f5ec8a888888888aeb', 'hex'), { raw: { width: 8, height: 8, channels: 1 } })
         .resize(150, 150).jpeg({ quality: 70 }).toBuffer()
       const realLogo = await sharp({ create: { width: 200, height: 200, channels: 3, background: '#7a1f2b' } }).png().toBuffer()
       const logoFetcher = vi.fn(async (url: string | URL | Request) => new Response(new Uint8Array(String(url).includes('avatar') ? avatar : realLogo), { status: 200 })) as unknown as typeof fetch
-      const recent = { ...bar, url: 'https://www.instagram.com/living_uy', category: 'Bar', latestPostAt: '2026-10-10T12:00:00.000Z', profilePicUrl: 'https://cdn.example/avatar.jpg' }
+      const recent = { ...bar, url: 'https://www.instagram.com/living_uy', latestPostAt: '2026-10-10T12:00:00.000Z', profilePicUrl: 'https://cdn.example/avatar.jpg' }
       const older = { ...bar, latestPostAt: '2025-01-01T12:00:00.000Z', profilePicUrl: 'https://cdn.example/logo.jpg' }
-      const service = new PlaceExtractionService({
-        apiKey: 'test-key',
-        details: { getDetails: async () => ({ ...branchDetails, anchor: { ...branchDetails.anchor, name: 'Living Bar' } }) },
-        exa: { configured: true, searchPlace: exaNaming('') },
-        instagram: { configured: true, scrapeMany: async () => [], searchProfiles: async () => ({ profiles: [recent, older], chargedResults: 2 }) },
-        generate: async () => extraction,
-        logoFetcher,
-      })
 
-      const collected = await service.collectSources('place-1', { seedCategories: [] })
+      const { collected, review } = await run([recent, older], { logoFetcher })
 
       expect(collected.instagramValidation.profile?.url).toBe('https://www.instagram.com/living.uy/')
-      expect(collected.instagramFallback?.tieBreak).toBe('profile_picture')
+      expect(review?.instagramTieBreak?.rule).toBe('profile_picture')
     })
 
     it('sin empate no registra regla', async () => {
       const { review } = await run([bar])
       expect(review).not.toHaveProperty('instagramTieBreak')
-      expect(review?.instagramFallback).toMatchObject({ attempted: true })
-      expect(review?.instagramFallback).not.toHaveProperty('tieBreak')
     })
 
     it('el rubro sale de la categoría o de palabras del rubro en la bio', () => {
@@ -2803,6 +2456,190 @@ describe('respaldo del Instagram con la búsqueda de Apify', () => {
       expect(hasGastronomyCategory({ bio: 'Cervecería artesanal' })).toBe(true)
       expect(hasGastronomyCategory({ category: 'Entrepreneur', bio: 'Creamos tu living' })).toBe(false)
       expect(hasGastronomyCategory({ category: 'Barber shop', bio: 'Barbería' })).toBe(false)
+    })
+  })
+
+  describe('cuentas personales', () => {
+    const photo = () => sharp({ create: { width: 200, height: 200, channels: 3, background: '#a0522d' } }).png().toBuffer()
+    const run = async (profiles: Profile[], classifyLogo: LogoClassifier) => {
+      const image = await photo()
+      const service = new PlaceExtractionService({
+        apiKey: 'test-key',
+        details: { getDetails: async () => detailsFor('Brujona') },
+        exa: { configured: true, searchPlace: exaNaming(profiles.map((profile) => `@${handleOf(profile)}`).join(' ')) },
+        instagram: { configured: true, scrapeMany: async () => profiles },
+        generate: async () => extraction,
+        classifyLogo,
+        logoFetcher: vi.fn(async () => new Response(new Uint8Array(image), { status: 200 })) as unknown as typeof fetch,
+      })
+      return service.collectSources('place-1', { seedCategories: [] })
+    }
+
+    it('rechaza una cuenta personal con el nombre de la marca y clasifica cada foto una vez (Brujona)', async () => {
+      // Sin bio, sin categoría y con foto de una persona: sólo el handle es la marca.
+      const personal = { url: 'https://www.instagram.com/brujona', name: 'jona Bru', bio: '', links: [], profilePicUrl: 'https://cdn.example/brujona.jpg' }
+      const real = { url: 'https://www.instagram.com/brujonauy', name: 'Brujona', bio: 'Montevideo', links: [], category: 'Bar', profilePicUrl: 'https://cdn.example/brujonauy.jpg' }
+      const classifyLogo = vi.fn(async () => ({ kind: 'person' as const, inputTokens: 600, outputTokens: 5, gatewayCostUsd: 0.0007 }))
+
+      const collected = await run([personal, real], classifyLogo)
+
+      expect(collected.instagramValidation.profile?.url).toBe('https://www.instagram.com/brujonauy/')
+      expect(collected.instagramValidation.candidates).toEqual(expect.arrayContaining([
+        expect.objectContaining({ handle: 'brujona', decision: 'discarded', reason: 'personal_account', rule: 'personal_account' }),
+        expect.objectContaining({ handle: 'brujonauy', decision: 'selected' }),
+      ]))
+      // Sólo se clasifica @brujona: @brujonauy tiene rubro. El costo entra en el del logo.
+      expect(classifyLogo).toHaveBeenCalledTimes(1)
+      expect(collected.logo?.classification?.usage).toMatchObject({ inputTokens: 600, gatewayCostUsd: 0.0007 })
+    })
+
+    it('con foto de persona y señales de negocio, o sin poder clasificar la foto, el perfil se acepta como antes', async () => {
+      const person = vi.fn(async () => ({ kind: 'person' as const }))
+      const base = { url: 'https://www.instagram.com/brujona', name: 'Brujona', links: [], profilePicUrl: 'https://cdn.example/brujona.jpg' }
+      const url = async (profile: Profile, classifyLogo: LogoClassifier) => (await run([profile], classifyLogo)).instagramValidation.profile?.url
+      expect(await url({ ...base, bio: 'Bar de barrio' }, person)).toBe('https://www.instagram.com/brujona/')
+      expect(await url({ ...base, bio: '', category: 'Restaurant' }, person)).toBe('https://www.instagram.com/brujona/')
+      expect(await url({ ...base, bio: '📍 Bvar. España 2501' }, person)).toBe('https://www.instagram.com/brujona/')
+      expect(person).not.toHaveBeenCalled()
+      const failing = vi.fn(async () => { throw new Error('gateway') })
+      expect(await url({ ...base, bio: '' }, failing)).toBe('https://www.instagram.com/brujona/')
+      expect(failing).toHaveBeenCalledTimes(1)
+    })
+  })
+})
+
+describe('procesamiento en dos pasos con revisión del Instagram', () => {
+  const official = { url: 'https://www.instagram.com/cafebrasilero', name: 'Café Brasilero', bio: 'Café · Ituzaingó 1447 · Montevideo', links: [], category: 'Cafe', followers: 5000 }
+  const corrected = { url: 'https://www.instagram.com/cafe.brasilero.uy', name: 'Café Brasilero', bio: 'Desde 1877', links: [], followers: 1200 }
+  const build = (options: { generate?: () => Promise<PlaceExtraction>; manualInstagram?: (id: string) => Promise<{ handle: string | null } | null>; discoveries?: DiscoveryStore } = {}) => {
+    const searchPlace = vi.fn(async () => exaResponse('@cafebrasilero', [{ title: 'Café Brasilero', url: 'https://guia.example.com/brasilero', highlights: ['Café Brasilero'] }]))
+    const scrapeMany = vi.fn(async (urls: string[]) => [official, corrected].filter((profile) => urls.some((url) => url.includes(profile.url.split('/').at(-1)!))))
+    const service = new PlaceExtractionService({
+      apiKey: 'test-key',
+      details: { getDetails: async () => googleDetails },
+      exa: { configured: true, searchPlace },
+      instagram: { configured: true, scrapeMany },
+      generate: options.generate ?? (async () => extraction),
+      manualInstagram: options.manualInstagram,
+      discoveries: options.discoveries,
+    })
+    return { service, searchPlace, scrapeMany }
+  }
+
+  it('el paso 1 resume el Instagram y el paso 2 con auto termina igual que en un paso, sin volver a Exa', async () => {
+    const { service, searchPlace, scrapeMany } = build()
+
+    const discovery = await service.discoverPlace('place-1', { seedCategories: ['cafe'] })
+    expect(discovery).toMatchObject({ googlePlaceId: 'place-1', status: 'approved', handle: 'cafebrasilero', doubt: null })
+    expect(discovery.costUsd).toBeGreaterThan(0)
+
+    const result = await service.completePlace('place-1', { mode: 'auto' })
+    if (result.status !== 'ok') throw new Error('se esperaba ok')
+    expect(searchPlace).toHaveBeenCalledOnce()
+    expect(scrapeMany).toHaveBeenCalledOnce()
+    expect(result.place.contact.instagram).toBe('cafebrasilero')
+    expect(result.review).not.toHaveProperty('instagramManual')
+    // El descubrimiento se usa una vez.
+    await expect(service.completePlace('place-1', { mode: 'auto' })).rejects.toBeInstanceOf(DiscoveryExpired)
+  })
+
+  it('un handle manual se baja solo, sin validar, y el modelo no lo puede rechazar', async () => {
+    const rejecting = async () => ({ ...extraction, contact: { ...extraction.contact, instagram: '' }, doubts: ['Instagram rechazado: @cafe.brasilero.uy no es el local'] })
+    const { service, searchPlace, scrapeMany } = build({ generate: rejecting })
+    await service.discoverPlace('place-1', { seedCategories: ['cafe'] })
+
+    const result = await service.completePlace('place-1', { mode: 'manual', handle: 'cafe.brasilero.uy' })
+
+    if (result.status !== 'ok') throw new Error('se esperaba ok')
+    expect(searchPlace).toHaveBeenCalledOnce()
+    expect(scrapeMany).toHaveBeenLastCalledWith(['https://www.instagram.com/cafe.brasilero.uy/'])
+    expect(result.place.contact.instagram).toBe('cafe.brasilero.uy')
+    expect(result.place.signals?.igFollowers).toBe(1200)
+    expect(result.review.instagramManual).toEqual({ handle: 'cafe.brasilero.uy' })
+    expect(result.sourceAudit.instagramSelection.candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ handle: 'cafe.brasilero.uy', decision: 'selected', reason: 'manual', origins: ['manual'] }),
+      expect.objectContaining({ handle: 'cafebrasilero', decision: 'discarded', reason: 'manual_override' }),
+    ]))
+  })
+
+  it('un handle manual que no existe da InstagramNotFound y deja el descubrimiento para corregirlo', async () => {
+    const { service, searchPlace } = build()
+    await service.discoverPlace('place-1', { seedCategories: ['cafe'] })
+
+    const failure = await service.completePlace('place-1', { mode: 'manual', handle: 'cafe.brasilerro' }).catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(InstagramNotFound)
+    expect((failure as Error).message).toBe('No existe el perfil @cafe.brasilerro en Instagram.')
+
+    const result = await service.completePlace('place-1', { mode: 'manual', handle: 'cafe.brasilero.uy' })
+    expect(result.status).toBe('ok')
+    expect(searchPlace).toHaveBeenCalledOnce()
+  })
+
+  it('"No tiene Instagram" no llama a Apify en el paso 2 y no deja Instagram, seguidores ni logo', async () => {
+    const { service, scrapeMany } = build()
+    await service.discoverPlace('place-1', { seedCategories: ['cafe'] })
+
+    const result = await service.completePlace('place-1', { mode: 'none' })
+
+    if (result.status !== 'ok') throw new Error('se esperaba ok')
+    expect(scrapeMany).toHaveBeenCalledOnce()
+    expect(result.place.contact.instagram).toBeNull()
+    expect(result.place.signals?.igFollowers).toBeNull()
+    expect(result.place.logo).toBeNull()
+    expect(result.review.instagramManual).toEqual({ handle: null })
+  })
+
+  it('sin descubrimiento guardado (venció o se reinició el server), el paso 2 da DiscoveryExpired', async () => {
+    let now = 0
+    const discoveries = new DiscoveryStore(DISCOVERY_TTL_MS, () => now)
+    const { service } = build({ discoveries })
+    await expect(service.completePlace('place-1', { mode: 'auto' })).rejects.toBeInstanceOf(DiscoveryExpired)
+    await service.discoverPlace('place-1', { seedCategories: ['cafe'] })
+    now = DISCOVERY_TTL_MS + 1
+    await expect(service.completePlace('place-1', { mode: 'auto' })).rejects.toBeInstanceOf(DiscoveryExpired)
+  })
+
+  it('el Instagram cargado a mano antes (manual_overrides) gana con auto, también en un paso', async () => {
+    const saved = build({ manualInstagram: async () => ({ handle: 'cafe.brasilero.uy' }) })
+    const discovery = await saved.service.discoverPlace('place-1', { seedCategories: ['cafe'] })
+    expect(discovery.saved).toEqual({ handle: 'cafe.brasilero.uy' })
+    const oneStep = await saved.service.extract('place-1', { seedCategories: ['cafe'] })
+    if (oneStep.status !== 'ok') throw new Error('se esperaba ok')
+    expect(oneStep.place.contact.instagram).toBe('cafe.brasilero.uy')
+    expect(oneStep.review.instagramManual).toEqual({ handle: 'cafe.brasilero.uy' })
+
+    const none = build({ manualInstagram: async () => ({ handle: null }) })
+    const withoutInstagram = await none.service.extract('place-1', { seedCategories: ['cafe'] })
+    if (withoutInstagram.status !== 'ok') throw new Error('se esperaba ok')
+    expect(withoutInstagram.place.contact.instagram).toBeNull()
+
+    // Si la base falla, sigue con el Instagram del pipeline.
+    const broken = build({ manualInstagram: async () => { throw new Error('Neon caído') } })
+    const fallback = await broken.service.extract('place-1', { seedCategories: ['cafe'] })
+    if (fallback.status !== 'ok') throw new Error('se esperaba ok')
+    expect(fallback.place.contact.instagram).toBe('cafebrasilero')
+  })
+
+  describe('resumen del paso 1', () => {
+    const profile = { url: 'https://www.instagram.com/cafebrasilero/', name: 'Café Brasilero', bio: '', links: [] }
+    const summary = (firstPass: Parameters<typeof instagramDiscoverySummary>[0]['firstPass']) =>
+      instagramDiscoverySummary({ placeId: 'place-1', details: googleDetails, websiteUrl: null, firstPass }, 0.01)
+
+    it('verde con señales de negocio, amarillo sólo por el nombre', () => {
+      expect(summary({ profile: { ...profile, category: 'Cafe' }, candidates: [{ handle: 'cafebrasilero', decision: 'selected', reason: 'validated_exact_place_profile' }] }))
+        .toMatchObject({ status: 'approved', handle: 'cafebrasilero', doubt: null })
+      expect(summary({ profile, candidates: [{ handle: 'cafebrasilero', decision: 'selected', reason: 'validated_exact_place_profile' }] }))
+        .toMatchObject({ status: 'doubtful', handle: 'cafebrasilero', doubt: 'name_only' })
+    })
+
+    it('amarillo con empate o con todos rechazados; vacío sin candidatos', () => {
+      expect(summary({ profile: null, candidates: [
+        { handle: 'otro', decision: 'discarded', reason: 'identity_or_location_mismatch' },
+        { handle: 'a', decision: 'discarded', reason: 'multiple_valid_profiles' },
+      ] })).toMatchObject({ status: 'doubtful', handle: 'a', doubt: 'tie' })
+      expect(summary({ profile: null, candidates: [{ handle: 'otro', decision: 'discarded', reason: 'identity_or_location_mismatch' }] }))
+        .toMatchObject({ status: 'doubtful', handle: 'otro', doubt: 'rejected', candidates: [{ handle: 'otro', decision: 'discarded', reason: 'identity_or_location_mismatch' }] })
+      expect(summary({ profile: null, candidates: [] })).toMatchObject({ status: 'none', handle: null, doubt: null, costUsd: 0.01 })
     })
   })
 })

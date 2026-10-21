@@ -239,7 +239,7 @@ describe('Buscar por barrio', () => {
     expect(screen.getByText('· 1 ya está en la base')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Lugar guardado/ })).toBeInTheDocument()
     await user.click(screen.getByLabelText('Seleccionar Lugar guardado'))
-    await user.click(screen.getByRole('button', { name: 'Procesar (3)' }))
+    await user.click(screen.getByRole('button', { name: 'Procesar sin revisar (3)' }))
     await waitFor(() => expect(extractBodies.map((body) => body.googlePlaceId).sort()).toEqual(['a1', 'a2', 'a3']))
     expect(existsBodies).toHaveLength(1)
 
@@ -415,7 +415,7 @@ describe('Buscar por barrio', () => {
       const user = await startSweep()
       await screen.findByLabelText('Recorrido completo')
       await user.click(screen.getByLabelText('Seleccionar todos'))
-      await user.click(screen.getByRole('button', { name: `Procesar (${count})` }))
+      await user.click(screen.getByRole('button', { name: `Procesar sin revisar (${count})` }))
       return { user, metrics: await screen.findByRole('region', { name: 'Métricas del procesamiento' }) }
     }
 
@@ -547,7 +547,7 @@ describe('Buscar por barrio', () => {
     await user.click(screen.getByRole('button', { name: 'Permitir procesar Cerrado Uno' }))
     await user.click(screen.getByLabelText('Seleccionar Cerrado Uno'))
 
-    await user.click(screen.getByRole('button', { name: 'Procesar (2)' }))
+    await user.click(screen.getByRole('button', { name: 'Procesar sin revisar (2)' }))
     const metrics = await screen.findByRole('region', { name: 'Métricas del procesamiento' })
     expect(extractBodies.map((body) => body.googlePlaceId).sort()).toEqual(['c1', 'f1'])
     const review = within(within(metrics).getByRole('list', { name: 'A revisar por motivo' }))
@@ -585,9 +585,9 @@ describe('Buscar por barrio', () => {
         anomalies: [{ type: 'no_contact', detail: 'sin instagram ni website' }], hoursRetry: { attempted: true, recovered: false, costUsd: 0.03 },
         ...(id === 'a3' ? { logo: { status: 'failed', reason: 'download_failed', kind: null, detail: '403' } } : {}),
         ...(id === 'r1' ? { logo: { status: 'ok', reason: null, kind: 'local' } } : {}),
-        // a4 y a5 usaron el respaldo del Instagram: a4 lo rechazó la validación, a5 quedó validado.
-        ...(id === 'a4' ? { logo: { status: 'missing', reason: 'no_instagram', kind: null }, instagramFallback: { attempted: true, reason: 'sin candidato', terms: ['Lugar a4'], handles: ['otro.a4'], costUsd: 0.0135 } } : {}),
-        ...(id === 'a5' ? { logo: { status: 'ok', reason: null, kind: 'logo' }, instagramFallback: { attempted: true, reason: 'candidato rechazado: otro.a5, identity_or_location_mismatch', terms: ['Lugar a5'], handles: ['lugar.a5'], costUsd: 0.0135 } } : {}),
+        // a4: la validación rechazó su candidato; a5 quedó validado.
+        ...(id === 'a4' ? { logo: { status: 'missing', reason: 'no_instagram', kind: null } } : {}),
+        ...(id === 'a5' ? { logo: { status: 'ok', reason: null, kind: 'logo' } } : {}),
       },
       sourceAudit: {
         instagram: id === 'a5',
@@ -643,12 +643,12 @@ describe('Buscar por barrio', () => {
     expect(screen.queryByLabelText('Seleccionar todos')).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /Aceptados/ }))
 
-    await user.click(screen.getByRole('button', { name: 'Procesar (7)' }))
+    await user.click(screen.getByRole('button', { name: 'Procesar sin revisar (7)' }))
     await waitFor(() => expect(pending).toHaveLength(5))
     const mainTable = () => screen.getAllByRole('table')[0]
     expect(within(mainTable()).getAllByText('Procesando…')).toHaveLength(5)
     expect(within(mainTable()).getAllByText('En cola')).toHaveLength(1)
-    expect(screen.getByRole('button', { name: 'Procesar (7)' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Procesar sin revisar (7)' })).toBeDisabled()
 
     while (pending.length > 0 || extractBodies.length < 7) {
       await waitFor(() => expect(pending.length).toBeGreaterThan(0))
@@ -688,10 +688,7 @@ describe('Buscar por barrio', () => {
     expect(logos.getByText('Lugar r1 (Local)')).toBeInTheDocument()
     expect(logos.getByText('Con logo').nextElementSibling).toHaveTextContent('1')
     expect(logos.getByText('Instagram rechazado en la validación').nextElementSibling).toHaveTextContent('1')
-    expect(logos.getByText('Lugar a4 (@otro.a4: identity_or_location_mismatch (respaldo))')).toBeInTheDocument()
-    const fallbackLine = within(metrics).getByText('Instagram encontrado por el respaldo')
-    expect(fallbackLine.nextElementSibling).toHaveTextContent('1 de 2 búsquedas')
-    expect(fallbackLine.closest('p')).toHaveTextContent('Lugar a5 (tras rechazo)')
+    expect(logos.getByText('Lugar a4 (@otro.a4: identity_or_location_mismatch)')).toBeInTheDocument()
     expect(within(metrics).getByText('1 con error, sin paso de logo')).toBeInTheDocument()
     expect(within(mainTable()).getByText('Error: Falló a2')).toBeInTheDocument()
     expect(within(mainTable()).getAllByText(/^Listo · /)).toHaveLength(5)
@@ -757,7 +754,7 @@ describe('Buscar por barrio', () => {
     expect(screen.queryByRole('button', { name: /Procesados/ })).not.toBeInTheDocument()
 
     await user.click(screen.getByLabelText('Seleccionar todos'))
-    await user.click(screen.getByRole('button', { name: 'Procesar (2)' }))
+    await user.click(screen.getByRole('button', { name: 'Procesar sin revisar (2)' }))
     await user.click(await screen.findByRole('button', { name: 'Procesados (2)' }))
 
     expect(screen.queryByRole('button', { name: /^Procesar/ })).not.toBeInTheDocument()
@@ -771,6 +768,107 @@ describe('Buscar por barrio', () => {
     expect(saveBodies[0].results.map((result) => result.place.googlePlaceId)).toEqual(['a1'])
 
     await user.click(screen.getByRole('button', { name: /Aceptados/ }))
-    expect(screen.getByRole('button', { name: /^Procesar/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Procesar \(/ })).toBeInTheDocument()
+  })
+  it('procesa con revisión: descubre, ordena la revisión, corrige el Instagram y sigue con la extracción', async () => {
+    const places = ['ok', 'doubt', 'none', 'typo', 'fails'].map((id) => ({ ...place, placeId: id, name: `Lugar ${id}`, googleMapsUri: `https://maps/${id}` }))
+    const discoverBodies: string[] = []
+    const completeBodies: { googlePlaceId: string; instagram: unknown }[] = []
+    const discovery = (id: string) => ({
+      ok: { status: 'approved', handle: 'lugar.ok', doubt: null, candidates: [{ handle: 'lugar.ok', decision: 'selected', reason: 'validated_exact_place_profile' }] },
+      doubt: { status: 'doubtful', handle: 'lugar.doubt', doubt: 'rejected', candidates: [{ handle: 'lugar.doubt', decision: 'discarded', reason: 'identity_or_location_mismatch' }] },
+      none: { status: 'none', handle: null, doubt: null, candidates: [] },
+      typo: { status: 'none', handle: null, doubt: null, candidates: [] },
+    }[id])
+    let typoAttempts = 0
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const json = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status }))
+      if (url.includes('/sweep')) {
+        return ndjson([
+          { type: 'places', items: places },
+          { type: 'done', summary: summary({ totalPlaces: 5, byGroup: { accepted: 5, review: 0, rejected: 0 } }) },
+        ])
+      }
+      if (url === '/api/extraction-reports') return json({ path: 'output/report.json' })
+      if (url.startsWith('/api/places/exists')) return json({ ids: [] })
+      const body = JSON.parse(String(init?.body)) as { googlePlaceId: string; instagram?: { mode: string; handle?: string } }
+      if (url === '/api/extract/discover') {
+        discoverBodies.push(body.googlePlaceId)
+        if (body.googlePlaceId === 'fails') return json({ error: { code: 'EXA_PROVIDER_ERROR', message: 'Error de Exa' } }, 502)
+        return json({ googlePlaceId: body.googlePlaceId, costUsd: 0.03, ...discovery(body.googlePlaceId) })
+      }
+      if (url === '/api/extract/complete') {
+        completeBodies.push({ googlePlaceId: body.googlePlaceId, instagram: body.instagram })
+        if (body.googlePlaceId === 'typo' && typoAttempts++ === 0) {
+          return json({ error: { code: 'INSTAGRAM_NOT_FOUND', message: `No existe el perfil @${body.instagram?.handle} en Instagram.` } }, 422)
+        }
+        return json({
+          source: 'llm', status: 'ok', model: 'anthropic/claude-sonnet-5.5',
+          performance: { totalMs: 1000, stepsMs: {}, costUsd: { totalUsd: 0.1, providers: { llm: { costUsd: 0.04 } } } },
+          place: { googlePlaceId: body.googlePlaceId, name: `Lugar ${body.googlePlaceId}`, categories: ['bar'], tags: [], placeFacts: [], hours: { status: 'exact' }, contact: { instagram: null, website: null } },
+          review: { unmappedFacts: [], doubts: [], anomalies: [], hoursRetry: { attempted: false, recovered: false, costUsd: 0 } },
+          sourceAudit: { instagram: false, instagramSelection: { handle: null, origin: null, candidates: [] } },
+        })
+      }
+      throw new Error(`fetch inesperado: ${url}`)
+    }))
+    render(<App />)
+    const user = await startSweep()
+    await screen.findByLabelText('Recorrido completo')
+    await user.click(screen.getByLabelText('Seleccionar todos'))
+    await user.click(screen.getByRole('button', { name: 'Procesar (5)' }))
+
+    const review = await screen.findByRole('table', { name: 'Revisión de Instagram' })
+    await waitFor(() => expect(within(review).getAllByRole('textbox')).toHaveLength(4))
+    // Sin Instagram primero, después los dudosos y al final los aprobados.
+    const names = () => within(review).getAllByRole('row').slice(1).map((row) => row.querySelector('td span')?.textContent)
+    expect(names()).toEqual(['Lugar none', 'Lugar typo', 'Lugar doubt', 'Lugar ok'])
+    expect(within(review).getByLabelText('Instagram de Lugar ok')).toHaveValue('lugar.ok')
+    expect(within(review).getByRole('img', { name: 'Aprobado por la validación' })).toBeInTheDocument()
+    expect(within(review).getByText('rechazado: no coincide con el lugar')).toBeInTheDocument()
+    expect(within(review).getByRole('link', { name: '@lugar.doubt' })).toHaveAttribute('href', 'https://www.instagram.com/lugar.doubt/')
+    expect(within(review).getAllByRole('link', { name: /Ver en Google Maps/ })[0]).toHaveAttribute('href', 'https://maps/none')
+    expect(screen.getByText('Google Maps', { selector: '[translate="no"]' })).toBeInTheDocument()
+    // El descubrimiento que falló queda para reintentar.
+    expect(screen.getByRole('button', { name: 'Revisión de Instagram (4)' })).toBeInTheDocument()
+
+    // "Usar este" copia el dudoso; un handle inválido bloquea seguir.
+    await user.click(within(review).getByRole('button', { name: 'Usar @lugar.doubt para Lugar doubt' }))
+    expect(within(review).getByLabelText('Instagram de Lugar doubt')).toHaveValue('lugar.doubt')
+    await user.click(within(review).getAllByLabelText('No tiene Instagram')[0])
+    await user.type(within(review).getByLabelText('Instagram de Lugar typo'), 'no es un handle')
+    expect(within(review).getByText('No es un perfil de Instagram.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continuar con la extracción (4)' })).toBeDisabled()
+    await user.clear(within(review).getByLabelText('Instagram de Lugar typo'))
+    await user.type(within(review).getByLabelText('Instagram de Lugar typo'), 'https://instagram.com/Lugar.Tipo/')
+    expect(screen.getByText('3 Instagram cargados a mano · se guardan y un reproceso no los pisa')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Continuar con la extracción (4)' }))
+    await waitFor(() => expect(completeBodies).toHaveLength(4))
+    expect(Object.fromEntries(completeBodies.map((body) => [body.googlePlaceId, body.instagram]))).toEqual({
+      ok: { mode: 'auto' },
+      doubt: { mode: 'manual', handle: 'lugar.doubt' },
+      none: { mode: 'none' },
+      typo: { mode: 'manual', handle: 'lugar.tipo' },
+    })
+
+    // El handle que no existe vuelve a la revisión con el error, y al corregirlo sigue sin volver a descubrir.
+    await user.click(await screen.findByRole('button', { name: 'Revisión de Instagram (1)' }))
+    const again = await screen.findByRole('table', { name: 'Revisión de Instagram' })
+    expect(within(again).getByText('No existe el perfil @lugar.tipo en Instagram.')).toBeInTheDocument()
+    await user.clear(within(again).getByLabelText('Instagram de Lugar typo'))
+    await user.type(within(again).getByLabelText('Instagram de Lugar typo'), '@lugar.typo')
+    expect(within(again).queryByText('No existe el perfil @lugar.tipo en Instagram.')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Continuar con la extracción (1)' }))
+    await waitFor(() => expect(completeBodies).toHaveLength(5))
+    expect(completeBodies[4]).toEqual({ googlePlaceId: 'typo', instagram: { mode: 'manual', handle: 'lugar.typo' } })
+    expect(discoverBodies.sort()).toEqual(['doubt', 'fails', 'none', 'ok', 'typo'])
+
+    // Reintentar el que falló al descubrir lo vuelve a descubrir.
+    await user.click(await screen.findByRole('button', { name: /Aceptados/ }))
+    await user.click(screen.getByRole('button', { name: 'Reintentar fallidos (1)' }))
+    await waitFor(() => expect(discoverBodies.filter((id) => id === 'fails')).toHaveLength(2))
   })
 })
+

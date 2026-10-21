@@ -56,7 +56,6 @@ function rateLimitNote(review: PlaceReview) {
 }
 
 const TIE_BREAK_LABELS: Record<InstagramTieBreakRule, string> = {
-  first_pass_candidate: 'candidato de las fuentes',
   gastronomy: 'rubro gastronómico',
   profile_picture: 'foto de perfil',
   latest_post: 'post más reciente',

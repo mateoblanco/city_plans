@@ -3,6 +3,8 @@ import type {
   ExaPlaceResponse,
   ExtractionReportRequest,
   GooglePlaceDetailsResponse,
+  InstagramChoice,
+  InstagramDiscovery,
   MatchSource,
   NeighborhoodSweepEvent,
   NeighborhoodSweepMode,
@@ -130,6 +132,35 @@ export async function extractPlace(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
+    signal,
+  })
+  return parseApiResponse<PlaceEnrichmentResponse>(response)
+}
+
+/** Paso 1 del procesamiento con revisión: el servidor guarda las fuentes y devuelve el Instagram para revisar. */
+export async function discoverPlace(
+  request: ExtractRequest,
+  signal?: AbortSignal,
+): Promise<InstagramDiscovery> {
+  const response = await fetch('/api/extract/discover', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+    signal,
+  })
+  return parseApiResponse<InstagramDiscovery>(response)
+}
+
+/** Paso 2: la extracción con las fuentes del paso 1 y el Instagram elegido en la revisión. */
+export async function completePlace(
+  googlePlaceId: string,
+  instagram: InstagramChoice,
+  signal?: AbortSignal,
+): Promise<PlaceEnrichmentResponse> {
+  const response = await fetch('/api/extract/complete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ googlePlaceId, instagram }),
     signal,
   })
   return parseApiResponse<PlaceEnrichmentResponse>(response)

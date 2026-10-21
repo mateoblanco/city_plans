@@ -5,6 +5,7 @@ import {
   LoaderCircle,
   Map as MapIcon,
   Play,
+  PlayCircle,
   RotateCcw,
   Search,
   Square,
@@ -13,6 +14,7 @@ import {
 import { SearchCombobox, type ComboboxOption } from '@/components/search-combobox'
 import { PlaceExplorerDialog } from '@/components/place-explorer-dialog'
 import { ExtractionResultDialog } from '@/components/extraction-result-dialog'
+import { InstagramReviewPanel } from '@/components/instagram-review-panel'
 import { ProcessedPlacesPanel } from '@/components/processed-places-panel'
 import { PlacesTable, type PlacesTableColumn } from '@/components/places-table'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -58,6 +60,9 @@ import type {
 type SweepStatus = 'idle' | 'loading' | 'success' | 'empty' | 'error' | 'partial'
 
 type ExistingStatus = 'idle' | 'loading' | 'ready' | 'error'
+
+/** Qué muestra el panel: la tabla del grupo, la revisión del Instagram o los procesados. */
+type BatchView = 'groups' | 'review' | 'processed'
 
 function withoutIds(selected: ReadonlySet<string>, ids: ReadonlySet<string>): ReadonlySet<string> {
   if (![...selected].some((id) => ids.has(id))) return selected
@@ -155,11 +160,12 @@ function formatSeconds(ms: number) {
 function processingStatus(row: ExtractionRow | undefined, onOpen: () => void) {
   if (!row) return <span className="text-muted-foreground">—</span>
   if (row.status === 'queued') return 'En cola'
-  if (row.status === 'running') {
+  if (row.status === 'reviewing') return <span className="text-amber-700">Para revisar</span>
+  if (row.status === 'discovering' || row.status === 'running') {
     return (
       <span className="inline-flex items-center gap-1.5">
         <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
-        Procesando…
+        {row.status === 'discovering' ? 'Descubriendo…' : 'Procesando…'}
       </span>
     )
   }
@@ -218,8 +224,8 @@ export function NeighborhoodSweepPage() {
   const [selectedPlace, setSelectedPlace] = useState<NeighborhoodSweepPlace | null>(null)
   const [onlyInside, setOnlyInside] = useState(true)
   const [group, setGroup] = useState<PlaceGroup>('accepted')
-  // Tab "Procesados": resultados del lote para guardar en la base.
-  const [showProcessed, setShowProcessed] = useState(false)
+  // Tabs del lote: "Revisión de Instagram" entre los dos pasos y "Procesados", con los resultados para guardar.
+  const [view, setView] = useState<BatchView>('groups')
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set())
   // Cerrados según Google que se movieron a mano para poder procesarlos.
   const [releasedIds, setReleasedIds] = useState<ReadonlySet<string>>(new Set())
@@ -275,7 +281,7 @@ export function NeighborhoodSweepPage() {
     setActiveNeighborhood(target)
     setActiveMode(sweepMode)
     setGroup('accepted')
-    setShowProcessed(false)
+    setView('groups')
     setSelectedIds(new Set())
     setReleasedIds(new Set())
     setResultPlace(null)
@@ -369,7 +375,11 @@ export function NeighborhoodSweepPage() {
   const selectable = canFilter && group !== 'rejected'
   const hasBatch = Object.keys(batch.rows).length > 0
   const processedCount = Object.values(batch.rows).filter((row) => row.status === 'done' || row.status === 'error').length
-  const processedTabOpen = showProcessed && canFilter && processedCount > 0
+  const processedTabOpen = view === 'processed' && canFilter && processedCount > 0
+  // En revisión y los que se están descubriendo (aparecen en la revisión mientras cargan).
+  const reviewTabCount = Object.values(batch.rows).filter((row) => row.status === 'reviewing' || row.status === 'discovering' || (row.status === 'queued' && row.phase === 'discover')).length
+  const reviewTabOpen = view === 'review' && canFilter && reviewTabCount > 0
+  const batchTabOpen = processedTabOpen || reviewTabOpen
   if (hasBatch) {
     tableColumns.push({ header: 'Procesamiento', cell: (place) => processingStatus(batch.rows[place.placeId], () => setResultPlace(place)) })
   }
@@ -631,11 +641,11 @@ export function NeighborhoodSweepPage() {
                       type="button"
                       onClick={() => {
                         setGroup(item.id)
-                        setShowProcessed(false)
+                        setView('groups')
                       }}
-                      aria-pressed={!showProcessed && group === item.id}
+                      aria-pressed={!batchTabOpen && group === item.id}
                       className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                        !showProcessed && group === item.id
+                        !batchTabOpen && group === item.id
                           ? 'bg-foreground text-background'
                           : 'text-muted-foreground hover:text-foreground'
                       }`}
@@ -643,13 +653,27 @@ export function NeighborhoodSweepPage() {
                       {item.label} ({groupCounts[item.id]})
                     </button>
                   ))}
+                  {reviewTabCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setView('review')}
+                      aria-pressed={reviewTabOpen}
+                      className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                        reviewTabOpen
+                          ? 'bg-foreground text-background'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      Revisión de Instagram ({reviewTabCount})
+                    </button>
+                  )}
                   {processedCount > 0 && (
                     <button
                       type="button"
-                      onClick={() => setShowProcessed(true)}
-                      aria-pressed={showProcessed}
+                      onClick={() => setView('processed')}
+                      aria-pressed={processedTabOpen}
                       className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                        showProcessed
+                        processedTabOpen
                           ? 'bg-foreground text-background'
                           : 'text-muted-foreground hover:text-foreground'
                       }`}
@@ -658,7 +682,7 @@ export function NeighborhoodSweepPage() {
                     </button>
                   )}
                 </div>
-                {!showProcessed && <div className="flex flex-wrap gap-2">
+                {!batchTabOpen && <div className="flex flex-wrap gap-2">
                   {batch.failedCount > 0 && (
                     <Button
                       type="button"
@@ -673,9 +697,23 @@ export function NeighborhoodSweepPage() {
                   )}
                   <Button
                     type="button"
+                    variant="outline"
                     size="sm"
                     disabled={batch.running || selectedRequests.length === 0}
                     onClick={() => void batch.run(selectedRequests)}
+                  >
+                    <PlayCircle className="size-3.5" aria-hidden="true" />
+                    Procesar sin revisar ({selectedRequests.length})
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={batch.running || selectedRequests.length === 0}
+                    onClick={() => {
+                      // Paso 1 y, mientras descubre, la revisión del Instagram.
+                      setView('review')
+                      void batch.discover(selectedRequests)
+                    }}
                   >
                     {batch.running ? (
                       <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
@@ -692,13 +730,28 @@ export function NeighborhoodSweepPage() {
               <ProcessedPlacesPanel rows={batch.rows} places={places} categoryLabel={categoryLabel} />
             )}
 
-            {!processedTabOpen && hasResults && visiblePlaces.length === 0 && (
+            {reviewTabOpen && (
+              <InstagramReviewPanel
+                rows={batch.rows}
+                drafts={batch.drafts}
+                places={places}
+                running={batch.running}
+                invalidCount={batch.invalidCount}
+                onDraftChange={batch.setDraft}
+                onContinue={() => {
+                  setView('processed')
+                  void batch.complete()
+                }}
+              />
+            )}
+
+            {!batchTabOpen && hasResults && visiblePlaces.length === 0 && (
               <p className="px-4 py-8 text-center text-sm text-muted-foreground sm:px-5">
                 No hay lugares para mostrar con estos filtros.
               </p>
             )}
 
-            {!processedTabOpen && visiblePlaces.length > 0 && (
+            {!batchTabOpen && visiblePlaces.length > 0 && (
               <PlacesTable
                 places={visiblePlaces}
                 columns={tableColumns}
@@ -909,15 +962,6 @@ function LogoSummaryBlock({ summary }: { summary: LogoSummary }) {
           )
         })}
       </ul>
-      {summary.fallback.searched > 0 && (
-        <p className="mt-2 text-xs text-muted-foreground">
-          <span className="flex justify-between gap-4">
-            <span>Instagram encontrado por el respaldo</span>
-            <span className="tabular-nums">{summary.fallback.found.length} de {summary.fallback.searched} {summary.fallback.searched === 1 ? 'búsqueda' : 'búsquedas'}</span>
-          </span>
-          {summary.fallback.found.length > 0 && <span className="block">{summary.fallback.found.map((place) => place.detail ? `${place.name} (${place.detail})` : place.name).join(', ')}</span>}
-        </p>
-      )}
       {summary.withoutStep > 0 && (
         <p className="mt-2 text-xs text-muted-foreground">
           {summary.withoutStep === 1 ? '1 con error, sin paso de logo' : `${summary.withoutStep} con error, sin paso de logo`}

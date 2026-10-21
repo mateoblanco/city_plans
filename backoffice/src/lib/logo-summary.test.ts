@@ -4,11 +4,11 @@ import type { PlaceEnrichmentResponse, PlaceReview } from '@/types/places'
 import { LOGO_GROUPS, logoSummary } from './logo-summary'
 
 type Audit = Partial<PlaceEnrichmentResponse['sourceAudit']>
-const done = (name: string, logo: PlaceReview['logo'], extra: { audit?: Audit; fallback?: PlaceReview['instagramFallback'] } = {}): ExtractionRow => ({
+const done = (name: string, logo: PlaceReview['logo'], extra: { audit?: Audit; manual?: PlaceReview['instagramManual'] } = {}): ExtractionRow => ({
   status: 'done',
   result: {
     source: 'llm', status: 'ok', place: { name },
-    review: { logo, ...(extra.fallback ? { instagramFallback: extra.fallback } : {}) },
+    review: { logo, ...(extra.manual ? { instagramManual: extra.manual } : {}) },
     sourceAudit: { instagram: false, instagramSelection: { handle: null, origin: null, candidates: [] }, ...extra.audit },
   } as unknown as PlaceEnrichmentResponse,
 })
@@ -42,6 +42,7 @@ describe('logoSummary', () => {
     expect(summary.groups).toEqual({
       with_logo: [{ name: 'Con Logo', detail: null }],
       no_candidate: [{ name: 'Sin IG', detail: null }, { name: 'Sin nombre confirmado', detail: null }, { name: 'Sin Fuentes', detail: 'sin fuentes' }],
+      marked_without_instagram: [],
       instagram_rejected: [],
       no_picture: [{ name: 'Sin URL', detail: null }],
       download_failed: [{ name: 'Prohibido', detail: '403' }, { name: 'Lento', detail: 'timeout' }, { name: 'Login', detail: 'no es imagen, text/html' }],
@@ -52,50 +53,23 @@ describe('logoSummary', () => {
       failed: [{ name: 'Sin Clasificar', detail: 'no se pudo clasificar' }, { name: 'Sin R2', detail: 'no se pudo subir a R2' }],
     })
     expect(summary.withoutStep).toBe(1)
-    expect(summary.fallback).toEqual({ searched: 0, found: [] })
   })
 
-  it('separa sin candidato de rechazado en la validación, con handle y motivo, y cuenta el respaldo', () => {
-    const fallback = (handles: string[], reason = 'sin candidato') => ({ attempted: true, reason, terms: ['Marca'], handles, costUsd: 0.0135 })
+  it('separa sin candidato, marcado sin Instagram en la revisión y rechazado en la validación, con handle y motivo', () => {
     const summary = logoSummary([
-      done('Sin Nada', { status: 'missing', reason: 'no_instagram', kind: null }, { fallback: fallback([]) }),
+      done('Sin Nada', { status: 'missing', reason: 'no_instagram', kind: null }),
+      done('Marcado', { status: 'missing', reason: 'no_instagram', kind: null }, {
+        audit: rejected(['otro.bar', 'manual_override']), manual: { handle: null },
+      }),
       done('Otro Perfil', { status: 'missing', reason: 'no_instagram', kind: null }, {
         audit: rejected(['otro.bar', 'identity_or_location_mismatch'], ['caido', 'not_returned_by_provider']),
-      }),
-      done('Rechazado Respaldo', { status: 'missing', reason: 'no_instagram', kind: null }, {
-        audit: rejected(['rechazado.uy', 'identity_or_location_mismatch']), fallback: fallback(['rechazado.uy']),
-      }),
-      done('Encontrado', { status: 'ok', reason: null, kind: 'logo' }, {
-        audit: { instagram: true }, fallback: fallback(['encontrado.uy']),
-      }),
-      done('Rescatado', { status: 'ok', reason: null, kind: 'logo' }, {
-        audit: { instagram: true }, fallback: fallback(['rescatado.uy'], 'candidato rechazado: rescatado.uy, identity_or_location_mismatch'),
       }),
     ])
 
     expect(summary.groups.no_candidate).toEqual([{ name: 'Sin Nada', detail: null }])
+    expect(summary.groups.marked_without_instagram).toEqual([{ name: 'Marcado', detail: null }])
     expect(summary.groups.instagram_rejected).toEqual([
       { name: 'Otro Perfil', detail: '@otro.bar: identity_or_location_mismatch, @caido: not_returned_by_provider' },
-      { name: 'Rechazado Respaldo', detail: '@rechazado.uy: identity_or_location_mismatch (respaldo)' },
     ])
-    expect(summary.groups.with_logo).toEqual([{ name: 'Encontrado', detail: null }, { name: 'Rescatado', detail: null }])
-    expect(summary.fallback).toEqual({ searched: 4, found: [{ name: 'Encontrado', detail: null }, { name: 'Rescatado', detail: 'tras rechazo' }] })
-  })
-
-  it('sin nombre confirmado no se buscó: cuenta como sin candidato aunque la primera pasada rechazara alguno', () => {
-    const skipped = (reason: string) => ({ attempted: false, skipped: 'unconfirmed_name' as const, reason, terms: [], handles: [], costUsd: 0 })
-    const summary = logoSummary([
-      done('', { status: 'missing', reason: 'no_instagram', kind: null }, { fallback: skipped('sin candidato') }),
-      done('Con Rechazo', { status: 'missing', reason: 'no_instagram', kind: null }, {
-        audit: rejected(['otro.bar', 'identity_or_location_mismatch']), fallback: skipped('candidato rechazado: otro.bar, identity_or_location_mismatch'),
-      }),
-    ])
-
-    expect(summary.groups.no_candidate).toEqual([
-      { name: 'Sin nombre confirmado', detail: 'sin búsqueda: nombre no confirmado' },
-      { name: 'Con Rechazo', detail: 'sin búsqueda: nombre no confirmado' },
-    ])
-    expect(summary.groups.instagram_rejected).toEqual([])
-    expect(summary.fallback).toEqual({ searched: 0, found: [] })
   })
 })

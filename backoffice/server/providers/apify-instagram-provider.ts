@@ -61,7 +61,7 @@ function postCaptions(value: unknown): string[] {
   })
 }
 
-/** Perfil de Apify (scraper de perfiles o búsqueda de usuarios: los dos traen los mismos campos). */
+/** Perfil del scraper de perfiles de Apify. */
 function profileFromApify(profile: ApifyProfile): InstagramProfileData | null {
   if (!profile || typeof profile !== 'object') return null
   const username = stringValue(profile.username)
@@ -98,42 +98,26 @@ function profileFromApify(profile: ApifyProfile): InstagramProfileData | null {
   }
 }
 
-/** Resultado de la búsqueda de usuarios: perfiles y resultados cobrados (sin perfiles, Apify cobra 1). */
-export type InstagramSearchResult = { profiles: InstagramProfileData[]; chargedResults: number }
-
-export const INSTAGRAM_SEARCH_LIMIT = 5
-
 /**
  * Tiempo máximo de cada corrida en Apify (el actor se corta al llegar). run-sync espera hasta 300 s.
  * Con 60 s el lote de Cordón tuvo muchos timeouts.
  */
 export const APIFY_PROFILE_TIMEOUT_SECONDS = 120
-export const APIFY_SEARCH_TIMEOUT_SECONDS = 120
-
-/**
- * El actor rechaza (400) una búsqueda con signos: !?.,:;-+=*&%$#@/\~^|<>()[]{}"'` (la coma, además,
- * separa términos). Se cambian por espacios; letras con acento, números y espacios quedan.
- */
-export function instagramSearchText(value: string): string {
-  return value.replace(/[!?.,:;\-+=*&%$#@/\\~^|<>()[\]{}"'`]+/g, ' ').replace(/\s+/g, ' ').trim()
-}
 
 export class ApifyInstagramProvider {
   readonly configured: boolean
   private readonly token: string
   private readonly actorId: string
-  private readonly searchActorId: string
   private readonly fetcher: typeof fetch
   private readonly memoryMbytes: number | null
 
   constructor(
     // memoryMbytes: memoria de cada corrida (potencia de 2, desde 128); sin valor, la del actor (1024 MB).
-    config: { token?: string; actorId?: string; searchActorId?: string; memoryMbytes?: number },
+    config: { token?: string; actorId?: string; memoryMbytes?: number },
     fetcher: typeof fetch = fetch,
   ) {
     this.token = config.token?.trim() ?? ''
     this.actorId = config.actorId?.trim() || 'apify~instagram-profile-scraper'
-    this.searchActorId = config.searchActorId?.trim() || 'apify~instagram-search-scraper'
     this.configured = Boolean(this.token)
     this.fetcher = fetcher
     const memory = config.memoryMbytes
@@ -151,20 +135,7 @@ export class ApifyInstagramProvider {
     return items.flatMap((item) => profileFromApify(item) ?? [])
   }
 
-  /**
-   * Búsqueda de usuarios de Instagram por nombre (hasta `limit` perfiles). Instagram compara contra el
-   * usuario y el nombre del perfil, no contra la ciudad: el término es sólo la marca, sin signos.
-   */
-  async searchProfiles(term: string, limit = INSTAGRAM_SEARCH_LIMIT): Promise<InstagramSearchResult> {
-    const search = instagramSearchText(term)
-    if (this.configured && !search) return { profiles: [], chargedResults: 0 }
-    const items = await this.run(this.searchActorId, { search, searchType: 'user', searchLimit: limit }, APIFY_SEARCH_TIMEOUT_SECONDS, 'Apify no pudo buscar el perfil de Instagram.')
-    // Sin resultados, el actor escribe un ítem con `error` (no_items), que también se cobra.
-    const profiles = items.flatMap((item) => 'error' in item ? [] : profileFromApify(item) ?? []).slice(0, limit)
-    return { profiles, chargedResults: items.length }
-  }
-
-  private async run(actorId: string, input: Record<string, unknown>, timeoutSeconds: number, failure: string): Promise<(ApifyProfile & { error?: unknown })[]> {
+  private async run(actorId: string, input: Record<string, unknown>, timeoutSeconds: number, failure: string): Promise<ApifyProfile[]> {
     if (!this.configured) {
       throw new PlacesProviderError(
         'configuration',

@@ -223,33 +223,20 @@ export type PlaceReview = {
    */
   rateLimits?: { service: 'apify' | 'exa' | 'llm'; retries: number; waitedMs: number; recovered: boolean; transientRetries?: number }[]
   /**
-   * Desempate entre varios perfiles de Instagram válidos (en la primera pasada o en el respaldo): la regla que
-   * eligió, o unresolved si siguió el empate, y los handles empatados. Falta si no hubo empate.
+   * Desempate entre varios perfiles de Instagram válidos: la regla que eligió, o unresolved si siguió el empate,
+   * y los handles empatados. Falta si no hubo empate.
    */
-  instagramTieBreak?: { rule: InstagramTieBreakRule; pass: 'first' | 'fallback'; handles: string[] }
+  instagramTieBreak?: { rule: InstagramTieBreakRule; handles: string[] }
   /**
    * Cuentas de Instagram descartadas por ser candidatas (o estar guardadas) en lugares de otra marca: agregadoras.
    * places son los googlePlaceId de esos otros lugares; el lote re-procesa los suyos que la hayan elegido.
    */
   instagramShared?: { handle: string; places: string[] }[]
   /**
-   * Búsqueda de respaldo del Instagram (usuarios de Instagram en Apify, por la marca), cuando la primera
-   * pasada no dejó candidatos o los rechazó: por qué corrió ("sin candidato" o "candidato rechazado:
-   * <handle>, <motivo>"), términos buscados, handles que trajo y su costo (ya sumado en costUsd).
-   * tieBreak: qué regla eligió entre varios perfiles válidos (candidato de la primera pasada o rubro
-   * gastronómico), o unresolved si siguió el empate; falta si no hubo empate. Falta si no se usó.
-   * skipped: no se buscó aunque hacía falta (unconfirmed_name: ninguna fuente nombra la marca); reason
-   * dice por qué habría corrido.
+   * Instagram cargado a mano en la revisión (handle) o marcado "No tiene Instagram" (null). Al guardar entra en
+   * manual_overrides para que un reproceso no lo pise. Falta si el Instagram salió del pipeline.
    */
-  instagramFallback?: {
-    attempted: boolean
-    skipped?: 'unconfirmed_name'
-    reason: string
-    terms: string[]
-    handles: string[]
-    costUsd: number
-    tieBreak?: InstagramTieBreakRule
-  }
+  instagramManual?: { handle: string | null }
   /**
    * Salida estructurada del modelo (PlaceExtraction de server/providers/place-extraction-service.ts) con la que se
    * armó el place, para volver a correr postProcess sin pagar el LLM. No va al reporte. Falta en resultados de antes.
@@ -258,10 +245,36 @@ export type PlaceReview = {
 }
 
 /**
- * Reglas de desempate entre perfiles de Instagram válidos, en orden: candidato de la primera pasada (sólo en el
- * respaldo), único con rubro gastronómico, post más reciente, más seguidores. unresolved: siguió el empate.
+ * Reglas de desempate entre perfiles de Instagram válidos, en orden: único con rubro gastronómico, foto de perfil
+ * real, post más reciente, más seguidores. unresolved: siguió el empate.
  */
-export type InstagramTieBreakRule = 'first_pass_candidate' | 'gastronomy' | 'profile_picture' | 'latest_post' | 'followers' | 'unresolved'
+export type InstagramTieBreakRule = 'gastronomy' | 'profile_picture' | 'latest_post' | 'followers' | 'unresolved'
+
+/** Instagram con el que sigue el paso 2: el que validó el pipeline, uno cargado a mano o ninguno. */
+export type InstagramChoice = { mode: 'auto' } | { mode: 'manual'; handle: string } | { mode: 'none' }
+
+/**
+ * approved: la validación eligió un perfil con señales de negocio. doubtful: lo eligió sólo por el nombre o el
+ * handle, hubo empate sin resolver o rechazó todos los candidatos. none: no hubo candidatos.
+ */
+export type InstagramDiscoveryStatus = 'approved' | 'doubtful' | 'none'
+
+/** Resultado del paso 1 (POST /api/extract/discover) para la revisión del Instagram. */
+export type InstagramDiscovery = {
+  googlePlaceId: string
+  status: InstagramDiscoveryStatus
+  /** El elegido (approved) o el mejor candidato (doubtful); null sin candidatos. */
+  handle: string | null
+  /** Por qué es dudoso; null si no lo es. */
+  doubt: 'name_only' | 'tie' | 'rejected' | null
+  /** Los candidatos con la decisión de la validación. */
+  candidates: { handle: string; decision: InstagramAuditCandidate['decision']; reason: string }[]
+  /** Instagram cargado a mano en un procesamiento anterior (manual_overrides): handle, o null si no tiene. */
+  saved?: { handle: string | null }
+  /** Cuentas descartadas por ser candidatas de lugares de otra marca, con esos lugares (como review.instagramShared). */
+  shared?: { handle: string; places: string[] }[]
+  costUsd: number
+}
 
 /** Datos de cada lugar procesado para el resumen del lote. */
 export type ExtractionReportStats = {
@@ -353,7 +366,8 @@ export type InstagramCandidateOrigin =
   | 'exa_result'
   | 'website'
   | 'exa_instagram_search'
-  | 'apify_search'
+  /** Cargado a mano en la revisión. */
+  | 'manual'
 
 /** Qué regla aceptó o rechazó el perfil que trajo Apify. */
 export type InstagramMatchRule =
@@ -534,6 +548,10 @@ export type ApiErrorCode =
   | 'INSTAGRAM_PROVIDER_ERROR'
   /** Exa no respondió en /api/extract: el lugar no se procesó y hay que reintentarlo. */
   | 'EXA_PROVIDER_ERROR'
+  /** El Instagram cargado a mano no existe (handle mal escrito): se corrige en la revisión. */
+  | 'INSTAGRAM_NOT_FOUND'
+  /** El paso 2 no encontró el descubrimiento del lugar (venció o se reinició el server): hay que volver a descubrir. */
+  | 'DISCOVERY_EXPIRED'
   | 'NOT_FOUND_ERROR'
   | 'UNKNOWN_ERROR'
 

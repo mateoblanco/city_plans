@@ -4,7 +4,8 @@ import type { PlaceEnrichmentResponse, PlaceReview } from '@/types/places'
 
 export const LOGO_GROUPS = [
   { id: 'with_logo', label: 'Con logo' },
-  { id: 'no_candidate', label: 'Sin Instagram candidato (ni en la primera pasada ni en el respaldo)' },
+  { id: 'no_candidate', label: 'Sin Instagram candidato' },
+  { id: 'marked_without_instagram', label: 'Sin Instagram (marcado en la revisión)' },
   { id: 'instagram_rejected', label: 'Instagram rechazado en la validación' },
   { id: 'no_picture', label: 'Apify no trajo URL de la foto' },
   { id: 'download_failed', label: 'Error al bajar la imagen' },
@@ -21,8 +22,6 @@ export type LogoSummary = {
   groups: Record<LogoGroupId, LogoSummaryPlace[]>
   /** Filas con error: no llegaron al paso del logo. */
   withoutStep: number
-  /** Búsqueda de respaldo del Instagram: en cuántos lugares corrió y en cuáles terminó en un Instagram validado. */
-  fallback: { searched: number; found: LogoSummaryPlace[] }
 }
 
 const MISSING_NAME = 'Sin nombre confirmado'
@@ -46,19 +45,14 @@ function classify(logo: PlaceReview['logo']): { group: LogoGroupId; detail: stri
   }
 }
 
-/**
- * Sin Instagram validado: sin ningún candidato, o con candidatos que la validación rechazó
- * (cada uno con su handle y motivo; "respaldo" si lo propuso la búsqueda de respaldo).
- */
+/** Sin Instagram validado: sin ningún candidato, o con candidatos que la validación rechazó (cada uno con su handle y motivo). */
 function withoutInstagram(result: PlaceEnrichmentResponse): { group: LogoGroupId; detail: string | null } {
+  if (result.status === 'ok' && result.review.instagramManual?.handle === null) return { group: 'marked_without_instagram', detail: null }
   const candidates = result.sourceAudit?.instagramSelection.candidates ?? []
   if (candidates.length === 0) return { group: 'no_candidate', detail: null }
-  const fromFallback = new Set(result.status === 'ok' ? result.review.instagramFallback?.handles ?? [] : [])
   return {
     group: 'instagram_rejected',
-    detail: candidates
-      .map((candidate) => `@${candidate.handle}: ${candidate.reason}${fromFallback.has(candidate.handle) ? ' (respaldo)' : ''}`)
-      .join(', '),
+    detail: candidates.map((candidate) => `@${candidate.handle}: ${candidate.reason}`).join(', '),
   }
 }
 
@@ -66,7 +60,6 @@ function withoutInstagram(result: PlaceEnrichmentResponse): { group: LogoGroupId
 export function logoSummary(rows: readonly ExtractionRow[]): LogoSummary {
   const groups = Object.fromEntries(LOGO_GROUPS.map((group) => [group.id, []])) as unknown as LogoSummary['groups']
   let withoutStep = 0
-  const fallback: LogoSummary['fallback'] = { searched: 0, found: [] }
   for (const row of rows) {
     const result = row.result
     if (row.status !== 'done' || !result) {
@@ -79,19 +72,9 @@ export function logoSummary(rows: readonly ExtractionRow[]): LogoSummary {
       groups[group].push({ name: result.target.name, detail: detail ? `sin fuentes, ${detail}` : 'sin fuentes' })
       continue
     }
-    const name = result.place.name || MISSING_NAME
-    if (result.review.instagramFallback?.attempted) {
-      fallback.searched += 1
-      const rescued = result.review.instagramFallback.reason?.startsWith('candidato rechazado') ?? false
-      if (result.sourceAudit?.instagram) fallback.found.push({ name, detail: rescued ? 'tras rechazo' : null })
-    }
     if (!result.review.logo) continue
-    // Sin nombre confirmado no se buscó: cuenta como sin candidato aunque la primera pasada haya rechazado alguno.
-    const unsearched = result.review.instagramFallback?.skipped === 'unconfirmed_name'
-    const { group, detail } = result.review.logo.reason !== 'no_instagram'
-      ? classify(result.review.logo)
-      : unsearched ? { group: 'no_candidate' as const, detail: 'sin búsqueda: nombre no confirmado' } : withoutInstagram(result)
-    groups[group].push({ name, detail })
+    const { group, detail } = result.review.logo.reason !== 'no_instagram' ? classify(result.review.logo) : withoutInstagram(result)
+    groups[group].push({ name: result.place.name || MISSING_NAME, detail })
   }
-  return { groups, withoutStep, fallback }
+  return { groups, withoutStep }
 }

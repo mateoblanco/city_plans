@@ -136,6 +136,28 @@ describe('savePlaces', () => {
     }
   })
 
+  it('un Instagram cargado a mano suma instagram a manualOverrides y pisa el que había bloqueado; uno del pipeline, no', async () => {
+    const manual = (handle: string | null) => ({ ...ok({ contact: { ...draft().contact, instagram: handle } }), review: { instagramManual: { handle } } })
+    const fresh = fakeStore()
+    await savePlaces([manual('palenque.uy')], { store: fresh.store, embed: vectors })
+    expect(fresh.inserted[0]).toMatchObject({ instagram: 'palenque.uy', manualOverrides: ['instagram'] })
+
+    const existing = (manualOverrides: string[]) => ({ id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(draft().embeddingText), manualOverrides, status: 'published' as const })
+    const unlocked = fakeStore([existing(['diet_vegan'])])
+    await savePlaces([manual(null)], { store: unlocked.store, embed: vectors })
+    expect(unlocked.updated[0].values).toMatchObject({ instagram: null, manualOverrides: ['diet_vegan', 'instagram'] })
+
+    const locked = fakeStore([existing(['instagram'])])
+    await savePlaces([manual('otro.palenque')], { store: locked.store, embed: vectors })
+    expect(locked.updated[0].values).toMatchObject({ instagram: 'otro.palenque' })
+    expect(locked.updated[0].values).not.toHaveProperty('manualOverrides')
+
+    // Un reproceso sin Instagram manual no lo pisa.
+    const reprocess = fakeStore([existing(['instagram'])])
+    await savePlaces([ok({ contact: { ...draft().contact, instagram: 'pipeline' } })], { store: reprocess.store, embed: vectors })
+    expect(reprocess.updated[0].values).not.toHaveProperty('instagram')
+  })
+
   it('actualiza los seguidores y prominence, y nunca escribe featured', async () => {
     const { store, inserted, updated } = fakeStore([{ id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(draft().embeddingText), manualOverrides: [], status: 'published' as const }])
 

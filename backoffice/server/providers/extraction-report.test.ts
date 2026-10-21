@@ -68,6 +68,7 @@ describe('reporte de extracción por lote', () => {
       apifyErrors: { places: [], stopped: false },
       exaErrors: { places: [], stopped: false },
       instagramTieBreaks: {},
+      instagramManual: { handle: 0, none: 0 },
       review: { places: 1, byReason: { not_open_yet: 1, restaurant_without_food: 1 } },
     })
     expect(Object.keys(report.byType)).toEqual(['unmapped_fact', 'llm_doubt', 'hours_no_close', 'hours_vague', 'logo_failed'])
@@ -96,14 +97,12 @@ describe('reporte de extracción por lote', () => {
     ].join('\n'))
   })
 
-  it('acepta el respaldo con las 6 variantes y el respaldo salteado por nombre no confirmado', () => {
-    const place = (instagramFallback: PlaceReview['instagramFallback']) => ({ name: 'Olisa Café', googlePlaceId: 'place-1', stats: stats(), review: review({ instagramFallback }) })
-    const parsed = extractionReportRequestSchema.safeParse({ places: [
-      place({ attempted: true, reason: 'sin candidato', terms: ['Olisa Café', 'olisacafe', 'olisacafeuy', 'olisauy', 'olisacafemvd', 'olisamvd'], handles: [], costUsd: 0.06 }),
-      place({ attempted: false, skipped: 'unconfirmed_name', reason: 'sin candidato', terms: [], handles: [], costUsd: 0 }),
-    ] })
-    expect(parsed.success).toBe(true)
-    expect(parsed.data?.places[1].review?.instagramFallback).toMatchObject({ skipped: 'unconfirmed_name' })
+  it('cuenta los Instagram de la revisión manual', () => {
+    const place = (instagramManual: PlaceReview['instagramManual']) => ({ name: 'Olisa Café', googlePlaceId: 'place-1', stats: stats(), review: review({ instagramManual }) })
+    const parsed = extractionReportRequestSchema.parse({ places: [place({ handle: 'olisa.cafe' }), place({ handle: null }), place(undefined)] })
+    const report = buildExtractionReport(parsed)
+    expect(report.summary.instagramManual).toEqual({ handle: 1, none: 1 })
+    expect(reportSummary(report)).toContain('Instagram de la revisión: 1 cargados a mano · 1 sin Instagram')
   })
 
   it('cuenta los errores de Apify, el corte del lote, los reintentos pasajeros y los desempates', () => {
@@ -112,12 +111,12 @@ describe('reporte de extracción por lote', () => {
         name: 'Cordón Beer', googlePlaceId: 'place-1', stats: stats(),
         review: review({
           rateLimits: [{ service: 'apify', retries: 0, transientRetries: 2, waitedMs: 20000, recovered: true }],
-          instagramTieBreak: { rule: 'latest_post', pass: 'first', handles: ['cordonbeer', 'cordon.beer'] },
+          instagramTieBreak: { rule: 'latest_post', handles: ['cordonbeer', 'cordon.beer'] },
           instagramShared: [{ handle: 'lanocheuy_', places: ['place-2'] }],
         }),
       }, {
         name: 'Living Bar', googlePlaceId: 'place-7', stats: stats(),
-        review: review({ instagramTieBreak: { rule: 'profile_picture', pass: 'fallback', handles: ['living.uy', 'living_uy'] } }),
+        review: review({ instagramTieBreak: { rule: 'profile_picture', handles: ['living.uy', 'living_uy'] } }),
       }],
       apifyErrors: ['place-3', 'place-4', 'place-5'],
       stoppedByApify: true,

@@ -72,12 +72,16 @@ export function slugify(name: string) {
 const sha256 = (text: string) => createHash('sha256').update(text).digest('hex')
 const message = (error: unknown) => error instanceof Error ? error.message : String(error)
 
-type Candidate = { googlePlaceId: string; place: ValidDraft & { neighborhoodId: string } }
+/** manualInstagram: el Instagram se cargó a mano en la revisión (review.instagramManual). */
+type Candidate = { googlePlaceId: string; place: ValidDraft & { neighborhoodId: string }; manualInstagram: boolean }
+
+// Columna que bloquea el Instagram cargado a mano: un reproceso no la pisa.
+const MANUAL_INSTAGRAM = 'instagram'
 type ValidDraft = import('zod').infer<typeof PlaceDraft>
 
 /** Lee un resultado del pipeline: un place válido para guardar, un skip con motivo, o null si se ignora. */
 function candidateFrom(result: unknown): Candidate | SavePlaceResult | null {
-  const value = (typeof result === 'object' && result !== null ? result : {}) as { status?: unknown; place?: unknown; target?: { googlePlaceId?: unknown } }
+  const value = (typeof result === 'object' && result !== null ? result : {}) as { status?: unknown; place?: unknown; target?: { googlePlaceId?: unknown }; review?: { instagramManual?: unknown } }
   if (value.status === 'error') return null
   const skip = (googlePlaceId: unknown, error: string): SavePlaceResult =>
     ({ googlePlaceId: typeof googlePlaceId === 'string' ? googlePlaceId : '', id: null, action: 'skipped', embedded: false, error })
@@ -91,12 +95,15 @@ function candidateFrom(result: unknown): Candidate | SavePlaceResult | null {
   const { neighborhoodId } = parsed.data
   if (!parsed.data.name.trim()) return skip(parsed.data.googlePlaceId, MISSING_NAME)
   if (!neighborhoodId) return skip(parsed.data.googlePlaceId, 'Sin barrio')
-  return { googlePlaceId: parsed.data.googlePlaceId, place: { ...parsed.data, neighborhoodId } }
+  const manualInstagram = typeof value.review?.instagramManual === 'object' && value.review.instagramManual !== null
+  return { googlePlaceId: parsed.data.googlePlaceId, place: { ...parsed.data, neighborhoodId }, manualInstagram }
 }
 
 /**
  * Guarda los resultados del pipeline en `places`. Los status "error" se ignoran; cada lugar se
  * escribe por separado, así que una falla no corta el resto. Un embedding fallido no impide guardar.
+ * Un Instagram cargado a mano se escribe aunque la columna ya estuviera bloqueada y suma `instagram` a
+ * manual_overrides.
  */
 export async function savePlaces(results: unknown[], deps: { store: PlacesStore; embed?: Embedder }): Promise<SavePlaceResult[]> {
   const { store, embed = gatewayEmbedder } = deps
@@ -143,7 +150,7 @@ export async function savePlaces(results: unknown[], deps: { store: PlacesStore;
   const embeddedAt = new Date()
 
   const written = new Map<string, SavePlaceResult>()
-  await pMap(candidates, async ({ googlePlaceId, place }) => {
+  await pMap(candidates, async ({ googlePlaceId, place, manualInstagram }) => {
     const embedding = embeddings.get(googlePlaceId)
     const failedEmbedding = embedError && toEmbed.some((entry) => entry.googlePlaceId === googlePlaceId) ? { error: embedError } : {}
     const current = existing.get(googlePlaceId)
@@ -154,13 +161,17 @@ export async function savePlaces(results: unknown[], deps: { store: PlacesStore;
         ...(embedding ? { embedding, embeddingModel: EMBEDDING_MODEL, embeddingTextHash: hashes.get(googlePlaceId)!, embeddedAt } : {}),
       }
       if (current) {
-        const locked = new Set(current.manualOverrides.map((column) => KEY_BY_COLUMN.get(column)).filter(Boolean))
-        const values: Partial<NewPlace> = Object.fromEntries(Object.entries(row).filter(([key]) => !locked.has(key) && !NEVER_UPDATED.has(key)))
+        const overrides = current.manualOverrides.filter((column) => !manualInstagram || column !== MANUAL_INSTAGRAM)
+        const locked = new Set(overrides.map((column) => KEY_BY_COLUMN.get(column)).filter(Boolean))
+        const values: Partial<NewPlace> = {
+          ...Object.fromEntries(Object.entries(row).filter(([key]) => !locked.has(key) && !NEVER_UPDATED.has(key))),
+          ...(manualInstagram && !current.manualOverrides.includes(MANUAL_INSTAGRAM) ? { manualOverrides: [...current.manualOverrides, MANUAL_INSTAGRAM] } : {}),
+        }
         const status = pipelineStatus(current, row.reviewReasons ?? [])
         await store.update(current.id, status && status !== current.status ? { ...values, status } : values)
         written.set(googlePlaceId, { googlePlaceId, id: current.id, action: 'updated', embedded: Boolean(embedding), ...failedEmbedding })
       } else {
-        const id = await store.insert({ ...row, slug: slugs.get(googlePlaceId)!, status: pipelineStatus(undefined, row.reviewReasons ?? []) })
+        const id = await store.insert({ ...row, slug: slugs.get(googlePlaceId)!, status: pipelineStatus(undefined, row.reviewReasons ?? []), ...(manualInstagram ? { manualOverrides: [MANUAL_INSTAGRAM] } : {}) })
         written.set(googlePlaceId, { googlePlaceId, id, action: 'created', embedded: Boolean(embedding), ...failedEmbedding })
       }
     } catch (error) {

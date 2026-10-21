@@ -83,7 +83,7 @@ describe('ProcessedPlacesPanel', () => {
   it('anota los reintentos de Apify por timeout y el desempate del Instagram', () => {
     const tied = ok('place-1', 'Cordón Beer', 'exact') as PlaceEnrichmentResponse & { status: 'ok' }
     tied.review.rateLimits = [{ service: 'apify', retries: 0, transientRetries: 2, waitedMs: 20000, recovered: true }]
-    tied.review.instagramTieBreak = { rule: 'latest_post', pass: 'first', handles: ['cordonbeer', 'cordon.beer'] }
+    tied.review.instagramTieBreak = { rule: 'latest_post', handles: ['cordonbeer', 'cordon.beer'] }
     vi.stubGlobal('fetch', vi.fn(() => jsonResponse({ ids: [] })))
     render(<ProcessedPlacesPanel rows={{ 'place-1': { status: 'done', result: tied } }} places={[]} categoryLabel={(id) => id} />)
 
