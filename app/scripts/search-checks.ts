@@ -1,4 +1,5 @@
 // Propiedades esperadas por consulta, para `yarn search:eval` y `yarn search:check` (sale con error si alguna falla).
+import { isDanceOnly } from "../src/server/search/fuse";
 import { intentGroups, matchesGroup } from "../src/server/search/intents";
 import type { SearchDebug, SearchResponse } from "../src/server/search/search";
 
@@ -33,15 +34,15 @@ const topHaveCategory = (count: number, category: string): Check => ({
   ],
 });
 
-/** Agrupada: secciones con cada resultado una sola vez y cada grupo del catálogo con 3 o más lugares. */
+/** Agrupada: secciones con cada resultado una sola vez y cada grupo del catálogo con 3 a 6 lugares. */
 const grouped: Check = {
-  description: "agrupada en secciones, sin repetir lugares y con grupos de 3 o más",
+  description: "agrupada en secciones, sin repetir lugares y con grupos de 3 a 6",
   test: (places, response) => {
     if (!response.sections) return [`sin secciones: ${response.debug?.sections.notGrouped ?? "—"}`];
     const ids = response.sections.flatMap((section) => section.placeIds);
     return [
       ...(new Set(ids).size === ids.length && ids.length === places.length ? [] : ["lugares repetidos o faltantes"]),
-      ...response.sections.filter((section) => section.id !== "top" && section.id !== "more" && section.placeIds.length < 3).map((section) => `${section.id}: ${section.placeIds.length}`),
+      ...response.sections.filter((section) => section.id !== "more" && (section.placeIds.length < 3 || section.placeIds.length > 6)).map((section) => `${section.id}: ${section.placeIds.length}`),
     ];
   },
 };
@@ -49,8 +50,8 @@ const grouped: Check = {
 const notGrouped: Check = { description: "sin agrupar", test: (_, response) => (response.sections ? ["tiene secciones"] : []) };
 
 const noDanceInTop = (count: number): Check => ({
-  description: `ningún boliche ni lugar para bailar en los primeros ${count}`,
-  test: (places) => places.slice(0, count).filter((place) => place.categories.includes("night_club") || place.tags.includes("dancing")).map(name),
+  description: `ningún boliche ni lugar sólo para bailar en los primeros ${count}`,
+  test: (places) => places.slice(0, count).filter(isDanceOnly).map(name),
 });
 
 export const CHECKS: Record<string, Check[]> = {

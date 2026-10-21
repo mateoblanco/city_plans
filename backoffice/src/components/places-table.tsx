@@ -31,6 +31,11 @@ type PlacesTableProps<T extends PlaceSummary> = {
   footerNote: string
   onSelect?: (place: T) => void
   selection?: PlacesTableSelection<T>
+  /** Texto chico debajo del nombre. */
+  subtitle?: (place: T) => ReactNode
+  /** Fila resaltada desde afuera (por ejemplo, el punto del mapa bajo el mouse). */
+  highlightedId?: string | null
+  onHover?: (placeId: string | null) => void
 }
 
 export function PlacesTable<T extends PlaceSummary>({
@@ -39,6 +44,9 @@ export function PlacesTable<T extends PlaceSummary>({
   footerNote,
   onSelect,
   selection,
+  subtitle,
+  highlightedId,
+  onHover,
 }: PlacesTableProps<T>) {
   return (
     <>
@@ -68,7 +76,13 @@ export function PlacesTable<T extends PlaceSummary>({
           </TableHeader>
           <TableBody>
             {places.map((place) => (
-              <TableRow key={place.placeId}>
+              <TableRow
+                key={place.placeId}
+                data-highlighted={place.placeId === highlightedId || undefined}
+                className="data-highlighted:bg-muted"
+                onMouseEnter={onHover ? () => onHover(place.placeId) : undefined}
+                onMouseLeave={onHover ? () => onHover(null) : undefined}
+              >
                 {selection && (
                   <TableCell className="w-10 pl-4 sm:pl-5">
                     <input
@@ -95,6 +109,7 @@ export function PlacesTable<T extends PlaceSummary>({
                     />
                     <span className="sr-only">(abre Google Maps en una nueva pestaña)</span>
                   </a>
+                  {subtitle?.(place)}
                 </TableCell>
                 {columns.map((column) => (
                   <TableCell key={column.header} className="px-4 py-3 text-muted-foreground sm:px-5">

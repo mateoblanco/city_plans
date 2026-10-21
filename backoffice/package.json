@@ -33,6 +33,7 @@
     "@turf/boolean-point-in-polygon": "^7.4.0",
     "@turf/distance": "^7.4.0",
     "@turf/helpers": "^7.4.0",
+    "@vis.gl/react-google-maps": "^1.10.1",
     "ai": "^7.0.124",
     "class-variance-authority": "^0.7.1",
     "cmdk": "^1.1.1",

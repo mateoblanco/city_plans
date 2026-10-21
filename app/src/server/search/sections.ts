@@ -4,8 +4,8 @@ import { SEARCH_CONFIG } from './config'
 import type { Fused } from './fuse'
 import type { Interpretation, Lang } from './interpretation'
 
-/** Una sección de la página de resultados: top = "Mejores coincidencias", more = "Más opciones". */
-export type Section = { id: SectionId | 'top' | 'more'; title: string; placeIds: string[] }
+/** Una sección de la página de resultados: un grupo del catálogo o more = "Más opciones". */
+export type Section = { id: SectionId | 'more'; title: string; placeIds: string[] }
 
 export type SectionsDebug = {
   /** null si la búsqueda se agrupó (o pudo agruparse); si no, por qué no. */
@@ -18,10 +18,7 @@ export type SectionsDebug = {
   dropped: { id: SectionId; count: number }[]
 }
 
-const TITLES: Record<'top' | 'more', Record<Lang, string>> = {
-  top: { es: 'Mejores coincidencias', en: 'Best matches' },
-  more: { es: 'Más opciones', en: 'More options' },
-}
+const MORE_TITLE: Record<Lang, string> = { es: 'Más opciones', en: 'More options' }
 
 /**
  * Por qué la búsqueda no es amplia (null si lo es): un nombre, un plato o cualquier filtro obligatorio (categoría,
@@ -112,17 +109,15 @@ function matcher(items: Fused[]) {
 }
 
 /**
- * Secciones de una búsqueda amplia: "Mejores coincidencias" (los primeros del ranking), los grupos pedidos que
- * llegan a minPlaces lugares (ordenados por el puntaje promedio) y "Más opciones" con el resto. Cada lugar va una
- * sola vez: en orden de ranking, al grupo en el que entra que tenga menos lugares hasta ahí (a igual cantidad, el de
- * más prioridad), para que ninguno se quede con todo; los grupos chicos se descartan (los que ni solos llegan, o el más
- * chico) y sus lugares se reparten de nuevo. Sin ningún grupo que llegue, null: la lista de siempre.
+ * Secciones de una búsqueda amplia: los grupos pedidos que llegan a minPlaces lugares (ordenados por el puntaje
+ * promedio) y "Más opciones" con el resto. Sin "Mejores coincidencias": los primeros puntajes están casi empatados.
+ * Cada lugar va una sola vez: en orden de ranking, al grupo en el que entra que tenga menos lugares hasta ahí (a igual
+ * cantidad, el de más prioridad), para que ninguno se quede con todo; un grupo lleno (maxPlaces) no recibe más, y si
+ * todos los que le sirven están llenos, el lugar va a "Más opciones". Los grupos chicos se descartan (los que ni solos
+ * llegan, o el más chico) y sus lugares se reparten de nuevo. Sin ningún grupo que llegue, null: la lista de siempre.
  */
 export function buildSections(items: Fused[], requested: SectionId[], lang: Lang) {
   const config = SEARCH_CONFIG.sections
-  const topCount = Math.min(config.top.max, Math.max(config.top.min, Math.round(items.length / 4)))
-  const top = items.slice(0, topCount)
-  const rest = items.slice(topCount)
   const fits = matcher(items)
 
   let active = [...requested]
@@ -130,14 +125,14 @@ export function buildSections(items: Fused[], requested: SectionId[], lang: Lang
   let members = new Map<SectionId, Fused[]>()
   for (;;) {
     members = new Map(active.map((id) => [id, []]))
-    for (const item of rest) {
-      const fitting = active.filter((candidate) => fits(candidate, item))
+    for (const item of items) {
+      const fitting = active.filter((candidate) => members.get(candidate)!.length < config.maxPlaces && fits(candidate, item))
       const id = fitting.reduce<SectionId | null>((best, candidate) => (best === null || members.get(candidate)!.length < members.get(best)!.length ? candidate : best), null)
       if (id) members.get(id)!.push(item)
     }
     const small = active.filter((id) => members.get(id)!.length < config.minPlaces)
     // Primero los que ni solos llegarían al mínimo; si no hay, el más chico (a igual tamaño, el de menor prioridad).
-    const hopeless = small.filter((id) => rest.filter((item) => fits(id, item)).length < config.minPlaces)
+    const hopeless = small.filter((id) => items.filter((item) => fits(id, item)).length < config.minPlaces)
     const smallest = [...small].reverse().sort((a, b) => members.get(a)!.length - members.get(b)!.length).slice(0, 1)
     const drop = hopeless.length ? hopeless : smallest
     if (drop.length) {
@@ -156,12 +151,11 @@ export function buildSections(items: Fused[], requested: SectionId[], lang: Lang
   if (chosen.length === 0) return { sections: null, ...debug }
 
   const grouped = new Set(chosen.flatMap((group) => group.items))
-  const more = rest.filter((item) => !grouped.has(item))
+  const more = items.filter((item) => !grouped.has(item))
   const ids = (group: Fused[]) => group.map((item) => item.row.id)
   const sections: Section[] = [
-    { id: 'top', title: TITLES.top[lang], placeIds: ids(top) },
     ...chosen.map((group) => ({ id: group.id, title: SECTIONS[group.id].title[lang], placeIds: ids(group.items) })),
-    ...(more.length ? [{ id: 'more' as const, title: TITLES.more[lang], placeIds: ids(more) }] : []),
+    ...(more.length ? [{ id: 'more' as const, title: MORE_TITLE[lang], placeIds: ids(more) }] : []),
   ]
   return { sections, ...debug }
 }

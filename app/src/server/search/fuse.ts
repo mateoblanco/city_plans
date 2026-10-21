@@ -107,11 +107,14 @@ const count = (values: string[], wanted: string[]) => values.filter((value) => w
 const FOOD_TAGS = new Set<string>([...Object.keys(FOODS), ...Object.keys(CUISINES)])
 const FOOD_CATEGORIES = new Set(['restaurant', 'grill', 'pizzeria', 'chiviteria', 'bodegon'])
 
-/** Boliche, "para bailar", o un dj sin nada de comida: lo que se busca es bailar, no comer ni tomar algo. */
+/**
+ * Boliche, o "para bailar" o un dj sin nada de comida: lo que se busca es bailar, no comer ni tomar algo. Un pub que
+ * sirve comida y después se vuelve boliche no cuenta.
+ */
 export function isDanceOnly(row: Pick<CandidateRow, 'categories' | 'tags'>): boolean {
-  if (row.categories.includes('night_club') || row.tags.includes('dancing')) return true
+  if (row.categories.includes('night_club')) return true
   const food = row.tags.some((id) => FOOD_TAGS.has(id)) || row.categories.some((id) => FOOD_CATEGORIES.has(id))
-  return row.tags.includes('dj') && !food
+  return (row.tags.includes('dancing') || row.tags.includes('dj')) && !food
 }
 
 export function boostsFor(row: CandidateRow, context: FuseContext, open: OpenState | null): Fused['boosts'] {

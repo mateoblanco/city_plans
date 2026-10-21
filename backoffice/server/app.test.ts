@@ -630,6 +630,7 @@ describe('POST /api/neighborhoods/:neighborhoodId/sweep', () => {
       placeId: 'p1', name: 'Bar Uno', type: 'Bar', googleMapsUri: 'https://maps.google.com/p1',
       seedCategories: ['bar' as const], googleTypes: ['bar'], foundBy: ['bar:bar'], insideNeighborhood: true,
       group: 'accepted' as const, reason: null, primaryType: 'bar', rating: 4.5, userRatingCount: 120,
+      location: { lat: -34.91, lng: -56.16 }, containedIn: [],
     }
     const summary = {
       neighborhoodId: 'PARQUE RODO', mode: 'full' as const, totalPlaces: 1, bySeedCategory: { bar: 1 }, byGroup: { accepted: 1, review: 0, rejected: 0 }, byReason: {}, unknownTypes: {}, newByQuery: { 'bar:bar': 1 },

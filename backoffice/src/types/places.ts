@@ -575,6 +575,10 @@ export type NeighborhoodSweepPlace = PlaceSummary & {
   /** Sólo para mostrar en pantalla, no se guardan. userRatingCount interviene en el filtro previo; rating no. */
   rating: number | null
   userRatingCount: number | null
+  /** Sólo en memoria, para el mapa. null en modo sólo IDs. */
+  location: { lat: number; lng: number } | null
+  /** placeId de los lugares que lo contienen (un mercado, un shopping). Sólo para mostrar; Google no trae el nombre. */
+  containedIn: string[]
 }
 
 export type SweepBounds = {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { applySearchTextChanges, planMomentsChange, planStyleChange, type SearchTextRow } from './search-text-backfill.ts'
+import { applySearchTextChanges, planMomentsChange, planStyleChange, planTagsChange, type SearchTextRow } from './search-text-backfill.ts'
 
 const row = (overrides: Partial<SearchTextRow> = {}): SearchTextRow => ({
   id: 'uuid-1',
@@ -105,5 +105,21 @@ describe('planMomentsChange', () => {
     await applySearchTextChanges([planMomentsChange(matute, { tags: ['picada', 'groups'] })!], { write, embed: async (texts) => texts.map(() => [1]) })
     expect(write).toHaveBeenCalledWith('uuid-1', expect.objectContaining({ tags: ['picada', 'craft_beer', 'groups'], embedding: [1] }))
     expect(write).toHaveBeenCalledWith('uuid-1', expect.not.objectContaining({ style: expect.anything() }))
+  })
+})
+
+describe('planTagsChange', () => {
+  const brickel = row({ name: 'Brickel Irish Pub', tags: ['burgers', 'live_music', 'groups'] })
+  const dancing = (id: string): id is 'dancing' => id === 'dancing'
+
+  it('reemplaza sólo los tags pedidos; los demás quedan como están guardados', () => {
+    const change = planTagsChange(brickel, { tags: ['burgers', 'dancing', 'date'] }, dancing)!
+    expect(change).toMatchObject({ before: [], after: ['dancing'], added: ['dancing'], removed: [] })
+    expect(change.values).toEqual({ tags: ['burgers', 'live_music', 'groups', 'dancing'] })
+    expect(change.keywordText).toContain('Para bailar')
+  })
+
+  it('sin cambios en los tags pedidos, null', () => {
+    expect(planTagsChange(brickel, { tags: ['burgers', 'date'] }, dancing)).toBeNull()
   })
 })

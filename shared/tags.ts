@@ -139,7 +139,7 @@ export const FEATURES = {
   shop: tag('Tienda', 'Shop', ['bazar', 'tienda', 'boutique', 'venta de productos'], ['shop', 'store', 'boutique']),
   events: tag('Eventos', 'Events', ['eventos', 'talleres', 'charlas', 'actividades culturales', 'ciclos', 'exposiciones'], ['workshops', 'events']),
   books: tag('Libros', 'Books', ['libros', 'librería', 'biblioteca', 'para leer'], ['books']),
-  dancing: tag('Para bailar', 'Dancing', ['para bailar', 'funciona como boliche', 'pista de baile'], ['dancing']),
+  dancing: tag('Para bailar', 'Dancing', ['para bailar', 'funciona como boliche', 'pista de baile', 'modo boliche', 'como boliche', 'baile hasta tarde'], ['dancing']),
   board_games: tag('Juegos de mesa', 'Board games', ['juegos de mesa', 'juegos'], ['board games', 'games']),
   watch_football: tag('Deportes en vivo', 'Live sports', ['ver fútbol', 'ver el partido', 'pantallas', 'pantalla gigante', 'pantalla grande', 'fútbol', 'básquet', 'basket', 'deportes', 'ver deportes', 'rugby', 'partido'], ['live sports', 'sports', 'sports bar', 'watch football', 'watch the game', 'big screen', 'basketball', 'soccer', 'rugby']),
   pool_table: tag('Pool y metegol', 'Pool and foosball', ['pool', 'metegol', 'billar'], ['pool table', 'billiards', 'foosball']),

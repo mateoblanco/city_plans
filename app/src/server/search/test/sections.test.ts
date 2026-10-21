@@ -82,28 +82,37 @@ describe('qué grupos se piden', () => {
 })
 
 describe('cómo se arman', () => {
-  it('Mejores coincidencias toma entre 3 y 5 según la cantidad', () => {
+  it('sin Mejores coincidencias: empieza con los grupos, de 6 como mucho, y lo que sobra va a Más opciones', () => {
     const tags = Object.fromEntries(Array.from({ length: 20 }, (_, index) => [index, ['terrace']]))
-    expect(buildSections(ranked(10, tags), ['outdoor'], 'es').sections?.[0].placeIds).toHaveLength(3)
-    expect(buildSections(ranked(16, tags), ['outdoor'], 'es').sections?.[0].placeIds).toHaveLength(4)
-    expect(buildSections(ranked(20, tags), ['outdoor'], 'es').sections?.[0].placeIds).toHaveLength(5)
+    const { sections } = buildSections(ranked(20, tags), ['outdoor'], 'es')
+    expect(sections?.map((section) => section.id)).toEqual(['outdoor', 'more'])
+    expect(sections?.[0].placeIds).toEqual(['p0', 'p1', 'p2', 'p3', 'p4', 'p5'])
+    expect(sections?.[1]).toMatchObject({ title: 'Más opciones', placeIds: expect.arrayContaining(['p6', 'p19']) })
+    expect(sections?.[1].placeIds).toHaveLength(14)
   })
 
   it('cada lugar va una sola vez, al grupo con menos lugares (a igual cantidad, el de más prioridad), en el orden del ranking', () => {
     const items = ranked(12, { 3: ['picada', 'terrace'], 4: ['terrace'], 5: ['picada'], 6: ['terrace'], 7: ['tapas'], 8: ['terrace'] })
     const { sections } = buildSections(items, ['share', 'outdoor'], 'es')
-    expect(sections?.map((section) => section.id)).toEqual(['top', 'share', 'outdoor', 'more'])
-    expect(sections?.[1]).toEqual({ id: 'share', title: 'Para compartir', placeIds: ['p3', 'p5', 'p7'] })
-    expect(sections?.[2].placeIds).toEqual(['p4', 'p6', 'p8'])
+    expect(sections?.map((section) => section.id)).toEqual(['share', 'outdoor', 'more'])
+    expect(sections?.[0]).toEqual({ id: 'share', title: 'Para compartir', placeIds: ['p3', 'p5', 'p7'] })
+    expect(sections?.[1].placeIds).toEqual(['p4', 'p6', 'p8'])
     const all = sections!.flatMap((section) => section.placeIds)
     expect(new Set(all).size).toBe(12)
     expect(all).toHaveLength(12)
   })
 
   it('ningún grupo se queda con todo', () => {
-    const tags = Object.fromEntries(Array.from({ length: 12 }, (_, index) => [index, ['picada', 'terrace']]))
-    const { sections } = buildSections(ranked(12, tags), ['share', 'outdoor'], 'es')
-    expect(sections?.slice(1).map((section) => section.placeIds.length)).toEqual([5, 4])
+    const tags = Object.fromEntries(Array.from({ length: 11 }, (_, index) => [index, ['picada', 'terrace']]))
+    const { sections } = buildSections(ranked(11, tags), ['share', 'outdoor'], 'es')
+    expect(sections?.map((section) => section.placeIds.length)).toEqual([6, 5])
+  })
+
+  it('con los grupos llenos, el lugar va a Más opciones aunque entre', () => {
+    const tags = Object.fromEntries(Array.from({ length: 14 }, (_, index) => [index, ['picada', 'terrace']]))
+    const { sections } = buildSections(ranked(14, tags), ['share', 'outdoor'], 'es')
+    expect(sections?.map((section) => [section.id, section.placeIds.length])).toEqual([['share', 6], ['outdoor', 6], ['more', 2]])
+    expect(sections?.[2].placeIds).toEqual(['p12', 'p13'])
   })
 
   it('un grupo con menos de 3 se descarta y sus lugares se reparten', () => {
@@ -134,8 +143,8 @@ describe('cómo se arman', () => {
     for (let index = 0; index < 12; index++) extra[index] = index < 6 ? { prominence: 0.9, semantic: 0.5 } : { prominence: 0.6, semantic: 0.6 }
     extra[11] = { prominence: 0.6, semantic: 0.3 }
     const { sections } = buildSections(ranked(12, {}, extra), ['discover'], 'en')
-    expect(sections?.[1]).toEqual({ id: 'discover', title: 'Discover', placeIds: ['p6', 'p7', 'p8', 'p9', 'p10'] })
-    expect(sections?.[2].title).toBe('More options')
+    expect(sections?.[0]).toEqual({ id: 'discover', title: 'Discover', placeIds: ['p6', 'p7', 'p8', 'p9', 'p10'] })
+    expect(sections?.[1].title).toBe('More options')
   })
 })
 
@@ -152,7 +161,7 @@ describe('en la búsqueda', () => {
     const { store } = fakeStore(places)
     const response = await runSearch('comer con amigos', { store, cache: fakeCache().cache }, { now, debug: true })
     expect(response.results).toHaveLength(12)
-    expect(response.sections?.[0].id).toBe('top')
+    expect(response.debug?.sections.chosen.map((group) => group.id)).toContain(response.sections?.[0].id)
     const ids = response.sections!.flatMap((section) => section.placeIds)
     expect([...ids].sort()).toEqual(response.results.map((result) => result.id).sort())
     expect(response.debug?.sections.source).toBe('rules')
@@ -164,7 +173,7 @@ describe('en la búsqueda', () => {
     const cache = fakeCache(llmOutput({ prefer: { categories: [], tags: ['date'] }, sections: ['outdoor', 'world'] })).cache
     const response = await runSearch('algo lindo para una cita', { store, cache }, { now, debug: true })
     expect(response.debug?.sections).toMatchObject({ source: 'llm', requested: ['outdoor', 'world'], notGrouped: null })
-    expect(response.sections?.map((section) => section.id)).toEqual(expect.arrayContaining(['top', 'outdoor', 'world']))
+    expect(response.sections?.map((section) => section.id)).toEqual(expect.arrayContaining(['outdoor', 'world']))
   })
 
   it('una búsqueda específica no se agrupa', async () => {

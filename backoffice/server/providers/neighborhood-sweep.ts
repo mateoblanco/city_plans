@@ -36,7 +36,7 @@ import { PlacesProviderError } from './places-provider.ts'
 const GOOGLE_TEXT_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText'
 
 // "full" factura Text Search Enterprise (por rating y userRatingCount). "ids" factura Text Search Essentials (IDs Only), sin costo,
-// pero no trae ubicación ni nombre: no se puede filtrar por polígono.
+// pero no trae ubicación ni nombre: no se puede filtrar por polígono. containingPlaces es Pro: dentro de Enterprise no cambia el SKU.
 const FIELD_MASKS: Record<NeighborhoodSweepMode, string> = {
   full: [
     'places.id',
@@ -49,6 +49,7 @@ const FIELD_MASKS: Record<NeighborhoodSweepMode, string> = {
     'places.businessStatus',
     'places.rating',
     'places.userRatingCount',
+    'places.containingPlaces',
     'nextPageToken',
   ].join(','),
   ids: ['places.id', 'nextPageToken'].join(','),
@@ -65,6 +66,7 @@ type GooglePlace = {
   rating?: number
   userRatingCount?: number
   location?: { latitude?: number; longitude?: number }
+  containingPlaces?: { id?: string }[]
 }
 
 type GoogleSearchResponse = {
@@ -268,6 +270,8 @@ export class GoogleNeighborhoodSweeper implements NeighborhoodSweeper {
           primaryType: place.primaryType ?? null,
           rating: place.rating ?? null,
           userRatingCount: place.userRatingCount ?? null,
+          location: mode === 'full' ? { lat: lat as number, lng: lng as number } : null,
+          containedIn: (place.containingPlaces ?? []).flatMap((container) => (container.id ? [container.id] : [])),
         }
         places.set(placeId, created)
         if (insideNeighborhood === false) {

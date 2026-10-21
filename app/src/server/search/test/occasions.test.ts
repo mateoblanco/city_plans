@@ -159,20 +159,21 @@ describe('boliches abajo', () => {
   it('baja un boliche, un lugar "para bailar" y un dj sin comida', () => {
     for (const place of [
       row({ id: 'boliche', categories: ['bar', 'night_club'] }),
-      row({ id: 'para-bailar', categories: ['bar'], tags: ['dancing', 'picada'] }),
+      row({ id: 'para-bailar', categories: ['bar'], tags: ['dancing', 'classic_cocktails'] }),
       row({ id: 'dj-solo', categories: ['bar'], tags: ['dj', 'classic_cocktails'] }),
     ]) expect(boostsFor(place, context(), null).danceOnly, place.id).toBe(SEARCH_CONFIG.boosts.danceOnly)
   })
 
-  it('un dj con comida no baja, y nada baja si la consulta pide bailar', () => {
+  it('un dj o "para bailar" con comida no baja, y nada baja si la consulta pide bailar', () => {
     expect(boostsFor(row({ id: 'demode', categories: ['bar'], tags: ['dj', 'pizza'] }), context(), null).danceOnly).toBeUndefined()
+    expect(boostsFor(row({ id: 'brickel', categories: ['bar'], tags: ['dancing', 'dj', 'burgers', 'picada'] }), context(), null).danceOnly).toBeUndefined()
     expect(boostsFor(row({ id: 'resto-dj', categories: ['restaurant'], tags: ['dj'] }), context(), null).danceOnly).toBeUndefined()
     expect(boostsFor(row({ id: 'boliche', categories: ['night_club'] }), context({ wantsDancing: true }), null).danceOnly).toBeUndefined()
   })
 
   it('"comer con amigos" deja al boliche detrás; "para bailar" no lo baja', async () => {
     const places = [
-      row({ id: 'living', categories: ['bar'], tags: ['dancing', 'picada', 'groups'], semantic: 0.6 }),
+      row({ id: 'living', categories: ['bar', 'night_club'], tags: ['dancing', 'picada', 'groups'], semantic: 0.6 }),
       row({ id: 'bisiesto', categories: ['restaurant'], tags: ['picada', 'groups'], semantic: 0.5 }),
     ]
     const eat = await runSearch('comer con amigos', { store: fakeStore(places).store, cache: fakeCache().cache }, { now, debug: true })

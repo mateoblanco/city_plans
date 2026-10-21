@@ -17,6 +17,7 @@ import { ExtractionResultDialog } from '@/components/extraction-result-dialog'
 import { InstagramReviewPanel } from '@/components/instagram-review-panel'
 import { ProcessedPlacesPanel } from '@/components/processed-places-panel'
 import { PlacesTable, type PlacesTableColumn } from '@/components/places-table'
+import { SweepMap, type SweepMapPoint, type SweepMapStatus } from '@/components/sweep-map'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
@@ -82,6 +83,24 @@ type SweepProgress = {
   apiCalls: SweepCallCounts
   discardedOutside: number
   currentQuery: string
+}
+
+const MAP_VISIBLE_KEY = 'backoffice.sweepMap.visible'
+
+function readMapVisible() {
+  try {
+    return window.localStorage.getItem(MAP_VISIBLE_KEY) !== 'false'
+  } catch {
+    return true
+  }
+}
+
+function storeMapVisible(visible: boolean) {
+  try {
+    window.localStorage.setItem(MAP_VISIBLE_KEY, String(visible))
+  } catch {
+    // Sin localStorage la preferencia dura hasta recargar.
+  }
 }
 
 const neighborhoodOptions: readonly ComboboxOption[] = Object.entries(NEIGHBORHOOD_NAMES)
@@ -152,6 +171,13 @@ const locationColumn: PlacesTableColumn<NeighborhoodSweepPlace> = {
 }
 
 const isInside = (place: NeighborhoodSweepPlace) => place.insideNeighborhood !== false
+
+/** "Dentro de Mercado Ferrando": el nombre sale del mismo barrido; Google no lo trae en containingPlaces. */
+function containedInLabel(place: NeighborhoodSweepPlace, byId: ReadonlyMap<string, NeighborhoodSweepPlace>) {
+  if (place.containedIn.length === 0) return null
+  const names = place.containedIn.map((id) => byId.get(id)?.name ?? 'otro lugar')
+  return <span className="mt-0.5 block text-xs font-normal text-muted-foreground">Dentro de {[...new Set(names)].join(' · ')}</span>
+}
 
 function formatSeconds(ms: number) {
   return `${(ms / 1000).toLocaleString('es-UY', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} s`
@@ -234,6 +260,9 @@ export function NeighborhoodSweepPage() {
   const [existingIds, setExistingIds] = useState<ReadonlySet<string>>(new Set())
   const [existingStatus, setExistingStatus] = useState<ExistingStatus>('idle')
   const [hideExisting, setHideExisting] = useState(true)
+  const [mapVisible, setMapVisible] = useState(readMapVisible)
+  // Lugar bajo el mouse, en el mapa o en la lista: se resalta en los dos.
+  const [hoveredId, setHoveredId] = useState<string | null>(null)
   const hideExistingRef = useRef(true)
   const batch = useExtractionBatch()
   const abortController = useRef<AbortController | null>(null)
@@ -260,6 +289,12 @@ export function NeighborhoodSweepPage() {
     } catch {
       if (!controller.signal.aborted) setExistingStatus('error')
     }
+  }
+
+  function toggleMapVisible() {
+    const next = !mapVisible
+    setMapVisible(next)
+    storeMapVisible(next)
   }
 
   function toggleHideExisting(hide: boolean) {
@@ -385,7 +420,26 @@ export function NeighborhoodSweepPage() {
   }
   // Un cerrado según Google no se puede seleccionar hasta moverlo a mano.
   const blocked = (place: NeighborhoodSweepPlace) => isClosedReason(place.reason) && !releasedIds.has(place.placeId)
+  // La misma regla para el checkbox y el clic en el mapa. Los ya guardados ocultos no llegan acá.
+  const canSelect = (place: NeighborhoodSweepPlace) => canFilter && place.group !== null && place.group !== 'rejected' && !blocked(place)
   const selectableVisible = visiblePlaces.filter((place) => !blocked(place))
+  const placesById = new Map(places.map((place) => [place.placeId, place]))
+  const showMap = mapVisible && canFilter && hasResults && !batchTabOpen
+  const mapPoints: SweepMapPoint[] = locationVisible.flatMap((place) => {
+    if (!place.location) return []
+    const status: SweepMapStatus = existingIds.has(place.placeId)
+      ? 'saved'
+      : place.group === 'rejected' ? 'rejected' : place.group === 'review' ? 'review' : 'new'
+    return [{
+      placeId: place.placeId,
+      name: place.name,
+      ...place.location,
+      status,
+      selected: selectedIds.has(place.placeId),
+      selectable: canSelect(place),
+      dimmed: place.group !== group,
+    }]
+  })
   const allVisibleSelected = selectableVisible.length > 0 && selectableVisible.every((place) => selectedIds.has(place.placeId))
 
   function toggleReleased(place: NeighborhoodSweepPlace) {
@@ -406,6 +460,11 @@ export function NeighborhoodSweepPage() {
       else next.add(place.placeId)
       return next
     })
+  }
+
+  function toggleSelectedFromMap(placeId: string) {
+    const place = placesById.get(placeId)
+    if (place && canSelect(place)) toggleSelected(place)
   }
 
   function toggleAllVisible() {
@@ -433,7 +492,7 @@ export function NeighborhoodSweepPage() {
 
   return (
     <>
-      <div className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6 lg:px-8 lg:py-14">
+      <div className={`mx-auto w-full ${showMap ? 'max-w-7xl' : 'max-w-6xl'} px-4 py-10 sm:px-6 lg:px-8 lg:py-14`}>
         <section aria-labelledby="sweep-title">
           <div className="mb-7 max-w-2xl">
             <h2 id="sweep-title" className="text-3xl font-semibold tracking-[-0.03em] sm:text-4xl">
@@ -629,6 +688,12 @@ export function NeighborhoodSweepPage() {
                     </span>
                   )}
                 </span>
+                {canFilter && !batchTabOpen && (
+                  <Button type="button" variant="outline" size="sm" className="ml-auto" onClick={toggleMapVisible} aria-pressed={mapVisible}>
+                    <MapIcon className="size-3.5" aria-hidden="true" />
+                    {mapVisible ? 'Ocultar mapa' : 'Mostrar mapa'}
+                  </Button>
+                )}
               </div>
             )}
 
@@ -745,34 +810,56 @@ export function NeighborhoodSweepPage() {
               />
             )}
 
-            {!batchTabOpen && hasResults && visiblePlaces.length === 0 && (
-              <p className="px-4 py-8 text-center text-sm text-muted-foreground sm:px-5">
-                No hay lugares para mostrar con estos filtros.
-              </p>
-            )}
+            {!batchTabOpen && hasResults && (
+              <div className={showMap ? 'grid lg:grid-cols-[minmax(0,1fr)_minmax(320px,40%)]' : undefined}>
+                {showMap && (
+                  <aside aria-label="Mapa del barrido" className="h-80 border-b p-3 lg:order-last lg:h-auto lg:border-b-0 lg:border-l">
+                    <div className="h-full lg:sticky lg:top-4 lg:h-[70vh]">
+                      <SweepMap
+                        points={mapPoints}
+                        fitKey={`${activeNeighborhood}:${isLoading ? 'loading' : 'done'}`}
+                        highlightedId={hoveredId}
+                        onHover={setHoveredId}
+                        onToggle={toggleSelectedFromMap}
+                      />
+                    </div>
+                  </aside>
+                )}
+                <div className="min-w-0">
+                  {visiblePlaces.length === 0 && (
+                    <p className="px-4 py-8 text-center text-sm text-muted-foreground sm:px-5">
+                      No hay lugares para mostrar con estos filtros.
+                    </p>
+                  )}
 
-            {!batchTabOpen && visiblePlaces.length > 0 && (
-              <PlacesTable
-                places={visiblePlaces}
-                columns={tableColumns}
-                footerNote={
-                  progress
-                    ? `${totalCalls(progress.apiCalls)} llamadas a Google Places`
-                    : 'Resultados en memoria'
-                }
-                onSelect={canFilter && group === 'accepted' ? setSelectedPlace : undefined}
-                selection={
-                  selectable
-                    ? {
-                        isSelected: (place) => selectedIds.has(place.placeId),
-                        onToggle: toggleSelected,
-                        allSelected: allVisibleSelected,
-                        onToggleAll: toggleAllVisible,
-                        isDisabled: blocked,
+                  {visiblePlaces.length > 0 && (
+                    <PlacesTable
+                      places={visiblePlaces}
+                      columns={tableColumns}
+                      footerNote={
+                        progress
+                          ? `${totalCalls(progress.apiCalls)} llamadas a Google Places`
+                          : 'Resultados en memoria'
                       }
-                    : undefined
-                }
-              />
+                      onSelect={canFilter && group === 'accepted' ? setSelectedPlace : undefined}
+                      subtitle={(place) => containedInLabel(place, placesById)}
+                      highlightedId={showMap ? hoveredId : null}
+                      onHover={showMap ? setHoveredId : undefined}
+                      selection={
+                        selectable
+                          ? {
+                              isSelected: (place) => selectedIds.has(place.placeId),
+                              onToggle: toggleSelected,
+                              allSelected: allVisibleSelected,
+                              onToggleAll: toggleAllVisible,
+                              isDisabled: blocked,
+                            }
+                          : undefined
+                      }
+                    />
+                  )}
+                </div>
+              </div>
             )}
           </div>
 

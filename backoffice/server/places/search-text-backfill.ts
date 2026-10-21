@@ -34,7 +34,9 @@ export type SearchTextChange = {
 
 export type StyleChange = SearchTextChange & { before: StyleId | null; after: StyleId; basis: StyleBasis | null }
 
-export type MomentsChange = SearchTextChange & { before: OccasionTag[]; after: OccasionTag[]; added: OccasionTag[]; removed: OccasionTag[] }
+export type TagsChange<T extends string = string> = SearchTextChange & { before: T[]; after: T[]; added: T[]; removed: T[] }
+
+export type MomentsChange = TagsChange<OccasionTag>
 
 /** Como savePlaces: un embedding o su texto con override manual no se regenera. */
 function keepsEmbedding(row: SearchTextRow) {
@@ -87,18 +89,23 @@ export function planStyleChange(row: SearchTextRow, replayed: { style?: StyleId 
 }
 
 /**
- * Cambio de momentos de un lugar guardado según el replay, o null si son los mismos. Sólo se reemplazan los tags de
- * momento (groups, date…); los demás quedan como están guardados.
+ * Cambio de algunos tags de un lugar guardado según el replay, o null si son los mismos. Sólo se reemplazan los tags
+ * que cumplen `only`; los demás quedan como están guardados.
  */
-export function planMomentsChange(row: SearchTextRow, replayed: { tags: string[] }): MomentsChange | null {
-  const before = row.tags.filter(isOccasionTag)
-  const after = replayed.tags.filter(isOccasionTag)
+export function planTagsChange<T extends string>(row: SearchTextRow, replayed: { tags: string[] }, only: (id: string) => id is T): TagsChange<T> | null {
+  const before = row.tags.filter(only)
+  const after = replayed.tags.filter(only)
   const added = after.filter((id) => !before.includes(id))
   const removed = before.filter((id) => !after.includes(id))
   if (added.length === 0 && removed.length === 0) return null
   const skipped = row.manualOverrides.includes('tags')
-  const values = { tags: [...row.tags.filter((id) => !isOccasionTag(id)), ...after] }
+  const values = { tags: [...row.tags.filter((id) => !only(id)), ...after] }
   return { id: row.id, googlePlaceId: row.googlePlaceId, name: row.name, before, after, added, removed, skipped, values, ...searchTexts(row, values, skipped) }
+}
+
+/** Cambio de los momentos (groups, date…) de un lugar guardado según el replay; los demás tags quedan como están. */
+export function planMomentsChange(row: SearchTextRow, replayed: { tags: string[] }): MomentsChange | null {
+  return planTagsChange(row, replayed, isOccasionTag)
 }
 
 export type SearchTextWrite = SearchTextValues & Partial<Pick<Place, 'keywordText' | 'embeddingText' | 'embedding' | 'embeddingModel' | 'embeddingTextHash' | 'embeddedAt'>>

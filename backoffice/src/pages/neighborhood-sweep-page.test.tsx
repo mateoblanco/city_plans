@@ -1,5 +1,6 @@
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import type { NeighborhoodSweepEvent, NeighborhoodSweepSummary, PlaceGroup } from '@/types/places'
@@ -30,6 +31,25 @@ vi.mock('@/components/search-combobox', () => ({
   ),
 }))
 
+// El mapa real necesita Google: cada punto es un botón con el nombre, y el mapa sólo dibuja sus hijos.
+vi.mock('@vis.gl/react-google-maps', () => ({
+  APIProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
+  Map: ({ children }: { children: ReactNode }) => <div data-testid="sweep-map">{children}</div>,
+  AdvancedMarker: ({ title, onClick, onMouseEnter, onMouseLeave, children }: {
+    title: string
+    onClick: () => void
+    onMouseEnter: () => void
+    onMouseLeave: () => void
+    children: ReactNode
+  }) => (
+    <button type="button" aria-label={`Punto ${title}`} onClick={onClick} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
+      {children}
+    </button>
+  ),
+  AdvancedMarkerAnchorPoint: { CENTER: 'CENTER' },
+  useMap: () => null,
+}))
+
 const place = {
   placeId: 'p1',
   name: 'Bar Uno',
@@ -44,6 +64,8 @@ const place = {
   primaryType: 'bar' as string | null,
   rating: 4.5 as number | null,
   userRatingCount: 120 as number | null,
+  location: { lat: -34.91, lng: -56.16 } as { lat: number; lng: number } | null,
+  containedIn: [] as string[],
 }
 
 function summary(overrides: Partial<NeighborhoodSweepSummary> = {}): NeighborhoodSweepSummary {
@@ -87,13 +109,30 @@ async function startSweep(mode?: string) {
   return user
 }
 
+/** localStorage en memoria: el de jsdom no siempre está disponible en Node. */
+function memoryStorage(): Storage {
+  const items = new Map<string, string>()
+  return {
+    get length() { return items.size },
+    clear: () => items.clear(),
+    getItem: (key) => items.get(key) ?? null,
+    key: (index) => [...items.keys()][index] ?? null,
+    removeItem: (key) => { items.delete(key) },
+    setItem: (key, value) => { items.set(key, String(value)) },
+  }
+}
+
 beforeEach(() => {
   window.location.hash = ''
+  vi.stubGlobal('localStorage', memoryStorage())
+  vi.stubEnv('VITE_GOOGLE_MAPS_BROWSER_KEY', 'clave-de-navegador')
 })
 
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
+  vi.restoreAllMocks()
 })
 
 describe('Buscar por barrio', () => {
@@ -143,7 +182,7 @@ describe('Buscar por barrio', () => {
   })
 
   it('recorre en modo sólo IDs sin botón de extracción', async () => {
-    const idPlace = { ...place, name: 'ChIJ-id-1', placeId: 'ChIJ-id-1', type: 'Sólo ID', googleTypes: [], insideNeighborhood: null, group: null, reason: null, primaryType: null, rating: null, userRatingCount: null }
+    const idPlace = { ...place, name: 'ChIJ-id-1', placeId: 'ChIJ-id-1', type: 'Sólo ID', googleTypes: [], insideNeighborhood: null, group: null, reason: null, primaryType: null, rating: null, userRatingCount: null, location: null }
     const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) => ndjson([
       { type: 'places', items: [idPlace] },
       { type: 'done', summary: summary({ mode: 'ids', discardedOutside: 0, byGroup: null }) },
@@ -491,6 +530,171 @@ describe('Buscar por barrio', () => {
       const instagram = within(within(metrics).getByRole('list', { name: 'Errores de Apify y Exa y cuentas compartidas' }))
       expect(instagram.getByText('Cuentas compartidas descartadas').nextElementSibling).toHaveTextContent('1')
       expect(instagram.getByText('@lanocheuy_ (re-procesado: Duna Bar)')).toBeInTheDocument()
+    })
+  })
+
+  describe('mapa y "Dentro de"', () => {
+    const mercado = { ...place, placeId: 'm1', name: 'Mercado Ferrando', group: 'rejected' as const, reason: 'excluded_type:market', location: { lat: -34.905, lng: -56.17 } }
+    const puesto = { ...place, placeId: 'p2', name: 'Puesto Uno', containedIn: ['m1'], location: { lat: -34.906, lng: -56.171 } }
+    const shopping = { ...place, placeId: 'p3', name: 'Local Shopping', containedIn: ['fuera-del-barrido'], location: { lat: -34.907, lng: -56.172 } }
+    const closed = { ...place, placeId: 'c1', name: 'Cerrado Uno', group: 'review' as const, reason: 'closed_permanently', location: { lat: -34.908, lng: -56.173 } }
+    const saved = { ...place, placeId: 's1', name: 'Ya Guardado', location: { lat: -34.909, lng: -56.174 } }
+
+    function stubSweep(savedIds: string[] = []) {
+      vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+        if (String(input).includes('/sweep')) {
+          return ndjson([
+            { type: 'places', items: [place, mercado, puesto, shopping, closed, saved] },
+            { type: 'done', summary: summary({ totalPlaces: 6, byGroup: { accepted: 4, review: 1, rejected: 1 } }) },
+          ])
+        }
+        return Promise.resolve(new Response(JSON.stringify({ ids: savedIds }), { status: 200 }))
+      }))
+    }
+
+    it('muestra "Dentro de" con el nombre del contenedor del barrido y sin él "otro lugar"', async () => {
+      stubSweep()
+      render(<App />)
+      await startSweep()
+      await screen.findByLabelText('Recorrido completo')
+
+      const table = within(screen.getAllByRole('table')[0])
+      expect(table.getByText('Dentro de Mercado Ferrando')).toBeInTheDocument()
+      expect(table.getByText('Dentro de otro lugar')).toBeInTheDocument()
+      expect(table.getAllByText(/^Dentro de/)).toHaveLength(2)
+    })
+
+    it('dibuja un punto por lugar visible, de todos los grupos, sin los guardados ocultos', async () => {
+      stubSweep(['s1'])
+      render(<App />)
+      await startSweep()
+      await screen.findByText('· 1 oculto porque ya está en la base')
+
+      const map = within(screen.getByRole('complementary', { name: 'Mapa del barrido' }))
+      for (const name of ['Bar Uno', 'Mercado Ferrando', 'Puesto Uno', 'Local Shopping', 'Cerrado Uno']) {
+        expect(map.getByRole('button', { name: `Punto ${name}` })).toBeInTheDocument()
+      }
+      expect(map.queryByRole('button', { name: 'Punto Ya Guardado' })).not.toBeInTheDocument()
+
+      await userEvent.setup().click(screen.getByLabelText('Ocultar los que ya están en la base'))
+      expect(map.getByRole('button', { name: 'Punto Ya Guardado' })).toBeInTheDocument()
+    })
+
+    it('el botón oculta y muestra el mapa y recuerda la preferencia', async () => {
+      stubSweep()
+      const { unmount } = render(<App />)
+      const user = await startSweep()
+      await screen.findByLabelText('Recorrido completo')
+
+      expect(screen.getByRole('complementary', { name: 'Mapa del barrido' })).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Ocultar mapa' }))
+      expect(screen.queryByRole('complementary', { name: 'Mapa del barrido' })).not.toBeInTheDocument()
+      expect(localStorage.getItem('backoffice.sweepMap.visible')).toBe('false')
+
+      unmount()
+      render(<App />)
+      await startSweep()
+      await screen.findByLabelText('Recorrido completo')
+      expect(screen.queryByRole('complementary', { name: 'Mapa del barrido' })).not.toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Mostrar mapa' }))
+      expect(screen.getByRole('complementary', { name: 'Mapa del barrido' })).toBeInTheDocument()
+      expect(localStorage.getItem('backoffice.sweepMap.visible')).toBe('true')
+    })
+
+    it('sin localStorage el mapa se ve y el botón funciona igual', async () => {
+      const broken = memoryStorage()
+      broken.getItem = () => { throw new Error('bloqueado') }
+      broken.setItem = () => { throw new Error('bloqueado') }
+      vi.stubGlobal('localStorage', broken)
+      stubSweep()
+      render(<App />)
+      const user = await startSweep()
+      await screen.findByLabelText('Recorrido completo')
+
+      expect(screen.getByRole('complementary', { name: 'Mapa del barrido' })).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Ocultar mapa' }))
+      expect(screen.queryByRole('complementary', { name: 'Mapa del barrido' })).not.toBeInTheDocument()
+    })
+
+    it('hover en un punto resalta la fila y hover en una fila muestra el nombre en el punto', async () => {
+      stubSweep()
+      render(<App />)
+      const user = await startSweep()
+      await screen.findByLabelText('Recorrido completo')
+
+      const row = screen.getByRole('link', { name: /Puesto Uno/ }).closest('tr') as HTMLElement
+      const point = screen.getByRole('button', { name: 'Punto Puesto Uno' })
+      expect(row).not.toHaveAttribute('data-highlighted')
+      await user.hover(point)
+      expect(row).toHaveAttribute('data-highlighted')
+      expect(within(point).getByText('Puesto Uno')).toBeInTheDocument()
+      await user.unhover(point)
+      expect(row).not.toHaveAttribute('data-highlighted')
+      expect(within(point).queryByText('Puesto Uno')).not.toBeInTheDocument()
+
+      const barRow = screen.getByRole('link', { name: /Bar Uno/ }).closest('tr') as HTMLElement
+      await user.hover(barRow)
+      expect(within(screen.getByRole('button', { name: 'Punto Bar Uno' })).getByText('Bar Uno')).toBeInTheDocument()
+    })
+
+    it('clic en un punto selecciona o deselecciona como el checkbox, salvo rechazados y cerrados', async () => {
+      stubSweep()
+      render(<App />)
+      const user = await startSweep()
+      await screen.findByLabelText('Recorrido completo')
+
+      await user.click(screen.getByRole('button', { name: 'Punto Puesto Uno' }))
+      expect(screen.getByRole('checkbox', { name: 'Seleccionar Puesto Uno' })).toBeChecked()
+      expect(screen.getByRole('button', { name: 'Procesar (1)' })).toBeEnabled()
+
+      // Un cerrado según Google y un rechazado no se seleccionan desde el mapa.
+      await user.click(screen.getByRole('button', { name: 'Punto Cerrado Uno' }))
+      await user.click(screen.getByRole('button', { name: 'Punto Mercado Ferrando' }))
+      expect(screen.getByRole('button', { name: 'Procesar (1)' })).toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: 'Punto Puesto Uno' }))
+      expect(screen.getByRole('checkbox', { name: 'Seleccionar Puesto Uno' })).not.toBeChecked()
+      expect(screen.getByRole('button', { name: 'Procesar (0)' })).toBeDisabled()
+
+      // El checkbox también se refleja en el punto (más grande, con anillo).
+      await user.click(screen.getByRole('checkbox', { name: 'Seleccionar Bar Uno' }))
+      expect(screen.getByRole('button', { name: 'Punto Bar Uno' }).firstElementChild?.firstElementChild).toHaveClass('ring-2')
+    })
+
+    it('sin clave de navegador avisa que el mapa no está disponible y la lista sigue', async () => {
+      vi.stubEnv('VITE_GOOGLE_MAPS_BROWSER_KEY', '')
+      stubSweep()
+      render(<App />)
+      await startSweep()
+      await screen.findByLabelText('Recorrido completo')
+
+      expect(screen.getByText(/Mapa no disponible/)).toBeInTheDocument()
+      expect(screen.queryByTestId('sweep-map')).not.toBeInTheDocument()
+      expect(screen.getByRole('link', { name: /Puesto Uno/ })).toBeInTheDocument()
+    })
+
+    it('no muestra el mapa antes del barrido, en modo sólo IDs ni con error inicial', async () => {
+      const idPlace = { ...place, placeId: 'ChIJ-id', name: 'ChIJ-id', group: null, reason: null, insideNeighborhood: null, location: null }
+      vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => String(input).includes('/sweep')
+        ? ndjson([{ type: 'places', items: [idPlace] }, { type: 'done', summary: summary({ mode: 'ids', byGroup: null }) }])
+        : Promise.resolve(new Response(JSON.stringify({ ids: [] }), { status: 200 }))))
+      render(<App />)
+      await userEvent.setup().click(screen.getByRole('link', { name: 'Buscar por barrio' }))
+      expect(screen.queryByRole('button', { name: 'Ocultar mapa' })).not.toBeInTheDocument()
+      cleanup()
+
+      render(<App />)
+      await startSweep('Sólo IDs (gratis)')
+      await screen.findByLabelText('Recorrido completo')
+      expect(screen.queryByRole('complementary', { name: 'Mapa del barrido' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Ocultar mapa' })).not.toBeInTheDocument()
+      cleanup()
+
+      vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('{}', { status: 500 }))))
+      render(<App />)
+      await startSweep()
+      expect(await screen.findByText('No pudimos recorrer el barrio')).toBeInTheDocument()
+      expect(screen.queryByRole('complementary', { name: 'Mapa del barrido' })).not.toBeInTheDocument()
     })
   })
 

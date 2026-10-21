@@ -8,6 +8,7 @@
   background-color: var(--banner-bg, #ffffff);
   box-sizing: border-box;
   display: flex;
+  flex-shrink: 0;
   height: 100px;
   justify-content: center;
   overflow: hidden;
@@ -32,8 +33,8 @@
 }
 
 .name {
-  font-size: 18px;
+  font-size: 14px;
   font-weight: 600;
-  line-height: 24px;
+  line-height: 18px;
   text-align: center;
 }

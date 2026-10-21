@@ -30,7 +30,7 @@
   align-items: center;
   display: flex;
   // flex-wrap: wrap;
-  gap: 16px;
+  gap: 8px;
   justify-content: center;
 }
 
@@ -60,14 +60,14 @@
 
 .filter {
   background: none;
-  border: 1px solid #bbbbbb;
+  border: 1px solid #DDDDDD;
   border-radius: 999px;
   color: inherit;
   cursor: pointer;
   display: inline-block;
   font: inherit;
-  font-size: 13px;
-  padding: 3px 10px;
+  font-size: 14px;
+  padding: 8px 12px;
   text-decoration: none;
 
   &:hover {
@@ -75,9 +75,10 @@
   }
 
   &[data-active] {
-    background-color: #000000;
+    // background-color: #000000;
     border-color: #000000;
-    color: #ffffff;
+    border-width: 2px;
+    // color: #ffffff;
   }
 }
 

@@ -261,6 +261,7 @@ describe('GoogleNeighborhoodSweeper', () => {
     expect(summary.mode).toBe('ids')
     expect(summary.byGroup).toBeNull()
     expect(places.every((item) => item.group === null && item.reason === null)).toBe(true)
+    expect(places.every((item) => item.location === null && item.containedIn.length === 0)).toBe(true)
     expect(summary.discardedOutside).toBe(0)
     expect(places).toHaveLength(2)
     expect(places.find((item) => item.placeId === 'a')).toMatchObject({
@@ -312,9 +313,29 @@ describe('GoogleNeighborhoodSweeper', () => {
     expect(summary.totalPlaces).toBe(7)
 
     const mask = new Headers(fetcher.mock.calls[0][1]?.headers).get('X-Goog-FieldMask')
-    for (const field of ['places.businessStatus', 'places.primaryType', 'places.rating', 'places.userRatingCount']) {
+    for (const field of ['places.businessStatus', 'places.primaryType', 'places.rating', 'places.userRatingCount', 'places.containingPlaces']) {
       expect(mask).toContain(field)
     }
+  })
+
+  it('guarda los ids de containingPlaces y la ubicación sin llamadas extra', async () => {
+    const { sweeper, calls } = setup((body) => {
+      if (body.textQuery !== 'restaurante') return {}
+      return {
+        places: [
+          { ...place('puesto'), containingPlaces: [{ name: 'places/mercado', id: 'mercado' }, { name: 'places/sin-id' }] },
+          place('suelto'),
+        ],
+      }
+    })
+
+    const { places, summary } = await sweeper.sweep(NEIGHBORHOOD)
+    const byId = Object.fromEntries(places.map((item) => [item.placeId, item]))
+
+    expect(byId.puesto).toMatchObject({ containedIn: ['mercado'], location: { lat: inside.latitude, lng: inside.longitude } })
+    expect(byId.suelto.containedIn).toEqual([])
+    expect(calls).toHaveLength(totalQueries)
+    expect(summary.apiCalls).toEqual({ sweep: totalQueries, rescue: 0 })
   })
 
   it('corta al llegar al tope de llamadas', async () => {
