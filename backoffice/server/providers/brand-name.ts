@@ -98,3 +98,33 @@ export function brandSearchTerm(brand: string, placeType: string | null | undefi
   if (words(type).every((word) => brandWords.has(word))) return brand
   return `${brand} ${type.toLocaleLowerCase('es')}`
 }
+
+// Palabras de rubro que no distinguen una marca ("Plaza Café", "The Lab Coffee Roasters").
+const RUBRO_WORDS = new Set([
+  'bar', 'cafe', 'resto', 'restaurante', 'restaurant', 'restobar', 'club', 'casa', 'coffee', 'pub', 'cantina',
+  'comedor', 'bodegon', 'pizzeria', 'parrilla', 'parrillada', 'heladeria', 'cerveceria', 'rotiseria', 'pastas',
+  'burger', 'burgers', 'cookies', 'roasters', 'tapas', 'irish', 'scottish', 'espacio', 'creativo', 'social',
+])
+const BRAND_STOPWORDS = new Set([...TRAILING_STOPWORDS, 'the', 'and', 'a'])
+const SHORT_BRAND_MAX_LETTERS = 5
+
+/**
+ * Marca corta o genérica: sin artículos, palabras de rubro ni tags de tags.ts, no queda nada (Vereda, Negroni)
+ * o queda una sola palabra de hasta 5 letras (MOB, La Otra, Pulpo Bar de Pastas). Con esas, Exa mezcla otros
+ * lugares si no sabe el barrio; con un nombre distintivo (Matute, Pantagruel) el barrio sólo trae listas del barrio.
+ */
+export function isShortOrGenericBrand(brand: string): boolean {
+  const own = words(brand).filter((word) => !BRAND_STOPWORDS.has(word) && !RUBRO_WORDS.has(word) && !toCanonical(word))
+  return own.length === 0 || own.length === 1 && own[0].length <= SHORT_BRAND_MAX_LETTERS
+}
+
+/**
+ * Término de la búsqueda principal de Exa: el de brandSearchTerm, más el barrio si la marca es corta o genérica.
+ * Nunca en una sucursal de cadena según el nombre de Google: el barrio no separa dos sucursales del mismo barrio
+ * (Costa Azul) y sólo trae las otras.
+ */
+export function placeSearchTerm(googleName: string, placeType: string | null | undefined, neighborhood: string | null): string {
+  const { brand, branch } = googleNameParts(googleName)
+  const term = brandSearchTerm(brand, placeType)
+  return neighborhood && !branch && isShortOrGenericBrand(brand) ? `${term} ${neighborhood}` : term
+}

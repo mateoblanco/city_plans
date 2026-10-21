@@ -44,7 +44,7 @@ import type {
   PlaceReviewAnomaly,
   TagEvidence,
 } from '../../src/types/places.ts'
-import { brandFromGoogleName, brandSearchTerm, googleNameParts } from './brand-name.ts'
+import { brandFromGoogleName, brandSearchTerm, googleNameParts, placeSearchTerm } from './brand-name.ts'
 import {
   BLOCKED_HOSTS,
   DEFAULT_RESERVATION_HOSTS,
@@ -2619,11 +2619,17 @@ export class PlaceExtractionService implements PlaceExtractor {
     try {
       const detailsPromise = timed('google', () => this.details.getDetails(placeId))
       // El request no trae nombre: Exa busca con la marca (nombre de Google sin sucursal) y el tipo de
-      // lugar de Google, para no mezclar homónimos; el provider agrega Montevideo.
+      // lugar de Google, para no mezclar homónimos; el provider agrega Montevideo. La búsqueda principal
+      // suma el barrio si la marca es corta o genérica (placeSearchTerm).
       const searchTerm = (details: GooglePlaceDetailsResponse) => brandSearchTerm(brandFromGoogleName(details.anchor.name), details.placeType)
+      const placeTerm = (details: GooglePlaceDetailsResponse) => placeSearchTerm(
+        details.anchor.name,
+        details.placeType,
+        neighborhoodDisplayName(request.neighborhoodId ?? getNeighborhood(details.anchor.latitude, details.anchor.longitude).neighborhoodId),
+      )
       const exaPromise = this.exa?.configured
         ? detailsPromise
-          .then((details) => timed('exa', () => this.limited('exa', rateLimits, () => this.exa!.searchPlace(searchTerm(details)))))
+          .then((details) => timed('exa', () => this.limited('exa', rateLimits, () => this.exa!.searchPlace(placeTerm(details)))))
           // Se espera más adelante: el error queda como valor para no dejar un rechazo sin manejar.
           .catch((error: unknown) => new ExaProviderFailure(error))
         : Promise.resolve(null)

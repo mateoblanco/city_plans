@@ -234,6 +234,22 @@ describe('PlaceExtractionService', () => {
     })
   })
 
+  it('suma el barrio del request a la búsqueda principal de Exa si la marca es corta, no a la de Instagram', async () => {
+    const searchPlace = vi.fn(async () => exaResponse())
+    const searchText = vi.fn(async (query: string) => ({ query, results: [], requestId: 'exa-ig' }))
+    const service = new PlaceExtractionService({
+      apiKey: 'test-key',
+      details: { getDetails: async () => ({ ...googleDetails, anchor: { ...googleDetails.anchor, name: 'MOB' }, placeType: 'Restaurante' }) },
+      exa: { configured: true, searchPlace, searchText },
+      generate: async () => extraction,
+    })
+
+    await service.collectSources('place-1', { seedCategories: ['restaurant'], neighborhoodId: 'POCITOS' })
+
+    expect(searchPlace).toHaveBeenCalledWith('MOB restaurante Pocitos')
+    expect(searchText).toHaveBeenCalledWith('MOB restaurante Montevideo instagram')
+  })
+
   it('busca las fuentes de una sucursal con la marca y toma de Exa la web de la marca si Google no la tiene', async () => {
     const searchPlace = vi.fn(async () => exaResponse('@lanuevaroma', [
       { title: 'La Nueva Roma', url: 'https://guia.example/la-nueva-roma', highlights: ['La Nueva Roma'] },
@@ -729,7 +745,8 @@ describe('PlaceExtractionService', () => {
     })
 
     await service.extract('place-1', { seedCategories: ['cafe'] })
-    expect(searchPlace).toHaveBeenCalledWith(googleDetails.anchor.name)
+    // Café Brasilero es rubro + tag: marca genérica, va con el barrio de las coordenadas.
+    expect(searchPlace).toHaveBeenCalledWith(`${googleDetails.anchor.name} Ciudad Vieja`)
   })
 
   it('usa el neighborhoodId recibido y, si no llega, lo calcula con las coordenadas', async () => {
@@ -1422,7 +1439,8 @@ describe('PlaceExtractionService', () => {
       exa: {
         configured: true,
         searchPlace: async (name) => {
-          const fixture = fixtures[name as keyof typeof fixtures]
+          // Culto Café lleva el barrio en la consulta (marca corta).
+          const fixture = fixtures[(Object.keys(fixtures) as (keyof typeof fixtures)[]).find((key) => name.startsWith(key))!]
           const response = exaResponse()
           return {
             ...response,
@@ -2102,7 +2120,7 @@ describe('consultas con el tipo de lugar', () => {
 
     await service.collectSources('place-1', { seedCategories: ['restaurant'] })
 
-    expect(searchPlace).toHaveBeenCalledWith('Musse restaurante')
+    expect(searchPlace).toHaveBeenCalledWith('Musse restaurante Ciudad Vieja')
     expect(searchText).toHaveBeenCalledWith('Musse restaurante Montevideo instagram')
   })
 })

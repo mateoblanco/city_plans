@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { brandFromGoogleName, brandSearchTerm, googleNameParts } from './brand-name.ts'
+import { brandFromGoogleName, brandSearchTerm, googleNameParts, isShortOrGenericBrand, placeSearchTerm } from './brand-name.ts'
 
 describe('brandFromGoogleName', () => {
   it.each([
@@ -78,5 +78,32 @@ describe('brandSearchTerm', () => {
     expect(brandSearchTerm('Gaboto bar', 'Bar')).toBe('Gaboto bar')
     expect(brandSearchTerm('Oriundo', 'Establecimiento')).toBe('Oriundo')
     expect(brandSearchTerm('Oriundo', null)).toBe('Oriundo')
+  })
+})
+
+describe('isShortOrGenericBrand', () => {
+  it.each(['MOB', 'Bar Kfe', 'La Otra', 'Pulpo Bar de Pastas', 'The Lab Coffee Roasters', 'Vereda', 'Negroni', 'El Club de la Milanesa'])(
+    '%s es corta o genérica',
+    (brand) => expect(isShortOrGenericBrand(brand)).toBe(true),
+  )
+
+  it.each(['Ladero bodegón', 'Matute', 'Pantagruel', 'Fundamento Pizza', 'Costa Azul', 'Once Catorce', 'Don Peperone'])(
+    '%s no es corta ni genérica',
+    (brand) => expect(isShortOrGenericBrand(brand)).toBe(false),
+  )
+})
+
+describe('placeSearchTerm', () => {
+  it('suma el barrio sólo a una marca corta o genérica', () => {
+    expect(placeSearchTerm('La Otra', 'Restaurante', 'Pocitos')).toBe('La Otra restaurante Pocitos')
+    expect(placeSearchTerm('Vereda', 'Bar', 'Pocitos')).toBe('Vereda bar Pocitos')
+    expect(placeSearchTerm('Pantagruel', 'Restaurante', 'Pocitos')).toBe('Pantagruel restaurante')
+    expect(placeSearchTerm('La Otra', 'Restaurante', null)).toBe('La Otra restaurante')
+  })
+
+  it('nunca suma el barrio a una sucursal de cadena según el nombre de Google', () => {
+    expect(placeSearchTerm('Freddo Pocitos', 'Heladería', 'Pocitos')).toBe('Freddo heladería')
+    expect(placeSearchTerm('MOB Punta Carretas', 'Restaurante', 'Pocitos')).toBe('MOB restaurante')
+    expect(placeSearchTerm('MOB - Punta Carretas', 'Restaurante', 'Punta Carretas')).toBe('MOB restaurante')
   })
 })
