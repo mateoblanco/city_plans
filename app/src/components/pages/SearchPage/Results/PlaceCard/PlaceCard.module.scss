@@ -1,12 +1,13 @@
 .card {
-  border: 1px solid #DFDFE1;
+  border: 1px solid #E7E7E7;
   outline: 2px solid transparent;
   display: flex;
   padding:16px;
   gap: 16px;
   align-items: center;
-  border-radius: 8px;
+  border-radius: 16px;
   transition: background-color 0.15s ease-out;
+  box-shadow: 0 4px 4px 0 rgba(0, 0, 0, 0.05);
   // flex-direction: column;
 
   &[data-active] {
@@ -22,29 +23,32 @@
 }
 
 .name {
-  font-size: 16px;
+  font-size: 18px;
+  font-weight: 600;
 }
 
 .meta {
   font-size: 14px;
+  color: #666666;
 }
 
 .openStatus {
   font-size: 14px;
-  color: #555555;
+  color: #666666;
 }
 
 .openTone {
+  font-weight: 500;
   &[data-tone="open"] {
-    color: #1a7f37;
+    color: #137E45;
   }
 
   &[data-tone="closing_soon"] {
-    color: #d97706;
+    color: #E56500;
   }
 
   &[data-tone="closed"] {
-    color: #cf222e;
+    color: #EF0017;
   }
 }
 
