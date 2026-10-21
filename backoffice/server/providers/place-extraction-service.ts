@@ -1592,10 +1592,33 @@ const PHONE_TYPES = new Set(['FIXED_LINE', 'MOBILE', 'FIXED_LINE_OR_MOBILE'])
 const isUruguayPhone = (phone: PhoneNumber | undefined): phone is PhoneNumber =>
   phone?.country === 'UY' && phone.isValid() && PHONE_TYPES.has(phone.getType() ?? '')
 
+const validYear = (value: string) => Number(value) >= 1950 && Number(value) <= 2099
+const validDate = (year: string, month: string, day: string) =>
+  validYear(year) && Number(month) >= 1 && Number(month) <= 12 && Number(day) >= 1 && Number(day) <= 31
+
+/**
+ * Una fecha que libphonenumber toma por teléfono de 8 dígitos: 2026-05-25 (LinkedIn), 26.11.2025 (reseña),
+ * 25-05-2026, o un rango de años como 2019-2024. Un teléfono en 4-4 (2710-7913) no da un mes ni un año creíble.
+ */
+export function looksLikeDate(value: string): boolean {
+  const raw = value.trim().replace(/^[^\d]+|[^\d]+$/g, '')
+  const ymd = raw.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/)
+  if (ymd) return validDate(ymd[1], ymd[2], ymd[3])
+  const dmy = raw.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/)
+  if (dmy) return validDate(dmy[3], dmy[2], dmy[1])
+  const range = raw.match(/^(\d{4})\s*[-–]\s*(\d{4})$/)
+  if (range) {
+    const [from, to] = [Number(range[1]), Number(range[2])]
+    return validYear(range[1]) && validYear(range[2]) && to > from && to - from < 30
+  }
+  return false
+}
+
 /** Fijo o celular válido de Uruguay según libphonenumber, en formato internacional; null si no lo es. */
 function normalizeUruguayPhone(value: string | null) {
   if (!value) return null
   const raw = value.trim().replace(/^tel:/i, '')
+  if (looksLikeDate(raw)) return null
   const digits = raw.replace(/\D/g, '')
   // "598…" o "00598…" sin el +: libphonenumber lo tomaría como número nacional.
   const candidate = /^(?:00)?598\d{8}$/.test(digits) && !raw.startsWith('+') ? `+${digits.replace(/^00/, '')}` : raw
@@ -1806,6 +1829,8 @@ function firstSourcePhone(sources: Source[], brand: string): string | null {
 
 function phonesInText(value: string): string[] {
   return findPhoneNumbersInText(value, 'UY')
+    // Una fecha (2026-05-25, 26.11.2025) no es un teléfono aunque libphonenumber la valide.
+    .filter(({ startsAt, endsAt }) => !looksLikeDate(value.slice(startsAt, endsAt)))
     .filter(({ number }) => isUruguayPhone(number))
     .map(({ number }) => number.number)
 }

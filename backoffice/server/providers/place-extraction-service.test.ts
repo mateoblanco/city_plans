@@ -1438,6 +1438,35 @@ describe('PlaceExtractionService', () => {
     expect(phoneIn('Llamá al 2110')).toBeNull()
   })
 
+  it('una fecha no es un teléfono aunque libphonenumber la valide', () => {
+    const phoneIn = (text: string) => resolveDeterministicContact(googleDetails, [{ id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://guia.example/', text }]).phone ?? null
+    // Kumpir (post de LinkedIn) y Marlon Bar (fecha de una reseña en guiacomercial).
+    expect(phoneIn('- [2026-05-25 · 23 reactions] Hace menos de 2 años')).toBeNull()
+    expect(phoneIn('Ana\n ★★★★★ 26.11.2025 \nHermoso lugar')).toBeNull()
+    expect(phoneIn('Publicado 25-05-2026')).toBeNull()
+    expect(phoneIn('Abierto 2019-2024')).toBeNull()
+    for (const [text, phone] of [['Tel. 2710-7913', '+598 2710 7913'], ['2410 1234', '+598 2410 1234'], ['Celular 092 207 690', '+598 92 207 690'], ['+598 2402 0525', '+598 2402 0525']]) {
+      expect(phoneIn(text), text).toBe(phone)
+    }
+    expect(phoneIn('Reseña del 2026-05-25. Reservas al 2710-7913')).toBe('+598 2710 7913')
+  })
+
+  it('el teléfono del modelo que es una fecha no queda, aunque tenga support', () => {
+    const source: Source = { id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://guia.example/', text: '[2026-05-25 · 23 reactions]' }
+    const data = {
+      ...emptyExtraction,
+      facts: [{ id: 'F1', text: 'Teléfono 2026-05-25', sourceId: 'S1', kind: 'contact' as const, proposedTag: null }],
+      contact: { ...emptyExtraction.contact, phone: '2026-05-25', website: '', instagram: '' },
+      support: [{ field: 'contact.phone', facts: ['F1'] }],
+    }
+    expect(postProcess(target, data, { sources: [source] }).contact.phone).toBeNull()
+  })
+
+  it('las fechas de las reseñas no hacen de una ficha un listado', () => {
+    const card: Source = { id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://guia.example/lugar/123', text: 'Tel 2710 7913\n★ 26.11.2025\n★ 12.10.2025\n★ 2026-01-05' }
+    expect(isListingSource(card, 'Marlon Bar')).toBe(false)
+  })
+
   it('el teléfono del modelo con support gana sobre el que aparece en el texto de las fuentes', () => {
     const source: Source = { id: 'S1', kind: 'web', trust: 'official', url: 'https://cafe.example/', text: 'Tel 2915 0000' }
     const data = {
