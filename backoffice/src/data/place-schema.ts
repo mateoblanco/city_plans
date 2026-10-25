@@ -6,7 +6,8 @@ import { REVIEW_REASON_IDS } from './review-reasons.ts'
 const DietLevel = z.enum(['unknown', 'no', 'has_options', 'fully'])
 const TransitStatus = z.enum(['success', 'partial', 'unavailable'])
 export const LOGO_KINDS = ['logo', 'local', 'food', 'person', 'other'] as const
-export const LOGO_SOURCES = ['instagram', 'owner'] as const
+// manual: subido desde el backoffice; owner: más adelante, cuando el dueño pueda cambiarlo.
+export const LOGO_SOURCES = ['instagram', 'owner', 'manual'] as const
 const HexColor = z.string().regex(/^#[0-9a-f]{6}$/)
 
 // Contrato del borrador que más adelante podrá mapearse a tablas de la base.

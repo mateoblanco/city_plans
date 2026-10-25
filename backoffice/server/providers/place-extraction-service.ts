@@ -221,6 +221,8 @@ export type PlaceExtractor = {
   discoverPlace?(placeId: string, request: PlaceExtractionRequest): Promise<InstagramDiscovery>
   /** Paso 2: el LLM sobre el descubrimiento guardado, con el Instagram elegido en la revisión. */
   completePlace?(placeId: string, instagram: InstagramChoice): Promise<PlaceEnrichmentResponse>
+  /** Olvida lo que el server tiene en memoria del lugar (descubrimiento y candidatos de Instagram): se borró. */
+  forget?(placeId: string): void
 }
 
 export type PlaceExtractionRequest = {
@@ -323,7 +325,7 @@ function configuredCostRate(name: string, fallback: number): number {
   return Number.isFinite(value) && value >= 0 ? value : fallback
 }
 
-function extractionCostRates(overrides: Partial<ExtractionCostRates> = {}): ExtractionCostRates {
+export function extractionCostRates(overrides: Partial<ExtractionCostRates> = {}): ExtractionCostRates {
   return {
     googleDetailsRequestUsd: configuredCostRate('EXTRACTION_COST_GOOGLE_DETAILS_USD', overrides.googleDetailsRequestUsd ?? DEFAULT_COST_RATES.googleDetailsRequestUsd),
     exaSearchRequestUsd: configuredCostRate('EXTRACTION_COST_EXA_SEARCH_USD', overrides.exaSearchRequestUsd ?? DEFAULT_COST_RATES.exaSearchRequestUsd),
@@ -370,7 +372,7 @@ PASO 2 — el resto del JSON, sólo a partir de facts
 - cuisines sólo si es el estilo principal del lugar o una parte relevante de la carta, nunca por un plato suelto: una parrilla que tiene una pasta no es italian, ni un bar con unos tacos es mexican. Una cocina va si un fact la nombra ("cocina italiana", "comida mexicana", "taquería") o si al menos dos platos típicos distintos de ella (ver PLATOS TÍPICOS DE CADA COCINA) la identifican claramente: tacos y burritos → mexican; ceviche y lomo saltado → peruvian; arepas y tequeños → venezuelan; shawarma y falafel → middle_eastern; curry y naan → indian; kimchi y bibimbap → korean. Si no, no la pongas.
 - Un lugar nikkei lleva nikkei y, además, japanese si sirve sushi u otro plato japonés, y peruvian si sirve ceviche u otro plato peruano.
 - features, atmosphere y los goodFor work, solo, after_office y lgbtq_friendly también necesitan un fact que nombre el tag con palabras de esa idea ("tiene terraza", "ideal para trabajar", "ambiente tranquilo"). El RESUMEN ESTRUCTURADO DE EXA no alcanza solo para features, goodFor, offers ni atmosphere: necesitan un fact de otra fuente.
-- atmosphere (quiet, lively, cozy, elegant) sólo con un fact que describa el ambiente del lugar. cozy sólo si la fuente dice textualmente acogedor o cozy: no lo deduzcas de otras palabras.
+- atmosphere (quiet, lively, cozy, elegant) sólo con un fact que describa el ambiente del lugar. cozy sólo si la fuente dice textualmente acogedor o cozy: no lo deduzcas de otras palabras. neighborhood_spot (de barrio) sólo si la fuente dice textualmente "bar de barrio", "boliche de barrio", "restaurante de barrio", "bodegón de barrio", "bodegón" o "clásico del barrio": nunca por el precio, la categoría ni la estética.
 - Los momentos de goodFor (groups, date, kids_friendly, celebration, quick) van si un fact los nombra ("ideal para ir con amigos", "para una cita", "menú para chicos") o, por inferencia, sólo con señales concretas en los facts que cites: una señal fuerte, o dos débiles distintas.
   - groups: fuerte: picada o tabla para compartir. Débiles: tapas o platitos para compartir, cerveza tirada, tragos, ambiente animado, música en vivo o DJ, mesas grandes o largas.
   - date: sin señales fuertes. Débiles: ambiente tranquilo, íntimo, vinos o carta de vinos, cocina cuidada o de autor, reservas, ambiente acogedor.
@@ -421,6 +423,7 @@ HIGHLIGHTS Y DESCRIPCIÓN
 - Si no podés confirmar que los datos que usaste son de este local (las fuentes pueden ser de otro local o de otra sucursal: otra dirección, otro barrio u otro negocio con el mismo nombre), anotalo en doubts empezando con «Local no confirmado:». Es sobre los datos que QUEDARON, no sobre los que descartaste.
   - SÍ lleva el prefijo: «Local no confirmado: las fuentes hablan de Mob Garden en el Prado y no puedo confirmar que los datos que usé sean de la sucursal de Punta Carretas.» o «Local no confirmado: las fuentes nombran otra marca parecida y no está claro que sea este local.»
   - NO lleva el prefijo (anotalo sin él, si querés): «La fuente S7 corresponde a otra sucursal en Ciudad Vieja y se descartó.» o «El horario de terceros es de otra sucursal, no se cargó.» Descartar una fuente de otro local es lo correcto: si lo que quedó es de este local, el local está confirmado.
+- Si las fuentes son de la misma marca (su carta, sus reseñas, su web) pero no dicen de qué sucursal son, anotalo en doubts empezando con «Sucursal no confirmada:», no con «Local no confirmado:». La carta, los tags, el estilo y las cocinas son de la marca: usalos igual. «Local no confirmado:» queda para fuentes que pueden ser de otro negocio (otra marca con el mismo nombre, otro país).
 - Si las fuentes dicen que el local todavía no abrió (próximamente, abre pronto, próxima apertura), anotalo en doubts empezando con «Todavía no abrió:».
 - Si el Instagram oficial muestra el local funcionando (posts recientes, horarios), vale más que la web o terceros para decidir si está abierto o cerrado: no anotes «Todavía no abrió:» ni tomes como fact un cierre que informan terceros.
 - Si el Instagram OFICIAL no es de este local (otro rubro, otra dirección u otro negocio con el mismo nombre), dejá contact.instagram vacío, no tomes facts de esa fuente y anotalo en doubts empezando con «Instagram rechazado:».
@@ -1196,11 +1199,16 @@ export function cuisineSupport(id: string, facts: { id: string; text: string }[]
     const phrase = tagMention(id, [fact.text])
     if (phrase) return { tag: id, mode: 'explicit', signals: [phrase], factIds: [fact.id] }
   }
+  return dishEvidence(id, facts, acceptedCuisines.includes('nikkei') && NIKKEI_PARTNERS.has(id) ? 1 : 2)
+}
+
+/** Respaldo de una cocina sólo por sus platos típicos: al menos `needed` platos distintos en los facts. */
+export function dishEvidence(id: string, facts: { id: string; text: string }[], needed = 2): TagEvidence | null {
+  if (!Object.hasOwn(CUISINES, id)) return null
   const matches = (CUISINES[id as keyof typeof CUISINES].dishes?.es ?? []).flatMap((dish) => {
     const fact = facts.find((candidate) => dishSupportedBy(dish, candidate.text))
     return fact ? [{ dish, factId: fact.id }] : []
   })
-  const needed = acceptedCuisines.includes('nikkei') && NIKKEI_PARTNERS.has(id) ? 1 : 2
   if (matches.length < needed) return null
   return { tag: id, mode: 'inferred', signals: matches.map((match) => match.dish), factIds: [...new Set(matches.map((match) => match.factId))] }
 }
@@ -1221,16 +1229,37 @@ export function tagMentioned(id: string, texts: string[]) {
   return tagMention(id, texts) !== null
 }
 
-/** El label o sinónimo del tag que aparece en algún texto; null si ninguno. */
+/**
+ * Frases con las que la extracción acepta un tag en lugar de su label y sinónimos: los sinónimos de búsqueda
+ * ("de barrio", "bolichito") son demasiado sueltos para decir que la fuente habla del lugar.
+ */
+export const MENTION_PHRASES: Partial<Record<TagId, string[]>> = {
+  neighborhood_spot: ['bar de barrio', 'boliche de barrio', 'restaurante de barrio', 'bodegón de barrio', 'bodegón', 'clásico del barrio'],
+  // "Rusa" suelta es la ensalada rusa, una pareja rusa o un White Russian: la cocina rusa sólo sale por sus platos.
+  russian: [],
+}
+
+/** El label o sinónimo del tag (o su frase de MENTION_PHRASES) que aparece en algún texto; null si ninguno. */
 export function tagMention(id: string, texts: string[]): string | null {
   const definition = findDef(id)
   if (!definition) return null
-  const phrases = [definition.label.es, definition.label.en, ...definition.synonyms.es, ...definition.synonyms.en]
+  const phrases = MENTION_PHRASES[id as TagId] ?? [definition.label.es, definition.label.en, ...definition.synonyms.es, ...definition.synonyms.en]
   for (const text of texts) {
     const phrase = phrases.find((candidate) => hasPhrase(text, candidate))
     if (phrase) return phrase
   }
   return null
+}
+
+// Frases con las que una fuente describe el lugar como bar o como lugar para tomar algo.
+const BAR_PHRASES = ['bar', 'barcito', 'pub', 'cervecería', 'brewpub', 'taproom', 'vinoteca', 'bar de vinos', 'wine bar', 'tomar algo', 'salir a tomar']
+
+/** La frase de BAR_PHRASES con la que el texto describe el lugar como bar, sin contar el nombre del lugar. */
+export function describesAsBar(text: string, brand: string): string | null {
+  const words = (value: string) => ` ${canonical(value).replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim()} `
+  const name = words(brand)
+  const rest = name.trim() ? words(text).split(name).join(' ') : words(text)
+  return BAR_PHRASES.find((phrase) => hasPhrase(rest, phrase)) ?? null
 }
 
 // El resumen de Exa no alcanza solo para estos grupos: es donde inventa (accesible, pet friendly…).
@@ -1746,7 +1775,7 @@ type TaggedItem = PlaceExtraction['tags'][number]
 export function postProcess(
   target: Target,
   data: PlaceExtraction,
-  context: { sources?: Source[]; seedCategories?: CategoryId[]; categoryFallback?: string[]; deterministicContact?: DeterministicContact; prominenceSignals?: ProminenceSourceSignals; instagramManual?: InstagramManual } = {},
+  context: { sources?: Source[]; seedCategories?: CategoryId[]; categoryFallback?: string[]; deterministicContact?: DeterministicContact; prominenceSignals?: ProminenceSourceSignals; instagramManual?: InstagramManual; knownChain?: boolean } = {},
 ): PlaceEnrichmentDraft {
   const sources = context.sources ?? []
   const sourcesById = new Map(sources.map((source) => [source.id, source]))
@@ -1806,7 +1835,8 @@ export function postProcess(
 
   // Cadenas: horario, teléfono, dirección y features físicos sólo si todas sus fuentes hablan de
   // esta sucursal (dirección o barrio). Web, Instagram, categorías, platos, descripción, dieta y precio son de la marca.
-  const chain = isChainBranch(target, sources)
+  // knownChain: otro lugar guardado de la misma marca (Instagram o brand_key compartidos).
+  const chain = isChainBranch(target, sources) || Boolean(context.knownChain)
   const branchFact = (fact: ValidFact) => mentionsBranch(fact.source, target)
   const branchOnly = (field: string) => {
     const cited = (support.get(field) ?? []).map((id) => factsById.get(id)!)
@@ -1879,9 +1909,9 @@ export function postProcess(
     if (signals) return inferredEvidence(id, signals)
     return eligible.length === 0 ? sourceTextEvidence(id, field) : null
   }
-  // cozy no distingue nada si se deduce: sólo si la fuente dice acogedor o cozy.
-  const cozyEvidence = (field: string, eligible: ValidFact[]) =>
-    eligible.length === 0 ? sourceTextEvidence('cozy', field) : explicitEvidence('cozy', eligible)
+  // cozy y neighborhood_spot no distinguen nada si se deducen: sólo si la fuente dice la frase (acogedor, bar de barrio…).
+  const literalEvidence = (id: string, field: string, eligible: ValidFact[]) =>
+    eligible.length === 0 ? sourceTextEvidence(id, field) : explicitEvidence(id, eligible)
   const gated = (evidence: TagEvidence | null) => {
     if (evidence) tagEvidence.push(evidence)
     return evidence !== null
@@ -1903,12 +1933,15 @@ export function postProcess(
       const field = `${group}.${id}`
       const eligible = (support.get(field) ?? []).map((factId) => factsById.get(factId)!).filter((fact) => fact.source.url !== EXA_SUMMARY_URL)
       if (group === 'goodFor' && isMomentId(id)) return gated(momentEvidence(id, field, eligible))
-      if (id === 'cozy') return gated(cozyEvidence(field, eligible))
+      if (id === 'cozy' || id === 'neighborhood_spot') return gated(literalEvidence(id, field, eligible))
       if (eligible.length === 0) return backedBySourceText(id, field)
       return !MENTION_REQUIRED_GROUPS.has(group) || tagMentioned(id, eligible.map((fact) => fact.text))
     })
   // En una cadena, un feature físico necesita un fact de una fuente que hable de esta sucursal.
     .filter((id) => !chain || !BRANCH_FEATURES.has(id) || (support.get(`features.${id}`) ?? []).some((factId) => branchFact(factsById.get(factId)!))))]
+  // De barrio aunque el modelo no lo proponga: una fuente real (no el resumen de Exa) dice la frase. No es deducción:
+  // sólo las frases de MENTION_PHRASES, y su línea pasa a ser el respaldo.
+  if (!tags.includes('neighborhood_spot') && gated(sourceTextEvidence('neighborhood_spot', 'atmosphere.neighborhood_spot'))) tags.push('neighborhood_spot')
   // Un espacio para niños hace al lugar apto niños: el fact de kids_area es su respaldo.
   if (tags.includes('kids_area') && !tags.includes('kids_friendly')) {
     const factIds = support.get('features.kids_area') ?? []
@@ -1938,6 +1971,16 @@ export function postProcess(
     tags.push(id)
     support.set(`goodFor.${id}`, [...new Set(signals.map((match) => match.factId))])
     tagEvidence.push(inferredEvidence(id, signals))
+  }
+  // Cocinas que el modelo no propuso: dos platos típicos distintos en facts fuera del resumen de Exa (pelmeni y
+  // vareniki → rusa). Nombrarla sin platos no alcanza acá ("comida casera" no hace uruguaya a cualquiera).
+  for (const id of Object.keys(CUISINES) as TagId[]) {
+    if (tags.includes(id)) continue
+    const evidence = dishEvidence(id, ownFacts)
+    if (!evidence) continue
+    tags.push(id)
+    support.set(`cuisines.${id}`, evidence.factIds)
+    tagEvidence.push(evidence)
   }
   // style: uno solo, de la marca. casual y cuidado necesitan una señal en un fact citado (fuera del resumen de
   // Exa); intermedio, algún fact. Sin eso queda null, nunca baja a intermedio.
@@ -2009,11 +2052,18 @@ export function postProcess(
     return value && citedSources.some((source) => hasPhrase(text(source), value)) ? value : null
   }
 
+  // Una cadena también acepta el teléfono o la dirección del modelo si alguna fuente real (no el resumen de Exa) los
+  // tiene junto a la dirección del local, aunque el modelo citara otra: la fuente los asocia a esta sucursal.
+  const branchSources = chain ? sources.filter((source) => source.url !== EXA_SUMMARY_URL && mentionsAddress(placeText(source, brand), target.address)) : []
+  const branchBacked = (field: 'phone' | 'address', value: string) => branchSources.some((source) => field === 'phone'
+    ? nearBrand('phone', value, placeText(source, brand))
+    : hasPhrase(placeText(source, brand), value))
+
   // En una cadena la dirección además tiene que ser la de esta sucursal, no la de otra de la misma fuente.
   const address = sourcedText('address')
   const processed: ProcessedExtraction = {
     name: brandConfirmed ? brand : sourcedText('name') ?? '',
-    address: address && branchOnly('address') && (!chain || mentionsAddress(address, target.address)) ? address : null,
+    address: address && (branchOnly('address') || branchBacked('address', address)) && (!chain || mentionsAddress(address, target.address)) ? address : null,
     categories,
     tags,
     dietary: result.dietary,
@@ -2044,8 +2094,12 @@ export function postProcess(
   for (const field of ['phone', 'whatsapp', 'instagram', 'website', 'menuUrl', 'reservationUrl'] as const) {
     if (processed.contact[field] && !supported(`contact.${field}`)) processed.contact[field] = null
   }
+  // En una cadena, el teléfono único que la marca publica en su fuente oficial (central de pedidos, delivery) vale
+  // para todas las sucursales aunque la fuente no nombre esta. Es el último recurso: el de la sucursal gana.
+  const brandPhone = chain ? brandWidePhone(sources, target) : null
   for (const field of ['phone', 'whatsapp'] as const) {
-    if (processed.contact[field] && !branchOnly(`contact.${field}`)) processed.contact[field] = null
+    const value = processed.contact[field]
+    if (value && !branchOnly(`contact.${field}`) && !branchBacked('phone', value) && !(brandPhone && normalizeUruguayPhone(value) === brandPhone)) processed.contact[field] = null
   }
   // Teléfono y web de una página de varios locales: sólo si aparecen junto a la marca en alguna fuente citada.
   for (const field of ['phone', 'website'] as const) {
@@ -2059,7 +2113,7 @@ export function postProcess(
     // El teléfono del modelo, con su support, gana; el que aparece en el texto de las fuentes es respaldo.
     // En una cadena, el teléfono de respaldo sólo de fuentes que hablan de esta sucursal.
     const { phone: anyPhone, ...deterministic } = context.deterministicContact
-    const phone = chain ? firstSourcePhone(sources.filter((source) => mentionsBranch(source, target)), brand) : anyPhone
+    const phone = chain ? firstSourcePhone(sources.filter((source) => mentionsBranch(source, target)), brand) ?? brandPhone : anyPhone
     processed.contact = normalizeContact({ ...processed.contact, ...deterministic, phone: processed.contact.phone ?? phone ?? null })
   }
   // El Instagram validado por Apify no queda si el modelo lo rechazó (vio que es de otro negocio). El cargado a mano
@@ -2078,6 +2132,22 @@ export function postProcess(
   if (deliveryPage && !processed.tags.includes('delivery')) {
     processed.tags.push('delivery')
     addCodeFact('features.delivery', `Tiene página de pedidos en ${hostname(deliveryPage.url)}`, deliveryPage)
+  }
+
+  // Un bar que no nombra bebidas igual es para tomar algo si una fuente real lo describe como bar: un bar no escribe
+  // "tenemos cerveza". El nombre del lugar no cuenta ("Bar Tinkal en PedidosYa"), y una barbería con categoría bar
+  // de Google no dice "bar" como palabra. La línea pasa a ser el respaldo de drinks (reviewExtraction lo mira).
+  const barCategory = processed.categories.some((category) => category === 'bar' || category === 'brewery' || category === 'wine_bar')
+  if (barCategory && !processed.tags.some((tag) => groupOf(tag) === 'drinks') && !support.has('moments.drinks')) {
+    const placeSources = sources.filter((source) => source.url !== EXA_SUMMARY_URL && facts.some((fact) => fact.source === source))
+    for (const source of placeSources) {
+      const line = source.text.split(/\n|(?<=\.)\s/).find((part) => describesAsBar(part, brand))
+      if (!line) continue
+      addUnique(processed.tags, 'drinks')
+      addCodeFact('moments.drinks', line, source)
+      tagEvidence.push({ tag: 'drinks', mode: 'explicit', signals: [describesAsBar(line, brand)!], factIds: lastSupport('moments.drinks') })
+      break
+    }
   }
 
   applyConsistencyRules(processed)
@@ -2186,6 +2256,28 @@ export function isChainBranch(target: Pick<Target, 'name'>, sources: Source[]): 
 }
 
 /**
+ * Teléfono único de la marca: una fuente oficial (web o Instagram) con un solo teléfono distinto en su texto y sus
+ * links (tel: y WhatsApp), que no es la página de otra sucursal. null si no hay o si dos fuentes oficiales dan
+ * teléfonos distintos.
+ */
+export function brandWidePhone(sources: Source[], target: Pick<Target, 'name' | 'address' | 'neighborhoodId'>): string | null {
+  const phones = new Set<string>()
+  for (const source of sources) {
+    if (source.trust !== 'official' || source.url === EXA_SUMMARY_URL) continue
+    let path = ''
+    try { path = new URL(source.url).pathname.toLowerCase() } catch { /* URL inválida: sólo el texto */ }
+    if (MULTI_BRANCH_PATH.test(path) && !mentionsBranch(source, target)) continue
+    const found = new Set([
+      ...phonesInText(source.text),
+      ...sourceLinks(source).filter((link) => /^tel:/i.test(link) || whatsappNumber(link) !== link).map(whatsappNumber),
+    ].map(normalizeUruguayPhone).filter((value): value is string => Boolean(value)))
+    if (found.size > 1) return null
+    for (const phone of found) phones.add(phone)
+  }
+  return phones.size === 1 ? [...phones][0] : null
+}
+
+/**
  * La fuente habla de esta sucursal: menciona su dirección o su barrio. El resumen de Exa no
  * cuenta: en una cadena junta datos de varias sucursales.
  */
@@ -2230,6 +2322,9 @@ const MAX_DOUBTS = 5
 export const MISSING_NAME_DOUBT = 'Nombre: ninguna fuente confirma el nombre del local; no se puede guardar.'
 const DAY_LABELS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb']
 
+// Comidas del día que hacen de un restaurante un lugar con comida, aunque no nombre platos.
+const MEAL_MOMENTS = ['breakfast', 'brunch', 'lunch', 'dinner', 'afternoon_snack'] as const
+
 /**
  * Lo que el pipeline no resolvió en un lugar, para el reporte del lote. No modifica el borrador.
  * Un fact queda sin mapear si ningún tag, campo, horario ni highlight conservado lo cita.
@@ -2269,10 +2364,18 @@ export function reviewExtraction(
     anomalies.push({ type: 'hours_no_close', detail: openEnded.map((slot) => `${DAY_LABELS[slot.day]} desde ${slot.opens}`).join(', ') })
   }
   const barCategory = categories.find((category) => category === 'bar' || category === 'brewery' || category === 'wine_bar')
-  if (barCategory && !tags.some((tag) => groupOf(tag) === 'drinks')) {
+  // Bebidas: un tag de drinks, o tomar algo respaldado por una fuente real (postProcess lo respalda si una fuente describe
+  // el lugar como bar). El drinks que pone la categoría de Google sola no tiene fact y no cuenta.
+  const servesDrinks = tags.includes('drinks') &&
+    place.placeFacts.some((fact) => fact.sourceUrl !== EXA_SUMMARY_URL && fact.supports.includes('moments.drinks'))
+  if (barCategory && !servesDrinks && !tags.some((tag) => groupOf(tag) === 'drinks')) {
     anomalies.push({ type: 'bar_without_drinks', detail: barCategory })
   }
-  if (categories.includes('restaurant') && !tags.some((tag) => groupOf(tag) === 'foods')) {
+  // Comida: un plato (foods) o una comida del día respaldada por una fuente real: "Desayunos • Almuerzos • Meriendas" en
+  // el Instagram alcanza; la misma comida sólo del resumen de Exa, no.
+  const servesMeals = MEAL_MOMENTS.some((id) => tags.includes(id) &&
+    place.placeFacts.some((fact) => fact.sourceUrl !== EXA_SUMMARY_URL && fact.supports.includes(`moments.${id}`)))
+  if (categories.includes('restaurant') && !servesMeals && !tags.some((tag) => groupOf(tag) === 'foods')) {
     anomalies.push({ type: 'restaurant_without_food', detail: 'restaurant' })
   }
   const fully = (['vegan', 'vegetarian', 'glutenFree'] as const).filter((field) => dietary[field] === 'fully')
@@ -2461,6 +2564,12 @@ function extractionPerformance(
   }
 }
 
+/**
+ * ¿Hay otro lugar guardado de la misma marca? (mismo Instagram, la brand_key guardada de este lugar o el slug de la
+ * marca como brand_key). Hace que el lugar sea sucursal de cadena aunque el nombre de Google no lo diga.
+ */
+export type BrandSiblings = (query: { googlePlaceId: string; instagram: string | null; brand: string }) => Promise<boolean>
+
 /** Fuentes ya buscadas de un lugar. Se pueden pasar varias veces a extractFrom con distintos modelos. */
 /** Instagram cargado a mano en la revisión: el handle, o null si se marcó "No tiene Instagram". */
 export type InstagramManual = { handle: string | null }
@@ -2594,12 +2703,13 @@ export class PlaceExtractionService implements PlaceExtractor {
   private readonly logoFetcher?: typeof fetch
   private readonly rateLimitRetry: RateLimitRetryOptions
   private readonly snapshots?: ExtractionSnapshotStore
-  private readonly candidateRegistry: Pick<InstagramCandidateRegistry, 'claim'>
+  private readonly candidateRegistry: Pick<InstagramCandidateRegistry, 'claim'> & Partial<Pick<InstagramCandidateRegistry, 'forget'>>
   private readonly instagramOwners?: InstagramOwners
   private readonly manualInstagram?: ManualInstagramLookup
+  private readonly brandSiblings?: BrandSiblings
   private readonly discoveries: DiscoveryStore
 
-  constructor(config: { apiKey?: string; details: DetailsProvider; exa?: ExaPlaceProvider; instagram?: InstagramProvider; website?: WebsiteProvider; transit?: TransitProvider; generate?: GenerateExtraction; generateHours?: GenerateHours; costRates?: Partial<ExtractionCostRates>; reservationHosts?: readonly string[]; model?: ExtractionModelConfig; hoursModel?: ExtractionModelConfig; logoStorage?: LogoStore; classifyLogo?: LogoClassifier; logoModel?: string; logoFetcher?: typeof fetch; rateLimitRetry?: RateLimitRetryOptions; snapshots?: ExtractionSnapshotStore; candidateRegistry?: Pick<InstagramCandidateRegistry, 'claim'>; instagramOwners?: InstagramOwners; manualInstagram?: ManualInstagramLookup; discoveries?: DiscoveryStore }) {
+  constructor(config: { apiKey?: string; details: DetailsProvider; exa?: ExaPlaceProvider; instagram?: InstagramProvider; website?: WebsiteProvider; transit?: TransitProvider; generate?: GenerateExtraction; generateHours?: GenerateHours; costRates?: Partial<ExtractionCostRates>; reservationHosts?: readonly string[]; model?: ExtractionModelConfig; hoursModel?: ExtractionModelConfig; logoStorage?: LogoStore; classifyLogo?: LogoClassifier; logoModel?: string; logoFetcher?: typeof fetch; rateLimitRetry?: RateLimitRetryOptions; snapshots?: ExtractionSnapshotStore; candidateRegistry?: Pick<InstagramCandidateRegistry, 'claim'> & Partial<Pick<InstagramCandidateRegistry, 'forget'>>; instagramOwners?: InstagramOwners; manualInstagram?: ManualInstagramLookup; brandSiblings?: BrandSiblings; discoveries?: DiscoveryStore }) {
     this.configured = Boolean(config.apiKey?.trim())
     this.details = config.details
     this.exa = config.exa
@@ -2621,7 +2731,23 @@ export class PlaceExtractionService implements PlaceExtractor {
     this.candidateRegistry = config.candidateRegistry ?? new InstagramCandidateRegistry()
     this.instagramOwners = config.instagramOwners
     this.manualInstagram = config.manualInstagram
+    this.brandSiblings = config.brandSiblings
     this.discoveries = config.discoveries ?? new DiscoveryStore()
+  }
+
+  /**
+   * Otro lugar guardado de la misma marca (Instagram validado o manual, o brand_key). Si la base falla, false: las
+   * reglas de sucursal quedan como sin cadena conocida.
+   */
+  private async knownChain(collected: CollectedSources): Promise<boolean> {
+    if (!this.brandSiblings) return false
+    const profile = collected.instagramValidation.profile
+    const instagram = collected.instagramManual ? collected.instagramManual.handle : profile ? instagramHandle(profile.url) : null
+    return this.brandSiblings({ googlePlaceId: collected.target.googlePlaceId, instagram, brand: brandFromGoogleName(collected.target.name) })
+      .catch((error: unknown) => {
+        console.warn(JSON.stringify({ event: 'brand_siblings_failed', placeId: collected.placeId, error: String(error) }))
+        return false
+      })
   }
 
   /**
@@ -2671,6 +2797,11 @@ export class PlaceExtractionService implements PlaceExtractor {
    * Termina con el descubrimiento guardado y lo borra. Con un handle manual que no existe lo deja, para corregirlo
    * sin volver a pagar las fuentes.
    */
+  forget(placeId: string) {
+    this.discoveries.delete(placeId)
+    this.candidateRegistry.forget?.(placeId)
+  }
+
   async completePlace(placeId: string, instagram: InstagramChoice): Promise<PlaceEnrichmentResponse> {
     if (!this.configured) throw new PlacesProviderError('configuration', 'Falta configurar AI_GATEWAY_API_KEY en .env.local.')
     const discovery = this.discoveries.get(placeId)
@@ -3032,6 +3163,7 @@ export class PlaceExtractionService implements PlaceExtractor {
         prominenceSignals: collected.prominenceSignals,
         instagramManual: collected.instagramManual,
         categoryFallback: [],
+        knownChain: await this.knownChain(collected),
       }
       let data = extracted
       let allSources = sources
@@ -3077,8 +3209,9 @@ export class PlaceExtractionService implements PlaceExtractor {
       const modelRejectedInstagram = !collected.instagramManual && Boolean(validatedHandle) && instagramRejectedByModel(data, validatedHandle)
       const placeLogo = modelRejectedInstagram ? NO_LOGO : logo
       place = { ...place, logo: placeLogo.logo }
-      // Una cuenta agregadora tampoco queda como contacto aunque la cite una fuente de terceros.
-      if (place.contact.instagram && collected.sharedInstagram?.some((item) => item.handle === place.contact.instagram!.toLowerCase())) {
+      // Una cuenta agregadora tampoco queda como contacto aunque la cite una fuente de terceros. El cargado a mano sí
+      // queda: puede ser el de dos locales de la misma marca.
+      if (!collected.instagramManual && place.contact.instagram && collected.sharedInstagram?.some((item) => item.handle === place.contact.instagram!.toLowerCase())) {
         place = { ...place, contact: { ...place.contact, instagram: null } }
       }
       // Salida del modelo y fuentes a disco, sin nada de Google, para re-correr postProcess sin el LLM. Nunca corta.
@@ -3104,7 +3237,7 @@ export class PlaceExtractionService implements PlaceExtractor {
       }).catch((error: unknown) => console.warn(JSON.stringify({ event: 'extraction_snapshot_failed', placeId: target.googlePlaceId, error: String(error) })))
       const review = reviewExtraction(place, data, hoursRetry, placeLogo.review, rateLimits.summary(), collected.instagramManual, collected.instagramTieBreak, collected.sharedInstagram)
       const activity = modelRejectedInstagram ? null : collected.instagramActivity
-      place = { ...place, reviewReasons: reviewReasonsFor(place, review, { instagramOperating: instagramOperating(activity, new Date()) }) }
+      place = { ...place, reviewReasons: reviewReasonsFor(place, review, { instagramOperating: instagramOperating(activity, new Date()), chainBranch: place.signals.chainBranch }) }
       return {
         source: 'llm', status: 'ok', model: config.model,
         // La salida del modelo con la que se armó el place (con el horario recuperado, si lo hubo): con las mismas

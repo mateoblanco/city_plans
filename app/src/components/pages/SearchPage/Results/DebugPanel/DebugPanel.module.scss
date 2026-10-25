@@ -1,7 +1,24 @@
+// Flota en la esquina, cerrado de entrada: con el scroll infinito, lo que va debajo de la lista queda lejos.
 .debug {
-  border-top: 1px solid #cccccc;
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 2;
+  background-color: #ffffff;
+  border: 1px solid #cccccc;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
   font-size: 12px;
-  padding-top: 12px;
+  padding: 8px 12px;
+
+  &[open] {
+    width: min(calc(55vw - 32px), 720px);
+    max-height: 60vh;
+    overflow: auto;
+  }
+
+  summary {
+    cursor: pointer;
+  }
 
   pre {
     background-color: #f5f5f5;

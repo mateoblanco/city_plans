@@ -4,12 +4,15 @@ import { createApp } from './app.ts'
 import { ApifyInstagramProvider } from './providers/apify-instagram-provider.ts'
 import { ExaPlaceSearchProvider } from './providers/exa-place-provider.ts'
 import { R2LogoStorage } from './providers/logo-storage.ts'
-import { fileSnapshotStore } from './providers/extraction-snapshots.ts'
+import { archiveSnapshot, fileSnapshotStore } from './providers/extraction-snapshots.ts'
 import { GooglePlacesProvider } from './providers/google-places-provider.ts'
 import { GoogleNeighborhoodSweeper } from './providers/neighborhood-sweep.ts'
 import { fileReportWriter } from './providers/extraction-report.ts'
 import { DEFAULT_MAX_CALLS } from './providers/neighborhood-sweep-config.ts'
-import { PlaceExtractionService } from './providers/place-extraction-service.ts'
+import { extractionCostRates, PlaceExtractionService } from './providers/place-extraction-service.ts'
+import { classifyLogo, logoModel } from './providers/place-logo.ts'
+import { APIFY_TRANSIENT_DELAYS_MS, withRateLimitRetry } from './providers/rate-limit.ts'
+import { withServiceLimit } from './providers/service-limits.ts'
 import { MontevideoBusProvider } from './providers/montevideo-bus-provider.ts'
 import { OpenStreetMapProvider } from './providers/openstreetmap-provider.ts'
 import { PlaywrightWebsiteScraper } from './providers/website-scraper.ts'
@@ -43,19 +46,35 @@ const transitProvider = new MontevideoBusProvider({
   clientSecret: process.env.IM_CLIENT_SECRET,
 })
 const websiteScraper = new PlaywrightWebsiteScraper()
+const logoStorage = new R2LogoStorage()
 // Neon es opcional: sin DATABASE_URL el server arranca igual y /api/places responde 503.
 const database = process.env.DATABASE_URL?.trim()
   ? await (async () => {
-      const [{ db }, { drizzlePlacesStore, placesSaver }, { drizzleInstagramOwners, drizzleManualInstagram, drizzlePlacesReader }] = await Promise.all([
+      const [{ db }, { drizzlePlacesStore, gatewayEmbedder, placesSaver }, { drizzleBrandSiblings, drizzleInstagramOwners, drizzleManualInstagram, drizzlePlacesReader }, { drizzleEditStore, placeEditor }] = await Promise.all([
         import('./db/index.ts'),
         import('./places/save.ts'),
         import('./places/list.ts'),
+        import('./places/edit.ts'),
       ])
       return {
         placesSaver: placesSaver(drizzlePlacesStore(db)),
+        placeEditor: placeEditor({
+          store: drizzleEditStore(db),
+          embed: gatewayEmbedder,
+          // Como el pipeline: cupo de Apify compartido, reintentos por 429 y por fallas pasajeras.
+          scrapeInstagram: instagramProvider.configured
+            ? (url) => withRateLimitRetry('apify', () => withServiceLimit('apify', () => instagramProvider.scrape(url)), null, { transientDelaysMs: APIFY_TRANSIENT_DELAYS_MS })
+            : undefined,
+          logo: { storage: logoStorage, classify: classifyLogo, model: logoModel() },
+          instagramRunUsd: extractionCostRates().instagramRunUsd,
+          archiveSnapshot: (googlePlaceId) => archiveSnapshot(googlePlaceId),
+          // El extractor se crea después: se busca al borrar.
+          forget: (googlePlaceId) => extractor?.forget(googlePlaceId),
+        }),
         placesReader: drizzlePlacesReader(db),
         instagramOwners: drizzleInstagramOwners(db),
         manualInstagram: drizzleManualInstagram(db),
+        brandSiblings: drizzleBrandSiblings(db),
       }
     })()
   : undefined
@@ -67,13 +86,14 @@ const extractor = provider
       instagram: instagramProvider,
       website: websiteScraper,
       transit: transitProvider,
-      logoStorage: new R2LogoStorage(),
+      logoStorage,
       // Salida del modelo y fuentes en cache/extractions, para yarn extraction:replay.
       snapshots: fileSnapshotStore(),
       // Un Instagram ya guardado para otro lugar no es candidato (cuentas agregadoras).
       instagramOwners: database?.instagramOwners,
       // El Instagram cargado a mano en un procesamiento anterior gana al reprocesar.
       manualInstagram: database?.manualInstagram,
+      brandSiblings: database?.brandSiblings,
     })
   : undefined
 const apiPort = Number(process.env.BACKOFFICE_API_PORT ?? 8787)
@@ -90,6 +110,7 @@ serve(
       reportWriter: fileReportWriter(),
       placesSaver: database?.placesSaver,
       placesReader: database?.placesReader,
+      placeEditor: database?.placeEditor,
     }).fetch,
     hostname: '127.0.0.1',
     port: apiPort,

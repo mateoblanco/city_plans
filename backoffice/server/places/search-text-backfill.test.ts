@@ -18,7 +18,7 @@ const row = (overrides: Partial<SearchTextRow> = {}): SearchTextRow => ({
   dishes: ['muzzarella'],
   signature: [],
   style: null,
-  manualOverrides: [],
+  manualOverrides: {},
   ...overrides,
 })
 
@@ -41,12 +41,13 @@ describe('planStyleChange', () => {
     expect(planStyleChange(row(), { style: null })).toBeNull()
   })
 
-  it('respeta los overrides manuales', () => {
-    expect(planStyleChange(row({ manualOverrides: ['style'] }), byIcon)).toMatchObject({ skipped: true, keywordText: null, embeddingText: null, estimatedEmbeddingUsd: 0 })
-    const keyword = planStyleChange(row({ manualOverrides: ['keyword_text'] }), byIcon)!
-    expect(keyword.keywordText).toBeNull()
-    expect(keyword.embeddingText).toContain('Estilo casual')
-    expect(planStyleChange(row({ manualOverrides: ['embedding'] }), byIcon)).toMatchObject({ embeddingText: null, estimatedEmbeddingUsd: 0 })
+  it('un style editado a mano no se toca', () => {
+    expect(planStyleChange(row({ style: 'cuidado', manualOverrides: { style: 'cuidado' } }), byIcon))
+      .toMatchObject({ skipped: true, keywordText: null, embeddingText: null, estimatedEmbeddingUsd: 0 })
+    // Otros campos editados no impiden cambiar el style; los textos salen de los valores guardados (los finales).
+    const named = planStyleChange(row({ name: 'Brujona Bar', manualOverrides: { name: 'Brujona Bar' } }), byIcon)!
+    expect(named).toMatchObject({ skipped: false })
+    expect(named.embeddingText).toContain('Brujona Bar')
   })
 })
 
@@ -54,7 +55,7 @@ describe('applySearchTextChanges', () => {
   it('escribe sólo style, los textos y el embedding; saltea los overrides de style', async () => {
     const write = vi.fn(async () => {})
     const embed = vi.fn(async (texts: string[]) => texts.map(() => [0.1, 0.2]))
-    const changes = [planStyleChange(row(), byIcon)!, planStyleChange(row({ id: 'uuid-2', manualOverrides: ['style'] }), byIcon)!]
+    const changes = [planStyleChange(row(), byIcon)!, planStyleChange(row({ id: 'uuid-2', manualOverrides: { style: null } }), byIcon)!]
     const now = new Date('2026-10-20T12:00:00.000Z')
     expect(await applySearchTextChanges(changes, { write, embed, now: () => now })).toEqual({ written: 1, embedError: null })
     expect(embed).toHaveBeenCalledWith([changes[0].embeddingText])
@@ -95,9 +96,19 @@ describe('planMomentsChange', () => {
     expect(planMomentsChange(matute, { tags: ['pizza', 'date'] })).toBeNull()
   })
 
-  it('respeta el override manual de tags', () => {
-    expect(planMomentsChange(row({ tags: ['picada'], manualOverrides: ['tags'] }), { tags: ['picada', 'groups'] }))
-      .toMatchObject({ skipped: true, keywordText: null, embeddingText: null })
+  it('un replay no vuelve a poner un tag sacado a mano, pero sí suma uno nuevo', () => {
+    // date se sacó a mano; el replay lo vuelve a deducir y además deduce groups.
+    const edited = row({ ...matute, tags: ['picada', 'craft_beer'], manualOverrides: { tags: { add: [], remove: ['date'] } } })
+    const change = planMomentsChange(edited, { tags: ['picada', 'craft_beer', 'date', 'groups'] })!
+    expect(change).toMatchObject({ before: [], after: ['groups'], added: ['groups'], removed: [], skipped: false })
+    expect(change.values).toEqual({ tags: ['picada', 'craft_beer', 'groups'] })
+    expect(change.keywordText).not.toContain('Cita')
+  })
+
+  it('un tag agregado a mano queda aunque el replay no lo deduzca; si sólo cambiaría eso, null', () => {
+    const edited = row({ ...matute, manualOverrides: { tags: { add: ['date'], remove: [] } } })
+    expect(planMomentsChange(edited, { tags: ['picada', 'craft_beer'] })).toBeNull()
+    expect(planMomentsChange(edited, { tags: ['picada', 'craft_beer', 'groups'] })!.values).toEqual({ tags: ['picada', 'craft_beer', 'groups', 'date'] })
   })
 
   it('al aplicar escribe los tags, no el style', async () => {

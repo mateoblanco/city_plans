@@ -1,5 +1,6 @@
 import type { IconCategory } from '../data/icon-categories.ts'
-import type { StyleId } from '../data/tags.ts'
+import type { StyleId, TagId } from '../data/tags.ts'
+import type { DIET_LEVELS, EditField, ManualLogo, ManualOverrides, PlaceEdit, PRICE_LEVELS } from '../data/manual-overrides.ts'
 import type { ReviewReason } from '../data/review-reasons.ts'
 
 export type JsonPrimitive = string | number | boolean | null
@@ -91,7 +92,7 @@ export type PlaceLogo = {
   kind: LogoKind | null
   bgColor: string | null
   color: string | null
-  source: 'instagram' | 'owner'
+  source: 'instagram' | 'owner' | 'manual'
   fetchedAt: string
 }
 
@@ -331,14 +332,114 @@ export type PlaceListItem = {
   hasEmbedding: boolean
   prominence: number
   igFollowers: number | null
+  /** Marca con sucursales (server/places/brand-key.ts); null sin marca. */
+  brandKey: string | null
+  /** Handle sin @ ni mayúsculas; null sin Instagram. */
+  instagram: string | null
   featured: boolean
   logoUrl: string | null
   logoKind: LogoKind | null
   logoBgColor: string | null
   logoColor: string | null
   iconCategory: IconCategory | null
+  style: StyleId | null
   reviewReasons: ReviewReason[]
+  /** Campos editados a mano (manual_overrides), sin Publicar. */
+  editedFields: EditField[]
 }
+
+export const PLACE_LIST_CATEGORIES = ['restaurant', 'bar', 'cafe'] as const
+export const PLACE_LIST_SORTS = ['recent', 'prominence', 'name'] as const
+
+/** Filtros, orden y página de GET /api/places. */
+export type PlaceListQuery = {
+  q?: string
+  neighborhood?: string
+  category?: (typeof PLACE_LIST_CATEGORIES)[number]
+  status?: 'published' | 'review'
+  edited?: boolean
+  /** Sin logo_key. */
+  noLogo?: boolean
+  /** Horario con status none ("Sin horario"). */
+  noHours?: boolean
+  sort: (typeof PLACE_LIST_SORTS)[number]
+  page: number
+  pageSize: number
+}
+
+/** Una página del listado. total: con todos los filtros; counts: con los filtros salvo el status (para las pestañas). */
+export type PlaceListPage = {
+  places: PlaceListItem[]
+  total: number
+  counts: { all: number; published: number; review: number }
+}
+
+/** Lo que el modal de edición necesita de un lugar (GET /api/places/:id). */
+export type PlaceDetail = {
+  id: string
+  googlePlaceId: string | null
+  name: string
+  address: string | null
+  neighborhoodId: string
+  status: string
+  categories: string[]
+  tags: TagId[]
+  style: StyleId | null
+  iconCategory: IconCategory | null
+  price: PriceLevel
+  dietVegan: DietLevel
+  dietVegetarian: DietLevel
+  dietGlutenFree: DietLevel
+  instagram: string | null
+  website: string | null
+  brandKey: string | null
+  featured: boolean
+  logoUrl: string | null
+  logoKind: LogoKind | null
+  logoBgColor: string | null
+  logoColor: string | null
+  logoSource: PlaceLogo['source'] | null
+  igFollowers: number | null
+  prominence: number
+  manualOverrides: ManualOverrides
+  editedFields: EditField[]
+  /** brand_key de todos los lugares guardados, para sugerir en el modal. */
+  brandKeys: string[]
+}
+
+export type PriceLevel = (typeof PRICE_LEVELS)[number]
+export type DietLevel = (typeof DIET_LEVELS)[number]
+
+/** Otro lugar guardado que ya tiene el Instagram que se quiere poner. */
+export type InstagramOwner = { id: string; name: string; neighborhoodId: string; brandKey: string | null }
+
+/** Qué se recalcula al guardar una edición y cuánto cuesta (PATCH /api/places/:id con dryRun). */
+export type PlaceEditPlan = {
+  /** Campos que cambian respecto de lo guardado. */
+  changed: (keyof PlaceEdit)[]
+  /** Pasos del recálculo, en el orden en que corren, con su costo (0 = sin llamadas pagas). */
+  steps: { id: 'search_texts' | 'embedding' | 'instagram_profile' | 'logo_classification' | 'prominence' | 'brand_keys' | 'column_only'; label: string; costUsd: number }[]
+  totalUsd: number
+  /** Otros lugares con el Instagram nuevo: hay que confirmar (puede ser otra sucursal). */
+  instagramOwners: InstagramOwner[]
+}
+
+/** Resultado de guardar una edición. warnings: lo que no se pudo recalcular (el resto quedó guardado). */
+export type PlaceEditResult = { place: PlaceDetail; warnings: string[] }
+
+/** Resultado de borrar un lugar: qué se limpió y qué quedó para después. */
+export type PlaceDeleteResult = {
+  id: string
+  /** Snapshot movido a cache/extractions/deleted/, o null si no había. */
+  snapshot: string | null
+  /** Otros lugares cuya brand_key cambió al sacar este del grupo. */
+  brandKeys: { id: string; name: string; brandKey: string | null }[]
+  /** El logo queda en R2 hasta yarn logos:cleanup. */
+  logoKey: string | null
+}
+
+/** Logo subido a mano, procesado y en R2 (todavía sin guardar en el lugar). */
+export type ManualLogoUpload = { logo: ManualLogo; logoUrl: string | null; classificationUsd: number }
 
 export type PlaceEnrichmentResponse = {
   source: 'llm'
@@ -553,6 +654,10 @@ export type ApiErrorCode =
   /** El paso 2 no encontró el descubrimiento del lugar (venció o se reinició el server): hay que volver a descubrir. */
   | 'DISCOVERY_EXPIRED'
   | 'NOT_FOUND_ERROR'
+  /** El Instagram que se edita ya lo tiene otro lugar: hay que confirmar que es otra sucursal. */
+  | 'INSTAGRAM_IN_USE'
+  /** El logo subido no sirve (no es imagen, es muy chico, es el avatar genérico). */
+  | 'LOGO_INVALID'
   | 'UNKNOWN_ERROR'
 
 export type ApiErrorResponse = {

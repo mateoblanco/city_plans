@@ -18,7 +18,7 @@ const PlaceImage = (props: Props) => {
       {props.logoUrl && <Image
         src={props.logoUrl}
         alt={`Logo de ${props.name}`}
-        width={66}
+        width={60}
         height={66}
         unoptimized
         className={styles.logo} />

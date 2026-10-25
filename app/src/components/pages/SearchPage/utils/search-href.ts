@@ -8,14 +8,14 @@ export type SearchUrl = {
   /** Intención elegida en la barra (bars) y sus sub-filtros (cocktails,live_music). */
   intent?: string | null;
   sub?: string | null;
-  /** Filtros de la barra (open:now,diet:vegan,neighborhood:CORDON). */
+  /** Filtros de la barra (open:today,diet:vegan,neighborhood:CORDON). */
   f?: string | null;
   /** Cerca mío: lat,lng redondeados a 3 decimales. */
   near?: string | null;
   debug?: boolean;
 };
 
-type ChipRef = { kind: string; id: string; fromText?: boolean; fromFilter?: boolean };
+export type ChipRef = { kind: string; id: string; fromText?: boolean; fromFilter?: boolean };
 
 /** Lo que la barra sabe de la intención (IntentBar del server, sin labels). */
 export type BarRef = {
@@ -31,10 +31,10 @@ const list = (raw: string | null | undefined) =>
     .map((part) => part.trim())
     .filter(Boolean);
 
-/** Clave del chip en `f`; null si ese chip no es un filtro de la barra. */
+/** Clave del chip en `f`; null si ese chip no es un filtro de la barra. section es el "Ver todos" de un grupo. */
 export function filterKey({ kind, id }: { kind: string; id: string }): string | null {
-  if (kind === "openAt") return id === "now" ? "open:now" : null;
-  return kind === "diet" || kind === "neighborhood" ? `${kind}:${id}` : null;
+  if (kind === "openAt") return id === "today" ? "open:today" : null;
+  return kind === "diet" || kind === "neighborhood" || kind === "section" ? `${kind}:${id}` : null;
 }
 
 /** URL de /search. `add` suma un chip a remove (lo que hacía antes quitar un chip). */
@@ -81,21 +81,25 @@ export function addFilterHref(state: SearchUrl, chip: { kind: string; id: string
 }
 
 /**
- * Barrio de la barra (uno solo): reemplaza el anterior y quita los barrios del texto, así sacar después
- * el chip no hace volver el del texto. null = "Todos".
+ * Barrios o cerca mío, el select de la barra: los barrios reemplazan a los anteriores y quitan los del texto que no se
+ * eligieron, así sacar después un chip no hace volver el del texto. near pisa la ubicación (null la saca).
+ * [] sin near = "Todos los barrios".
  */
-export function setNeighborhoodHref(state: SearchUrl, id: string | null, chips: ChipRef[]): string {
-  const f = list(state.f).filter((item) => !item.startsWith("neighborhood:"));
+export function setNeighborhoodsHref(state: SearchUrl, ids: string[], chips: ChipRef[], near: string | null): string {
+  const keys = ids.map((id) => `neighborhood:${id}`);
+  const f = [...list(state.f).filter((item) => !item.startsWith("neighborhood:")), ...keys];
   const fromText = chips
-    .filter((chip) => chip.kind === "neighborhood" && chip.fromText && chip.id !== id)
+    .filter((chip) => chip.kind === "neighborhood" && chip.fromText && !ids.includes(chip.id))
     .map((chip) => `neighborhood:${chip.id}`);
-  const remove = [...list(id ? without(state.remove, `neighborhood:${id}`) : state.remove), ...fromText].join(",");
-  return searchHref({ ...state, f: id ? [...f, `neighborhood:${id}`].join(",") : f.join(","), remove });
+  const remove = [...list(state.remove).filter((item) => !keys.includes(item)), ...fromText].join(",");
+  return searchHref({ ...state, f: f.join(","), remove, near });
 }
 
 /** Cerca mío: las coordenadas van redondeadas a 3 decimales (unos 100 m). */
+export const nearParam = (lat: number, lng: number) => `${roundCoord(lat)},${roundCoord(lng)}`;
+
 export function nearHref(state: SearchUrl, lat: number, lng: number): string {
-  return searchHref({ ...state, near: `${roundCoord(lat)},${roundCoord(lng)}` });
+  return searchHref({ ...state, near: nearParam(lat, lng) });
 }
 
 /**
@@ -114,7 +118,7 @@ const intentKeys = (bar: BarRef) => (bar.textIntent ? [`intent:${bar.textIntent}
 
 /**
  * Elegir una intención (o null = "Todo"): limpia los sub-filtros de la anterior, vengan de la URL o del texto,
- * pero conserva barrio, abierto ahora, dietas (f) y cerca mío.
+ * pero conserva barrio, abre hoy, dietas (f) y cerca mío.
  */
 export function intentHref(state: SearchUrl, id: string | null, bar: BarRef): string {
   return searchHref({ ...state, intent: id, sub: null, remove: [...list(state.remove), ...intentKeys(bar), ...textRow(bar)].join(",") });
@@ -137,4 +141,15 @@ export function subHref(state: SearchUrl, id: string, bar: BarRef): string {
 /** Quitar un extra ("Pizza ×"): el remove de siempre, con la intención fija en la URL. */
 export function extraHref(state: SearchUrl, chip: ChipRef, bar: BarRef): string {
   return removeChipHref({ ...state, intent: bar.intent?.id ?? state.intent ?? null }, chip);
+}
+
+/** "Ver todos" de un grupo: la misma búsqueda con la regla del grupo como filtro (reemplaza otra sección). */
+export function sectionHref(state: SearchUrl, id: string): string {
+  const f = list(state.f).filter((item) => !item.startsWith("section:"));
+  return searchHref({ ...state, f: [...f, `section:${id}`].join(",") });
+}
+
+/** La misma búsqueda contra /api/search/widen (la invitación a ampliar del final de la lista), sin debug. */
+export function widenUrl(state: SearchUrl): string {
+  return `/api/search/widen${searchHref({ ...state, debug: false }).slice("/search".length)}`;
 }

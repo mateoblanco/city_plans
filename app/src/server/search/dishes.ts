@@ -32,6 +32,8 @@ const ICONS_FOR_FOOD: Record<string, string[]> = {
 const ICONS_FOR_DISH: Record<string, string[]> = {
   taco: ['taco'], burrito: ['burrito'], tamal: ['tamale'], ramen: ['ramen'], curry: ['curry'], falafel: ['falafel'],
   kebab: ['kebab'], shawarma: ['kebab'], dumpling: ['dumplings'], gyoza: ['dumplings'], 'papas fritas': ['fries'], fries: ['fries'],
+  // "comer carne": una parrilla es conocida por la carne aunque su texto no diga "carne".
+  carne: ['grill', 'meat'], meat: ['grill', 'meat'],
 }
 
 /** Variantes para buscar en el diccionario: tal cual y sin plural. */

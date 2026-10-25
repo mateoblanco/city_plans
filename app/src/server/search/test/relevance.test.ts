@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Fused } from '../fuse'
 import { relevanceCut, type RelevanceContext } from '../relevance'
+import { INTENTS } from '@shared/intents.ts'
 import { row } from './fixtures'
 
 const item = (overrides: Parameters<typeof row>[0], pinned = false): Fused => ({
@@ -57,5 +58,16 @@ describe('corte por relevancia', () => {
     const result = relevanceCut([item({ id: 'a', semantic: 0.45 }), item({ id: 'b', semantic: 0.1 })], { ...context, hasEmbedding: false })
     expect(result.kept).toHaveLength(2)
     expect(result.summary).toBeNull()
+  })
+})
+
+describe('intención pedida con un verbo', () => {
+  it('"tomar algo" se queda con todos los bares, como "bares": el verbo ya no va como keyword', () => {
+    const fused = [item({ id: 'mejor', semantic: 0.31 }), item({ id: 'varsovia', semantic: 0.2, categories: ['brewery', 'bar'] }), item({ id: 'cafe', semantic: 0.2, categories: ['cafe'] })]
+    const ctx = { ...context, categories: [], tags: [] }
+    expect(kept(fused, { ...ctx, intent: INTENTS.bars.match })).toEqual(['mejor', 'varsovia'])
+    expect(relevanceCut(fused, { ...ctx, intent: INTENTS.bars.match }).relevance.get('varsovia')).toEqual({ kept: 'intent' })
+    // Sin intención del texto (sólo la de la URL), corta como siempre.
+    expect(kept(fused, ctx)).toEqual(['mejor'])
   })
 })

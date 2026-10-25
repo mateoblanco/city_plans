@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { GooglePlaceDetailsResponse, InstagramAuditCandidate, PlaceEnrichmentDraft, PlaceReview } from '../../src/types/places.ts'
 import type { TransitInfo } from './montevideo-bus-provider.ts'
@@ -61,13 +61,32 @@ export function fileSnapshotStore(dir = DEFAULT_SNAPSHOT_DIR): ExtractionSnapsho
   }
 }
 
+/**
+ * Mueve el snapshot de un lugar borrado a `<dir>/deleted/` (readSnapshots sólo lee el primer nivel, así el replay no lo
+ * lista). Devuelve la ruta nueva, o null si no había snapshot.
+ */
+export async function archiveSnapshot(googlePlaceId: string, dir = DEFAULT_SNAPSHOT_DIR): Promise<string | null> {
+  const target = join(dir, 'deleted', fileName(googlePlaceId))
+  try {
+    await mkdir(join(dir, 'deleted'), { recursive: true })
+    await rename(join(dir, fileName(googlePlaceId)), target)
+    return target
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw error
+  }
+}
+
 export async function readSnapshots(dir = DEFAULT_SNAPSHOT_DIR): Promise<ExtractionSnapshot[]> {
   const files = (await readdir(dir).catch(() => [] as string[])).filter((file) => file.endsWith('.json'))
   return Promise.all(files.map(async (file) => JSON.parse(await readFile(join(dir, file), 'utf8')) as ExtractionSnapshot))
 }
 
-/** postProcess con la salida guardada y el local objetivo de un Place Details nuevo (la única llamada paga). */
-export async function replaySnapshot(snapshot: ExtractionSnapshot, details: { getDetails(placeId: string): Promise<GooglePlaceDetailsResponse> }): Promise<PlaceEnrichmentDraft> {
+/**
+ * postProcess con la salida guardada y el local objetivo de un Place Details nuevo (la única llamada paga). knownChain:
+ * hay otro lugar guardado de la misma marca (lo calcula quien llama, con la base).
+ */
+export async function replaySnapshot(snapshot: ExtractionSnapshot, details: { getDetails(placeId: string): Promise<GooglePlaceDetailsResponse> }, options: { knownChain?: boolean } = {}): Promise<PlaceEnrichmentDraft> {
   const target = targetFromDetails(snapshot.googlePlaceId, await details.getDetails(snapshot.googlePlaceId), snapshot.request, snapshot.transit)
   return postProcess(target, snapshot.llmOutput, {
     sources: snapshot.sources,
@@ -76,5 +95,6 @@ export async function replaySnapshot(snapshot: ExtractionSnapshot, details: { ge
     prominenceSignals: snapshot.prominenceSignals ?? undefined,
     instagramManual: snapshot.instagramAudit?.manual,
     categoryFallback: [],
+    knownChain: options.knownChain,
   })
 }

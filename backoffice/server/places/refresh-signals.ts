@@ -7,6 +7,9 @@ import { withServiceLimit } from '../providers/service-limits.ts'
 import type { ExtractionSnapshot } from '../providers/extraction-snapshots.ts'
 import { canonical } from '../providers/source-hosts.ts'
 import { computeProminence, type ProminenceSignals } from './prominence.ts'
+import { applyOverrides } from './manual-overrides.ts'
+import { sharedBrandKeys } from './brand-key.ts'
+import type { ManualOverrides } from '../../src/data/manual-overrides.ts'
 
 const REFRESH_CONCURRENCY = 4
 
@@ -18,6 +21,10 @@ export type SignalsRow = ProminenceSignals & {
   name: string
   instagram: string | null
   prominence: number
+  /** brand_key guardada: compartida con otro lugar, es sucursal de cadena. */
+  brandKey?: string | null
+  /** Campos editados a mano: lo que se escribe pasa por applyOverrides. */
+  manualOverrides?: ManualOverrides
 }
 
 export type SignalsUpdate = { igFollowers: number | null; chainBranch: boolean; prominence: number }
@@ -70,12 +77,13 @@ const brandCountsOf = (rows: { name: string }[]) => {
  * Exa (con la marca y el tipo de lugar de Google) sólo sirve para saber si es una sucursal de cadena:
  * ahí los seguidores son de la marca y computeProminence los descuenta. No toca ninguna otra columna. Una falla de un
  * lugar no corta el resto; si falla sólo Instagram, los seguidores quedan como estaban.
- * Sin el nombre de Google, es cadena si las fuentes muestran varias sucursales o si hay más de un
- * lugar guardado con la misma marca.
+ * Sin el nombre de Google, es cadena si las fuentes muestran varias sucursales, si hay más de un
+ * lugar guardado con la misma marca o si comparte brand_key con otro lugar.
  */
 export async function refreshSignals(rows: SignalsRow[], deps: RefreshDeps, options: { onlyIds?: ReadonlySet<string> } = {}): Promise<RefreshResult[]> {
   // Las marcas repetidas se cuentan sobre todos los lugares, aunque se procesen sólo algunos.
   const brandCounts = brandCountsOf(rows)
+  const shared = sharedBrandKeys(rows)
   const selected = options.onlyIds ? rows.filter((row) => options.onlyIds!.has(row.id)) : rows
 
   return pMap(selected, async (row): Promise<RefreshResult> => {
@@ -100,7 +108,7 @@ export async function refreshSignals(rows: SignalsRow[], deps: RefreshDeps, opti
     const sources = exa.results
       .map((result): Source => ({ id: '', kind: 'exa', trust: 'third_party', url: result.url, text: result.text?.trim() || result.highlights.join('\n') }))
       .filter((source) => !isForeignSource(source.url, source.text))
-    const chain = (brandCounts.get(brandKey(row.name)) ?? 0) > 1 || isChainBranch({ name: row.name }, sources)
+    const chain = (brandCounts.get(brandKey(row.name)) ?? 0) > 1 || shared.has(row.id) || isChainBranch({ name: row.name }, sources)
 
     let igFollowers: number | null = null
     if (row.instagram) {
@@ -122,7 +130,7 @@ export async function refreshSignals(rows: SignalsRow[], deps: RefreshDeps, opti
     if (sameSignals(before, after)) return { ...result, status: 'unchanged' }
     if (deps.write) {
       try {
-        await deps.write(row.id, after)
+        await deps.write(row.id, applyOverrides(after, row.manualOverrides ?? {}))
       } catch (error) {
         return { ...result, status: 'error', error: `No se pudo guardar: ${message(error)}` }
       }
@@ -153,6 +161,7 @@ export async function signalsFromSnapshots(
   options: { onlyIds?: ReadonlySet<string> } = {},
 ): Promise<SnapshotSignalsResult[]> {
   const brandCounts = brandCountsOf(rows)
+  const shared = sharedBrandKeys(rows)
   const byPlaceId = new Map(snapshots.map((snapshot) => [snapshot.googlePlaceId, snapshot]))
   const selected = rows.filter((row) => row.instagram && row.igFollowers === null && (!options.onlyIds || options.onlyIds.has(row.id)))
   const results: SnapshotSignalsResult[] = []
@@ -166,11 +175,11 @@ export async function signalsFromSnapshots(
     else if (saved && saved.toLowerCase() !== row.instagram!.replace(/^@/, '').toLowerCase()) results.push({ ...base, status: 'skipped', reason: `el snapshot es de @${saved}` })
     else if (followers === null) results.push({ ...base, status: 'skipped', reason: 'el snapshot no tiene seguidores' })
     else {
-      const chain = (brandCounts.get(brandKey(row.name)) ?? 0) > 1 || isChainBranch({ name: row.name }, snapshot.sources)
+      const chain = (brandCounts.get(brandKey(row.name)) ?? 0) > 1 || shared.has(row.id) || isChainBranch({ name: row.name }, snapshot.sources)
       const after = update(followers, chain)
       if (sameSignals(before, after)) results.push({ ...base, after, status: 'unchanged' })
       else {
-        await deps.write?.(row.id, after)
+        await deps.write?.(row.id, applyOverrides(after, row.manualOverrides ?? {}))
         results.push({ ...base, after, status: 'changed' })
       }
     }

@@ -1,17 +1,21 @@
 import { createHash } from 'node:crypto'
-import { buildEmbeddingText, buildKeywordText, isOccasionTag, type OccasionTag, type StyleId } from '../../src/data/tags.ts'
+import { isOccasionTag, type OccasionTag, type StyleId } from '../../src/data/tags.ts'
 import type { TagEvidence } from '../../src/types/places.ts'
-import { searchTextInput } from '../providers/place-extraction-service.ts'
+import type { ManualOverrides } from '../../src/data/manual-overrides.ts'
 import type { Place } from '../db/schema.ts'
 import { EMBEDDING_MODEL, type Embedder } from './save.ts'
+import { applyOverrides, placeSearchTexts } from './manual-overrides.ts'
 
 // text-embedding-3-small: US$0,02 por millón de tokens. Los tokens se estiman como caracteres / 4.
 const EMBEDDING_USD_PER_TOKEN = 0.02 / 1_000_000
 
+/** Costo estimado de embeber un texto. */
+export const estimatedEmbeddingUsd = (text: string) => Math.ceil(text.length / 4) * EMBEDDING_USD_PER_TOKEN
+
 /** Lo que el replay lee de cada lugar guardado: el style, los tags y lo que entra en los textos de búsqueda. */
 export type SearchTextRow = Pick<Place,
   'id' | 'googlePlaceId' | 'name' | 'neighborhoodId' | 'descriptionEs' | 'descriptionEn' | 'locatedIn' | 'categories' | 'tags' |
-  'dietVegan' | 'dietVegetarian' | 'dietGlutenFree' | 'highlights' | 'dishes' | 'signature' | 'style' | 'manualOverrides'>
+  'dietVegan' | 'dietVegetarian' | 'dietGlutenFree' | 'highlights' | 'dishes' | 'signature' | 'style'> & { manualOverrides: ManualOverrides }
 
 export type StyleBasis = NonNullable<TagEvidence['basis']>
 
@@ -38,32 +42,11 @@ export type TagsChange<T extends string = string> = SearchTextChange & { before:
 
 export type MomentsChange = TagsChange<OccasionTag>
 
-/** Como savePlaces: un embedding o su texto con override manual no se regenera. */
-function keepsEmbedding(row: SearchTextRow) {
-  return row.manualOverrides.includes('embedding_text') || row.manualOverrides.includes('embedding')
-}
-
 /** Los textos de búsqueda con los datos guardados del lugar y lo que cambia (style o tags). */
 function searchTexts(row: SearchTextRow, values: SearchTextValues, skipped: boolean) {
-  const input = searchTextInput({
-    name: row.name,
-    neighborhoodId: row.neighborhoodId,
-    description: { es: row.descriptionEs ?? '', en: row.descriptionEn ?? '' },
-    locatedIn: row.locatedIn,
-    categories: row.categories,
-    tags: values.tags ?? row.tags,
-    dietary: { vegan: row.dietVegan, vegetarian: row.dietVegetarian, glutenFree: row.dietGlutenFree },
-    highlights: row.highlights,
-    dishes: row.dishes,
-    signature: row.signature,
-    style: (values.style ?? row.style) as StyleId | null,
-  })
-  const embeddingText = skipped || keepsEmbedding(row) ? null : buildEmbeddingText(input)
-  return {
-    keywordText: skipped || row.manualOverrides.includes('keyword_text') ? null : buildKeywordText(input),
-    embeddingText,
-    estimatedEmbeddingUsd: embeddingText ? Math.ceil(embeddingText.length / 4) * EMBEDDING_USD_PER_TOKEN : 0,
-  }
+  if (skipped) return { keywordText: null, embeddingText: null, estimatedEmbeddingUsd: 0 }
+  const { keywordText, embeddingText } = placeSearchTexts({ ...row, ...values })
+  return { keywordText, embeddingText, estimatedEmbeddingUsd: estimatedEmbeddingUsd(embeddingText) }
 }
 
 /**
@@ -73,7 +56,7 @@ function searchTexts(row: SearchTextRow, values: SearchTextValues, skipped: bool
 export function planStyleChange(row: SearchTextRow, replayed: { style?: StyleId | null; tagEvidence?: TagEvidence[] }): StyleChange | null {
   if (!replayed.style || replayed.style === row.style) return null
   const basis = replayed.tagEvidence?.find((evidence) => evidence.tag === replayed.style)?.basis ?? null
-  const skipped = row.manualOverrides.includes('style')
+  const skipped = Object.hasOwn(row.manualOverrides, 'style')
   const values = { style: replayed.style }
   return {
     id: row.id,
@@ -90,17 +73,19 @@ export function planStyleChange(row: SearchTextRow, replayed: { style?: StyleId 
 
 /**
  * Cambio de algunos tags de un lugar guardado según el replay, o null si son los mismos. Sólo se reemplazan los tags
- * que cumplen `only`; los demás quedan como están guardados.
+ * que cumplen `only`; los demás quedan como están guardados. Los tags editados a mano se respetan: uno sacado a mano
+ * no vuelve y uno agregado a mano queda, pero los demás tags nuevos del replay sí entran.
  */
 export function planTagsChange<T extends string>(row: SearchTextRow, replayed: { tags: string[] }, only: (id: string) => id is T): TagsChange<T> | null {
+  const auto = [...row.tags.filter((id) => !only(id)), ...replayed.tags.filter(only)]
+  const { tags } = applyOverrides({ tags: auto }, row.manualOverrides)
   const before = row.tags.filter(only)
-  const after = replayed.tags.filter(only)
+  const after = tags!.filter(only)
   const added = after.filter((id) => !before.includes(id))
   const removed = before.filter((id) => !after.includes(id))
   if (added.length === 0 && removed.length === 0) return null
-  const skipped = row.manualOverrides.includes('tags')
-  const values = { tags: [...row.tags.filter((id) => !only(id)), ...after] }
-  return { id: row.id, googlePlaceId: row.googlePlaceId, name: row.name, before, after, added, removed, skipped, values, ...searchTexts(row, values, skipped) }
+  const values = { tags: tags! }
+  return { id: row.id, googlePlaceId: row.googlePlaceId, name: row.name, before, after, added, removed, skipped: false, values, ...searchTexts(row, values, false) }
 }
 
 /** Cambio de los momentos (groups, date…) de un lugar guardado según el replay; los demás tags quedan como están. */

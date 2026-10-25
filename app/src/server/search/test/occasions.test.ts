@@ -14,7 +14,7 @@ import { everyDay, fakeCache, fakeStore, llmOutput, row } from './fixtures'
 const now = new Date('2026-10-12T16:00:00Z')
 const dictionary = (query: string) => interpretWithDictionary(normalizeQuery(query))
 const context = (overrides: Partial<FuseContext> = {}): FuseContext => ({
-  pinnedId: null, dishes: [], categories: [], requestedTags: [], preferTags: [], preferStyle: null, price: [], openAt: null, wantsBest: false, wantsDancing: false, ...overrides,
+  pinnedId: null, dishes: [], categories: [], requestedTags: [], preferTags: [], preferStyle: null, price: [], openAt: null, wantsBest: false, wantsDancing: false, intent: null, section: null, ...overrides,
 })
 
 describe('momentos y style en la interpretación', () => {
@@ -26,12 +26,22 @@ describe('momentos y style en la interpretación', () => {
     expect(dictionary('con los chicos')?.prefer.tags).toEqual(['kids_friendly'])
   })
 
-  it('"bar de barrio" es bar + casual, sin perder "de barrio" en las palabras vacías', () => {
+  it('"bar de barrio" es bar + de barrio (y casual), sin perder "de barrio" en las palabras vacías', () => {
     const result = dictionary('bar de barrio')
     expect(result?.must.categories).toEqual(['bar'])
+    expect(result?.prefer.tags).toEqual(['neighborhood_spot'])
     expect(result?.prefer.style).toBe('casual')
-    expect(dictionary('algo especial')).toBeNull()
     expect(dictionary('restaurante de autor')?.prefer.style).toBe('cuidado')
+  })
+
+  it('"bolichito" y "boliche de barrio" son de barrio, no boliche; "boliche" solo sí', () => {
+    for (const query of ['bolichito', 'boliche de barrio', 'clasico del barrio', 'bodegon de barrio']) {
+      const result = dictionary(query)
+      expect(result?.prefer.tags, query).toEqual(['neighborhood_spot'])
+      expect(result?.must.categories, query).not.toContain('night_club')
+    }
+    expect(dictionary('boliche')?.must.categories).toEqual(['night_club'])
+    expect(dictionary('algo especial')).toBeNull()
   })
 
   it('la cita trae el estilo según la consulta; "cita" sola es sólo date', () => {
@@ -227,6 +237,44 @@ describe('ranking por nombre', () => {
     ]
     const pizza = await runSearch('pizza', { store: fakeStore(pizzas).store, cache: fakeCache().cache }, { now, debug: true })
     expect(pizza.debug!.rankings.name.map((entry) => entry.id)).toEqual(['fundamento'])
+  })
+
+  it('sin nombre del modelo: sólo palabras enteras, sin verbos ni palabras vacías', async () => {
+    const comer = await runSearch('comer algo', { store: fakeStore(places).store, cache: fakeCache(llmOutput({ intent: 'eat' })).cache }, { now, debug: true })
+    expect(comer.debug!.source).toBe('llm')
+    expect(comer.debug!.rankings.name).toEqual([])
+
+    const milanesas = [
+      row({ id: 'club', name: 'El Club de la Milanesa', categories: ['restaurant'], tags: ['milanesa'], nameScore: 0.5 }),
+      row({ id: 'milano', name: 'Milano', categories: ['restaurant'], tags: ['milanesa'], nameScore: 0.4 }),
+    ]
+    const { store, calls } = fakeStore(milanesas)
+    const response = await runSearch('una milanesa al pan', { store, cache: fakeCache().cache }, { now, debug: true })
+    expect(response.debug!.rankings.name.map((entry) => entry.id)).toEqual(['club'])
+    expect(calls[0].scores.name).toBe('milanesa pan')
+  })
+
+  it('si no queda ninguna palabra, no busca por nombre', async () => {
+    const { store, calls } = fakeStore(places)
+    let searched = false
+    store.nameMatches = async () => ((searched = true), [])
+    await runSearch('tomar algo', { store, cache: fakeCache().cache }, { now })
+    expect(searched).toBe(false)
+    expect(calls[0].scores.name).toBeNull()
+  })
+
+  it('un lugar se sigue encontrando por su nombre, aunque tenga palabras vacías', async () => {
+    const named = [
+      row({ id: 'comedor', name: 'Misión Comedor' }),
+      row({ id: 'pancho', name: 'Pancho Va!' }),
+      row({ id: 'otra', name: 'La Otra' }),
+    ]
+    for (const [query, id] of [['Misión Comedor', 'comedor'], ['pancho va', 'pancho'], ['la otra', 'otra']]) {
+      const names = [{ id, name: named.find((place) => place.id === id)!.name, similarity: 1, wordSimilarity: 1 }]
+      const response = await runSearch(query, { store: fakeStore(named, names).store, cache: fakeCache().cache }, { now, debug: true })
+      expect(response.results[0].id, query).toBe(id)
+      expect(response.debug!.results.find((entry) => entry.id === id)?.pinned, query).toBe(true)
+    }
   })
 
   it('se usa si la consulta pasó por el modelo', async () => {

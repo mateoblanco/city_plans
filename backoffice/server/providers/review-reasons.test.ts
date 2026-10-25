@@ -46,6 +46,27 @@ describe('reviewReasonsFor', () => {
     expect(reviewReasonsFor({ placeFacts: [] }, review({ doubts: ['Local no confirmado: otra sucursal'] }))).toEqual(['no_place_facts'])
   })
 
+  // Dudas de los snapshots de La Dulceria Xime Torres (Carrasco), Ébano y Masa Café.
+  const DULCERIA = 'Local no confirmado: las fuentes de menú, servicios y reseñas no distinguen sucursal y parecen ser de Pocitos, así que no puedo confirmar que apliquen a Carrasco.'
+  const EBANO = 'Local no confirmado: la web oficial habla de sucursales colombianas y no menciona Montevideo; los datos de Montevideo salen del Instagram oficial.'
+  const MASA = 'Local no confirmado: el menú de S3 (almojábana, pan de bono, tocineta) parece de otra operación y puede no ser de este local.'
+
+  it('La Dulceria: en una cadena, fuentes de la marca que no distinguen sucursal no mandan a revisión', () => {
+    expect(reviewReasonsFor({ placeFacts: OPEN }, review({ doubts: [DULCERIA] }), { chainBranch: true })).toEqual([])
+    expect(reviewReasonsFor({ placeFacts: OPEN }, review({ doubts: ['Sucursal no confirmada: la carta es de la marca y no dice de qué local.'] }), { chainBranch: true })).toEqual([])
+    // Sin cadena conocida, la misma duda sí.
+    expect(reviewReasonsFor({ placeFacts: OPEN }, review({ doubts: [DULCERIA] }))).toEqual(['unconfirmed_place'])
+    expect(reviewReasonsFor({ placeFacts: OPEN }, review({ doubts: ['Sucursal no confirmada: no dice de qué local.'] }))).toEqual(['unconfirmed_place'])
+  })
+
+  it('Ébano y Masa Café: fuentes de otro negocio mandan a revisión aunque sea cadena', () => {
+    for (const doubt of [EBANO, MASA]) {
+      expect(reviewReasonsFor({ placeFacts: OPEN }, review({ doubts: [doubt] }), { chainBranch: true }), doubt).toEqual(['unconfirmed_place'])
+    }
+    // Una de sucursal y otra de otro negocio: va.
+    expect(reviewReasonsFor({ placeFacts: OPEN }, review({ doubts: [DULCERIA, MASA] }), { chainBranch: true })).toEqual(['unconfirmed_place'])
+  })
+
   it('restaurant_without_food y bar_without_drinks mandan a revisión; cuisine_unmentioned y el resto, no', () => {
     const anomalies: PlaceReview['anomalies'] = [
       { type: 'restaurant_without_food', detail: 'restaurant' },

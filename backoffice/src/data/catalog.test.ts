@@ -135,6 +135,11 @@ describe('catálogos permitidos', () => {
     expect(toCanonical('tranquilo')).toEqual({ group: 'atmosphere', id: 'quiet' })
     expect(toCanonical('lively')).toEqual({ group: 'atmosphere', id: 'lively' })
     expect(toCanonical('acogedor')).toEqual({ group: 'atmosphere', id: 'cozy' })
+    for (const term of ['de barrio', 'bolichito', 'boliche de barrio', 'clásico del barrio', 'bodegón de barrio']) {
+      expect(toCanonical(term), term).toEqual({ group: 'atmosphere', id: 'neighborhood_spot' })
+    }
+    expect(toCanonical('boliche')).toEqual({ group: 'categories', id: 'night_club' })
+    expect(toCanonical('bodegón')).toEqual({ group: 'categories', id: 'bodegon' })
     expect(toCanonical('upscale')).toEqual({ group: 'atmosphere', id: 'elegant' })
     expect(GOOD_FOR.work.synonyms.en).toEqual(expect.arrayContaining(['remote workers', 'laptop', 'work from']))
     // Patrimonio Café: "funciona como cowork".

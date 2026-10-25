@@ -44,10 +44,11 @@ Campos:
   - diet: vegan / vegetarian / glutenFree en true sólo si se pide ("sin TACC" → glutenFree).
   - neighborhoods: nombres de barrio de la lista ("near Ciudad Vieja" → "Ciudad Vieja", "el prado" → "Prado Nueva Savona").
   - price: low, moderate, high o very_high ("barato" o "económico" → ["low"], "no muy caro" → ["low","moderate"], "caro" → ["high","very_high"], "de lujo" → ["very_high"]).
-  - openAt: {now:true} para "abierto ahora"; {now:false, day, time} para un día (0 = domingo … 6 = sábado; null = hoy) y/o una hora "HH:MM" (null = cualquier momento de ese día); null si no habla de horario.
+  - openAt: {today:true, tonight:false} para "hoy", "ahora", "abierto ahora" o "today" (abierto ahora o abre más tarde hoy); {today:true, tonight:true} para "esta noche" o "tonight"; {today:false, tonight:false, day, time} para otro día y/o una hora concreta (0 = domingo … 6 = sábado; null = hoy; hora "HH:MM", null = cualquier momento de ese día): "el sábado" → day 6, "mañana a la noche" → mañana con time "21:00", "hoy a las 22" → day null, time "22:00"; null si no habla de horario.
 - prefer: lo subjetivo o deseable (tranquilo, acogedor, lindo, para trabajar), en categories/tags.
   - Momentos u ocasiones, siempre en prefer.tags y nunca en must: "con amigos" o "en grupo" → groups; "cita", "romántico" o "en pareja" → date; "con los chicos" o "con niños" → kids_friendly; "festejar" o "cumpleaños" → celebration; "algo rápido" o "al paso" → quick.
-  - Estilo del lugar, también en prefer.tags y nunca en must: "descontracturado", "de barrio" o "informal" → casual; "especial", "elegante" o "de autor" → cuidado.
+  - Estilo del lugar, también en prefer.tags y nunca en must: "descontracturado" o "informal" → casual; "especial", "elegante" o "de autor" → cuidado.
+  - "de barrio", "bolichito", "boliche de barrio", "clásico del barrio" o "bodegón de barrio" → neighborhood_spot en prefer.tags (no es lo mismo que barato: no agregues precio). "boliche" solo sigue siendo night_club.
   - Una cita puede traer el estilo: "primera cita", "algo tranqui para una cita" o "cita descontracturada" → date + casual; "aniversario", "anniversary" o "cita especial" → date + cuidado; "cena romántica" → date + cuidado y además dinner, igual que "cena"; "cita" sola → sólo date.
 - exclude: lo que la persona NO quiere ("algo que no sea pizza" → exclude tags ["pizza"] y categories ["pizzeria"]).
 - dishes: platos o comidas concretas, en español, minúscula y forma estándar ("milanga" → "milanesa", "best steak" → "bife", "chivito", "milanesa napolitana"). Una comida genérica que ya es un tag del grupo foods también va acá ("pizza", "sushi", "picada"), no en tags.
@@ -56,7 +57,7 @@ Campos:
 - language: "es" o "en", el idioma de la consulta.
 - unrecognized: partes que no pudiste mapear a nada ("cerca mío", "near me", "para 15 personas").
 - intent: qué quiere hacer la persona cuando lo dice con un verbo y no con un tag: ${intentVerbs()}. "almorzar", "cenar" y "merendar" ya son tags (lunch, dinner, afternoon_snack) y no necesitan intent, pero no está mal ponerlo. null si la consulta no dice qué quiere hacer.
-- sections: si la consulta es amplia (sin lugar, plato ni requisitos concretos: "comer con amigos", "algo para una cita", "café en Pocitos"), 2 a 4 ids de la lista "Secciones" que sirvan para agrupar los resultados de esa búsqueda, del más útil al menos; [] si la consulta es específica.
+- sections: si la consulta es amplia (sin lugar, plato ni requisitos concretos: "comer con amigos", "algo para una cita", "café en Pocitos"), 2 a 5 ids de la lista "Secciones" que sirvan para agrupar los resultados de esa búsqueda, del más útil al menos; [] si la consulta es específica.
 - wantsBest: true si se pide lo mejor o lo más destacado ("el mejor chivito", "los mejores cafés", "best coffee", "top bares"); si no, false.
 
 Reglas:

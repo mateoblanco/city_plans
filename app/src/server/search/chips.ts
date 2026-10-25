@@ -5,9 +5,10 @@ import { dietLabel, excludeLabel, momentLabel, PRICE_LABELS } from './labels'
 
 /**
  * fromText / fromFilter: de dónde salió el chip (puede ser de los dos). Con eso la UI sabe cómo apagarlo:
- * lo del texto se suma a `remove`, lo de la barra se saca de `f`, "cerca mío" saca `near`.
+ * lo del texto se suma a `remove`, lo de la barra se saca de `f`, "cerca mío" saca `near`. section (el "Ver todos"
+ * de un grupo) sólo viene de `f`: no se puede quitar con `remove`.
  */
-export type Chip = { kind: ChipKind; id: string; label: string; fromText?: boolean; fromFilter?: boolean }
+export type Chip = { kind: ChipKind | 'section'; id: string; label: string; fromText?: boolean; fromFilter?: boolean }
 
 /** Lo que se entendió de la consulta, en el orden en que conviene mostrarlo. El id es el que acepta `remove`. */
 export function buildChips(value: Interpretation, today: number, near = false): Chip[] {
@@ -23,8 +24,9 @@ export function buildChips(value: Interpretation, today: number, near = false): 
   for (const price of value.must.price) chips.push({ kind: 'price', id: price, label: PRICE_LABELS[lang][price] })
   if (value.must.openAt) {
     const openAt = value.must.openAt
-    const moment = openAt === 'now' ? 'now' : { day: openAt.day ?? today, time: openAt.time }
-    chips.push({ kind: 'openAt', id: openAt === 'now' ? 'now' : 'day', label: momentLabel(moment, lang, today) })
+    // "esta noche" es el mismo chip "Abre hoy" (el de la barra).
+    if (openAt === 'today' || openAt === 'tonight') chips.push({ kind: 'openAt', id: 'today', label: momentLabel('today', lang, today) })
+    else chips.push({ kind: 'openAt', id: 'day', label: momentLabel({ day: openAt.day ?? today, time: openAt.time }, lang, today) })
   }
   for (const id of [...value.prefer.categories, ...value.prefer.tags]) chips.push({ kind: 'prefer', id, label: label(id, lang) })
   if (value.prefer.style) chips.push({ kind: 'prefer', id: value.prefer.style, label: label(value.prefer.style, lang) })

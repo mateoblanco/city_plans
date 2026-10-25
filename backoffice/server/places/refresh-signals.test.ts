@@ -39,6 +39,21 @@ describe('refreshSignals', () => {
     expect(d.write).toHaveBeenCalledWith('uuid-1', { igFollowers: 999, chainBranch: false, prominence: expect.closeTo(0.6) })
   })
 
+  it('un campo editado a mano no cambia: escribe sólo las columnas de señales', async () => {
+    const d = deps()
+    const edited = row({ manualOverrides: { instagram: 'elpalenque', name: 'Palenque', style: 'cuidado', brand_key: 'palenque' } })
+
+    await refreshSignals([edited], d)
+    await signalsFromSnapshots([edited], [{
+      googlePlaceId: 'g-1', sources: [], prominenceSignals: { instagramFollowers: 500 } as never, instagramAudit: { saved: 'elpalenque' } as never,
+    }], { write: d.write })
+
+    expect(d.write).toHaveBeenCalledTimes(2)
+    for (const [, values] of vi.mocked(d.write!).mock.calls) {
+      expect(Object.keys(values).sort()).toEqual(['chainBranch', 'igFollowers', 'prominence'])
+    }
+  })
+
   it('en dry-run calcula sin escribir', async () => {
     const d = deps({ write: undefined })
     const [result] = await refreshSignals([row()], d)

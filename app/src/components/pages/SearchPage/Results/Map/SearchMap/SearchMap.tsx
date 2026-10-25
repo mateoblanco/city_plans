@@ -4,10 +4,12 @@ import { AdvancedMarker, APIProvider, Map, useMap } from "@vis.gl/react-google-m
 import { useEffect, useMemo } from "react";
 import type { IconCategory } from "@shared/icon-categories.ts";
 import PlaceIcon from "@/components/PlaceIcon/PlaceIcon";
+import { MARKER_ICONS } from "./marker-icons";
 import styles from "./SearchMap.module.scss";
 
 export type LatLng = { lat: number; lng: number };
-export type MapPlace = LatLng & { id: string; name: string; iconCategory: IconCategory | null };
+/** cardId: la card del lugar; las sucursales de una marca comparten la card y se resaltan juntas. */
+export type MapPlace = LatLng & { id: string; cardId: string; name: string; iconCategory: IconCategory | null };
 
 const MONTEVIDEO = { lat: -34.9011, lng: -56.1645 };
 const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -40,6 +42,19 @@ const FitBounds = (props: FitBoundsProps) => {
   return null;
 };
 
+type MarkerIconProps = {
+  category: IconCategory | null;
+};
+
+/** SVG de la categoría; sin categoría o sin archivo, el emoji de PlaceIcon. El nombre accesible es el title del marcador. */
+const MarkerIcon = (props: MarkerIconProps) => {
+  const icon = props.category ? MARKER_ICONS[props.category] : undefined;
+  if (!icon) return <PlaceIcon category={props.category} />;
+  // <img> y no next/image: un SVG no se optimiza y la misma URL con hash la cachea el navegador.
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img className={styles.markerIcon} src={icon.src} alt="" width={20} height={20} draggable={false} decoding="async" />;
+};
+
 type Props = {
   places: MapPlace[];
   userLocation: LatLng | null;
@@ -60,19 +75,19 @@ const SearchMap = (props: Props) => {
     <APIProvider apiKey={API_KEY} language="es" region="UY">
       <Map className={styles.map} mapId={MAP_ID} defaultCenter={MONTEVIDEO} defaultZoom={13} disableDefaultUI clickableIcons={false} gestureHandling="greedy" >
         {props.places.map((place) => {
-          const active = place.id === props.hoveredId;
+          const active = place.cardId === props.hoveredId;
           return (
             <AdvancedMarker
               key={place.id}
               position={place}
               title={place.name}
               zIndex={active ? 1 : 0}
-              onClick={() => props.onSelect(place.id)}
-              onMouseEnter={() => props.onHover(place.id)}
+              onClick={() => props.onSelect(place.cardId)}
+              onMouseEnter={() => props.onHover(place.cardId)}
               onMouseLeave={() => props.onHover(null)}
             >
               <div className={styles.marker} data-active={active || undefined}>
-                <PlaceIcon category={place.iconCategory} />
+                <MarkerIcon category={place.iconCategory} />
               </div>
             </AdvancedMarker>
           );

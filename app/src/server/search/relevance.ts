@@ -1,8 +1,10 @@
 import { SEARCH_CONFIG } from './config'
+import type { FilterGroup } from './candidates'
 import type { Fused } from './fuse'
+import { matchesGroup } from './intents'
 
 /** Por qué un resultado pasa el corte; `no-similarity`: el lugar no tiene embedding, no hay con qué compararlo. */
-export type KeptBy = 'pinned' | 'category' | 'tag' | 'dish' | 'keyword' | 'similar' | 'no-similarity'
+export type KeptBy = 'pinned' | 'category' | 'tag' | 'dish' | 'keyword' | 'intent' | 'similar' | 'no-similarity'
 export type Relevance = { kept: KeptBy } | { cut: true; reason: string }
 
 export type RelevanceContext = {
@@ -13,6 +15,11 @@ export type RelevanceContext = {
   /** Tags pedidos (must + prefer + tags relacionados de los platos). */
   tags: string[]
   hasDishes: boolean
+  /**
+   * La intención que el texto pidió con un verbo ("tomar algo" → Bares): cuenta como una categoría pedida, igual que
+   * "bares". El verbo no va como keyword, así que sin esto los bares poco parecidos a "tomar algo" se cortarían.
+   */
+  intent?: FilterGroup | null
 }
 
 export type RelevanceCut = {
@@ -33,6 +40,7 @@ function explicitMatch(item: Fused, context: RelevanceContext): KeptBy | null {
   if (row.tags.some((id) => context.tags.includes(id))) return 'tag'
   if (context.hasDishes && (row.dishHas.some(Boolean) || row.dishExact.some(Boolean) || item.matchLevel === 'has')) return 'dish'
   if (row.keyword > 0) return 'keyword'
+  if (context.intent && matchesGroup(context.intent, row)) return 'intent'
   return null
 }
 

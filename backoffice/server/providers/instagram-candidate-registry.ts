@@ -46,6 +46,14 @@ export class InstagramCandidateRegistry {
     }
     return shared
   }
+
+  /** Saca al lugar de los candidatos (se borró de la base): sus handles dejan de contar como de otra marca. */
+  forget(placeId: string) {
+    for (const [handle, places] of this.seen) {
+      places.delete(placeId)
+      if (places.size === 0) this.seen.delete(handle)
+    }
+  }
 }
 
 /** Lugares de la base que ya tienen guardado alguno de los handles, sin contar el que se procesa. */

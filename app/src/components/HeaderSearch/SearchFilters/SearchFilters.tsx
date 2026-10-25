@@ -1,5 +1,5 @@
 import { searchPlaces } from "@/server/search";
-import FilterBar from "./FilterBar";
+import FilterBar from "../FilterBar/FilterBar";
 import { toSearchOptions, toSearchUrl, type Params } from "@/components/pages/SearchPage/utils/search-params";
 
 type Props = {

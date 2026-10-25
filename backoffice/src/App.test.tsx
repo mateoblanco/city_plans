@@ -466,7 +466,7 @@ describe('City Plans Backoffice', () => {
   })
 
   it('la navegación lleva a la pantalla Lugares', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => jsonResponse({ places: [] })))
+    vi.stubGlobal('fetch', vi.fn(() => jsonResponse({ places: [], total: 0, counts: { all: 0, published: 0, review: 0 } })))
     render(<App />)
 
     await userEvent.setup().click(screen.getByRole('link', { name: 'Lugares' }))

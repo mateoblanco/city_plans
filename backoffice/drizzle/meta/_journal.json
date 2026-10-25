@@ -99,6 +99,20 @@
       "when": 1792542058598,
       "tag": "0013_unconfirmed_place_reason",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1792600943451,
+      "tag": "0014_brand_key",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1792602938848,
+      "tag": "0015_manual_overrides_jsonb",
+      "breakpoints": true
     }
   ]
 }

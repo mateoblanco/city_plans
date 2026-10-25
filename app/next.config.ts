@@ -20,7 +20,8 @@ const nextConfig: NextConfig = {
       "*.svg": {
         loaders: ["@svgr/webpack"],
         as: "*.js",
-        condition: { not: "foreign" },
+        // Los íconos de los marcadores (shared/icons) quedan como imágenes estáticas: URL con hash y caché.
+        condition: { all: [{ not: "foreign" }, { not: { path: /shared\/icons\// } }] },
       },
     },
   },

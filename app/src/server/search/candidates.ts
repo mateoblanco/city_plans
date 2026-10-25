@@ -1,7 +1,7 @@
 import { sql, type SQL } from 'drizzle-orm'
 import { SEARCH_CONFIG } from './config'
 import type { DishTarget } from './dishes'
-import type { Hours, Moment } from './hours'
+import { opensTodayFrom, type Hours, type Moment, type OpenFilter } from './hours'
 import type { DietKey, Price } from './interpretation'
 import type { IntentMatch } from '@shared/intents.ts'
 import type { IconCategory } from '@shared/icon-categories.ts'
@@ -13,7 +13,7 @@ export type CandidateFilters = {
   diet: DietKey[]
   neighborhoods: string[]
   price: Price[]
-  openAt: Moment | null
+  openAt: OpenFilter | null
   excludeCategories: string[]
   excludeTags: string[]
   dishes: DishTarget[]
@@ -25,9 +25,15 @@ export type CandidateFilters = {
   dishMode: DishMode
   /** Cerca mío: sólo lugares a menos de radiusM metros. */
   near: { lat: number; lng: number; radiusM: number } | null
-  /** Intención y sub-filtros: cada grupo es "cualquiera de" (categorías, tags, featured); entre grupos, "y". */
-  groups: IntentMatch[]
+  /**
+   * Intención, sub-filtros y la sección de "Ver todos": cada grupo es "cualquiera de" (categorías, tags, featured,
+   * style); entre grupos, "y".
+   */
+  groups: FilterGroup[]
 }
+
+/** Un grupo de filtros: el match de una intención o sub-filtro, o la regla de una sección (que puede pedir style o íconos). */
+export type FilterGroup = IntentMatch & { style?: string; icons?: string[] }
 
 export type DishMode = 'dish' | 'related' | 'none'
 
@@ -68,6 +74,10 @@ export type CandidateRow = {
   logoKey: string | null
   /** Color de fondo del logo (#rrggbb) o null. */
   logoBgColor: string | null
+  /** Marca con sucursales (backoffice: server/places/brand-key.ts); null = sin marca. */
+  brandKey: string | null
+  /** Sucursales publicadas de la marca, aunque no cumplan la búsqueda; 1 sin marca. */
+  brandCount: number
   lat: number
   lng: number
   matchesFilters: boolean
@@ -113,11 +123,26 @@ export function openAtSql(moment: Moment): SQL {
   ))`
 }
 
-function groupSql(group: IntentMatch): SQL {
+/** "Abre hoy", misma regla que opensToday(): abierto desde ya (o desde la noche), o un turno de hoy que abre más tarde. */
+export function opensTodaySql(moment: { day: number; time: string }, night = false): SQL {
+  const from = opensTodayFrom(moment.time, night)
+  const nightFrom = SEARCH_CONFIG.night.from
+  const reachesNight = night
+    ? sql` and (s->>'closes' is null or s->>'closes' <= s->>'opens' or s->>'closes' > ${nightFrom})`
+    : sql``
+  return sql`(${openAtSql({ day: moment.day, time: from })} or exists (
+    select 1 from jsonb_array_elements(hours->'slots') s
+    where (s->>'day')::int = ${moment.day} and s->>'opens' > ${from}${reachesNight}
+  ))`
+}
+
+function groupSql(group: FilterGroup): SQL {
   const options: SQL[] = []
   if (group.categories?.length) options.push(sql`categories && ${textArray(group.categories)}`)
   if (group.tags?.length) options.push(sql`tags && ${textArray(group.tags)}`)
   if (group.featured) options.push(sql`featured`)
+  if (group.style) options.push(sql`style = ${group.style}`)
+  if (group.icons?.length) options.push(sql`icon_category = any(${textArray(group.icons)})`)
   for (const pair of group.all ?? []) options.push(sql`(categories && ${textArray(pair.categories)} and tags && ${textArray(pair.tags)})`)
   return options.length ? sql`(${sql.join(options, sql` or `)})` : sql`false`
 }
@@ -132,7 +157,10 @@ export function filterConditions(filters: CandidateFilters): SQL[] {
   if (filters.neighborhoods.length) conditions.push(sql`neighborhood_id = any(${textArray(filters.neighborhoods)})`)
   // Precio desconocido no excluye: sólo afuera los que tienen otro precio conocido.
   if (filters.price.length) conditions.push(sql`(price = 'unknown' or price = any(${textArray(filters.price)}))`)
-  if (filters.openAt) conditions.push(openAtSql(filters.openAt))
+  if (filters.openAt) {
+    const { moment, today, night } = filters.openAt
+    conditions.push(today && moment.time ? opensTodaySql({ day: moment.day, time: moment.time }, night) : openAtSql(moment))
+  }
   if (filters.near) conditions.push(sql`ST_DWithin(location, ${pointSql(filters.near)}, ${filters.near.radiusM})`)
   for (const group of filters.groups) conditions.push(groupSql(group))
   if (filters.excludeCategories.length) conditions.push(sql`not (categories && ${textArray(filters.excludeCategories)})`)
@@ -191,7 +219,9 @@ export function candidatesQuery(filters: CandidateFilters, scores: ScoreInputs):
     ${withVector}select id, slug, name, neighborhood_id as "neighborhoodId", categories, tags, signature, dishes,
       json_build_object('vegan', diet_vegan, 'vegetarian', diet_vegetarian, 'glutenFree', diet_gluten_free) as diet,
       price, style, hours, prominence, featured, icon_category as "iconCategory",
-      logo_key as "logoKey", logo_bg_color as "logoBgColor",
+      logo_key as "logoKey", logo_bg_color as "logoBgColor", brand_key as "brandKey",
+      case when brand_key is null then 1
+        else (select count(*)::int from places b where b.brand_key = places.brand_key and b.status = 'published') end as "brandCount",
       ST_Y(location::geometry) as lat, ST_X(location::geometry) as lng,
       (${matches}) as "matchesFilters",
       ${semantic} as semantic,

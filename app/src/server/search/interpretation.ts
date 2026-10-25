@@ -11,8 +11,8 @@ export const DIET_KEYS = ['vegan', 'vegetarian', 'glutenFree'] as const
 export type DietKey = (typeof DIET_KEYS)[number]
 export type Lang = 'es' | 'en'
 
-/** "now", o un día (0 = domingo; null = hoy) y una hora HH:MM (null = en algún momento de ese día). */
-export type OpenAt = 'now' | { day: number | null; time: string | null } | null
+/** "today" (abierto ahora o abre más tarde hoy), "tonight" (lo mismo, a la noche), o un día (0 = domingo; null = hoy) y una hora HH:MM (null = en algún momento de ese día). */
+export type OpenAt = 'today' | 'tonight' | { day: number | null; time: string | null } | null
 
 /** Un plato pedido y los tags o categorías que lo representan si ningún lugar lo tiene (ceviche → peruvian, seafood). */
 export type Dish = { name: string; relatedTags: string[]; relatedCategories: string[] }
@@ -27,7 +27,7 @@ export type Interpretation = {
     price: Price[]
     openAt: OpenAt
   }
-  /** style: estilo pedido ("de barrio" → casual); como los momentos, siempre preferencia. */
+  /** style: estilo pedido ("descontracturado" → casual); como los momentos, siempre preferencia. */
   prefer: { categories: string[]; tags: string[]; style: StyleId | null }
   exclude: { categories: string[]; tags: string[] }
   dishes: Dish[]
@@ -41,6 +41,13 @@ export type Interpretation = {
   intent: IntentId | null
   /** Grupos del catálogo (shared/sections.ts) que el modelo eligió para agrupar los resultados si la búsqueda es amplia. */
   sections: SectionId[]
+}
+
+/** Style que trae un tag de ambiente pedido: elegante → cuidado; de barrio → casual. */
+function impliedStyle(tags: string[]): StyleId | null {
+  if (tags.includes('elegant')) return 'cuidado'
+  if (tags.includes('neighborhood_spot')) return 'casual'
+  return null
 }
 
 export function emptyInterpretation(language: Lang = 'es'): Interpretation {
@@ -69,7 +76,7 @@ export const LlmInterpretationSchema = z.object({
     diet: z.object({ vegan: z.boolean(), vegetarian: z.boolean(), glutenFree: z.boolean() }),
     neighborhoods: z.array(z.string()),
     price: z.array(z.string()),
-    openAt: z.object({ now: z.boolean(), day: z.number().int().nullable(), time: z.string().nullable() }).nullable(),
+    openAt: z.object({ today: z.boolean(), tonight: z.boolean(), day: z.number().int().nullable(), time: z.string().nullable() }).nullable(),
   }),
   prefer: z.object({ categories: z.array(z.string()), tags: z.array(z.string()) }),
   exclude: z.object({ categories: z.array(z.string()), tags: z.array(z.string()) }),
@@ -134,7 +141,7 @@ function normalizeTime(raw: string | null): string | null {
 
 function validOpenAt(raw: LlmInterpretation['must']['openAt']): OpenAt {
   if (!raw) return null
-  if (raw.now) return 'now'
+  if (raw.today) return raw.tonight ? 'tonight' : 'today'
   const day = raw.day !== null && Number.isInteger(raw.day) && raw.day >= 0 && raw.day <= 6 ? raw.day : null
   const time = normalizeTime(raw.time)
   return day === null && time === null ? null : { day, time }
@@ -223,14 +230,14 @@ export function tidy(value: Interpretation): Interpretation {
     neighborhoods: unique(value.must.neighborhoods),
     price: unique(value.must.price),
   }
-  // Los momentos nunca son requisito; "elegante" también pide un lugar cuidado.
+  // Los momentos nunca son requisito; "elegante" también pide un lugar cuidado y "de barrio", uno casual.
   const occasions = must.tags.filter(isOccasionTag)
   must.tags = must.tags.filter((id) => !isOccasionTag(id))
   const preferTags = unique([...value.prefer.tags, ...occasions])
   const prefer = {
     categories: unique(value.prefer.categories).filter((id) => !must.categories.includes(id) && !exclude.categories.includes(id)),
     tags: preferTags.filter((id) => !must.tags.includes(id) && !exclude.tags.includes(id)),
-    style: value.prefer.style ?? (preferTags.includes('elegant') || must.tags.includes('elegant') ? 'cuidado' : null),
+    style: value.prefer.style ?? impliedStyle([...preferTags, ...must.tags]),
   }
   const dishes = new Map<string, Dish>()
   for (const dish of value.dishes) {

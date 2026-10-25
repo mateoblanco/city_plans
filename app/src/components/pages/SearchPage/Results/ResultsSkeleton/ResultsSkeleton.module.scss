@@ -1,4 +1,4 @@
-// .results y .grid: el mismo layout que SearchResults, para que el skeleton ocupe lo mismo.
+// .results y .grid: el mismo layout que SearchResults y PlacesGrid, para que el skeleton ocupe lo mismo.
 .results {
   display: flex;
   flex-direction: column;
@@ -9,18 +9,30 @@
 
 .grid {
   display: grid;
-  gap: 12px;
+  gap: 24px;
   grid-template-columns: repeat(2, 1fr);
 }
 
-.skeletonCard {
+.skeletonCard,
+.skeletonMap {
   animation: pulse 1.2s ease-in-out infinite;
-  aspect-ratio: 1 / 1;
   background-color: #eeeeee;
+  border-radius: 16px;
 
   @media (prefers-reduced-motion: reduce) {
     animation: none;
   }
+}
+
+// El alto de PlaceCard: imagen 100 + padding 2×16 + borde 2×1.
+.skeletonCard {
+  height: 134px;
+}
+
+// Llena la MapColumn, como el mapa real (SearchMap .map).
+.skeletonMap {
+  height: 100%;
+  width: 100%;
 }
 
 .visuallyHidden {

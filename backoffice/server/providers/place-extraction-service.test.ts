@@ -41,6 +41,8 @@ import {
   PlaceExtraction,
   type Source,
 } from './place-extraction-service.ts'
+import { groupOf } from '../../src/data/tags.ts'
+import { EXA_SUMMARY_URL } from './source-hosts.ts'
 import { RateLimitError, TransientProviderError } from './rate-limit.ts'
 import { DiscoveryExpired, ExaProviderFailure, InstagramNotFound, InstagramProviderFailure, PlacesProviderError } from './places-provider.ts'
 import { DISCOVERY_TTL_MS, DiscoveryStore } from './discovery-store.ts'
@@ -1058,6 +1060,31 @@ describe('PlaceExtractionService', () => {
     expect(reviewExtraction(place, data).anomalies.map((anomaly) => anomaly.type)).not.toContain('cuisine_unmentioned')
   })
 
+  it('deduce una cocina que el modelo no propuso con dos platos típicos de fuentes reales', () => {
+    const web = { id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://rincon.example/', text: 'Pelmeni y vareniki caseros' }
+    const exa = { id: 'S2', kind: 'exa' as const, trust: 'third_party' as const, url: EXA_SUMMARY_URL, text: 'Pelmeni y vareniki' }
+    const cuisinesOf = (...facts: [string, string][]) => {
+      const data: PlaceExtraction = {
+        ...emptyExtraction,
+        facts: facts.map(([text, sourceId], index) => ({ id: `F${index + 1}`, text, sourceId, kind: 'food' as const, proposedTag: null })),
+        tags: [{ group: 'categories', id: 'restaurant', facts: ['F1'] }],
+      }
+      const place = postProcess(target, data, { sources: [web, exa] })
+      return { cuisines: place.tags.filter((tag) => groupOf(tag) === 'cuisines'), evidence: place.tagEvidence?.find((item) => item.tag === 'russian') }
+    }
+
+    expect(cuisinesOf(['Pelmeni de carne', 'S1'], ['Vareniki de papa y cebolla', 'S1'])).toEqual({
+      cuisines: ['russian'],
+      evidence: { tag: 'russian', mode: 'inferred', signals: ['pelmeni', 'vareniki'], factIds: ['F1', 'F2'] },
+    })
+    // Un plato solo, o los platos sólo en el resumen de Exa, no alcanzan.
+    expect(cuisinesOf(['Pelmeni de carne', 'S1']).cuisines).toEqual([])
+    expect(cuisinesOf(['Pelmeni de carne', 'S2'], ['Vareniki de papa', 'S2']).cuisines).toEqual([])
+    // "Rusa" suelta no es la cocina: ni la ensalada rusa ni una pareja rusa; tampoco "comida rusa" sin platos.
+    expect(cuisinesOf(['Ensalada rusa casera', 'S1'], ['Restaurante de una pareja rusa', 'S1'], ['Comida rusa', 'S1']).cuisines).toEqual([])
+    expect(cuisineSupport('russian', [{ id: 'F1', text: 'Comida rusa y ensalada rusa' }])).toBeNull()
+  })
+
   it('descarta las cocinas que ningún fact nombra y las anota en review', () => {
     const sources: Source[] = [{ id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://guia.example/', text: 'bar' }]
     const data: PlaceExtraction = {
@@ -1229,7 +1256,7 @@ describe('PlaceExtractionService', () => {
   })
 
   it('lista atmosphere y bodegon entre los ids permitidos y pide cocinas sólo por el estilo principal', () => {
-    expect(SYSTEM_PROMPT).toContain('- atmosphere: quiet, lively, cozy, elegant')
+    expect(SYSTEM_PROMPT).toContain('- atmosphere: quiet, lively, cozy, elegant, neighborhood_spot')
     expect(SYSTEM_PROMPT).toMatch(/- categories: .*bodegon/)
     expect(SYSTEM_PROMPT).toContain('nunca por un plato suelto')
   })
@@ -1370,6 +1397,50 @@ describe('PlaceExtractionService', () => {
       const fromNeighborhood = postProcess(branch, fromSource('S3'), { sources: [web, byNeighborhood] })
       expect(fromNeighborhood.hours.status).toBe('exact')
       expect(fromNeighborhood.tags).toContain('terrace')
+    })
+
+    // Plaza de Chueca / Costa Azul: el nombre de Google no dice sucursal, pero hay otro lugar guardado de la marca.
+    const plainWeb: Source = { ...web, text: 'Heladería Marca. Helados artesanales.' }
+    it('con knownChain aplica las reglas de sucursal aunque ni el nombre ni las fuentes muestren sucursales', () => {
+      const data = fromSource('S2')
+      expect(postProcess(branch, data, { sources: [plainWeb, otherBranch] }).contact.phone).toBe('+598 2622 0000')
+      const place = postProcess(branch, data, { sources: [plainWeb, otherBranch], knownChain: true, deterministicContact: { phone: '+598 2622 0000' } })
+      expect(place.signals.chainBranch).toBe(true)
+      expect(place.contact.phone).toBeNull()
+      expect(place.address).toBeNull()
+      expect(place.hours.slots).toEqual([])
+      // Lo de la marca queda.
+      expect(place.contact).toMatchObject({ website: 'https://marca.example/', instagram: 'heladeriamarca' })
+      expect(place.tags).toContain('wifi')
+    })
+
+    // BBC Parque Rodó: el modelo citó el resumen de Exa, pero una ficha de terceros da teléfono y dirección del local.
+    it('acepta el teléfono y la dirección si una fuente real los tiene junto a la dirección del local, y ganan al de la marca', () => {
+      const summary: Source = { id: 'S3', kind: 'exa', trust: 'third_party', url: EXA_SUMMARY_URL, text: 'Dirección: Av. Gonzalo Ramírez 2051. Teléfono +59891496496' }
+      const card: Source = { id: 'S5', kind: 'exa', trust: 'third_party', url: 'https://guiacomercial.uy/ficha/heladeria-marca-cordon/', text: 'Heladería Marca Cordón. Dirección Av. Gonzalo Ramírez 2051, Montevideo. Teléfono +59891496496' }
+      const brandWhatsapp: Source = { ...plainWeb, text: 'Heladería Marca. Pedí por WhatsApp.', links: ['https://wa.me/59898333222?text=Hola'] }
+      const data = { ...fromSource('S3'), contact: { ...fromSource('S3').contact, phone: '+59891496496' } }
+      const place = postProcess(branch, data, { sources: [brandWhatsapp, summary, card], knownChain: true, deterministicContact: { phone: '+598 98 333 222' } })
+      expect(place.contact.phone).toBe('+598 91 496 496')
+      expect(place.address).toBe('Av. Gonzalo Ramírez 2051')
+      // Sin la ficha, el número de la marca.
+      expect(postProcess(branch, data, { sources: [brandWhatsapp, summary], knownChain: true, deterministicContact: { phone: '+598 98 333 222' } }).contact.phone).toBe('+598 98 333 222')
+    })
+
+    it('el teléfono único de la marca en su fuente oficial (central de pedidos) se carga en todas las sucursales', () => {
+      const central: Source = { ...web, text: 'Heladería Marca. Conocé nuestras sucursales. Pedidos y delivery: 2600 1234.' }
+      const data = { ...fromSource('S1'), contact: { ...fromSource('S1').contact, phone: '2600 1234' } }
+      const place = postProcess(branch, data, { sources: [central, otherBranch], knownChain: true })
+      expect(place.contact.phone).toBe('+598 2600 1234')
+      // Como respaldo, sin teléfono del modelo.
+      const fallback = postProcess(branch, fromSource('S2'), { sources: [central, otherBranch], deterministicContact: { phone: '+598 2622 0000' } })
+      expect(fallback.contact.phone).toBe('+598 2600 1234')
+      // Una web oficial con un teléfono por sucursal no tiene teléfono de marca.
+      const perBranch: Source = { ...central, text: 'Heladería Marca. Sucursales: Pocitos 2600 1234 · Carrasco 2601 9999.' }
+      expect(postProcess(branch, data, { sources: [perBranch, otherBranch] }).contact.phone).toBeNull()
+      // La página oficial de otra sucursal tampoco.
+      const otherPage: Source = { ...central, url: 'https://marca.example/locales/carrasco/', text: 'Heladería Marca Carrasco. Arocena 1500. Tel 2600 1234.' }
+      expect(postProcess(branch, { ...data, facts: [{ ...data.facts[0], sourceId: 'S1' }] }, { sources: [otherPage], knownChain: true }).contact.phone).toBeNull()
     })
   })
 
@@ -1638,6 +1709,7 @@ describe('PlaceExtractionService', () => {
     expect(SYSTEM_PROMPT).toContain('es siempre en español')
     expect(SYSTEM_PROMPT).toContain('- Jams, toques o bandas → live_music además de events.')
     expect(SYSTEM_PROMPT).toContain('cozy sólo si la fuente dice textualmente acogedor o cozy')
+    expect(SYSTEM_PROMPT).toContain('neighborhood_spot (de barrio) sólo si la fuente dice textualmente')
     expect(SYSTEM_PROMPT).toContain('Sin señal concreta, no lo pongas')
     expect(SYSTEM_PROMPT).toContain('- style: casual, intermedio, cuidado')
     expect(SYSTEM_PROMPT).toContain('- Una versión vegetal explícita de un plato (de soja, de seitán, veggie, de lentejas) cuenta como vegetarian has_options.')
@@ -1988,6 +2060,63 @@ describe('PlaceExtractionService', () => {
     expect(types).toEqual(['hours_vague', 'restaurant_without_food', 'dietary_fully'])
     expect(reviewExtraction(place, data).anomalies[0].detail).toBe('none')
     expect(reviewExtraction(place, data).unmappedFacts).toEqual([])
+  })
+
+  it('un restaurante con comidas del día de una fuente real no es "sin comidas", aunque no nombre platos', () => {
+    const instagram = { id: 'S1', kind: 'instagram' as const, trust: 'official' as const, url: 'https://www.instagram.com/casa/', text: 'Cocina · Cafetería. Desayunos • Almuerzos • Meriendas' }
+    const exa = { id: 'S2', kind: 'exa' as const, trust: 'third_party' as const, url: EXA_SUMMARY_URL, text: 'Desayunos y almuerzos' }
+    const meals = (sourceId: string): PlaceExtraction => ({
+      ...emptyExtraction,
+      facts: [{ id: 'F1', text: 'Desayunos • Almuerzos • Meriendas', sourceId, kind: 'other', proposedTag: null }],
+      tags: [
+        { group: 'moments', id: 'breakfast', facts: ['F1'] }, { group: 'moments', id: 'lunch', facts: ['F1'] },
+        { group: 'moments', id: 'afternoon_snack', facts: ['F1'] },
+      ],
+    })
+    const anomaliesOf = (data: PlaceExtraction) => {
+      const place = postProcess(target, data, { sources: [instagram, exa], seedCategories: ['restaurant'] })
+      return reviewExtraction(place, data).anomalies.map((anomaly) => anomaly.type)
+    }
+
+    expect(anomaliesOf(meals('S1'))).not.toContain('restaurant_without_food')
+    // La misma comida sólo del resumen de Exa no alcanza.
+    expect(anomaliesOf(meals('S2'))).toContain('restaurant_without_food')
+    // Sin comidas del día ni platos sigue entrando.
+    expect(anomaliesOf({ ...emptyExtraction, facts: [{ id: 'F1', text: 'Cocina · Cafetería', sourceId: 'S1', kind: 'other', proposedTag: null }] }))
+      .toContain('restaurant_without_food')
+  })
+
+  it('un bar que una fuente real describe como bar no es "sin bebidas", aunque no nombre bebidas', () => {
+    const fact = (sourceId: string): PlaceExtraction => ({
+      ...emptyExtraction,
+      facts: [{ id: 'F1', text: 'Chivitos al pan y al plato', sourceId, kind: 'food', proposedTag: null }],
+      tags: [{ group: 'foods', id: 'chivito', facts: ['F1'] }],
+    })
+    const reviewOf = (text: string, name = 'Café Brasilero') => {
+      const web = { id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://lugar.example/', text }
+      const exa = { id: 'S2', kind: 'exa' as const, trust: 'third_party' as const, url: EXA_SUMMARY_URL, text: 'A classic bar. Un bar de chivitos.' }
+      const data = fact('S1')
+      const place = postProcess({ ...target, name }, data, { sources: [web, exa], seedCategories: ['bar'] })
+      return { place, anomalies: reviewExtraction(place, data).anomalies.map((anomaly) => anomaly.type) }
+    }
+
+    const bar = reviewOf('Chivitos al pan y al plato.\nEn nuestro bar los clientes se sienten como en casa.')
+    expect(bar.anomalies).not.toContain('bar_without_drinks')
+    expect(bar.place.tags).toContain('drinks')
+    expect(bar.place.tagEvidence).toContainEqual({ tag: 'drinks', mode: 'explicit', signals: ['bar'], factIds: ['C1'] })
+    expect(bar.place.placeFacts.find((item) => item.id === 'C1')).toMatchObject({ text: 'En nuestro bar los clientes se sienten como en casa.', supports: ['moments.drinks'] })
+    // Error de categoría de Google: una barbería no dice "bar" como palabra, y el resumen de Exa no cuenta.
+    expect(reviewOf('Chivitos al pan y al plato.\nBarbería El Sótano: cortes y fade', 'El Sótano').anomalies).toContain('bar_without_drinks')
+    // El nombre del lugar solo no lo describe como bar.
+    expect(reviewOf('Chivitos al pan y al plato.\nBar Tinkal en PedidosYa', 'Bar Tinkal').anomalies).toContain('bar_without_drinks')
+    // Una fuente sin facts del lugar (de otro local) no cuenta.
+    const other = { id: 'S3', kind: 'directory' as const, trust: 'third_party' as const, url: 'https://guia.example/otro', text: 'El mejor bar de la zona' }
+    const data = fact('S1')
+    const place = postProcess(target, data, {
+      sources: [{ id: 'S1', kind: 'web', trust: 'official', url: 'https://lugar.example/', text: 'Chivitos al pan y al plato' }, other],
+      seedCategories: ['bar'],
+    })
+    expect(reviewExtraction(place, data).anomalies.map((anomaly) => anomaly.type)).toContain('bar_without_drinks')
   })
 
   it('lee el modelo y el razonamiento del entorno y arma las opciones de cada proveedor', () => {
@@ -2678,6 +2807,18 @@ describe('cuentas agregadoras de Instagram', () => {
     expect(result.place.contact.instagram).toBeNull()
     // Con el otro lugar, para que el lote re-procese a Duna si se había quedado con la cuenta.
     expect(result.review.instagramShared).toEqual([{ handle: 'lanocheuy_', places: ['duna'] }])
+  })
+
+  it('un Instagram cargado a mano queda como contacto aunque ya sea candidato de un lugar de otra marca', async () => {
+    const { service } = build()
+    await service.collectSources('duna', { seedCategories: [] })
+    await service.discoverPlace('dona-marta', { seedCategories: [] })
+
+    const result = await service.completePlace('dona-marta', { mode: 'manual', handle: 'lanocheuy_' })
+
+    if (result.status !== 'ok') throw new Error('se esperaba ok')
+    expect(result.place.contact.instagram).toBe('lanocheuy_')
+    expect(result.review.instagramManual).toEqual({ handle: 'lanocheuy_' })
   })
 
   it('las sucursales de una misma marca comparten Instagram; re-procesar el mismo lugar tampoco cuenta', async () => {

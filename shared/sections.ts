@@ -1,17 +1,20 @@
+import type { IconCategory } from './icon-categories.ts'
 import { CUISINES, TAG_FILTERS, type CategoryId, type Lang, type StyleId, type TagId } from './tags.ts'
 
 /**
  * Grupos con título en los que se ordenan los resultados de una búsqueda amplia ("comer con amigos"). Un lugar
- * entra si tiene alguna de las categorías, alguno de los tags o el style. discover no tiene regla de tags: lo
+ * entra si tiene alguna de las categorías, alguno de los tags, el style o uno de los íconos. discover no tiene regla de tags: lo
  * decide la búsqueda (prominencia baja y buena coincidencia). Los títulos son siempre estos, nunca libres.
  */
-export type SectionMatch = { categories?: CategoryId[]; tags?: TagId[]; style?: StyleId; discover?: true }
+export type SectionMatch = { categories?: CategoryId[]; tags?: TagId[]; style?: StyleId; icons?: IconCategory[]; discover?: true }
 
 export type SectionDef = {
   title: Record<Lang, string>
   /** Para el prompt del modelo: qué lugares entran. */
   rule: string
   match: SectionMatch
+  /** Señales que no hacen entrar a nadie pero ordenan dentro de la sección (boost sectionFit). */
+  bonus?: { tags?: TagId[] }
 }
 
 const WORLD_CUISINES = Object.keys(CUISINES).filter((id) => id !== 'uruguayan') as TagId[]
@@ -24,10 +27,12 @@ export const SECTIONS = {
   world: { title: { es: 'Comida del mundo', en: 'World food' }, rule: 'alguna cocina que no sea la uruguaya', match: { tags: WORLD_CUISINES } },
   classics: {
     title: { es: 'Clásicos uruguayos', en: 'Uruguayan classics' },
-    rule: 'comida uruguaya, chivitos, milanesas, parrilla',
-    match: { categories: ['grill', 'chiviteria', 'bodegon'], tags: ['uruguayan', 'chivito', 'milanesa', 'grilled_meat'] },
+    rule: 'asado, parrilla, bodegón y chivito',
+    // Los tags no hacen entrar a nadie: muchos bares y restaurantes que no son clásicos tienen carne o chivito.
+    match: { categories: ['grill', 'bodegon', 'chiviteria'], icons: ['grill', 'meat'] },
+    bonus: { tags: ['grilled_meat', 'chivito', 'milanesa', 'uruguayan', 'neighborhood_spot'] },
   },
-  share: { title: { es: 'Para compartir', en: 'To share' }, rule: 'picadas, tablas y tapas', match: { tags: ['picada', 'tapas'] } },
+  share: { title: { es: 'Para compartir', en: 'To share' }, rule: 'picadas, tablas y tapas', match: { tags: ['picada', 'tapas'] }, bonus: { tags: ['groups'] } },
   live_music: { title: { es: 'Con música en vivo', en: 'Live music' }, rule: 'música en vivo', match: { tags: ['live_music'] } },
   outdoor: { title: { es: 'Al aire libre', en: 'Outdoor' }, rule: 'terraza, patio, vereda o mesas afuera', match: { tags: [...TAG_FILTERS.outdoor.tags] } },
   discover: { title: { es: 'Descubrí', en: 'Discover' }, rule: 'lugares menos conocidos que coinciden bien con la búsqueda', match: { discover: true } },

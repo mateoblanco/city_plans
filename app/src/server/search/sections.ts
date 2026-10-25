@@ -4,8 +4,11 @@ import { SEARCH_CONFIG } from './config'
 import type { Fused } from './fuse'
 import type { Interpretation, Lang } from './interpretation'
 
-/** Una sección de la página de resultados: un grupo del catálogo o more = "Más opciones". */
-export type Section = { id: SectionId | 'more'; title: string; placeIds: string[] }
+/**
+ * Una sección de la página de resultados: un grupo del catálogo o more = "Más opciones". total: cuántos resultados
+ * cumplen la regla del grupo: si supera lo que muestra, tiene "Ver todos" (busca con `f=section:<id>`); null en discover y more.
+ */
+export type Section = { id: SectionId | 'more'; title: string; placeIds: string[]; total: number | null }
 
 export type SectionsDebug = {
   /** null si la búsqueda se agrupó (o pudo agruparse); si no, por qué no. */
@@ -22,11 +25,12 @@ const MORE_TITLE: Record<Lang, string> = { es: 'Más opciones', en: 'More option
 
 /**
  * Por qué la búsqueda no es amplia (null si lo es): un nombre, un plato o cualquier filtro obligatorio (categoría,
- * tag, dieta, precio, horario, exclude o sub-filtro) la vuelven específica. La intención, los momentos y el style
- * en prefer, el barrio, la vibe y "cerca mío" no.
+ * tag, dieta, precio, horario, exclude, sub-filtro o la sección de "Ver todos") la vuelven específica. La intención,
+ * los momentos y el style en prefer, el barrio, la vibe y "cerca mío" no.
  */
-export function notBroadReason(value: Interpretation, context: { pinned: boolean; subs: number }): string | null {
+export function notBroadReason(value: Interpretation, context: { pinned: boolean; subs: number; section?: boolean }): string | null {
   if (context.pinned || value.nameQuery) return 'nombre'
+  if (context.section) return 'sección'
   if (value.dishes.length) return 'plato'
   if (value.must.categories.length) return 'categoría obligatoria'
   if (value.must.tags.length) return 'tag obligatorio'
@@ -82,6 +86,23 @@ export function requestedSections(value: Interpretation, context: { fromLlm: boo
   return { source: 'rules' as const, requested: withoutRedundant(ruleSections(value, context.intent), value, context.intent) }
 }
 
+/**
+ * Cuántas señales de la sección tiene el lugar: categorías, tags, style e ícono de su regla más los tags de bonus,
+ * hasta maxSectionSignals. Descubrí no tiene señales.
+ */
+export function sectionSignals(id: SectionId, row: { categories: string[]; tags: string[]; style?: string | null; iconCategory?: string | null }): number {
+  const { match, bonus } = SECTIONS[id] as { match: { categories?: string[]; tags?: string[]; style?: string; icons?: string[] }; bonus?: { tags?: string[] } }
+  const count =
+    (match.categories ?? []).filter((category) => row.categories.includes(category)).length +
+    [...(match.tags ?? []), ...(bonus?.tags ?? [])].filter((tag) => row.tags.includes(tag)).length +
+    (match.style !== undefined && row.style === match.style ? 1 : 0) +
+    (row.iconCategory && match.icons?.includes(row.iconCategory) ? 1 : 0)
+  return Math.min(count, SEARCH_CONFIG.boosts.maxSectionSignals)
+}
+
+/** Puntaje dentro de un grupo: el de siempre más sectionFit por señal (con la calidad del lugar). */
+const scoreIn = (id: SectionId, item: Fused) => item.score + sectionSignals(id, item.row) * SEARCH_CONFIG.boosts.sectionFit * item.multiplier
+
 const median = (values: number[]) => {
   const sorted = [...values].sort((a, b) => a - b)
   const middle = Math.floor(sorted.length / 2)
@@ -97,14 +118,15 @@ function matcher(items: Fused[]) {
   const similarities = items.flatMap((item) => (item.row.semantic === null ? [] : [item.row.semantic]))
   const similarityMedian = similarities.length ? median(similarities) : null
   return (id: SectionId, item: Fused) => {
-    const { match } = SECTIONS[id] as { match: { categories?: string[]; tags?: string[]; style?: string; discover?: true } }
+    const { match } = SECTIONS[id] as { match: { categories?: string[]; tags?: string[]; style?: string; icons?: string[]; discover?: true } }
     const { row } = item
     if (match.discover) {
       return similarityMedian !== null && row.semantic !== null && row.prominence < prominenceMedian && row.semantic > similarityMedian
     }
     return (match.categories ?? []).some((category) => row.categories.includes(category)) ||
       (match.tags ?? []).some((tag) => row.tags.includes(tag)) ||
-      (match.style !== undefined && row.style === match.style)
+      (match.style !== undefined && row.style === match.style) ||
+      (row.iconCategory !== null && (match.icons ?? []).includes(row.iconCategory))
   }
 }
 
@@ -144,8 +166,9 @@ export function buildSections(items: Fused[], requested: SectionId[], lang: Lang
   }
 
   const average = (group: Fused[]) => group.reduce((sum, item) => sum + item.score, 0) / group.length
+  // Quién entra sale del orden de siempre; adentro de cada grupo, primero los que tienen más señales de la sección.
   const chosen = active
-    .map((id) => ({ id, items: members.get(id)!, avgScore: average(members.get(id)!) }))
+    .map((id) => ({ id, items: [...members.get(id)!].sort((a, b) => scoreIn(id, b) - scoreIn(id, a)), avgScore: average(members.get(id)!) }))
     .sort((a, b) => b.avgScore - a.avgScore)
   const debug = { chosen: chosen.map(({ id, items: group, avgScore }) => ({ id, count: group.length, avgScore })), dropped }
   if (chosen.length === 0) return { sections: null, ...debug }
@@ -153,9 +176,10 @@ export function buildSections(items: Fused[], requested: SectionId[], lang: Lang
   const grouped = new Set(chosen.flatMap((group) => group.items))
   const more = items.filter((item) => !grouped.has(item))
   const ids = (group: Fused[]) => group.map((item) => item.row.id)
+  const total = (id: SectionId) => (id === 'discover' ? null : items.filter((item) => fits(id, item)).length)
   const sections: Section[] = [
-    ...chosen.map((group) => ({ id: group.id, title: SECTIONS[group.id].title[lang], placeIds: ids(group.items) })),
-    ...(more.length ? [{ id: 'more' as const, title: MORE_TITLE[lang], placeIds: ids(more) }] : []),
+    ...chosen.map((group) => ({ id: group.id, title: SECTIONS[group.id].title[lang], placeIds: ids(group.items), total: total(group.id) })),
+    ...(more.length ? [{ id: 'more' as const, title: MORE_TITLE[lang], placeIds: ids(more), total: null }] : []),
   ]
   return { sections, ...debug }
 }

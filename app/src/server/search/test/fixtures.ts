@@ -1,5 +1,5 @@
 import type { CandidateFilters, CandidateRow, NameMatch, ScoreInputs } from '../candidates'
-import { openStatus } from '../hours'
+import { openStatus, opensToday, type OpenFilter } from '../hours'
 import { matchesGroup } from '../intents'
 import type { LlmInterpretation } from '../interpretation'
 import type { SearchCache } from '../cache'
@@ -23,6 +23,8 @@ export function row(overrides: Partial<CandidateRow> & { id: string }): Candidat
     iconCategory: null,
     logoKey: null,
     logoBgColor: null,
+    brandKey: null,
+    brandCount: 1,
     lat: -34.9011,
     lng: -56.1645,
     matchesFilters: true,
@@ -44,6 +46,9 @@ export const everyDay = (opens: string, closes: string | null) => ({
 /** Store en memoria con la misma semántica de filtros que el SQL, para probar el flujo completo. */
 export function fakeStore(places: CandidateRow[], names: NameMatch[] = []) {
   const calls: { filters: CandidateFilters; scores: ScoreInputs }[] = []
+  // Misma regla que openAtSql / opensTodaySql.
+  const matchesOpenAt = (place: CandidateRow, { moment, today, night }: OpenFilter) =>
+    today && moment.time ? opensToday(place.hours, { day: moment.day, time: moment.time }, night) !== 'no' : openStatus(place.hours, moment).state !== 'closed'
   const matches = (place: CandidateRow, filters: CandidateFilters) => {
     const has = (place: CandidateRow, dish: string) => place.dishes.some((item) => item.includes(dish))
     return (
@@ -52,7 +57,7 @@ export function fakeStore(places: CandidateRow[], names: NameMatch[] = []) {
       filters.diet.every((key) => ['has_options', 'fully'].includes(place.diet[key])) &&
       (!filters.neighborhoods.length || filters.neighborhoods.includes(place.neighborhoodId)) &&
       (!filters.price.length || place.price === 'unknown' || (filters.price as string[]).includes(place.price)) &&
-      (!filters.openAt || openStatus(place.hours, filters.openAt).state !== 'closed') &&
+      (!filters.openAt || matchesOpenAt(place, filters.openAt)) &&
       !filters.excludeCategories.some((id) => place.categories.includes(id)) &&
       !filters.excludeTags.some((id) => place.tags.includes(id)) &&
       filters.groups.every((group) => matchesGroup(group, place)) &&

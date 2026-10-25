@@ -7,6 +7,7 @@
 import './env.ts'
 import { eq } from 'drizzle-orm'
 import { places } from '../db/schema.ts'
+import { parseManualOverrides } from '../../src/data/manual-overrides.ts'
 import { refreshSignals, signalsFromSnapshots, type RefreshResult, type SignalsUpdate, type SnapshotSignalsResult } from '../places/refresh-signals.ts'
 import { readSnapshots } from '../providers/extraction-snapshots.ts'
 import { ApifyInstagramProvider } from '../providers/apify-instagram-provider.ts'
@@ -53,12 +54,13 @@ function reportSnapshots(results: SnapshotSignalsResult[], dryRun: boolean) {
   console.log(`\n${results.length} lugares con Instagram y sin seguidores: ${count('changed')} ${dryRun ? 'cambiarían' : 'actualizados'}, ${count('unchanged')} iguales, ${count('skipped')} salteados.${dryRun ? ' Dry-run: no se escribió nada.' : ''}`)
 }
 
-const selectRows = (db: Awaited<typeof import('../db/index.ts')>['db']) => db
+const selectRows = async (db: Awaited<typeof import('../db/index.ts')>['db']) => (await db
   .select({
     id: places.id, googlePlaceId: places.googlePlaceId, name: places.name, instagram: places.instagram,
-    igFollowers: places.igFollowers, chainBranch: places.chainBranch, prominence: places.prominence,
+    igFollowers: places.igFollowers, chainBranch: places.chainBranch, prominence: places.prominence, brandKey: places.brandKey, manualOverrides: places.manualOverrides,
   })
-  .from(places)
+  .from(places))
+  .map((row) => ({ ...row, manualOverrides: parseManualOverrides(row.manualOverrides) }))
 
 async function main() {
   const dryRun = process.argv.includes('--dry-run')
@@ -98,11 +100,7 @@ async function main() {
     scrapeInstagram: (url) => instagram.configured ? instagram.scrape(url) : Promise.reject(new Error('Apify sin configurar')),
     // Sólo las columnas de prominencia; updatedAt avanza por $onUpdate.
     write: dryRun ? undefined : async (id, values) => {
-      await db.update(places).set({
-        igFollowers: values.igFollowers,
-        chainBranch: values.chainBranch,
-        prominence: values.prominence,
-      }).where(eq(places.id, id))
+      await db.update(places).set(values).where(eq(places.id, id))
     },
   }, { onlyIds: ids })
   report(results, dryRun)

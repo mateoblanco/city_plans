@@ -44,7 +44,10 @@ describe('atajo con diccionario', () => {
   it('resuelve dieta, horario y platos', () => {
     expect(interpretWithDictionary('vegano')?.must.diet).toEqual({ vegan: true })
     expect(interpretWithDictionary('sin tacc')?.must.diet).toEqual({ glutenFree: true })
-    expect(interpretWithDictionary('abierto ahora')?.must.openAt).toBe('now')
+    expect(interpretWithDictionary('abierto ahora')?.must.openAt).toBe('today')
+    expect(interpretWithDictionary('cenar hoy')?.must.openAt).toBe('today')
+    expect(interpretWithDictionary('tomar algo esta noche')?.must.openAt).toBe('tonight')
+    expect(interpretWithDictionary('cenar el sabado')?.must.openAt).toEqual({ day: 6, time: null })
     const dish = interpretWithDictionary('milanesa napolitana en parque rodo')
     expect(dish?.dishes).toEqual([{ name: 'milanesa napolitana', relatedTags: ['milanesa'], relatedCategories: [] }])
     expect(dish?.must.neighborhoods).toEqual(['PARQUE RODO'])
@@ -54,6 +57,10 @@ describe('atajo con diccionario', () => {
     expect(tacos?.must.tags).toEqual([])
     expect(interpretWithDictionary('comida mexicana')?.must.tags).toEqual(['mexican'])
     expect(interpretWithDictionary('nikkei')?.must.tags).toEqual(['nikkei'])
+    expect(interpretWithDictionary('comida rusa')?.must.tags).toEqual(['russian'])
+    expect(interpretWithDictionary('pelmeni')?.dishes).toEqual([{ name: 'pelmeni', relatedTags: ['russian'], relatedCategories: [] }])
+    // La ensalada rusa es una ensalada, no la cocina rusa.
+    expect(interpretWithDictionary('ensalada rusa')?.must.tags).not.toContain('russian')
     expect(interpretWithDictionary(normalizeQuery('brunch vegano con terraza en cordón el domingo'))?.must).toMatchObject({
       tags: ['brunch', 'terrace'],
       diet: { vegan: true },
@@ -96,6 +103,8 @@ describe('platos', () => {
   it('relaciona el plato con su tag y distingue los genéricos', () => {
     expect(dishTarget('milanesa napolitana')).toMatchObject({ tag: 'milanesa', generic: false })
     expect(dishTarget('milanesa')).toMatchObject({ tag: 'milanesa', generic: true })
+    // "comer carne": una parrilla es conocida por la carne (knownFor), aunque "carne" no sea un tag.
+    expect(dishTarget('carne')).toMatchObject({ tag: null, icons: ['grill', 'meat'] })
     expect(dishTarget('pizza')).toMatchObject({ tag: 'pizza', category: 'pizzeria', generic: true })
     expect(dishTarget('bife')).toMatchObject({ tag: 'grilled_meat', category: 'grill', generic: false })
     expect(dishTarget('ceviche')).toMatchObject({ tag: null, generic: false })
@@ -122,7 +131,7 @@ describe('validateInterpretation', () => {
           diet: { vegan: false, vegetarian: false, glutenFree: true },
           neighborhoods: ['Pocitos', 'Atlantis'],
           price: ['low', 'gratis'],
-          openAt: { now: false, day: 9, time: '21' },
+          openAt: { today: false, tonight: false, day: 9, time: '21' },
         },
         exclude: { categories: [], tags: ['terrace'] },
         language: 'en',

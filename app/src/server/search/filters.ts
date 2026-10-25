@@ -1,24 +1,31 @@
 import { NEIGHBORHOOD_NAMES } from '@shared/neighborhood-names.ts'
+import { isSectionId, type SectionId } from '@shared/sections.ts'
 import { roundCoord } from './coords'
 import { DIET_KEYS, type DietKey, type Interpretation } from './interpretation'
 
 /**
- * Filtros de la barra (`f=open:now,diet:vegan,neighborhood:CORDON`). No son un sistema aparte: se aplican sobre
+ * Filtros de la barra (`f=open:today,diet:vegan,neighborhood:CORDON,neighborhood:POCITOS`). No son un sistema aparte: se aplican sobre
  * la interpretación y salen como los mismos chips que lo escrito. Las categorías van por la intención (intents.ts).
  */
 export type SearchFilters = {
-  openNow: boolean
+  /** "Abre hoy": abierto ahora o abre más tarde hoy. */
+  opensToday: boolean
   diet: DietKey[]
-  /** Uno solo: reemplaza los barrios del texto. */
-  neighborhood: string | null
+  /** Reemplazan los barrios del texto. */
+  neighborhoods: string[]
+  /**
+   * "Ver todos" de un grupo (`section:outdoor`): exige la regla del grupo de shared/sections.ts. Uno solo; discover
+   * no tiene regla fija, así que no es un filtro.
+   */
+  section: Exclude<SectionId, 'discover'> | null
 }
 
 export type LatLng = { lat: number; lng: number }
 
-export const emptyFilters = (): SearchFilters => ({ openNow: false, diet: [], neighborhood: null })
+export const emptyFilters = (): SearchFilters => ({ opensToday: false, diet: [], neighborhoods: [], section: null })
 
 export const hasFilters = (filters: SearchFilters) =>
-  filters.openNow || filters.diet.length > 0 || filters.neighborhood !== null
+  filters.opensToday || filters.diet.length > 0 || filters.neighborhoods.length > 0 || filters.section !== null
 
 /** Parsea `f`; descarta lo que no está en los catálogos. */
 export function parseFilters(raw: string | null | undefined): SearchFilters {
@@ -28,9 +35,10 @@ export function parseFilters(raw: string | null | undefined): SearchFilters {
     if (index <= 0) continue
     const kind = part.slice(0, index).trim()
     const id = part.slice(index + 1).trim()
-    if (kind === 'open' && id === 'now') filters.openNow = true
+    if (kind === 'open' && id === 'today') filters.opensToday = true
     else if (kind === 'diet' && (DIET_KEYS as readonly string[]).includes(id) && !filters.diet.includes(id as DietKey)) filters.diet.push(id as DietKey)
-    else if (kind === 'neighborhood' && id in NEIGHBORHOOD_NAMES) filters.neighborhood = id
+    else if (kind === 'neighborhood' && id in NEIGHBORHOOD_NAMES && !filters.neighborhoods.includes(id)) filters.neighborhoods.push(id)
+    else if (kind === 'section' && isSectionId(id) && id !== 'discover') filters.section = id
   }
   return filters
 }
@@ -47,22 +55,24 @@ export function parseNear(raw: string | null | undefined): LatLng | null {
 }
 
 /**
- * Suma los filtros a lo interpretado. La dieta se suma; "abierto ahora" y el barrio reemplazan lo del texto:
+ * Suma los filtros a lo interpretado. La dieta se suma; "abre hoy" y los barrios reemplazan lo del texto:
  * si se contradicen, gana el filtro.
  */
 export function applyFilters(value: Interpretation, filters: SearchFilters): Interpretation {
   const must = { ...value.must, diet: { ...value.must.diet } }
   for (const key of filters.diet) must.diet[key] = true
-  if (filters.openNow) must.openAt = 'now'
-  if (filters.neighborhood) must.neighborhoods = [filters.neighborhood]
+  // "esta noche" del texto ya es "Abre hoy" (a la noche): el filtro no lo pisa.
+  if (filters.opensToday && must.openAt !== 'tonight') must.openAt = 'today'
+  if (filters.neighborhoods.length) must.neighborhoods = [...filters.neighborhoods]
   return { ...value, must }
 }
 
 /** Claves `kind:id` de chip que vienen de los filtros, para saber cómo se apaga cada chip. */
 export function filterChipKeys(filters: SearchFilters): Set<string> {
   return new Set([
-    ...(filters.openNow ? ['openAt:now'] : []),
+    ...(filters.opensToday ? ['openAt:today'] : []),
     ...filters.diet.map((key) => `diet:${key}`),
-    ...(filters.neighborhood ? [`neighborhood:${filters.neighborhood}`] : []),
+    ...filters.neighborhoods.map((id) => `neighborhood:${id}`),
+    ...(filters.section ? [`section:${filters.section}`] : []),
   ])
 }

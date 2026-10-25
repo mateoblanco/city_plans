@@ -1,5 +1,5 @@
 // Basado en el demo de Select de Base UI (v1.9.0, css-modules), en px y sin modo oscuro (la página es siempre clara).
-// El botón se ve como los demás filtros de la barra (.filter en HeaderSearch.module.scss): activo con un barrio elegido.
+// El botón se ve como los demás filtros de la barra (.chip en FilterChip.module.scss): activo con un barrio elegido.
 
 .trigger {
   align-items: center;
@@ -10,10 +10,12 @@
   cursor: pointer;
   display: inline-flex;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   gap: 4px;
   line-height: 1;
-  padding: 3px 6px 3px 10px;
+  // padding: 3px 6px 3px 10px;
+  padding: 8px 12px;
+
   user-select: none;
   white-space: nowrap;
   -webkit-user-select: none;
@@ -102,6 +104,12 @@
   }
 }
 
+.separator {
+  background-color: #dddddd;
+  height: 1px;
+  margin: 4px 10px;
+}
+
 .itemIndicator {
   grid-column-start: 1;
 }
@@ -137,4 +145,12 @@
   &[data-direction='down'] {
     bottom: 0;
   }
+}
+
+// Aviso de "Cerca mío" (permiso de ubicación denegado o sin soporte).
+.notice {
+  background-color: #f5f5f5;
+  color: #555555;
+  font-size: 14px;
+  padding: 8px 12px;
 }

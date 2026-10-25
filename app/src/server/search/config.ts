@@ -2,7 +2,6 @@
 
 export const SEARCH_CONFIG = {
   maxQueryLength: 200,
-  maxResults: 20,
   /** Cuántos lugares de cada ranking entran en la fusión. */
   rankingDepth: 100,
   /** Tope de candidatos que trae el SQL (ordenados por cercanía semántica cuando hay embedding). */
@@ -40,7 +39,7 @@ export const SEARCH_CONFIG = {
     signatureBest: 0.02,
     maxSignatureMatches: 2,
     preferTag: 0.006,
-    /** El style pedido ("de barrio" → casual), como una preferencia más. */
+    /** El style pedido ("descontracturado" → casual), como una preferencia más. */
     preferStyle: 0.006,
     /** La consulta pide precio y el del lugar está confirmado y coincide: queda arriba de los de precio desconocido. */
     priceMatch: 0.008,
@@ -50,6 +49,23 @@ export const SEARCH_CONFIG = {
      * plato (pizzería). Pesa más que exactDish: una pizzería le gana a un bar que tiene pizza en la carta.
      */
     knownFor: 0.03,
+    /**
+     * Intención Bares y el lugar es conocido por la bebida (su ícono es de bebida: vino, cerveza, tragos, bar clásico).
+     * Con Bares todos tienen categoría de bar, así que el ícono separa al bar de verdad del sushi o la tapería con barra.
+     * La mitad de knownFor, casi un primer puesto en un ranking.
+     */
+    barFit: 0.015,
+    /**
+     * Intención Comer y el lugar es conocido por un plato (su ícono es de comida de plato: parrilla, pasta, sushi…).
+     * Separa al restaurante del café o la heladería. Menos que barFit: "comer algo" a veces es algo al paso.
+     */
+    eatFit: 0.01,
+    /**
+     * Por cada señal de la sección que tiene el lugar (las de su regla y las de bonus: picada + tapas + groups en Para
+     * compartir), hasta maxSectionSignals. Ordena dentro de la sección (Ver todos o el grupo); no cambia quién entra.
+     */
+    sectionFit: 0.004,
+    maxSectionSignals: 3,
     confirmedOpen: 0.01,
     /**
      * Principalmente para bailar (boliche, tag dancing, o dj sin comida) y la consulta no pide bailar: baja un poco
@@ -81,7 +97,7 @@ export const SEARCH_CONFIG = {
    * cuántos entran como mucho (el resto va a "Más opciones"), hasta cuántos grupos se muestran y cuántos ids válidos
    * tiene que dar el modelo para no usar las reglas.
    */
-  sections: { minResults: 10, minPlaces: 3, maxPlaces: 6, maxGroups: 4, minRequested: 2 },
+  sections: { minResults: 10, minPlaces: 3, maxPlaces: 6, maxGroups: 5, minRequested: 2 },
 
   /** Cerca mío: radio inicial y cómo se amplía (en metros) si no hay resultados. */
   near: { radii: [1500, 3000, 5000] },
@@ -107,4 +123,9 @@ export const SEARCH_CONFIG = {
   timeZone: 'America/Montevideo',
   /** Faltando esto o menos para el cierre o la apertura, la card dice "Cierra pronto" / "Abre pronto". */
   soonMinutes: 60,
+  /**
+   * "Abre hoy" a la noche (cenar o "esta noche"): abierto en algún momento desde `from`. Antes de `until` (madrugada)
+   * todavía es la noche anterior: alcanza con estar abierto ahora.
+   */
+  night: { from: '20:00', until: '06:00' },
 } as const

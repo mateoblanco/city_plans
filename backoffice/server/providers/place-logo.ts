@@ -299,8 +299,22 @@ export async function fetchPlaceLogo(profile: InstagramProfileData | null, googl
 
   const downloaded = await download(profile.profilePicUrl, deps.fetcher ?? fetch)
   if ('error' in downloaded) return withoutLogo('download_failed', null, null, downloaded.error)
-  const original = downloaded.body
-  const notImage = () => withoutLogo('not_image', null, null, downloaded.contentType)
+  return processLogoImage(downloaded.body, googlePlaceId, deps, { source: 'instagram', contentType: downloaded.contentType })
+}
+
+/**
+ * Imagen → validada (imagen, mínimo 150 px, no el avatar genérico), clasificada, con colores, 256×256 WebP en R2 con
+ * la clave `logos/<placeKey>-<hash>.webp`. La usan el logo de Instagram y el que se sube a mano en el backoffice:
+ * a mano, una foto de una persona se guarda igual (la eligió alguien), sólo queda con kind person.
+ */
+export async function processLogoImage(
+  original: Buffer,
+  placeKey: string,
+  deps: LogoDeps,
+  options: { source: PlaceLogo['source']; contentType?: string | null },
+): Promise<LogoOutcome> {
+  if (!deps.storage?.configured) return withoutLogo('storage_not_configured')
+  const notImage = () => withoutLogo('not_image', null, null, options.contentType ?? null)
   let metadata: Metadata
   try {
     metadata = await sharp(original).metadata()
@@ -332,16 +346,16 @@ export async function fetchPlaceLogo(profile: InstagramProfileData | null, googl
   const classification: LogoOutcome['classification'] = deps.known ? null : classified?.classification ?? null
 
   // Una foto de una persona no sirve de logo: no se sube y el lugar queda sin logo.
-  if (kind === 'person') return withoutLogo('person_photo', kind, classification)
+  if (kind === 'person' && options.source === 'instagram') return withoutLogo('person_photo', kind, classification)
 
-  const key = `logos/${googlePlaceId}-${createHash('sha256').update(webp).digest('hex').slice(0, 8)}.webp`
+  const key = `logos/${placeKey}-${createHash('sha256').update(webp).digest('hex').slice(0, 8)}.webp`
   try {
-    await deps.storage!.put(key, webp)
+    await deps.storage.put(key, webp)
   } catch {
     return withoutLogo('upload_failed', kind, classification)
   }
   return {
-    logo: { key, kind, ...colors, source: 'instagram', fetchedAt: (deps.now?.() ?? new Date()).toISOString() },
+    logo: { key, kind, ...colors, source: options.source, fetchedAt: (deps.now?.() ?? new Date()).toISOString() },
     review: kind ? { status: 'ok', reason: null, kind } : { status: 'failed', reason: 'classification_failed', kind: null },
     classification,
   }

@@ -16,6 +16,7 @@ const KEPT_LABELS: Record<KeptBy, string> = {
   tag: "por tag",
   dish: "por plato",
   keyword: "por keyword",
+  intent: "por intención",
   similar: "por similitud",
   "no-similarity": "sin similitud",
 };
@@ -58,7 +59,13 @@ const PlaceCard = (props: Props) => {
         <h3 className={styles.name}>{props.place.name}</h3>
 
         <p className={styles.meta}>
-          {[props.place.neighborhood, ...props.place.categories.map((id) => label(id, "es"))].join(" · ")}
+          {[
+            props.place.neighborhood,
+            props.place.branchCount > 1 ? `${props.place.branchCount} sucursales` : null,
+            ...props.place.categories.map((id) => label(id, "es")),
+          ]
+            .filter(Boolean)
+            .join(" · ")}
         </p>
 
         <p className={styles.openStatus}>

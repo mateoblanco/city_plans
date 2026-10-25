@@ -125,5 +125,11 @@ export const INTENT_VERBS: [string, IntentId, Lang][] = (Object.entries(INTENTS)
   (Object.entries(intent.verbs) as [Lang, string[]][]).flatMap(([lang, phrases]) => phrases.map((phrase) => [phrase, id, lang] as [string, IntentId, Lang])),
 )
 
+/**
+ * Palabras de los verbos que sólo piden la intención ("tomar" algo, "salir a comer", "grab a drink"). Si el texto ya
+ * eligió la intención con un verbo, no van como keyword: casi todos los lugares las tienen en el texto.
+ */
+export const INTENT_VERB_WORDS = new Set(['tomar', 'comer', 'salir', 'ir', 'beber', 'eat', 'grab', 'have', 'get', 'go'])
+
 export const isIntentId = (value: string): value is IntentId => value in INTENTS
 export const intentDef = (id: IntentId): IntentDef => INTENTS[id]

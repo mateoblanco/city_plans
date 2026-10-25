@@ -1,9 +1,13 @@
 import { CUISINES, FOODS, normalize } from '@shared/tags.ts'
+import type { IconCategory } from '@shared/icon-categories.ts'
+import type { IntentId } from '@shared/intents.ts'
+import type { SectionId } from '@shared/sections.ts'
 import { SEARCH_CONFIG } from './config'
 import type { CandidateRow } from './candidates'
 import { singularForms, type DishTarget } from './dishes'
 import type { Price } from './interpretation'
-import { hoursConfirmed, openStatus, type Moment, type OpenState } from './hours'
+import { sectionSignals } from './sections'
+import { hoursConfirmed, openStatus, type OpenFilter, type OpenState } from './hours'
 
 export type RankingName = keyof typeof SEARCH_CONFIG.rrf.weights
 export type RankingEntry = { id: string; name: string; score: number }
@@ -23,12 +27,16 @@ export type FuseContext = {
   preferStyle: string | null
   /** Precios pedidos (must.price); vacío si la consulta no habla de precio. */
   price: Price[]
-  /** Momento pedido con openAt; null si la consulta no habla de horario. */
-  openAt: Moment | null
+  /** Momento pedido con openAt (today: "Abre hoy"); null si la consulta no habla de horario. */
+  openAt: OpenFilter | null
   /** La consulta pide lo mejor: rango de calidad más amplio. */
   wantsBest: boolean
   /** La consulta pide bailar (boliche, dancing, dj o el sub-filtro Para bailar): los boliches no bajan. */
   wantsDancing: boolean
+  /** Intención de la búsqueda (URL o texto): con Bares, los bares de verdad suman barFit; con Comer, eatFit. */
+  intent: IntentId | null
+  /** "Ver todos" de una sección (`f=section:<id>`): sus señales suman sectionFit. */
+  section: SectionId | null
 }
 
 export type Fused = {
@@ -63,9 +71,9 @@ const nameWords = (name: string) => new Set(normalize(name).split(/[^a-z0-9]+/).
 
 /**
  * withQuality: búsqueda sin texto, donde el orden sale de la calidad (featured primero, después prominence).
- * wholeWords: con la consulta resuelta por el diccionario, sus palabras son términos y el ranking de nombre sólo cuenta
- * los nombres que tienen alguna entera ("pizza" → "Fundamento Pizza"; "comer" no → "Misión Comedor"). Un nombre casi
- * idéntico igual se fija por strongNameMatch.
+ * wholeWords: si la consulta no es un nombre, el ranking de nombre sólo cuenta los nombres que tienen alguna de sus
+ * palabras entera ("milanesa" → "El Club de la Milanesa"; "comer" no → "Misión Comedor"). null con un nombre del
+ * modelo o fijado, que se busca difuso. Un nombre casi idéntico igual se fija por strongNameMatch.
  */
 export function buildRankings(rows: CandidateRow[], { withQuality = false, wholeWords = null }: { withQuality?: boolean; wholeWords?: string[] | null } = {}): Rankings {
   const wanted = wholeWords && new Set(wholeWords.flatMap(singularForms))
@@ -104,6 +112,18 @@ export function matchLevelOf(row: CandidateRow, dishes: DishTarget[]): MatchLeve
 
 const count = (values: string[], wanted: string[]) => values.filter((value) => wanted.includes(value)).length
 
+/** Íconos de bebida: el lugar es conocido por lo que se toma. */
+export const DRINK_ICONS = new Set<IconCategory>(['wine', 'beer', 'beer_pub', 'cocktails', 'tropical_drinks', 'classic_bar'])
+
+/**
+ * Íconos de comida de plato: el lugar es para comer. Sin café, pastelería, dulces, desayuno ni bebida, que no
+ * restan pero tampoco suman con Comer.
+ */
+export const EAT_ICONS = new Set<IconCategory>([
+  'grill', 'meat', 'pasta', 'pizza', 'burger', 'fries', 'sandwich', 'hot_dog', 'taco', 'burrito', 'tamale', 'seafood', 'fish',
+  'octopus', 'tapas', 'sushi', 'ramen', 'wok', 'dumplings', 'curry', 'falafel', 'kebab', 'salad',
+])
+
 const FOOD_TAGS = new Set<string>([...Object.keys(FOODS), ...Object.keys(CUISINES)])
 const FOOD_CATEGORIES = new Set(['restaurant', 'grill', 'pizzeria', 'chiviteria', 'bodegon'])
 
@@ -132,7 +152,12 @@ export function boostsFor(row: CandidateRow, context: FuseContext, open: OpenSta
   const knownFor = context.dishes.some((target) =>
     (row.iconCategory !== null && target.icons.includes(row.iconCategory)) || (target.category !== null && row.categories.includes(target.category)))
   if (knownFor) result.knownFor = boosts.knownFor
-  if (open?.state === 'open' && hoursConfirmed(row.hours)) result.confirmedOpen = boosts.confirmedOpen
+  if (context.intent === 'bars' && row.iconCategory !== null && DRINK_ICONS.has(row.iconCategory)) result.barFit = boosts.barFit
+  if (context.intent === 'eat' && row.iconCategory !== null && EAT_ICONS.has(row.iconCategory)) result.eatFit = boosts.eatFit
+  const signals = context.section ? sectionSignals(context.section, row) : 0
+  if (signals > 0) result.sectionFit = signals * boosts.sectionFit
+  // "Abre hoy" no empuja a los abiertos: ordena la relevancia y la card dice si abre más tarde.
+  if (!context.openAt?.today && open?.state === 'open' && hoursConfirmed(row.hours)) result.confirmedOpen = boosts.confirmedOpen
   if (!context.wantsDancing && isDanceOnly(row)) result.danceOnly = boosts.danceOnly
   return result
 }
@@ -148,7 +173,8 @@ const tierOf = (item: Fused, context: FuseContext) => [
   item.pinned ? 0 : 1,
   item.matchLevel === 'has' ? 0 : 1,
   // Con openAt: abiertos confirmados, después sin confirmar, al final los cerrados (sólo un fijado por nombre).
-  context.openAt ? (item.open?.state === 'open' ? 0 : item.open?.state === 'unconfirmed' ? 1 : 2) : 0,
+  // Con "Abre hoy" los confirmados van juntos (abiertos o que abren más tarde) y los sin confirmar al final.
+  !context.openAt ? 0 : item.open?.state === 'unconfirmed' ? 1 : context.openAt.today || item.open?.state === 'open' ? 0 : 2,
 ]
 
 export function fuse(rows: CandidateRow[], rankings: Rankings, context: FuseContext): Fused[] {
@@ -156,7 +182,7 @@ export function fuse(rows: CandidateRow[], rankings: Rankings, context: FuseCont
   const fused = rows
     .filter((row) => row.matchesFilters || row.id === context.pinnedId)
     .map((row): Fused => {
-      const open = context.openAt ? openStatus(row.hours, context.openAt) : null
+      const open = context.openAt ? openStatus(row.hours, context.openAt.moment) : null
       const boosts = boostsFor(row, context, open)
       const base = rrf.get(row.id) ?? 0
       const baseScore = base + Object.values(boosts).reduce((sum, value) => sum + (value ?? 0), 0)

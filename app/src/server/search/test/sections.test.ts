@@ -4,7 +4,7 @@ import type { CandidateRow } from '../candidates'
 import type { Fused } from '../fuse'
 import { emptyInterpretation, validateInterpretation, type Interpretation, type LlmInterpretation } from '../interpretation'
 import { runSearch } from '../search'
-import { buildSections, notBroadReason, requestedSections, ruleSections } from '../sections'
+import { buildSections, notBroadReason, requestedSections, ruleSections, sectionSignals } from '../sections'
 import { fakeCache, fakeStore, llmOutput, row } from './fixtures'
 
 // Lunes 12/10/2026 13:00 en Montevideo.
@@ -41,9 +41,10 @@ describe('cuándo una búsqueda es amplia', () => {
     expect(notBroadReason(interpretation({ must: { ...must, categories: ['cafe'] } }), broad)).toBe('categoría obligatoria')
     expect(notBroadReason(interpretation({ must: { ...must, diet: { vegan: true } } }), broad)).toBe('dieta')
     expect(notBroadReason(interpretation({ must: { ...must, price: ['low'] } }), broad)).toBe('precio')
-    expect(notBroadReason(interpretation({ must: { ...must, openAt: 'now' } }), broad)).toBe('horario')
+    expect(notBroadReason(interpretation({ must: { ...must, openAt: 'today' } }), broad)).toBe('horario')
     expect(notBroadReason(interpretation({ exclude: { categories: [], tags: ['pizza'] } }), broad)).toBe('exclude')
     expect(notBroadReason(interpretation(), { pinned: false, subs: 1 })).toBe('sub-filtro')
+    expect(notBroadReason(interpretation(), { pinned: false, subs: 0, section: true })).toBe('sección')
   })
 })
 
@@ -95,7 +96,7 @@ describe('cómo se arman', () => {
     const items = ranked(12, { 3: ['picada', 'terrace'], 4: ['terrace'], 5: ['picada'], 6: ['terrace'], 7: ['tapas'], 8: ['terrace'] })
     const { sections } = buildSections(items, ['share', 'outdoor'], 'es')
     expect(sections?.map((section) => section.id)).toEqual(['share', 'outdoor', 'more'])
-    expect(sections?.[0]).toEqual({ id: 'share', title: 'Para compartir', placeIds: ['p3', 'p5', 'p7'] })
+    expect(sections?.[0]).toEqual({ id: 'share', title: 'Para compartir', placeIds: ['p3', 'p5', 'p7'], total: 3 })
     expect(sections?.[1].placeIds).toEqual(['p4', 'p6', 'p8'])
     const all = sections!.flatMap((section) => section.placeIds)
     expect(new Set(all).size).toBe(12)
@@ -127,15 +128,23 @@ describe('cómo se arman', () => {
     expect(buildSections(ranked(12, { 3: ['picada'] }), ['share'], 'es').sections).toBeNull()
   })
 
-  it('los grupos se ordenan por el puntaje promedio y quedan como mucho 4', () => {
+  it('los grupos se ordenan por el puntaje promedio y quedan como mucho 5, los de más prioridad', () => {
     const tags: Record<number, string[]> = {}
     for (const index of [3, 4, 5]) tags[index] = ['live_music']
     for (const index of [6, 7, 8]) tags[index] = ['picada']
     for (const index of [9, 10, 11]) tags[index] = ['terrace']
     for (const index of [12, 13, 14]) tags[index] = ['japanese']
-    for (const index of [15, 16, 17]) tags[index] = ['uruguayan']
-    const result = buildSections(ranked(18, tags), ['classics', 'world', 'outdoor', 'share', 'live_music'], 'es')
-    expect(result.chosen.map((group) => group.id)).toEqual(['share', 'outdoor', 'world', 'classics'])
+    const extra = { 0: { style: 'cuidado' }, 1: { style: 'cuidado' }, 2: { style: 'cuidado' }, 15: { categories: ['grill'] }, 16: { categories: ['bodegon'] }, 17: { categories: ['chiviteria'] } }
+    const result = buildSections(ranked(18, tags, extra), ['classics', 'world', 'outdoor', 'share', 'live_music', 'special'], 'es')
+    // special tiene los primeros puestos pero es el sexto en prioridad: queda afuera y sus lugares van a Más opciones.
+    expect(result.chosen.map((group) => group.id)).toEqual(['live_music', 'share', 'outdoor', 'world', 'classics'])
+    expect(result.sections?.at(-1)).toMatchObject({ id: 'more', placeIds: ['p0', 'p1', 'p2'], total: null })
+  })
+
+  it('total: cuántos resultados cumplen la regla del grupo, aunque muestre 6 (decide si hay "Ver todos")', () => {
+    const tags = Object.fromEntries(Array.from({ length: 14 }, (_, index) => [index, ['picada', 'terrace']]))
+    const { sections } = buildSections(ranked(14, tags), ['share', 'outdoor'], 'es')
+    expect(sections?.map((section) => [section.id, section.placeIds.length, section.total])).toEqual([['share', 6, 14], ['outdoor', 6, 14], ['more', 2, null]])
   })
 
   it('Descubrí: menos conocido y más parecido que la mitad de los resultados', () => {
@@ -143,7 +152,8 @@ describe('cómo se arman', () => {
     for (let index = 0; index < 12; index++) extra[index] = index < 6 ? { prominence: 0.9, semantic: 0.5 } : { prominence: 0.6, semantic: 0.6 }
     extra[11] = { prominence: 0.6, semantic: 0.3 }
     const { sections } = buildSections(ranked(12, {}, extra), ['discover'], 'en')
-    expect(sections?.[0]).toEqual({ id: 'discover', title: 'Discover', placeIds: ['p6', 'p7', 'p8', 'p9', 'p10'] })
+    // Descubrí no tiene regla fija: no tiene "Ver todos".
+    expect(sections?.[0]).toEqual({ id: 'discover', title: 'Discover', placeIds: ['p6', 'p7', 'p8', 'p9', 'p10'], total: null })
     expect(sections?.[1].title).toBe('More options')
   })
 })
@@ -183,10 +193,75 @@ describe('en la búsqueda', () => {
     expect(response.debug?.sections.notGrouped).toBe('plato')
   })
 
+  it('"Ver todos" de un grupo (f=section:<id>): la regla del grupo como filtro, sin grupos y con su chip en la barra', async () => {
+    const { store } = fakeStore(places)
+    const outdoor = await runSearch('comer con amigos', { store, cache: fakeCache().cache }, { now, debug: true, filters: 'section:outdoor' })
+    expect(outdoor.results.map((result) => result.id).sort()).toEqual(['r11', 'r2', 'r5', 'r8'])
+    expect(outdoor.sections).toBeNull()
+    expect(outdoor.debug?.sections.notGrouped).toBe('sección')
+    expect(outdoor.bar.extras).toContainEqual({ kind: 'section', id: 'outdoor', label: 'Al aire libre', fromText: false, fromFilter: true })
+
+    // El style también filtra: Descontracturado son los casual (impares).
+    const casual = await runSearch('comer con amigos', { store, cache: fakeCache().cache }, { now, filters: 'section:casual' })
+    expect(casual.results).toHaveLength(6)
+    expect(casual.results.every((result) => Number(result.id.slice(1)) % 2 === 1)).toBe(true)
+  })
+
   it('con menos de 10 resultados, tampoco', async () => {
     const { store } = fakeStore(places.slice(0, 9))
     const response = await runSearch('comer con amigos', { store, cache: fakeCache().cache }, { now, debug: true })
     expect(response.sections).toBeNull()
     expect(response.debug?.sections.notGrouped).toBe('menos de 10 resultados')
+  })
+})
+
+describe('Clásicos uruguayos', () => {
+  it('entra por categoría (parrilla, bodegón, chivitería) o por ícono de parrilla o carne; los tags solos no', () => {
+    const items = [
+      fused({ id: 'grill', categories: ['grill'] }, 0.1),
+      fused({ id: 'bodegon', categories: ['bodegon'] }, 0.099),
+      fused({ id: 'chiviteria', categories: ['chiviteria'] }, 0.098),
+      fused({ id: 'meat', categories: ['restaurant'], iconCategory: 'meat' }, 0.097),
+      fused({ id: 'chivito', categories: ['bar'], tags: ['chivito', 'grilled_meat'] }, 0.096),
+      fused({ id: 'uruguaya', categories: ['restaurant'], tags: ['uruguayan', 'milanesa'], iconCategory: 'sandwich' }, 0.095),
+    ]
+    const { sections } = buildSections(items, ['classics'], 'es')
+    expect(sections?.[0]).toMatchObject({ id: 'classics', placeIds: ['grill', 'bodegon', 'chiviteria', 'meat'], total: 4 })
+  })
+
+  it('Ver todos filtra con la misma regla', async () => {
+    const places = [
+      row({ id: 'parrilla', categories: ['restaurant'], iconCategory: 'grill' }),
+      row({ id: 'chivito', categories: ['bar', 'restaurant'], tags: ['chivito'] }),
+    ]
+    const { store, calls } = fakeStore(places)
+    const response = await runSearch('comer', { store, cache: fakeCache().cache }, { now, filters: 'section:classics' })
+    expect(response.results.map((result) => result.id)).toEqual(['parrilla'])
+    expect(calls[0].filters.groups).toContainEqual(expect.objectContaining({ icons: ['grill', 'meat'] }))
+  })
+})
+
+describe('orden dentro de una sección', () => {
+  it('cuenta las señales de la regla y las de bonus, con tope', () => {
+    expect(sectionSignals('share', row({ id: 'a', tags: ['picada', 'tapas', 'groups'] }))).toBe(3)
+    expect(sectionSignals('share', row({ id: 'b', tags: ['tapas'] }))).toBe(1)
+    expect(sectionSignals('casual', row({ id: 'c', style: 'casual' }))).toBe(1)
+    expect(sectionSignals('discover', row({ id: 'd', tags: ['tapas'] }))).toBe(0)
+  })
+
+  it('Clásicos uruguayos: el ícono de parrilla cuenta como señal y el bonus ordena', () => {
+    expect(sectionSignals('classics', row({ id: 'parrilla', categories: ['grill'], iconCategory: 'grill' }))).toBe(2)
+    expect(sectionSignals('classics', row({ id: 'bodegon', categories: ['bodegon'], tags: ['milanesa', 'neighborhood_spot'] }))).toBe(3)
+    expect(sectionSignals('classics', row({ id: 'bar', categories: ['bar'], tags: ['chivito'] }))).toBe(1)
+  })
+
+  it('los mismos lugares en el grupo, primero los que tienen más señales', () => {
+    // p0..p5 sólo tapas; p3 además picada y groups: con un puntaje casi igual pasa primero, sin que entre nadie nuevo.
+    // Puntajes como los reales (≈ 0,03, a 0,001 uno de otro).
+    const tags = [['tapas'], ['tapas'], ['tapas'], ['tapas', 'picada', 'groups'], ['terrace'], ['terrace'], ['terrace'], []]
+    const items = tags.map((list, index) => fused({ id: `p${index}`, tags: list, prominence: 0.8 }, 0.03 - index / 1000))
+    const { sections } = buildSections(items, ['share', 'outdoor'], 'es')
+    const share = sections!.find((section) => section.id === 'share')!
+    expect(share.placeIds).toEqual(['p3', 'p0', 'p1', 'p2'])
   })
 })

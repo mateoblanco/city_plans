@@ -34,7 +34,7 @@ type InterpretedProps = {
 const Interpreted = (props: InterpretedProps) => {
   const { interpretation: value, semanticText, source } = props.debug;
   const at = value.must.openAt;
-  const openAt = at === null ? "—" : at === "now" ? "ahora" : `${at.day === null ? "hoy" : DAY_NAMES.es[at.day]}${at.time ? ` ${at.time}` : ""}`;
+  const openAt = at === null ? "—" : at === "today" ? "abre hoy" : at === "tonight" ? "abre hoy (noche)" : `${at.day === null ? "hoy" : DAY_NAMES.es[at.day]}${at.time ? ` ${at.time}` : ""}`;
   const rows: [string, string][] = [
     ["Fuente", SOURCE_LABELS[source]],
     ["Intención", props.bar.intent ? `${props.bar.intent.id} (${props.bar.intent.fromText ? "texto" : "URL"})` : "—"],
@@ -53,7 +53,7 @@ const Interpreted = (props: InterpretedProps) => {
     ["Categorías", join(value.must.categories)],
     ["Dieta", join(Object.entries(value.must.diet).filter(([, on]) => on).map(([key]) => key))],
     ["Barrios", join(value.must.neighborhoods)],
-    ["Abierto", openAt],
+    ["Horario", openAt],
     ["Precio", join(value.must.price)],
     ["Excluye", join([...value.exclude.categories, ...value.exclude.tags])],
     ["Nombre", value.nameQuery ?? "—"],
@@ -128,7 +128,7 @@ const DebugPanel = (props: Props) => {
   const { source, model, llmError, discarded, original, interpretation, nameMatches, semanticText, keywords } = props.debug;
 
   return (
-    <details className={styles.debug} open>
+    <details className={styles.debug}>
       <summary>Debug · {formatUsd(props.debug.cost.totalUsd)}</summary>
       <CopyResponse json={JSON.stringify(props.response)} />
       <p>

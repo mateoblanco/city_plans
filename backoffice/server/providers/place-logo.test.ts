@@ -8,6 +8,7 @@ import {
   hashDistance,
   imageHash,
   isGenericAvatarHash,
+  processLogoImage,
   profilePictureStatus,
   type LogoDeps,
 } from './place-logo.ts'
@@ -233,5 +234,26 @@ describe('classifyProfilePicture', () => {
     expect(await classifyProfilePicture('https://cdn.example/p.jpg', { ...deps(new Response('', { status: 403 })), classify })).toBeNull()
     expect(classify).not.toHaveBeenCalled()
     expect(await classifyProfilePicture('https://cdn.example/p.jpg', { ...options, classify: vi.fn(async () => { throw new Error('gateway') }) })).toBeNull()
+  })
+})
+
+describe('processLogoImage', () => {
+  it('subido a mano: WebP con hash en la clave, colores y kind, aunque la foto sea de una persona', async () => {
+    const image = await png('<rect width="320" height="320" fill="#c0392b"/><circle cx="160" cy="160" r="80" fill="#ffffff"/>')
+    const d = deps(image, { classify: vi.fn(async () => ({ kind: 'person' as const, inputTokens: 900, outputTokens: 8, gatewayCostUsd: null })) })
+
+    const outcome = await processLogoImage(image, 'uuid-1', d, { source: 'manual', contentType: 'image/png' })
+
+    expect(outcome.logo).toMatchObject({ key: expect.stringMatching(/^logos\/uuid-1-[0-9a-f]{8}\.webp$/), kind: 'person', source: 'manual', bgColor: '#c0392b' })
+    expect(d.storage!.put).toHaveBeenCalledWith(outcome.logo!.key, expect.any(Buffer))
+    expect(outcome.classification).toMatchObject({ model: 'anthropic/claude-haiku-5.5' })
+  })
+
+  it('rechaza lo que no es imagen o mide menos de 150 px, sin subir nada', async () => {
+    const small = await png('<rect width="100" height="100" fill="#000"/>', 100)
+    const d = deps(small)
+    expect((await processLogoImage(small, 'uuid-1', d, { source: 'manual' })).review.reason).toBe('too_small')
+    expect((await processLogoImage(Buffer.from('hola'), 'uuid-1', d, { source: 'manual', contentType: 'text/plain' })).review).toMatchObject({ reason: 'not_image', detail: 'text/plain' })
+    expect(d.storage!.put).not.toHaveBeenCalled()
   })
 })

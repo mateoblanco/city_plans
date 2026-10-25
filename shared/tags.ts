@@ -24,7 +24,7 @@ const cuisine = (es: string, en: string, synEs: string[], synEn: string[], dishe
 export const CATEGORIES = {
   restaurant: tag('Restaurante', 'Restaurant', ['restaurante', 'resto', 'restorán', 'comedor'], ['restaurant', 'eatery', 'place to eat']),
   cafe: tag('Café', 'Café', ['cafetería', 'cafe', 'café'], ['cafe', 'coffee shop', 'coffee place']),
-  bar: tag('Bar', 'Bar', ['bar', 'barcito', 'boliche de barrio'], ['bar', 'pub', 'drinking spot']),
+  bar: tag('Bar', 'Bar', ['bar', 'barcito'], ['bar', 'pub', 'drinking spot']),
   brewery: tag('Cervecería', 'Brewery', ['cervecería', 'brewpub', 'taproom'], ['brewery', 'brewpub', 'taproom', 'beer bar']),
   wine_bar: tag('Vinoteca', 'Wine bar', ['vinoteca', 'bar de vinos', 'vinos por copa'], ['wine bar', 'wine shop', 'wine by the glass']),
   bakery: tag('Panadería', 'Bakery', ['panadería', 'panificadora', 'confitería'], ['bakery', 'pastry shop', 'patisserie']),
@@ -80,6 +80,8 @@ export const CUISINES = {
     ['pad thai', 'pho', 'bao', 'banh mi', 'laksa', 'nasi goreng'], ['pad thai', 'pho', 'bao', 'banh mi', 'laksa', 'nasi goreng']),
   mediterranean: cuisine('Mediterránea', 'Mediterranean', ['mediterráneo', 'comida mediterránea', 'cocina mediterránea'], ['mediterranean', 'mediterranean food'],
     ['musaka', 'souvlaki', 'tzatziki', 'spanakopita'], ['moussaka', 'souvlaki', 'tzatziki', 'spanakopita']),
+  russian: cuisine('Rusa', 'Russian', ['comida rusa', 'cocina rusa', 'ruso', 'rusa'], ['russian food', 'russian cuisine'],
+    ['pelmeni', 'vareniki', 'varénikes', 'borscht', 'borsch', 'pirozhki', 'blini', 'ensalada olivier'], ['pelmeni', 'vareniki', 'borscht', 'pirozhki', 'blini', 'olivier salad']),
   fusion: cuisine('Fusión', 'Fusion', ['fusión', 'cocina de autor'], ['fusion', 'chef-driven']),
 } satisfies TagGroup
 
@@ -101,7 +103,7 @@ export const FOODS = {
   wraps: tag('Wraps', 'Wraps', ['wrap', 'wraps'], ['wrap', 'wraps', 'burrito']),
   tarts: tag('Tartas', 'Savory tarts', ['tarta', 'tartas', 'pascualina'], ['savory tart', 'quiche']),
   tortilla: tag('Tortillas', 'Spanish omelette', ['tortilla', 'tortilla de papas'], ['tortilla', 'spanish omelette', 'potato omelette']),
-  salads: tag('Ensaladas', 'Salads', ['ensalada', 'ensaladas', 'comida liviana', 'saludable'], ['salad', 'salads', 'healthy', 'light food']),
+  salads: tag('Ensaladas', 'Salads', ['ensalada', 'ensaladas', 'ensalada rusa', 'comida liviana', 'saludable'], ['salad', 'salads', 'healthy', 'light food']),
   picada: tag('Picada', 'Picada', ['picada', 'picadita', 'tabla', 'tablas', 'para compartir', 'fiambres y quesos', 'quesos'], ['charcuterie', 'sharing board', 'cheese board', 'to share'], 'Sharing board of cold cuts, cheeses and snacks'),
   tapas: tag('Tapas y platitos', 'Tapas and small plates', ['tapas', 'platitos', 'platos pequeños', 'para picar'], ['tapas', 'small plates']),
   desserts: tag('Postres', 'Desserts', ['postre', 'postres', 'torta', 'tortas', 'chajá', 'martín fierro', 'mousse'], ['dessert', 'desserts', 'cake', 'sweets', 'mousse']),
@@ -173,6 +175,8 @@ export const ATMOSPHERE = {
   lively: tag('Animado', 'Lively', ['animado', 'con onda', 'movido', 'bullicioso'], ['lively', 'buzzy', 'vibrant']),
   cozy: tag('Acogedor', 'Cozy', ['acogedor', 'acogedora'], ['cozy', 'cosy']),
   elegant: tag('Elegante', 'Elegant', ['elegante', 'sofisticado', 'refinado'], ['elegant', 'upscale', 'refined']),
+  // Sin pretensiones, tradicional, con clientes de siempre. No es lo mismo que barato. "boliche" solo es night_club.
+  neighborhood_spot: tag('De barrio', 'Neighborhood spot', ['de barrio', 'bolichito', 'boliche de barrio', 'clásico del barrio', 'bodegón de barrio'], ['neighborhood spot', 'local haunt', 'old-school local']),
 } satisfies TagGroup
 
 export const OFFERS = {
@@ -197,7 +201,7 @@ export const isOccasionTag = (id: string): id is OccasionTag => (OCCASION_TAGS a
 
 /** Estilo del lugar: de la marca, igual en todas las sucursales. Es un campo propio (style), no un tag. */
 export const STYLES = {
-  casual: tag('Casual', 'Casual', ['descontracturado', 'de barrio', 'informal', 'casual', 'sencillo'], ['casual', 'laid-back', 'informal', 'neighborhood spot']),
+  casual: tag('Casual', 'Casual', ['descontracturado', 'informal', 'casual', 'sencillo'], ['casual', 'laid-back', 'informal']),
   intermedio: tag('Intermedio', 'Mid-range', [], []),
   cuidado: tag('Cuidado', 'Refined', ['especial', 'de autor', 'cuidado', 'refinado'], ['refined', 'chef-driven', 'special']),
 } satisfies TagGroup

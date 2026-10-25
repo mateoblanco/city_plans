@@ -16,6 +16,7 @@ import {
 import { ICON_CATEGORY_KEYS } from "../../src/data/icon-categories.ts";
 import { STYLE_IDS } from "../../src/data/tags.ts";
 import { REVIEW_REASON_IDS } from "../../src/data/review-reasons.ts";
+import type { ManualOverrides } from "../../src/data/manual-overrides.ts";
 
 // ── Tipos auxiliares ──
 
@@ -52,8 +53,8 @@ export const DIET_LEVEL = ["unknown", "no", "has_options", "fully"] as const;
 export const PRICE = ["unknown", "low", "moderate", "high", "very_high"] as const;
 export const RESERVATIONS = ["unknown", "no_reservations", "accepts", "recommended"] as const;
 export const LOGO_KIND = ["logo", "local", "food", "person", "other"] as const;
-// owner: más adelante, cuando el dueño pueda cambiar el logo.
-export const LOGO_SOURCE = ["instagram", "owner"] as const;
+// manual: subido desde el backoffice; owner: más adelante, cuando el dueño pueda cambiar el logo.
+export const LOGO_SOURCE = ["instagram", "owner", "manual"] as const;
 
 const inList = (values: readonly string[]) =>
   sql.raw(values.map((v) => `'${v}'`).join(", "));
@@ -132,6 +133,8 @@ export const places = pgTable(
     igFollowers: integer("ig_followers"),
     // Sucursal de cadena: computeProminence descuenta los seguidores de la marca.
     chainBranch: boolean("chain_branch").notNull().default(false),
+    // Sucursales de una misma marca (server/places/brand-key.ts): la búsqueda muestra una card por marca. null = sin marca.
+    brandKey: text("brand_key"),
     // 0 a 1, de computeProminence (server/places/prominence.ts).
     prominence: real("prominence").notNull().default(0),
     // Curaduría manual desde el backoffice: el pipeline nunca lo escribe.
@@ -165,7 +168,9 @@ export const places = pgTable(
     embeddedAt: timestamp("embedded_at", { withTimezone: true }),
 
     // Control
-    manualOverrides: text("manual_overrides").array().notNull().default(sql`'{}'`),
+    // Campos editados a mano (src/data/manual-overrides.ts), por nombre de columna: bloquean el campo o, en tags,
+    // guardan la diferencia con lo automático. Las columnas tienen siempre el valor final.
+    manualOverrides: jsonb("manual_overrides").$type<ManualOverrides>().notNull().default({}),
     lastExtractionId: uuid("last_extraction_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
@@ -200,6 +205,7 @@ export const places = pgTable(
     index("places_neighborhood_idx").on(t.neighborhoodId),
     index("places_status_idx").on(t.status),
     index("places_prominence_idx").on(t.prominence),
+    index("places_brand_key_idx").on(t.brandKey),
   ]
 );
 

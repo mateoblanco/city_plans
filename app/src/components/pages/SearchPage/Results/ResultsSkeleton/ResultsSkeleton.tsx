@@ -12,7 +12,9 @@ const ResultsSkeleton = () => {
           <div key={index} className={styles.skeletonCard} />
         ))}
       </div>
-      <MapColumn />
+      <MapColumn>
+        <div className={styles.skeletonMap} />
+      </MapColumn>
     </div>
   );
 };

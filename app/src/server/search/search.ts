@@ -1,11 +1,14 @@
 import { findDef, isOccasionTag, isStyleId, label, normalize } from '@shared/tags.ts'
 import { neighborhoodDisplayName } from '@shared/neighborhood-names.ts'
+import { sectionDef } from '@shared/sections.ts'
+import { INTENT_VERB_WORDS } from '@shared/intents.ts'
 import centroids from '@shared/neighborhood-centroids.json'
 import type { IconCategory } from '@shared/icon-categories.ts'
 import { SEARCH_CONFIG } from './config'
 import type { EmbeddingResult, SearchCache } from './cache'
-import type { CandidateFilters, CandidateRow, DishMode, NameMatch, ScoreInputs } from './candidates'
+import type { CandidateFilters, CandidateRow, DishMode, FilterGroup, NameMatch, ScoreInputs } from './candidates'
 import { summarizeCost, type CostEntry, type SearchCost } from './cost'
+import { collapseBranches } from './branches'
 import { buildChips, type Chip } from './chips'
 import { interpretWithDictionary } from './dictionary'
 import { checkMust, intendedDiscards, reportMust, type Discard, type MustCheck } from './invariant'
@@ -13,7 +16,7 @@ import { dishTargetFor, type DishTarget } from './dishes'
 import { applyFilters, filterChipKeys, parseFilters, parseNear, type LatLng } from './filters'
 import { buildBar, intentGroups, parseIntent, resolveIntent, type IntentBar } from './intents'
 import { buildRankings, fuse, type Fused, type MatchLevel, type Rankings } from './fuse'
-import { montevideoNow, nextOpening, openStatus, resolveOpenAt, type Moment, type OpenState } from './hours'
+import { montevideoNow, nextOpening, openStatus, resolveOpenAt, type OpenFilter, type OpenState } from './hours'
 import {
   applyRemove,
   DIET_KEYS,
@@ -42,8 +45,16 @@ export type SearchOptions = {
   intent?: string | null
   sub?: string | null
   debug?: boolean
+  /** Contar cuántos lugares más saldrían sin cada filtro activo (la invitación a ampliar del final de la lista). */
+  widen?: boolean
   now?: Date
 }
+
+/**
+ * Invitación a ampliar: sacar este filtro suma count lugares. kind sub es un sub-filtro de la intención; el resto,
+ * chips (fromText / fromFilter dicen cómo apagarlo).
+ */
+export type WidenOption = { kind: 'neighborhood' | 'openAt' | 'diet' | 'sub'; id: string; label: string; fromText: boolean; fromFilter: boolean; count: number }
 
 export type SearchResult = {
   id: string
@@ -61,6 +72,10 @@ export type SearchResult = {
   logoBgColor: string | null
   lat: number
   lng: number
+  /** Sucursales publicadas de la marca (1 sin marca), para "N sucursales". */
+  branchCount: number
+  /** Las otras sucursales de la marca que salieron en la búsqueda: no tienen card, sí punto en el mapa. */
+  branches: { id: string; lat: number; lng: number }[]
   reasons: string[]
   openStatus: { state: OpenState['state']; closesAt: string | null; label: string } & OpenStateText
   matchLevel: MatchLevel
@@ -107,6 +122,9 @@ export type SearchDebug = {
     similarity: number | null
     /** Por qué pasó el corte por relevancia, o por qué se cortó (los cortados van al final). */
     relevance: Relevance
+    brandKey: string | null
+    /** Sucursal escondida: el id de la card de su marca; null si tiene card propia (o quedó cortada). */
+    collapsedInto: string | null
   }[]
   /** Corte por relevancia: la similitud más alta y desde dónde se corta; null si no hubo embedding. */
   relevance: { best: number; threshold: number; gap: number } | null
@@ -134,11 +152,13 @@ export type SearchResponse = {
   needsLocation: boolean
   /** Ubicación con la que se buscó (ya redondeada), para el mapa. */
   near: LatLng | null
+  /** Sólo con la opción widen: hasta WIDEN_MAX filtros para sacar, de los que más suman a los que menos (count > 0). */
+  widen?: WidenOption[]
   debug?: SearchDebug
 }
 
 const STOPWORDS = new Set([
-  'en', 'de', 'del', 'el', 'la', 'los', 'las', 'un', 'una', 'y', 'o', 'con', 'para', 'por', 'a', 'al', 'que', 'algo', 'lugar', 'no', 'sea', 'mejor', 'mejores', 'top',
+  'en', 'de', 'del', 'el', 'la', 'los', 'las', 'un', 'una', 'uno', 'unos', 'unas', 'y', 'o', 'con', 'para', 'por', 'a', 'al', 'que', 'algo', 'lugar', 'no', 'sea', 'mejor', 'mejores', 'top',
   'in', 'at', 'near', 'the', 'an', 'with', 'for', 'and', 'or', 'of', 'to', 'best', 'place', 'me',
 ])
 
@@ -171,7 +191,17 @@ export function keywordsFor(normalized: string, value: Interpretation, edits: Te
   // Con el atajo, la consulta es lo que pidió la persona (menos lo quitado); con el modelo y chips quitados, sólo los platos.
   const fromQuery = edits.removed && !edits.shortcut ? [] : queryWords(normalized).filter((word) => !edits.removedWords.has(word))
   const words = [...value.dishes.flatMap((dish) => queryWords(normalize(dish.name))), ...fromQuery]
-  return [...new Set(words)].filter((word) => word.length > 1 && !STOPWORDS.has(word) && !excluded.has(word))
+  // El verbo que eligió la intención ("tomar algo") ya hizo su trabajo: como keyword empata a casi todos.
+  const verb = (word: string) => value.intent !== null && INTENT_VERB_WORDS.has(word)
+  return [...new Set(words)].filter((word) => word.length > 1 && !STOPWORDS.has(word) && !excluded.has(word) && !verb(word))
+}
+
+/**
+ * Palabras para buscar por nombre: la consulta sin palabras vacías, sin los verbos de intención ("comer algo" → nada)
+ * y sin las de los chips quitados. Sin ninguna, la búsqueda por nombre no corre.
+ */
+export function nameWordsFor(normalized: string, removedWords: Set<string>): string[] {
+  return [...new Set(queryWords(normalized))].filter((word) => !STOPWORDS.has(word) && !INTENT_VERB_WORDS.has(word) && !removedWords.has(word))
 }
 
 /**
@@ -200,7 +230,7 @@ export function semanticTextFor(normalized: string, value: Interpretation, edits
 
 export function filtersFor(
   value: Interpretation,
-  moment: Moment | null,
+  openAt: OpenFilter | null,
   dishes: DishTarget[],
   dishMode: DishMode = 'dish',
   near: CandidateFilters['near'] = null,
@@ -212,7 +242,7 @@ export function filtersFor(
     diet: DIET_KEYS.filter((key) => value.must.diet[key]),
     neighborhoods: value.must.neighborhoods,
     price: value.must.price,
-    openAt: moment,
+    openAt,
     excludeCategories: value.exclude.categories,
     excludeTags: value.exclude.tags,
     dishes,
@@ -251,6 +281,9 @@ async function blockingConditions(store: SearchDeps['store'], filters: Candidate
   return { diet: hasDiet, exclude: hasExclude, intent: hasIntent }
 }
 
+/** Cuántas invitaciones a ampliar se muestran como mucho. */
+const WIDEN_MAX = 2
+
 const elapsed = (start: number) => Math.round(performance.now() - start)
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
@@ -271,6 +304,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   const near = parseNear(options.near)
   const intentUrl = parseIntent(options.intent, options.sub)
   const textless = !normalized
+  const nameWords = textless ? [] : nameWordsFor(normalized, removedWordsOf(removals))
 
   // El embedding de la consulta arranca ya: si no hay vibe ni chips quitados es el que se usa. Quitar la
   // intención no cambia el texto.
@@ -284,7 +318,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   const parallelStart = performance.now()
   const timed = <T,>(name: string, promise: Promise<T>) => promise.finally(() => (timings[name] = elapsed(parallelStart)))
   const dictionary = textless ? null : interpretWithDictionary(normalized)
-  const namesPromise = textless ? Promise.resolve([] as NameMatch[]) : timed('shortcut', deps.store.nameMatches(normalized).catch(() => [] as NameMatch[]))
+  const namesPromise = nameWords.length === 0 ? Promise.resolve([] as NameMatch[]) : timed('shortcut', deps.store.nameMatches(normalized).catch(() => [] as NameMatch[]))
   const llmPromise =
     textless || dictionary
       ? null
@@ -372,7 +406,8 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   const scores: ScoreInputs = {
     embedding,
     keywords,
-    name: nameQuery ?? (normalized || null),
+    // Un nombre (del modelo o fijado) se busca difuso, con errores de tipeo; si no, sólo las palabras que quedan.
+    name: nameQuery ?? (nameWords.length ? nameWords.join(' ') : null),
     // Con cerca mío, la distancia se mide desde la persona y entra al ranking desde el primer intento.
     origins: near ? [near] : [],
     pinnedId: pinned?.id ?? null,
@@ -383,6 +418,10 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   const filterKeys = filterChipKeys(filters)
   const chipsOf = (chips: Chip[]) =>
     chips.map((chip) => ({ ...chip, fromText: textKeys.has(`${chip.kind}:${chip.id}`), fromFilter: filterKeys.has(`${chip.kind}:${chip.id}`) }))
+
+  // "Abre hoy" para cenar es a la noche, como "esta noche".
+  const openFilterOf = (value: Interpretation) =>
+    resolveOpenAt(value.must.openAt, now, { dinner: [...value.must.tags, ...value.prefer.tags].includes('dinner') })
 
   // 3. Candidatos, relajando de a un paso mientras no haya ninguno.
   const relaxedSteps: RelaxStep[] = []
@@ -395,14 +434,16 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     subs: resolved.subs.map((sub) => sub.id),
   }
   let state = initial
+  // El "Ver todos" de un grupo exige su regla; como la intención, nunca se relaja.
+  const sectionGroups: FilterGroup[] = filters.section ? [sectionDef(filters.section).match] : []
   const filtersOf = (value: SearchState) =>
     filtersFor(
       value.interpretation,
-      resolveOpenAt(value.interpretation.must.openAt, now),
+      openFilterOf(value.interpretation),
       dishes,
       value.dishMode,
       near && value.nearRadius !== null ? { ...near, radiusM: value.nearRadius } : null,
-      intentGroups(value.intent, value.subs),
+      [...intentGroups(value.intent, value.subs), ...sectionGroups],
     )
   const fetchCandidates = async () => {
     const attemptStart = performance.now()
@@ -423,36 +464,53 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   timings.candidates = attempts.reduce((sum, attempt) => sum + attempt.ms, 0)
   const current = state.interpretation
 
-  // 4. Rankings, fusión y empujones.
+  // 4. Rankings, fusión, empujones, corte por relevancia y una card por marca. Se repite con widen, para contar
+  // cuántos más saldrían sin un filtro.
+  const rank = (candidates: CandidateRow[], value: SearchState) => {
+    const wanted = value.interpretation
+    const openAt = openFilterOf(wanted)
+    const relatedTags = value.dishMode === 'related' ? dishes.flatMap((target) => target.related.tags) : dishes.flatMap((target) => (target.tag ? [target.tag] : []))
+    const rankings = buildRankings(candidates, { withQuality: textless, wholeWords: nameQuery ? null : nameWords })
+    const requestedCategories = [...wanted.must.categories, ...wanted.prefer.categories]
+    const requestedTags = [...wanted.must.tags, ...wanted.prefer.tags, ...relatedTags]
+    const dancing = ['night_club', 'dancing', 'dj']
+    const wantsDancing = [...requestedCategories, ...requestedTags].some((id) => dancing.includes(id)) || intentGroups(value.intent, value.subs).slice(1).some((group) =>
+      [...(group.categories ?? []), ...(group.tags ?? [])].some((id) => dancing.includes(id)))
+    const allFused = fuse(candidates, rankings, {
+      pinnedId: pinned?.id ?? null,
+      dishes,
+      categories: requestedCategories,
+      requestedTags,
+      preferTags: wanted.prefer.tags,
+      preferStyle: wanted.prefer.style,
+      price: wanted.must.price,
+      openAt,
+      wantsBest: wanted.wantsBest,
+      wantsDancing,
+      intent: value.intent,
+      section: filters.section,
+    })
+    // Sin tope: se muestran todos los que pasan el corte por relevancia (los de horario sin confirmar, al final).
+    const cut = relevanceCut(allFused, {
+      hasEmbedding: embedding !== null,
+      categories: requestedCategories,
+      tags: requestedTags,
+      hasDishes: dishes.length > 0,
+      // La intención del verbo del texto (no la que sólo pide la URL).
+      intent: wanted.intent !== null && wanted.intent === value.intent ? intentGroups(value.intent, [])[0] : null,
+    })
+    // Una card por marca: las otras sucursales no ocupan lugar en la lista, las secciones ni los avisos.
+    const fused = collapseBranches(cut.kept, { neighborhoods: interpretation.must.neighborhoods, near: near !== null })
+    return { openAt, rankings, cut, fused }
+  }
   step = performance.now()
-  const openAtMoment = resolveOpenAt(current.must.openAt, now)
-  const relatedTags = state.dishMode === 'related' ? dishes.flatMap((target) => target.related.tags) : dishes.flatMap((target) => (target.tag ? [target.tag] : []))
-  const rankings = buildRankings(rows, { withQuality: textless, wholeWords: source === 'shortcut' ? keywords : null })
-  const requestedCategories = [...current.must.categories, ...current.prefer.categories]
-  const requestedTags = [...current.must.tags, ...current.prefer.tags, ...relatedTags]
-  const dancing = ['night_club', 'dancing', 'dj']
-  const wantsDancing = [...requestedCategories, ...requestedTags].some((id) => dancing.includes(id)) || intentGroups(state.intent, state.subs).slice(1).some((group) =>
-    [...(group.categories ?? []), ...(group.tags ?? [])].some((id) => dancing.includes(id)))
-  const allFused = fuse(rows, rankings, {
-    pinnedId: pinned?.id ?? null,
-    dishes,
-    categories: requestedCategories,
-    requestedTags,
-    preferTags: current.prefer.tags,
-    preferStyle: current.prefer.style,
-    price: current.must.price,
-    openAt: openAtMoment,
-    wantsBest: current.wantsBest,
-    wantsDancing,
-  })
-  // Corte por relevancia antes del tope: lo que se corta deja lugar a otros.
-  const cut = relevanceCut(allFused, { hasEmbedding: embedding !== null, categories: requestedCategories, tags: requestedTags, hasDishes: dishes.length > 0 })
-  const fused = cut.kept.slice(0, SEARCH_CONFIG.maxResults)
+  const { openAt, rankings, cut, fused } = rank(rows, state)
   timings.fuse = elapsed(step)
 
   // 5. Respuesta.
-  const moment = openAtMoment ?? montevideoNow(now)
-  const isNow = current.must.openAt === null || current.must.openAt === 'now'
+  // "Abre hoy" se muestra como ahora: "Abierto · cierra 23:00" o "Abre 20:00".
+  const moment = openAt?.moment ?? montevideoNow(now)
+  const isNow = openAt === null || openAt.today
   const results = fused.map((item): SearchResult => {
     const open = item.open ?? openStatus(item.row.hours, moment)
     const next = isNow && open.state === 'closed' && moment.time ? nextOpening(item.row.hours, { day: moment.day, time: moment.time }) : null
@@ -468,6 +526,8 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       logoBgColor: item.row.logoBgColor,
       lat: item.row.lat,
       lng: item.row.lng,
+      branchCount: item.row.brandCount,
+      branches: item.branches.map(({ row }) => ({ id: row.id, lat: row.lat, lng: row.lng })),
       reasons: buildReasons(item, { interpretation: current, dishes, dishMode: state.dishMode, intent: state.intent, near: near !== null }),
       openStatus: {
         state: open.state,
@@ -481,7 +541,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
 
   // Secciones: sólo en búsquedas amplias y con suficientes resultados.
   const minResults = SEARCH_CONFIG.sections.minResults
-  const notGrouped = notBroadReason(interpretation, { pinned: pinned !== null, subs: resolved.subs.length }) ??
+  const notGrouped = notBroadReason(interpretation, { pinned: pinned !== null, subs: resolved.subs.length, section: filters.section !== null }) ??
     (fused.length < minResults ? `menos de ${minResults} resultados` : null)
   const sectionChoice = notGrouped ? null : requestedSections(interpretation, { fromLlm: source === 'llm', intent: state.intent })
   const grouped = sectionChoice ? buildSections(fused, sectionChoice.requested, interpretation.language) : null
@@ -503,7 +563,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       after: state,
       rows: shownRows,
       dishes,
-      moment: resolveOpenAt(before.interpretation.must.openAt, now),
+      openAt: openFilterOf(before.interpretation),
     })
     if (notice && shownRows.length) relaxed.push(notice)
     before = relax(before, relaxStep)
@@ -529,10 +589,46 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   const extras = chips.filter(
     (chip) => chip.fromText && (chip.kind === 'category' || chip.kind === 'tag' || shownPreference(chip) || (chip.kind === 'dish' && !resolved.absorbedDishes.includes(chip.id))),
   )
+  // El "Ver todos" de un grupo se ve activo en la barra y se apaga sacándolo de f.
+  if (filters.section) {
+    extras.push({ kind: 'section', id: filters.section, label: sectionDef(filters.section).title[interpretation.language], fromText: false, fromFilter: true })
+  }
+  const bar = buildBar(resolved, extras)
+
+  // Invitación a ampliar: cuántos lugares más saldrían sin cada filtro que sigue activo después de relajar (barrio,
+  // horario, cada dieta, cada sub-filtro). Reusa la interpretación y el embedding: sólo SQL, un pedido por filtro.
+  const widenOptions = async (): Promise<WidenOption[]> => {
+    if (shownRows.length === 0) return []
+    const value = state.interpretation
+    const withMust = (must: Partial<Interpretation['must']>): SearchState => ({ ...state, interpretation: { ...value, must: { ...value.must, ...must } } })
+    const chipOption = (chip: Chip | undefined, kind: WidenOption['kind'], next: SearchState) =>
+      chip ? [{ option: { kind, id: chip.id, label: chip.label, fromText: chip.fromText ?? false, fromFilter: chip.fromFilter ?? false }, state: next }] : []
+    const removable = [
+      ...(value.must.neighborhoods.length
+        ? chipOption(chips.find((chip) => chip.kind === 'neighborhood' && value.must.neighborhoods.includes(chip.id)), 'neighborhood', withMust({ neighborhoods: [] }))
+        : []),
+      ...(value.must.openAt ? chipOption(chips.find((chip) => chip.kind === 'openAt'), 'openAt', withMust({ openAt: null })) : []),
+      ...DIET_KEYS.filter((key) => value.must.diet[key]).flatMap((key) =>
+        chipOption(chips.find((chip) => chip.kind === 'diet' && chip.id === key), 'diet', withMust({ diet: { ...value.must.diet, [key]: false } }))),
+      ...state.subs.flatMap((id) => {
+        const sub = bar.subs.find((entry) => entry.id === id)
+        if (!sub) return []
+        return [{ option: { kind: 'sub' as const, id, label: sub.label, fromText: sub.fromText, fromFilter: false }, state: { ...state, subs: state.subs.filter((other) => other !== id) } }]
+      }),
+    ]
+    const shownIds = new Set(fused.flatMap((item) => [item.row.id, ...item.branches.map((branch) => branch.row.id)]))
+    const counted = await Promise.all(
+      removable.map(async ({ option, state: next }) => {
+        const wider = rank(await deps.store.candidates(filtersOf(next), scores), next).fused
+        return { ...option, count: wider.filter((item) => !shownIds.has(item.row.id)).length }
+      }),
+    )
+    return counted.filter((option) => option.count > 0).sort((a, b) => b.count - a.count).slice(0, WIDEN_MAX)
+  }
   const response: SearchResponse = {
     query: rawQuery,
     interpreted: { chips },
-    bar: buildBar(resolved, extras),
+    bar,
     results,
     sections: grouped?.sections ?? null,
     relaxed,
@@ -540,6 +636,12 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     needsLocation: interpretation.needsLocation,
     near,
   }
+  if (options.widen) {
+    step = performance.now()
+    response.widen = await widenOptions()
+    timings.widen = elapsed(step)
+  }
+
   if (options.debug) {
     // El embedding de la consulta se pagó aunque al final se usara el de la vibe, y el modelo aunque la
     // consulta resultara ser un nombre.
@@ -549,6 +651,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       if (llm.ok) costs.push({ step: 'interpret', model: llm.value.model, usd: llm.value.cost, cached: llm.value.computedAt < startedAt, discarded: true })
     }
     const depth = SEARCH_CONFIG.debugDepth
+    const collapsedInto = new Map(fused.flatMap((item) => item.branches.map((branch) => [branch.row.id, item.row.id] as const)))
     response.debug = {
       source,
       model,
@@ -569,7 +672,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
         distance: rankings.distance.slice(0, depth),
         quality: rankings.quality.slice(0, depth),
       },
-      results: [...fused, ...cut.cut].map((item) => ({
+      results: [...cut.kept, ...cut.cut].map((item) => ({
         id: item.row.id,
         name: item.row.name,
         categories: item.row.categories,
@@ -587,6 +690,8 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
         pinned: item.pinned,
         similarity: item.row.semantic,
         relevance: cut.relevance.get(item.row.id)!,
+        brandKey: item.row.brandKey,
+        collapsedInto: collapsedInto.get(item.row.id) ?? null,
       })),
       relevance: cut.summary,
       timings,

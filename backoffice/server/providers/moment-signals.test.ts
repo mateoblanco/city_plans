@@ -146,13 +146,45 @@ describe('postProcess: cozy', () => {
   })
 })
 
+describe('postProcess: de barrio (neighborhood_spot)', () => {
+  const spot = (place: ReturnType<typeof run>) => place.tags.includes('neighborhood_spot')
+
+  it('una fuente real con la frase lo da aunque el modelo no lo proponga, con la línea como respaldo', () => {
+    const place = run(['Abre de lunes a sábado'], [], 'Abre de lunes a sábado. Un clásico del barrio desde 1960.')
+    expect(spot(place)).toBe(true)
+    const evidence = place.tagEvidence?.find((item) => item.tag === 'neighborhood_spot')
+    expect(evidence).toMatchObject({ mode: 'explicit', signals: ['clásico del barrio'] })
+    expect(place.placeFacts.find((fact) => fact.id === evidence?.factIds[0])?.text).toContain('Un clásico del barrio')
+    expect(spot(run([], [], 'Bodegón con platos abundantes'))).toBe(true)
+  })
+
+  it('la frase sólo en el resumen de Exa no alcanza', () => {
+    const facts = [{ id: 'F1', text: 'Un bar de barrio', sourceId: 'S2', kind: 'other' as const, proposedTag: null }]
+    const exa: Source = { id: 'S2', kind: 'exa', trust: 'third_party', url: EXA_SUMMARY_URL, text: 'Un bar de barrio' }
+    const tags: PlaceExtraction['tags'] = [{ group: 'atmosphere', id: 'neighborhood_spot', facts: ['F1'] }]
+    expect(postProcess(target, { ...base, facts, tags: [...base.tags, ...tags] }, { sources: [web('Bar'), exa] }).tags).not.toContain('neighborhood_spot')
+  })
+
+  it('no se deduce: precio, comida casera, "de toda la vida" o "de barrio" suelto no lo dan', () => {
+    for (const text of ['Precios accesibles y comida casera', 'Amigos de toda la vida', 'Una pizzería de barrio', 'De los de antes', 'Un bolichito']) {
+      expect(spot(run([text], [])), text).toBe(false)
+    }
+  })
+
+  it('propuesto por el modelo con un fact sin la frase, se descarta', () => {
+    const tags: PlaceExtraction['tags'] = [{ group: 'atmosphere', id: 'neighborhood_spot', facts: ['F1'] }]
+    expect(spot(run(['Ambiente sencillo y precios bajos'], tags))).toBe(false)
+    expect(spot(run(['Un bar de barrio con mesas de fórmica'], tags))).toBe(true)
+  })
+})
+
 describe('postProcess: style', () => {
   it('casual con una señal', () => {
     const place = run(['Pizza por porción en el mostrador'], [{ group: 'style', id: 'casual', facts: ['F1'] }])
     expect(place.style).toBe('casual')
     expect(place.tagEvidence).toContainEqual({ tag: 'casual', mode: 'inferred', basis: 'signals', signals: ['por porción'], factIds: ['F1'] })
     expect(place.embeddingText).toContain('Estilo casual')
-    expect(place.keywordText).toContain('de barrio')
+    expect(place.keywordText).toContain('descontracturado')
   })
 
   it('cuidado sin señal no queda: sale del ícono', () => {

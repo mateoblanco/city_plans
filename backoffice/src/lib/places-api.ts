@@ -9,25 +9,37 @@ import type {
   NeighborhoodSweepEvent,
   NeighborhoodSweepMode,
   PlaceAnchor,
+  InstagramOwner,
+  ManualLogoUpload,
+  PlaceDeleteResult,
+  PlaceDetail,
+  PlaceEditPlan,
+  PlaceEditResult,
   PlaceEnrichmentResponse,
-  PlaceListItem,
+  PlaceListPage,
+  PlaceListQuery,
   PlaceMatchResponse,
   PlaceSummary,
   PlacesSearchRequest,
   PlacesSearchResponse,
   SavePlaceResult,
 } from '@/types/places'
+import type { PlaceEdit } from '@/data/manual-overrides'
 
 export class PlacesApiError extends Error {
   readonly code: ApiErrorResponse['error']['code']
+  /** Con INSTAGRAM_IN_USE: los otros lugares que ya tienen ese Instagram. */
+  readonly owners: InstagramOwner[]
 
   constructor(
     code: ApiErrorResponse['error']['code'],
     message: string,
+    owners: InstagramOwner[] = [],
   ) {
     super(message)
     this.name = 'PlacesApiError'
     this.code = code
+    this.owners = owners
   }
 }
 
@@ -68,9 +80,11 @@ async function parseApiResponse<T>(response: Response): Promise<T> {
     const error = payload && typeof payload === 'object' && 'error' in payload
       ? payload.error
       : null
+    const owners = payload && typeof payload === 'object' && 'owners' in payload && Array.isArray(payload.owners) ? payload.owners as InstagramOwner[] : []
     throw new PlacesApiError(
       error?.code ?? 'UNKNOWN_ERROR',
       error?.message ?? 'No se pudo completar la consulta.',
+      owners,
     )
   }
 
@@ -186,10 +200,69 @@ export async function savePlaces(results: PlaceEnrichmentResponse[]): Promise<Sa
   return (await parseApiResponse<{ results: SavePlaceResult[] }>(response)).results
 }
 
-/** Lugares guardados en la base, del más reciente al más viejo. */
-export async function listSavedPlaces(signal?: AbortSignal): Promise<PlaceListItem[]> {
-  const response = await fetch('/api/places', { signal })
-  return (await parseApiResponse<{ places: PlaceListItem[] }>(response)).places
+/** Query string de GET /api/places, sin los valores por defecto. */
+export function placeListSearch(query: PlaceListQuery): string {
+  const params = new URLSearchParams()
+  if (query.q?.trim()) params.set('q', query.q.trim())
+  if (query.neighborhood) params.set('neighborhood', query.neighborhood)
+  if (query.category) params.set('category', query.category)
+  if (query.status) params.set('status', query.status)
+  if (query.edited) params.set('edited', '1')
+  if (query.noLogo) params.set('noLogo', '1')
+  if (query.noHours) params.set('noHours', '1')
+  if (query.sort !== 'recent') params.set('sort', query.sort)
+  if (query.page !== 1) params.set('page', String(query.page))
+  params.set('pageSize', String(query.pageSize))
+  return params.toString()
+}
+
+/** Una página de los lugares guardados, con filtros y orden en el servidor. */
+export async function listSavedPlaces(query: PlaceListQuery, signal?: AbortSignal): Promise<PlaceListPage> {
+  const response = await fetch(`/api/places?${placeListSearch(query)}`, { signal })
+  return parseApiResponse<PlaceListPage>(response)
+}
+
+/** Lo que el modal de edición necesita de un lugar. */
+export async function getPlaceDetail(id: string, signal?: AbortSignal): Promise<PlaceDetail> {
+  const response = await fetch(`/api/places/${encodeURIComponent(id)}`, { signal })
+  return (await parseApiResponse<{ place: PlaceDetail }>(response)).place
+}
+
+/** Qué se recalcula al guardar la edición y cuánto cuesta, sin guardar. */
+export async function planPlaceEdit(id: string, edit: PlaceEdit, signal?: AbortSignal): Promise<PlaceEditPlan> {
+  const response = await fetch(`/api/places/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ edit, dryRun: true }),
+    signal,
+  })
+  return (await parseApiResponse<{ plan: PlaceEditPlan }>(response)).plan
+}
+
+/** Guarda la edición. confirmSharedInstagram: el Instagram ya lo tiene otro lugar y se confirmó que es otra sucursal. */
+export async function savePlaceEdit(id: string, edit: PlaceEdit, options: { confirmSharedInstagram?: boolean } = {}): Promise<PlaceEditResult> {
+  const response = await fetch(`/api/places/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ edit, ...options }),
+  })
+  return parseApiResponse<PlaceEditResult>(response)
+}
+
+/** Sube un logo: el servidor lo procesa y lo deja en R2; se guarda en el lugar con la edición. */
+export async function uploadPlaceLogo(id: string, file: File): Promise<ManualLogoUpload> {
+  const response = await fetch(`/api/places/${encodeURIComponent(id)}/logo`, {
+    method: 'POST',
+    headers: { 'Content-Type': file.type || 'application/octet-stream' },
+    body: file,
+  })
+  return parseApiResponse<ManualLogoUpload>(response)
+}
+
+/** Borra el lugar de la base. */
+export async function deleteSavedPlace(id: string): Promise<PlaceDeleteResult & { warnings: string[] }> {
+  const response = await fetch(`/api/places/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  return parseApiResponse<PlaceDeleteResult & { warnings: string[] }>(response)
 }
 
 /** Marca o desmarca un lugar guardado como destacado (curaduría manual). */

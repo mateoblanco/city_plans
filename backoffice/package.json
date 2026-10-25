@@ -18,7 +18,9 @@
     "prominence:recompute": "tsx server/scripts/prominence-recompute.ts",
     "signals:refresh": "tsx server/scripts/signals-refresh.ts",
     "logos:cleanup": "tsx server/scripts/logos-cleanup.ts",
-    "extraction:replay": "tsx server/scripts/extraction-replay.ts"
+    "extraction:replay": "tsx server/scripts/extraction-replay.ts",
+    "brands:backfill": "tsx server/scripts/brand-keys-backfill.ts",
+    "chains:backfill": "tsx server/scripts/chains-backfill.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1152.0",

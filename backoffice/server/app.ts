@@ -23,6 +23,9 @@ import type { PlaceExtractor } from './providers/place-extraction-service.ts'
 import type { NeighborhoodSweeper } from './providers/neighborhood-sweep.ts'
 import type { PlacesSaver } from './places/save.ts'
 import type { PlacesReader } from './places/list.ts'
+import { EditError, type PlaceEditor } from './places/edit.ts'
+import { PlaceEdit } from '../src/data/manual-overrides.ts'
+import { PLACE_LIST_CATEGORIES, PLACE_LIST_SORTS } from '../src/types/places.ts'
 import {
   buildExtractionReport,
   extractionReportRequestSchema,
@@ -102,6 +105,7 @@ type AppDependencies = {
   reportWriter?: ExtractionReportWriter
   placesSaver?: PlacesSaver
   placesReader?: PlacesReader
+  placeEditor?: PlaceEditor
 }
 
 const MAX_SAVE_PLACES = 500
@@ -115,6 +119,26 @@ const savePlacesRequestSchema = z.object({
 })
 
 const setFeaturedSchema = z.object({ featured: z.boolean() })
+const MAX_PAGE_SIZE = 100
+const listQuerySchema = z.object({
+  q: z.string().trim().max(200).optional().transform((value) => value || undefined),
+  neighborhood: z.string().refine((value) => NEIGHBORHOOD_IDS.includes(value)).optional(),
+  category: z.enum(PLACE_LIST_CATEGORIES).optional(),
+  status: z.enum(['published', 'review']).optional(),
+  edited: z.enum(['1', 'true']).optional().transform((value) => value !== undefined),
+  noLogo: z.enum(['1', 'true']).optional().transform((value) => value !== undefined),
+  noHours: z.enum(['1', 'true']).optional().transform((value) => value !== undefined),
+  sort: z.enum(PLACE_LIST_SORTS).default('recent'),
+  page: z.coerce.number().int().min(1).max(10_000).default(1),
+  pageSize: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(50),
+})
+const editRequestSchema = z.object({
+  edit: PlaceEdit,
+  dryRun: z.boolean().optional(),
+  confirmSharedInstagram: z.boolean().optional(),
+})
+// Igual que la descarga del logo de Instagram (MAX_DOWNLOAD_BYTES en place-logo.ts).
+const MAX_LOGO_BYTES = 5 * 1024 * 1024
 const setStatusSchema = z.object({ status: z.literal('published') })
 
 function apiError(
@@ -158,7 +182,14 @@ function providerError(error: PlacesProviderError) {
   return { status: 502 as const, body: apiError('UPSTREAM_ERROR', error.message) }
 }
 
-export function createApp({ provider, exaProvider, matchProviders = {}, instagramConfigured = false, extractor, sweeper, reportWriter, placesSaver, placesReader }: AppDependencies = {}) {
+function editError(error: EditError) {
+  return {
+    status: error.status,
+    body: { ...apiError(error.code, error.message), ...(error.owners ? { owners: error.owners } : {}) },
+  }
+}
+
+export function createApp({ provider, exaProvider, matchProviders = {}, instagramConfigured = false, extractor, sweeper, reportWriter, placesSaver, placesReader, placeEditor }: AppDependencies = {}) {
   const app = new Hono()
 
   app.get('/api/health', (context) =>
@@ -415,10 +446,12 @@ export function createApp({ provider, exaProvider, matchProviders = {}, instagra
   // Guarda resultados de /api/extract en Neon; cada place se valida contra PlaceDraft en savePlaces.
   app.get('/api/places', async (context) => {
     if (!placesReader) return context.json(apiError('CONFIGURATION_ERROR', MISSING_DATABASE), 503)
+    const parsed = listQuerySchema.safeParse(context.req.query())
+    if (!parsed.success) return context.json(apiError('VALIDATION_ERROR', 'Los filtros del listado no son válidos.'), 400)
     try {
-      const list = await placesReader.list()
+      const page = await placesReader.list(parsed.data)
       context.header('Cache-Control', 'no-store')
-      return context.json({ places: list })
+      return context.json(page)
     } catch (error) {
       console.error(JSON.stringify({ event: 'places_list_error', message: error instanceof Error ? error.message : String(error) }))
       return context.json(apiError('UNKNOWN_ERROR', 'No se pudieron cargar los lugares.'), 500)
@@ -459,6 +492,86 @@ export function createApp({ provider, exaProvider, matchProviders = {}, instagra
     } catch (error) {
       console.error(JSON.stringify({ event: 'places_status_error', message: error instanceof Error ? error.message : String(error) }))
       return context.json(apiError('UNKNOWN_ERROR', 'No se pudo publicar el lugar.'), 500)
+    }
+  })
+
+  // Edición desde el backoffice (local, sin autenticación).
+  app.get('/api/places/:id', async (context) => {
+    if (!placeEditor) return context.json(apiError('CONFIGURATION_ERROR', MISSING_DATABASE), 503)
+    const id = context.req.param('id')
+    if (!z.uuid().safeParse(id).success) return context.json(apiError('VALIDATION_ERROR', 'El id del lugar no es válido.'), 400)
+    try {
+      const place = await placeEditor.get(id)
+      if (!place) return context.json(apiError('NOT_FOUND_ERROR', 'El lugar no existe.'), 404)
+      context.header('Cache-Control', 'no-store')
+      return context.json({ place })
+    } catch (error) {
+      console.error(JSON.stringify({ event: 'places_get_error', message: error instanceof Error ? error.message : String(error) }))
+      return context.json(apiError('UNKNOWN_ERROR', 'No se pudo cargar el lugar.'), 500)
+    }
+  })
+
+  // Con dryRun devuelve qué se recalcula y cuánto cuesta; sin dryRun guarda.
+  app.patch('/api/places/:id', async (context) => {
+    if (!placeEditor) return context.json(apiError('CONFIGURATION_ERROR', MISSING_DATABASE), 503)
+    const id = context.req.param('id')
+    const parsed = editRequestSchema.safeParse(await context.req.json().catch(() => null))
+    if (!z.uuid().safeParse(id).success || !parsed.success) {
+      return context.json(apiError('VALIDATION_ERROR', 'La edición no es válida: revisá los campos.'), 400)
+    }
+    const { edit, dryRun, confirmSharedInstagram } = parsed.data
+    try {
+      if (dryRun) return context.json({ plan: await placeEditor.plan(id, edit) })
+      return context.json(await placeEditor.apply(id, edit, { confirmSharedInstagram }))
+    } catch (error) {
+      if (error instanceof EditError) {
+        const { status, body } = editError(error)
+        return context.json(body, status)
+      }
+      console.error(JSON.stringify({ event: 'places_edit_error', message: error instanceof Error ? error.message : String(error) }))
+      return context.json(apiError('UNKNOWN_ERROR', 'No se pudo guardar la edición.'), 500)
+    }
+  })
+
+  // Logo subido a mano: se procesa y se sube a R2, pero se guarda en el lugar recién con la edición.
+  app.post('/api/places/:id/logo', async (context) => {
+    if (!placeEditor) return context.json(apiError('CONFIGURATION_ERROR', MISSING_DATABASE), 503)
+    const id = context.req.param('id')
+    if (!z.uuid().safeParse(id).success) return context.json(apiError('VALIDATION_ERROR', 'El id del lugar no es válido.'), 400)
+    if (Number(context.req.header('content-length')) > MAX_LOGO_BYTES) {
+      return context.json(apiError('VALIDATION_ERROR', 'El logo pesa más de 5 MB.'), 413)
+    }
+    // El archivo va como cuerpo crudo, con su tipo en Content-Type.
+    const contentType = context.req.header('content-type')?.split(';')[0].trim().toLowerCase() ?? ''
+    if (!contentType.startsWith('image/')) return context.json(apiError('VALIDATION_ERROR', 'Subí una imagen (PNG, JPEG, WebP o SVG).'), 400)
+    const image = Buffer.from(await context.req.arrayBuffer())
+    if (image.length === 0) return context.json(apiError('VALIDATION_ERROR', 'Subí una imagen (PNG, JPEG, WebP o SVG).'), 400)
+    if (image.length > MAX_LOGO_BYTES) return context.json(apiError('VALIDATION_ERROR', 'El logo pesa más de 5 MB.'), 413)
+    try {
+      return context.json(await placeEditor.uploadLogo(id, image, contentType))
+    } catch (error) {
+      if (error instanceof EditError) {
+        const { status, body } = editError(error)
+        return context.json(body, status)
+      }
+      console.error(JSON.stringify({ event: 'places_logo_error', message: error instanceof Error ? error.message : String(error) }))
+      return context.json(apiError('UNKNOWN_ERROR', 'No se pudo procesar el logo.'), 500)
+    }
+  })
+
+  app.delete('/api/places/:id', async (context) => {
+    if (!placeEditor) return context.json(apiError('CONFIGURATION_ERROR', MISSING_DATABASE), 503)
+    const id = context.req.param('id')
+    if (!z.uuid().safeParse(id).success) return context.json(apiError('VALIDATION_ERROR', 'El id del lugar no es válido.'), 400)
+    try {
+      return context.json(await placeEditor.delete(id))
+    } catch (error) {
+      if (error instanceof EditError) {
+        const { status, body } = editError(error)
+        return context.json(body, status)
+      }
+      console.error(JSON.stringify({ event: 'places_delete_error', message: error instanceof Error ? error.message : String(error) }))
+      return context.json(apiError('UNKNOWN_ERROR', 'No se pudo borrar el lugar.'), 500)
     }
   })
 

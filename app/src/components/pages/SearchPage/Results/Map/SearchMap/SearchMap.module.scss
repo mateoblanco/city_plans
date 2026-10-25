@@ -30,6 +30,15 @@ $marker-active-scale: 1.5;
   }
 }
 
+.markerIcon {
+  display: block;
+  height: 20px;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+  width: 20px;
+}
+
 .userMarker {
   background-color: #1a73e8;
   border: 3px solid #ffffff;

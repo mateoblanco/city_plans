@@ -10,8 +10,30 @@
   gap: 12px;
 }
 
+// Queda pegado debajo del header mientras se scrollea su sección; el padding con margen negativo le da fondo
+// alrededor del texto sin cambiar el espaciado.
+.header {
+  position: sticky;
+  top: var(--header-offset);
+  background-color: #ffffff;
+  padding: 16px 0;
+  margin: -8px 0;
+  display: flex;
+  align-items: center;
+  // justify-content: space-between;
+  gap: 12px;
+}
+
 .title {
   font-size: 18px;
   font-weight: 600;
   margin: 0;
+}
+
+.viewAll {
+  flex-shrink: 0;
+  color: #555555;
+  font-size: 14px;
+  text-decoration: underline;
+  white-space: nowrap;
 }

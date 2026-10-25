@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createApp } from './app.ts'
+import { EditError, type PlaceEditor } from './places/edit.ts'
+import { NEIGHBORHOOD_IDS } from '../src/lib/getNeighborhood.ts'
 import { DiscoveryExpired, ExaProviderFailure, InstagramNotFound, InstagramProviderFailure, PlacesProviderError, type PlacesProvider } from './providers/places-provider.ts'
 
 const validRequest = {
@@ -222,22 +224,134 @@ describe('exploración multi-fuente', () => {
     expect((await post(null)).status).toBe(400)
   })
 
-  it('GET /api/places devuelve el listado del reader y 500 si falla', async () => {
-    const list = [{
-      id: 'uuid-1', name: 'El Palenque', neighborhoodId: 'CIUDAD VIEJA', categories: ['restaurant'], tags: ['cash_only'],
-      status: 'published', hoursStatus: 'exact', updatedAt: '2026-10-12T15:00:00.000Z', hasEmbedding: true,
-      prominence: 0.54, igFollowers: 999, featured: false, iconCategory: 'grill',
-    }]
-    const response = await createApp({ placesReader: { list: vi.fn().mockResolvedValue(list), setFeatured: vi.fn(), publish: vi.fn() } }).request('/api/places')
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const failed = await createApp({ placesReader: { list: vi.fn().mockRejectedValue(new Error('boom')), setFeatured: vi.fn(), publish: vi.fn() } }).request('/api/places')
+  it('GET /api/places valida los filtros, pasa la página al reader y 500 si falla', async () => {
+    const page = {
+      places: [{
+        id: 'uuid-1', name: 'El Palenque', neighborhoodId: 'CIUDAD VIEJA', categories: ['restaurant'], tags: ['cash_only'],
+        status: 'published', hoursStatus: 'exact', updatedAt: '2026-10-12T15:00:00.000Z', hasEmbedding: true,
+        prominence: 0.54, igFollowers: 999, featured: false, iconCategory: 'grill', editedFields: ['name'],
+      }],
+      total: 1,
+      counts: { all: 1, published: 1, review: 0 },
+    }
+    const list = vi.fn().mockResolvedValue(page)
+    const app = createApp({ placesReader: { list, setFeatured: vi.fn(), publish: vi.fn() } })
 
+    const response = await app.request('/api/places')
     expect(response.status).toBe(200)
     expect(response.headers.get('Cache-Control')).toBe('no-store')
-    expect(await response.json()).toEqual({ places: list })
+    expect(await response.json()).toEqual(page)
+    expect(list).toHaveBeenLastCalledWith({ sort: 'recent', page: 1, pageSize: 50, edited: false, noLogo: false, noHours: false })
+
+    const filtered = await app.request(`/api/places?q=%20palenque%20&neighborhood=${encodeURIComponent(NEIGHBORHOOD_IDS[0])}&category=bar&status=review&edited=1&sort=name&page=3&pageSize=20`)
+    expect(filtered.status).toBe(200)
+    expect(list).toHaveBeenLastCalledWith({ q: 'palenque', neighborhood: NEIGHBORHOOD_IDS[0], category: 'bar', status: 'review', edited: true, noLogo: false, noHours: false, sort: 'name', page: 3, pageSize: 20 })
+
+    await app.request('/api/places?noLogo=1&noHours=true')
+    expect(list).toHaveBeenLastCalledWith({ sort: 'recent', page: 1, pageSize: 50, edited: false, noLogo: true, noHours: true })
+
+    for (const query of ['category=bodegon', 'status=hidden', 'sort=rating', 'page=0', 'pageSize=500', 'neighborhood=Narnia', 'noLogo=x', 'noHours=0']) {
+      const invalid = await app.request(`/api/places?${query}`)
+      expect(invalid.status, query).toBe(400)
+    }
+
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const failed = await createApp({ placesReader: { list: vi.fn().mockRejectedValue(new Error('boom')), setFeatured: vi.fn(), publish: vi.fn() } }).request('/api/places')
     expect(failed.status).toBe(500)
     expect(await failed.json()).toEqual({ error: { code: 'UNKNOWN_ERROR', message: 'No se pudieron cargar los lugares.' } })
     error.mockRestore()
+  })
+
+  describe('edición de lugares', () => {
+    const id = '0b9f6a3c-1d2e-4f5a-8b7c-9d0e1f2a3b4c'
+    const plan = { changed: ['price'], steps: [{ id: 'column_only', label: 'Sólo se guardan los campos, sin recálculos', costUsd: 0 }], totalUsd: 0, instagramOwners: [] }
+    const editor = (overrides: Partial<PlaceEditor> = {}): PlaceEditor => ({
+      get: vi.fn(async (placeId: string) => placeId === id ? { id, name: 'El Palenque' } as never : null),
+      plan: vi.fn(async () => plan as never),
+      apply: vi.fn(async () => ({ place: { id } as never, warnings: [] })),
+      uploadLogo: vi.fn(async () => ({ logo: { key: 'logos/x-0123abcd.webp' } as never, logoUrl: null, classificationUsd: 0.0002 })),
+      delete: vi.fn(async () => ({ id, snapshot: null, brandKeys: [], logoKey: null, warnings: [] })),
+      ...overrides,
+    })
+    const patch = (app: ReturnType<typeof createApp>, body: unknown, placeId = id) => app.request(`/api/places/${placeId}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    })
+
+    it('GET /api/places/:id devuelve el lugar, 404 si no existe y 400 con un id inválido', async () => {
+      const app = createApp({ placeEditor: editor() })
+      expect(await (await app.request(`/api/places/${id}`)).json()).toEqual({ place: { id, name: 'El Palenque' } })
+      expect((await app.request('/api/places/1b9f6a3c-1d2e-4f5a-8b7c-9d0e1f2a3b4c')).status).toBe(404)
+      expect((await app.request('/api/places/no-es-uuid')).status).toBe(400)
+      expect((await createApp().request(`/api/places/${id}`)).status).toBe(503)
+    })
+
+    it('PATCH con dryRun devuelve el plan; sin dryRun guarda; valida contra los catálogos', async () => {
+      const placeEditor = editor()
+      const app = createApp({ placeEditor })
+
+      const dry = await patch(app, { edit: { price: 'low' }, dryRun: true })
+      expect(await dry.json()).toEqual({ plan })
+      expect(placeEditor.apply).not.toHaveBeenCalled()
+
+      const saved = await patch(app, { edit: { price: 'low', tags: ['terrace'] }, confirmSharedInstagram: true })
+      expect(saved.status).toBe(200)
+      expect(placeEditor.apply).toHaveBeenCalledWith(id, { price: 'low', tags: ['terrace'] }, { confirmSharedInstagram: true })
+
+      for (const edit of [{ tags: ['no_existe'] }, { style: 'lujoso' }, { iconCategory: 'other' }, { price: 'barato' }, { instagram: '@Con Espacios' },
+        { website: 'ftp://x.uy' }, { brandKey: 'Con Mayúsculas' }, { name: '' }, { slug: 'x' }]) {
+        expect((await patch(app, { edit })).status, JSON.stringify(edit)).toBe(400)
+      }
+      expect((await patch(app, { edit: {} }, 'no-es-uuid')).status).toBe(400)
+      expect((await createApp().request(`/api/places/${id}`, { method: 'PATCH', body: '{"edit":{}}' })).status).toBe(503)
+    })
+
+    it('PATCH traduce los errores de la edición: Instagram de otro lugar (con los dueños), perfil inexistente, Apify', async () => {
+      const owners = [{ id: 'uuid-2', name: 'El Palenque Pocitos', neighborhoodId: 'pocitos', brandKey: null }]
+      const failing = (error: Error) => createApp({ placeEditor: editor({ apply: vi.fn().mockRejectedValue(error) }) })
+
+      const inUse = await patch(failing(new EditError('INSTAGRAM_IN_USE', 409, '@palenque.uy ya está en El Palenque Pocitos.', owners)), { edit: { instagram: 'palenque.uy' } })
+      expect(inUse.status).toBe(409)
+      expect(await inUse.json()).toEqual({ error: { code: 'INSTAGRAM_IN_USE', message: '@palenque.uy ya está en El Palenque Pocitos.' }, owners })
+      expect((await patch(failing(new EditError('INSTAGRAM_NOT_FOUND', 422, 'No existe.')), { edit: { instagram: 'x' } })).status).toBe(422)
+      expect((await patch(failing(new EditError('INSTAGRAM_PROVIDER_ERROR', 502, 'Apify.')), { edit: { instagram: 'x' } })).status).toBe(502)
+
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const unknown = await patch(failing(new Error('boom')), { edit: { price: 'low' } })
+      expect(await unknown.json()).toEqual({ error: { code: 'UNKNOWN_ERROR', message: 'No se pudo guardar la edición.' } })
+      error.mockRestore()
+    })
+
+    // El archivo va como cuerpo crudo con su tipo.
+    const rawImage = (file: { type: string; body: Uint8Array<ArrayBuffer> } | null): RequestInit => ({
+      method: 'POST',
+      headers: file ? { 'Content-Type': file.type } : {},
+      body: file?.body,
+    })
+
+    it('POST /api/places/:id/logo acepta una imagen y rechaza lo demás', async () => {
+      const placeEditor = editor()
+      const app = createApp({ placeEditor })
+      const upload = (file: Parameters<typeof rawImage>[0]) => app.request(`/api/places/${id}/logo`, rawImage(file))
+
+      const ok = await upload({ type: 'image/png', body: new Uint8Array([1, 2, 3]) })
+      expect(ok.status).toBe(200)
+      expect(placeEditor.uploadLogo).toHaveBeenCalledWith(id, Buffer.from([1, 2, 3]), 'image/png')
+      expect((await upload({ type: 'text/plain', body: new Uint8Array([1]) })).status).toBe(400)
+      expect((await upload(null)).status).toBe(400)
+
+      const invalid = createApp({ placeEditor: editor({ uploadLogo: vi.fn().mockRejectedValue(new EditError('LOGO_INVALID', 422, 'No se pudo usar el logo: la imagen mide menos de 150 px.')) }) })
+      const small = await invalid.request(`/api/places/${id}/logo`, rawImage({ type: 'image/png', body: new Uint8Array([1]) }))
+      expect(small.status).toBe(422)
+      expect(await small.json()).toEqual({ error: { code: 'LOGO_INVALID', message: 'No se pudo usar el logo: la imagen mide menos de 150 px.' } })
+    })
+
+    it('DELETE /api/places/:id borra y devuelve qué limpió; 404 si no existe', async () => {
+      const app = createApp({ placeEditor: editor() })
+      expect(await (await app.request(`/api/places/${id}`, { method: 'DELETE' })).json()).toEqual({ id, snapshot: null, brandKeys: [], logoKey: null, warnings: [] })
+      const missing = createApp({ placeEditor: editor({ delete: vi.fn().mockRejectedValue(new EditError('NOT_FOUND_ERROR', 404, 'El lugar no existe.')) }) })
+      expect((await missing.request(`/api/places/${id}`, { method: 'DELETE' })).status).toBe(404)
+      expect((await createApp().request(`/api/places/${id}`, { method: 'DELETE' })).status).toBe(503)
+    })
   })
 
   it('PATCH /api/places/:id/featured valida el pedido y cambia sólo featured', async () => {

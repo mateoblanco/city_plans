@@ -5,23 +5,39 @@ import { distanceLabel } from '../labels'
 
 describe('parseFilters', () => {
   it('lee open, diet y neighborhood y descarta lo que no está en los catálogos', () => {
-    expect(parseFilters('open:now,diet:vegan,neighborhood:CORDON')).toEqual({
-      openNow: true,
+    expect(parseFilters('open:today,diet:vegan,neighborhood:CORDON')).toEqual({
+      opensToday: true,
       diet: ['vegan'],
-      neighborhood: 'CORDON',
+      neighborhoods: ['CORDON'],
+      section: null,
     })
     // Las categorías ya no son filtros de la barra: van por la intención.
-    expect(parseFilters('open:later,category:cafe,diet:keto,neighborhood:NARNIA,tag:terrace,basura')).toEqual({
-      openNow: false,
+    // open:now era el filtro viejo ("Abierto ahora"): ya no existe.
+    expect(parseFilters('open:now,category:cafe,diet:keto,neighborhood:NARNIA,tag:terrace,basura')).toEqual({
+      opensToday: false,
       diet: [],
-      neighborhood: null,
+      neighborhoods: [],
+      section: null,
     })
     expect(parseFilters(null)).toEqual(parseFilters(''))
   })
 
+  it('varios barrios: sin repetir y descartando los que no existen', () => {
+    expect(parseFilters('neighborhood:CORDON,neighborhood:POCITOS,neighborhood:CORDON,neighborhood:NARNIA').neighborhoods).toEqual(['CORDON', 'POCITOS'])
+    expect([...filterChipKeys(parseFilters('neighborhood:CORDON,neighborhood:POCITOS'))]).toEqual(['neighborhood:CORDON', 'neighborhood:POCITOS'])
+  })
+
+  it('section: el "Ver todos" de un grupo del catálogo, uno solo y nunca discover', () => {
+    expect(parseFilters('section:outdoor').section).toBe('outdoor')
+    expect(parseFilters('section:outdoor,section:casual').section).toBe('casual')
+    expect(parseFilters('section:discover').section).toBeNull()
+    expect(parseFilters('section:more,section:narnia').section).toBeNull()
+    expect([...filterChipKeys(parseFilters('section:share'))]).toEqual(['section:share'])
+  })
+
   it('las claves de chip de los filtros coinciden con las de buildChips', () => {
-    expect([...filterChipKeys(parseFilters('open:now,diet:glutenFree,neighborhood:POCITOS'))]).toEqual([
-      'openAt:now',
+    expect([...filterChipKeys(parseFilters('open:today,diet:glutenFree,neighborhood:POCITOS'))]).toEqual([
+      'openAt:today',
       'diet:glutenFree',
       'neighborhood:POCITOS',
     ])
@@ -57,15 +73,19 @@ describe('applyFilters', () => {
     expect(value.must.neighborhoods).toEqual(['POCITOS'])
   })
 
-  it('si contradicen al texto, ganan el barrio y "abierto ahora" del filtro', () => {
-    const value = applyFilters(fromText(), parseFilters('neighborhood:CORDON,open:now'))
+  it('si contradicen al texto, ganan el barrio y "abre hoy" del filtro', () => {
+    const value = applyFilters(fromText(), parseFilters('neighborhood:CORDON,open:today'))
     expect(value.must.neighborhoods).toEqual(['CORDON'])
-    expect(value.must.openAt).toBe('now')
+    expect(value.must.openAt).toBe('today')
+  })
+
+  it('varios barrios de la barra reemplazan a los del texto', () => {
+    expect(applyFilters(fromText(), parseFilters('neighborhood:CORDON,neighborhood:PARQUE RODO')).must.neighborhoods).toEqual(['CORDON', 'PARQUE RODO'])
   })
 
   it('no modifica la interpretación original (la cacheada por q)', () => {
     const original = fromText()
-    applyFilters(original, parseFilters('diet:vegan,open:now'))
+    applyFilters(original, parseFilters('diet:vegan,open:today'))
     expect(original.must.diet).toEqual({ vegetarian: true })
     expect(original.must.categories).toEqual(['pizzeria'])
   })

@@ -78,8 +78,8 @@ export function distanceLabel(meters: number, lang: Lang) {
 
 const capitalize = (value: string) => value.charAt(0).toUpperCase() + value.slice(1)
 
-export function momentLabel(moment: Moment | 'now', lang: Lang, today: number) {
-  if (moment === 'now') return lang === 'es' ? 'Abierto ahora' : 'Open now'
+export function momentLabel(moment: Moment | 'today', lang: Lang, today: number) {
+  if (moment === 'today') return lang === 'es' ? 'Abre hoy' : 'Opens today'
   const day = moment.day === today ? (lang === 'es' ? 'hoy' : 'today') : DAY_NAMES[lang][moment.day]
   return capitalize(moment.time ? `${day} ${moment.time}` : day)
 }
@@ -109,11 +109,11 @@ const minutesUntil = (from: string, to: string) => (minutes(to) - minutes(from) 
 
 /**
  * "Abierto · cierra 23:00", "Cierra pronto · 23:00", "Cerrado · Abre mañana 9:00", "Abre pronto · 19:00",
- * "Horario no confirmado"; con prefijo de día si no es ahora. `next` (próxima apertura) sólo se usa ahora.
+ * "Horario sin confirmar"; con prefijo de día si no es ahora. `next` (próxima apertura) sólo se usa ahora.
  */
 export function openStateText(state: OpenState, lang: Lang, moment: Moment, isNow: boolean, next: NextOpening | null = null): OpenStateText {
   const es = lang === 'es'
-  if (state.state === 'unconfirmed') return { tone: 'unconfirmed', prefix: '', status: es ? 'Horario no confirmado' : 'Hours not confirmed', detail: null }
+  if (state.state === 'unconfirmed') return { tone: 'unconfirmed', prefix: '', status: es ? 'Horario sin confirmar' : 'Hours not confirmed', detail: null }
   const prefix = isNow ? '' : `${capitalize(DAY_NAMES[lang][moment.day])}${moment.time ? ` ${moment.time}` : ''}: `
   const soon = SEARCH_CONFIG.soonMinutes
   if (state.state === 'closed') {

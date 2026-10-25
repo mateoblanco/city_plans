@@ -13,7 +13,7 @@ type Props = {
 
 const Button = (props: Props) => {
     return (
-        <ButtonBase disabled={props.disabled} type={props.type} className={styles.button}>
+        <ButtonBase disabled={props.disabled} type={props.type} onClick={props.type === 'button' ? props.onClick : undefined} className={styles.button}>
             {props.label}
         </ButtonBase>
     );

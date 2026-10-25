@@ -1,0 +1,26 @@
+// Los filtros de la barra; el botón de NeighborhoodSelect se ve igual.
+.chip {
+  background: none;
+  border: 1px solid #E4E4E7;
+  border-radius: 999px;
+  color: inherit;
+  cursor: pointer;
+  display: inline-block;
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 12px;
+  text-decoration: none;
+  background-color: #ffffff;
+
+  &:hover {
+    background-color: #f2f2f2;
+
+  }
+
+  &[data-active] {
+    // background-color: #000000;
+    border-color: #000000;
+    border-width: 2px;
+    // color: #ffffff;
+  }
+}

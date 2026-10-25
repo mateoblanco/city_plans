@@ -21,15 +21,15 @@ function mustItems(value: Interpretation): { kind: ChipKind; id: string }[] {
 }
 
 /**
- * Lo que se descartó a propósito de lo exigido por el texto: quitado con `remove` o reemplazado por el barrio de
- * la barra. Se informa en debug junto con lo que el modelo mandó y no existe.
+ * Lo que se descartó a propósito de lo exigido por el texto: quitado con `remove` o reemplazado por los barrios
+ * de la barra. Se informa en debug junto con lo que el modelo mandó y no existe.
  */
 export function intendedDiscards(original: Interpretation, removals: { kind: ChipKind; id: string }[], filters: SearchFilters): Discard[] {
   return mustItems(original).flatMap(({ kind, id }) => {
     const key = `${kind}:${id}`
     if (removals.some((removal) => removal.kind === kind && removal.id === id)) return [{ value: key, reason: 'quitado por la persona (remove)' }]
-    if (kind === 'neighborhood' && filters.neighborhood && filters.neighborhood !== id) {
-      return [{ value: key, reason: `reemplazado por el barrio de la barra (${filters.neighborhood})` }]
+    if (kind === 'neighborhood' && filters.neighborhoods.length && !filters.neighborhoods.includes(id)) {
+      return [{ value: key, reason: `reemplazado por los barrios de la barra (${filters.neighborhoods.join(', ')})` }]
     }
     return []
   })

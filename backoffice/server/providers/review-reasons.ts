@@ -23,8 +23,20 @@ const normalize = (text: string) => text.normalize('NFD').replace(/[\u0300-\u036
 // cuenta: "descarté las fuentes de otra sucursal" es el modelo haciendo bien su trabajo, no un local dudoso.
 const UNCONFIRMED_PLACE_PREFIX = /^local no confirmado\s*:/
 
+// En una cadena, «Sucursal no confirmada:» (o un «Local no confirmado:» que sólo dice que las fuentes no distinguen
+// sucursal) es de la marca: carta, tags y estilo valen igual. Patrón estrecho: «sucursales colombianas» no entra.
+const BRANCH_ONLY_PREFIX = /^sucursal no confirmada\s*:/
+const BRANCH_ONLY_TEXT = /\bno distinguen? (?:entre )?(?:la |las )?sucursal(?:es)?\b/
+
 export function soundsUnconfirmedPlace(doubt: string) {
-  return UNCONFIRMED_PLACE_PREFIX.test(normalize(doubt.trim()))
+  const value = normalize(doubt.trim())
+  return UNCONFIRMED_PLACE_PREFIX.test(value) || BRANCH_ONLY_PREFIX.test(value)
+}
+
+/** La duda es sólo que las fuentes de la marca no dicen de qué sucursal son, no que sean de otro negocio. */
+export function soundsBranchOnlyDoubt(doubt: string) {
+  const value = normalize(doubt.trim())
+  return BRANCH_ONLY_PREFIX.test(value) || (UNCONFIRMED_PLACE_PREFIX.test(value) && BRANCH_ONLY_TEXT.test(value))
 }
 
 export function soundsNotOpenYet(text: string) {
@@ -71,19 +83,23 @@ export function instagramOperating(activity: InstagramActivity | null | undefine
 /**
  * Motivos para guardar el lugar con status review en vez de published: no abrió todavía (facts o dudas
  * del modelo, salvo que el Instagram oficial lo muestre funcionando), ningún fact del local (todas las fuentes eran
- * de otros lugares) o una anomalía grave.
+ * de otros lugares) o una anomalía grave. En una cadena (chainBranch), una duda de local que sólo dice que las fuentes
+ * no distinguen sucursal no cuenta.
  */
 export function reviewReasonsFor(
   place: Pick<PlaceEnrichmentDraft, 'placeFacts'>,
   review: Pick<PlaceReview, 'doubts' | 'anomalies'>,
-  signals: { instagramOperating?: boolean } = {},
+  signals: { instagramOperating?: boolean; chainBranch?: boolean } = {},
 ): ReviewReason[] {
   const reasons: ReviewReason[] = []
   const saysNotOpen = [...place.placeFacts.map((fact) => fact.text), ...review.doubts].some(soundsNotOpenYet)
   if (saysNotOpen && !signals.instagramOperating) reasons.push('not_open_yet')
   if (place.placeFacts.length === 0) reasons.push('no_place_facts')
   // Sin facts ya va por no_place_facts: el motivo nuevo es para cuando hay datos y pueden ser de otro local.
-  else if (review.doubts.some(soundsUnconfirmedPlace)) reasons.push('unconfirmed_place')
+  else {
+    const unconfirmed = review.doubts.filter(soundsUnconfirmedPlace)
+    if (unconfirmed.length > 0 && !(signals.chainBranch && unconfirmed.every(soundsBranchOnlyDoubt))) reasons.push('unconfirmed_place')
+  }
   const anomalies = new Set(review.anomalies.map((anomaly) => anomaly.type))
   for (const type of BLOCKING_ANOMALIES) if (anomalies.has(type)) reasons.push(type)
   return reasons

@@ -3,7 +3,7 @@ import { SEARCH_CONFIG } from './config'
 import { neighborhoodDisplayName } from '@shared/neighborhood-names.ts'
 import type { CandidateRow, DishMode } from './candidates'
 import { hasBroaderRelated, relatedLabel, type DishTarget } from './dishes'
-import { openStatus, type Moment } from './hours'
+import { openStatus, opensToday, type Moment, type OpenFilter } from './hours'
 import { intentGroups, matchesGroup, subTerms } from './intents'
 import { DIET_KEYS, type DietKey, type Interpretation, type Lang } from './interpretation'
 import { DAY_NAMES, dietLabel, distanceText, excludedTerm } from './labels'
@@ -86,8 +86,8 @@ export type NoticeContext = {
   /** Lo que se devuelve: los avisos sólo nombran lo que de verdad no cumple. */
   rows: CandidateRow[]
   dishes: DishTarget[]
-  /** Momento de openAt antes de relajarlo. */
-  moment: Moment | null
+  /** openAt antes de relajarlo. */
+  openAt: OpenFilter | null
 }
 
 /** Aviso de un paso de relajación; null si ningún resultado deja de cumplir lo que se relajó. */
@@ -148,9 +148,20 @@ export function relaxNotice(step: RelaxStep, context: NoticeContext): { what: No
   }
 
   if (step === 'openAt') {
-    const moment = context.moment
-    if (!moment || !rows.some((row) => openStatus(row.hours, moment).state === 'closed')) return null
-    const when = whenText(value.must.openAt === 'now' ? 'now' : moment, lang)
+    const openAt = context.openAt
+    if (!openAt) return null
+    const { moment, today, night } = openAt
+    if (today && moment.time) {
+      const at = { day: moment.day, time: moment.time }
+      if (!rows.some((row) => opensToday(row.hours, at, night) === 'no')) return null
+      const when = night ? (es ? 'esta noche' : 'tonight') : es ? 'hoy' : 'today'
+      return {
+        what: step,
+        message: es ? `No hay nada que abra ${when}; te mostramos también los cerrados.` : `Nothing opens ${when}; showing closed places too.`,
+      }
+    }
+    if (!rows.some((row) => openStatus(row.hours, moment).state === 'closed')) return null
+    const when = whenText(moment, lang)
     return {
       what: step,
       message: es ? `No hay nada abierto ${when}; te mostramos también los cerrados.` : `Nothing open ${when}; showing closed places too.`,
@@ -163,10 +174,9 @@ export function relaxNotice(step: RelaxStep, context: NoticeContext): { what: No
   }
 }
 
-/** "ahora", "el domingo", "el domingo a las 21:00" / "now", "on Sunday at 21:00". */
-function whenText(moment: Moment | 'now', lang: Lang) {
+/** "el domingo", "el domingo a las 21:00" / "on Sunday", "on Sunday at 21:00". */
+function whenText(moment: Moment, lang: Lang) {
   const es = lang === 'es'
-  if (moment === 'now') return es ? 'ahora' : 'now'
   const day = es ? `el ${DAY_NAMES.es[moment.day]}` : `on ${DAY_NAMES.en[moment.day]}`
   return moment.time ? `${day} ${es ? 'a las' : 'at'} ${moment.time}` : day
 }

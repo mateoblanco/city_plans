@@ -7,10 +7,13 @@ import { BEST_WORDS, emptyInterpretation, tidy, type Interpretation, type Price 
 const STOPWORDS_ES = new Set(['en', 'de', 'del', 'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'y', 'o', 'con', 'para', 'por', 'a', 'al', 'zona', 'barrio'])
 const STOPWORDS_EN = new Set(['in', 'at', 'near', 'the', 'a', 'an', 'with', 'for', 'and', 'or', 'of', 'to', 'around', 'area'])
 
-const OPEN_NOW = new Map([
-  ['abierto ahora', 'es'], ['abiertos ahora', 'es'], ['abierto', 'es'], ['abiertos', 'es'], ['ahora', 'es'],
-  ['open now', 'en'], ['open', 'en'],
-] as const)
+// "Abre hoy": abierto ahora o abre más tarde hoy ("esta noche": a la noche). Otro día ("el sábado") va por DAYS.
+const OPENS_TODAY = new Map<string, ['today' | 'tonight', 'es' | 'en']>([
+  ['abierto ahora', ['today', 'es']], ['abiertos ahora', ['today', 'es']], ['abierto', ['today', 'es']], ['abiertos', ['today', 'es']],
+  ['ahora', ['today', 'es']], ['hoy', ['today', 'es']], ['abre hoy', ['today', 'es']], ['abierto hoy', ['today', 'es']],
+  ['abiertos hoy', ['today', 'es']], ['esta noche', ['tonight', 'es']], ['hoy a la noche', ['tonight', 'es']],
+  ['open now', ['today', 'en']], ['open', ['today', 'en']], ['today', ['today', 'en']], ['open today', ['today', 'en']], ['tonight', ['tonight', 'en']],
+])
 const NEAR_ME = new Map([
   ['cerca mio', 'es'], ['cerca mia', 'es'], ['cerca de mi', 'es'], ['cerca de aca', 'es'], ['near me', 'en'], ['nearby', 'en'],
 ] as const)
@@ -70,7 +73,7 @@ function applyTerm(target: Interpretation, phrase: string): 'es' | 'en' | null |
 const NEGATIONS = new Set(['no', 'ni', 'sin', 'excepto', 'salvo', 'menos', 'not', 'except', 'without'])
 
 /**
- * Atajo sin LLM: si toda la consulta se cubre con barrios, tags, días, "abierto ahora" y palabras vacías,
+ * Atajo sin LLM: si toda la consulta se cubre con barrios, tags, días, "hoy" / "abierto ahora" y palabras vacías,
  * arma la interpretación directamente. Devuelve null en cuanto queda una palabra sin reconocer.
  *
  * partial: respaldo cuando el modelo no responde. Toma lo que reconoce e ignora el resto (que igual cuenta
@@ -91,7 +94,7 @@ export function interpretWithDictionary(normalized: string, { partial = false }:
     for (let length = Math.min(MAX_PHRASE_WORDS, words.length - index); length >= 1 && consumed === 0; length--) {
       const phrase = words.slice(index, index + length).join(' ')
       const neighborhood = resolveNeighborhood(phrase)
-      const openNow = OPEN_NOW.get(phrase as never)
+      const opensToday = OPENS_TODAY.get(phrase)
       const nearMe = NEAR_ME.get(phrase as never)
       const day = DAYS.get(phrase)
       const price = PRICE_WORDS.get(phrase)
@@ -99,9 +102,9 @@ export function interpretWithDictionary(normalized: string, { partial = false }:
       const verb = VERBS.get(phrase)
       if (neighborhood) {
         target.must.neighborhoods.push(neighborhood)
-      } else if (openNow) {
-        target.must.openAt = 'now'
-        votes[openNow]++
+      } else if (opensToday) {
+        target.must.openAt = opensToday[0]
+        votes[opensToday[1]]++
       } else if (nearMe) {
         target.unrecognized.push(phrase)
         target.needsLocation = true

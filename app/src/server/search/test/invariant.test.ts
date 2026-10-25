@@ -38,7 +38,7 @@ describe('invariante de lo exigido', () => {
     expect(check.trace).toEqual([
       { item: 'category:pizzeria', outcome: 'discarded', detail: 'quitado por la persona (remove)' },
       { item: 'diet:vegan', outcome: 'filter', detail: 'filtro obligatorio' },
-      { item: 'neighborhood:CORDON', outcome: 'discarded', detail: 'reemplazado por el barrio de la barra (POCITOS)' },
+      { item: 'neighborhood:CORDON', outcome: 'discarded', detail: 'reemplazado por los barrios de la barra (POCITOS)' },
     ])
   })
 

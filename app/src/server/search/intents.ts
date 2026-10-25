@@ -1,4 +1,5 @@
 import { DEFAULT_DISH_INTENT, INTENT_IDS, INTENTS, isIntentId, type IntentDef, type IntentId, type IntentMatch } from '@shared/intents.ts'
+import type { FilterGroup } from './candidates'
 import type { Chip } from './chips'
 import type { ChipKind, Interpretation } from './interpretation'
 
@@ -181,8 +182,9 @@ export function subTerms(intent: IntentId | null, subs: string[]): { categories:
 }
 
 /** ¿El lugar cumple el grupo? Igual que el SQL de candidates. */
-export function matchesGroup(group: IntentMatch, row: { categories: string[]; tags: string[]; featured: boolean }) {
-  return Boolean(group.featured && row.featured) || placeHits(group, row.categories, row.tags)
+export function matchesGroup(group: FilterGroup, row: { categories: string[]; tags: string[]; featured: boolean; style?: string | null; iconCategory?: string | null }) {
+  return Boolean(group.featured && row.featured) || Boolean(group.style && row.style === group.style) ||
+    Boolean(row.iconCategory && group.icons?.includes(row.iconCategory)) || placeHits(group, row.categories, row.tags)
 }
 
 /** Barra de la respuesta: todos los sub-filtros de la intención (activos o no) y los extras del texto. */
