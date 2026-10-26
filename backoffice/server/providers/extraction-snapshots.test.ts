@@ -29,9 +29,9 @@ const extraction: PlaceExtraction = {
   tags: [{ group: 'categories', id: 'bar', facts: ['F1'] }, { group: 'foods', id: 'picada', facts: ['F1'] }, { group: 'goodFor', id: 'groups', facts: ['F1'] }, { group: 'style', id: 'casual', facts: ['F1'] }],
   dietary: { vegan: 'unknown', vegetarian: 'unknown', glutenFree: 'unknown' }, price: 'unknown', reservations: 'unknown',
   hours: { raw: null, display: null, blocks: [] },
-  contact: { phone: '', whatsapp: '', instagram: '', website: '', menuUrl: '', reservationUrl: '' },
+  contact: { instagram: '', website: '' },
   highlights: [], dishes: [], signature: [], description: { es: 'Un bar.', en: 'A bar.' },
-  name: '', address: '', locatedIn: null, support: [], doubts: [], iconCategory: 'beer',
+  name: '', locatedIn: null, support: [], doubts: [], iconCategory: 'beer',
 }
 
 describe('snapshots de extracción', () => {

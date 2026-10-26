@@ -113,6 +113,13 @@
       "when": 1792602938848,
       "tag": "0015_manual_overrides_jsonb",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1793014321657,
+      "tag": "0016_drop_contact_address",
+      "breakpoints": true
     }
   ]
 }

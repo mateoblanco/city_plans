@@ -4,7 +4,6 @@ import type { PlaceEnrichmentDraft } from '../../src/types/places.ts'
 export function draft(overrides: Partial<PlaceEnrichmentDraft> = {}): PlaceEnrichmentDraft {
   return {
     name: 'El Palenque',
-    address: 'Pérez Castellano 1579',
     coordinates: { lat: -34.906, lng: -56.212, source: 'google', fetchedAt: '2026-10-12T20:00:00.000Z' },
     neighborhoodId: 'ciudad_vieja',
     city: 'Montevideo',
@@ -16,7 +15,7 @@ export function draft(overrides: Partial<PlaceEnrichmentDraft> = {}): PlaceEnric
     price: 'high',
     reservations: 'accepts',
     hours: { raw: 'Todos los días 12 a 16', display: null, slots: [{ day: 1, opens: '12:00', closes: '16:00' }], status: 'exact', source: 'official', missingReason: null },
-    contact: { phone: '2915 0000', whatsapp: null, instagram: 'elpalenque', website: 'https://elpalenque.example/', menuUrl: null, reservationUrl: 'https://meitre.com/palenque' },
+    contact: { instagram: 'elpalenque', website: 'https://elpalenque.example/' },
     highlights: [{ es: 'Pulpo a la gallega', en: 'Galician octopus' }],
     iconCategory: 'grill',
     style: 'casual',

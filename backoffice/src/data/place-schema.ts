@@ -13,9 +13,8 @@ const HexColor = z.string().regex(/^#[0-9a-f]{6}$/)
 // Contrato del borrador que más adelante podrá mapearse a tablas de la base.
 // Los IDs y campos de curaduría no pertenecen a esta extracción automática.
 export const PlaceDraft = z.object({
-  // Nombre y dirección salen de las fuentes, nunca de Google. Un nombre vacío no se puede guardar.
+  // El nombre sale de las fuentes, nunca de Google. Un nombre vacío no se puede guardar.
   name: z.string(),
-  address: z.string().nullable(),
   coordinates: z.object({
     lat: z.number(),
     lng: z.number(),
@@ -45,12 +44,8 @@ export const PlaceDraft = z.object({
     missingReason: z.enum(['chain_branch_not_found', 'no_data']).nullable(),
   }),
   contact: z.object({
-    phone: z.string().nullable(),
-    whatsapp: z.string().nullable(),
     instagram: z.string().nullable(),
     website: z.string().nullable(),
-    menuUrl: z.string().nullable(),
-    reservationUrl: z.string().nullable(),
   }),
   highlights: z.array(z.object({ es: z.string(), en: z.string() })).max(8),
   dishes: z.array(z.string()).max(15),

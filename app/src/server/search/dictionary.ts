@@ -38,6 +38,12 @@ const DATE_STYLES = new Map<string, { style: StyleId; also?: string; language?: 
 // "tomar algo" es sólo Bares y no exige el tag drinks; una frase más larga del catálogo ("comer de noche") gana igual.
 const VERBS = new Map<string, [IntentId, 'es' | 'en']>(INTENT_VERBS.map(([phrase, id, lang]) => [normalize(phrase), [id, lang]]))
 
+// Platos genéricos sin tag propio en el catálogo: van como plato con su respaldo, sin pasar por el modelo.
+// pescado, mariscos y pollo no hacen falta: son sinónimos de seafood y chicken. "sin carne" es vegetarian (frase más larga).
+type GenericDish = { relatedTags: string[]; relatedCategories: string[]; language: 'es' | 'en' }
+const MEAT = (language: 'es' | 'en'): GenericDish => ({ relatedTags: ['grilled_meat'], relatedCategories: ['grill'], language })
+const GENERIC_DISHES = new Map<string, GenericDish>([['carne', MEAT('es')], ['carnes', MEAT('es')], ['meat', MEAT('en')]])
+
 const DAYS = new Map<string, [number, 'es' | 'en']>([
   ['domingo', [0, 'es']], ['lunes', [1, 'es']], ['martes', [2, 'es']], ['miercoles', [3, 'es']], ['jueves', [4, 'es']], ['viernes', [5, 'es']], ['sabado', [6, 'es']],
   ['sunday', [0, 'en']], ['monday', [1, 'en']], ['tuesday', [2, 'en']], ['wednesday', [3, 'en']], ['thursday', [4, 'en']], ['friday', [5, 'en']], ['saturday', [6, 'en']],
@@ -100,6 +106,7 @@ export function interpretWithDictionary(normalized: string, { partial = false }:
       const price = PRICE_WORDS.get(phrase)
       const dateStyle = DATE_STYLES.get(phrase)
       const verb = VERBS.get(phrase)
+      const genericDish = GENERIC_DISHES.get(phrase)
       if (neighborhood) {
         target.must.neighborhoods.push(neighborhood)
       } else if (opensToday) {
@@ -123,6 +130,9 @@ export function interpretWithDictionary(normalized: string, { partial = false }:
       } else if (verb) {
         target.intent ??= verb[0]
         votes[verb[1]]++
+      } else if (genericDish) {
+        target.dishes.push({ name: phrase, relatedTags: genericDish.relatedTags, relatedCategories: genericDish.relatedCategories })
+        votes[genericDish.language]++
       } else {
         const language = applyTerm(target, phrase)
         if (language === undefined) continue

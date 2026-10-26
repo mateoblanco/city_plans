@@ -98,6 +98,8 @@ export function interpretationRequest(normalized: string) {
     providerOptions,
     // Sin razonamiento: la interpretación es una extracción a JSON y el razonamiento sólo sumaba segundos.
     reasoning: 'none' as const,
+    // Determinística: la misma consulta tiene que dar la misma interpretación ("comer carne" salía como tag o plato).
+    temperature: 0,
     abortSignal: AbortSignal.timeout(SEARCH_CONFIG.llm.timeoutMs),
   }
 }

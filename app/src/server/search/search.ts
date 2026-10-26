@@ -33,6 +33,7 @@ import { buildReasons } from './reasons'
 import { logoUrl } from './logo'
 import { relevanceCut, type Relevance } from './relevance'
 import { buildSections, notBroadReason, requestedSections, type Section, type SectionsDebug } from './sections'
+import { emptyPersonalDebug, personalize, type PersonalDebug } from './personal'
 import { canRelax, noMatchNotice, relax, RELAX_ORDER, relaxNotice, type NoticeKind, type RelaxStep, type SearchState } from './relax'
 import type { PlacesStore } from './store'
 
@@ -47,6 +48,10 @@ export type SearchOptions = {
   debug?: boolean
   /** Contar cuántos lugares más saldrían sin cada filtro activo (la invitación a ampliar del final de la lista). */
   widen?: boolean
+  /** Ids de los lugares que te gustaron (cookie espejo de localStorage): se usan en este pedido y no se guardan. */
+  likes?: string[]
+  /** false (`profile=off`): la misma búsqueda sin perfil, igual que sin likes. */
+  profile?: boolean
   now?: Date
 }
 
@@ -133,6 +138,8 @@ export type SearchDebug = {
   cost: SearchCost
   /** Si se agrupó: de dónde salieron los grupos, los elegidos y los descartados por chicos; si no, por qué no. */
   sections: SectionsDebug
+  /** Likes usados, el lugar de "Parecido a" y el parecido de cada lugar de los bloques personales. */
+  personal: PersonalDebug
 }
 
 export type SearchResponse = {
@@ -146,6 +153,11 @@ export type SearchResponse = {
    * uno una sola vez). null: la lista de siempre.
    */
   sections: Section[] | null
+  /**
+   * Búsqueda sin grupos (y no por nombre) con perfil: la fila "Para vos" (3–4 ids de results, que la lista de abajo no
+   * repite). results no cambia. null: sin fila.
+   */
+  forYou: Section | null
   relaxed: { what: NoticeKind; message: string }[]
   /** Con cero resultados: los chips de dieta o exclude que hay que sacar para que aparezcan lugares. */
   suggestedRemovals: Chip[]
@@ -544,13 +556,37 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   const notGrouped = notBroadReason(interpretation, { pinned: pinned !== null, subs: resolved.subs.length, section: filters.section !== null }) ??
     (fused.length < minResults ? `menos de ${minResults} resultados` : null)
   const sectionChoice = notGrouped ? null : requestedSections(interpretation, { fromLlm: source === 'llm', intent: state.intent })
-  const grouped = sectionChoice ? buildSections(fused, sectionChoice.requested, interpretation.language) : null
+  const catalogOnly = sectionChoice ? buildSections(fused, sectionChoice.requested, interpretation.language) : null
+
+  // Perfil (likes del pedido): elige lugares de esta misma búsqueda para los bloques personales; no toca el ranking.
+  // Se decide si la búsqueda se agrupa sin el perfil, como siempre.
+  const likes = (options.likes ?? []).slice(0, SEARCH_CONFIG.personal.maxLikes)
+  const nameSearch = pinned !== null || interpretation.nameQuery !== null
+  const personalSkipped =
+    options.profile === false ? 'profile=off'
+    : likes.length === 0 ? 'sin likes'
+    : nameSearch ? 'búsqueda por nombre'
+    : fused.length === 0 ? 'sin resultados'
+    : null
+  step = performance.now()
+  const likeData = personalSkipped ? null : await deps.store.likeSimilarities(likes, fused.map((item) => item.row.id), 1 - SEARCH_CONFIG.personal.similar.topShare).catch(() => null)
+  if (!personalSkipped) timings.personal = elapsed(step)
+  const personal = likeData ? personalize(fused, likeData, likes, { grouped: catalogOnly?.sections != null, lang: interpretation.language }) : null
+  const personalDebug = personal?.debug ?? emptyPersonalDebug(personalSkipped ?? 'falló la consulta de likes')
+  const grouped = sectionChoice && catalogOnly?.sections && personal?.groups.length
+    ? buildSections(fused, sectionChoice.requested, interpretation.language, personal.groups)
+    : catalogOnly
+  const forYou: Section | null = personal?.forYou
+    ? { id: 'for_you', title: personal.forYou.title, placeIds: personal.forYou.items.map((item) => item.row.id), total: null }
+    : null
+
   const sectionsDebug: SectionsDebug = {
     notGrouped: notGrouped ?? (grouped?.sections ? null : 'ningún grupo llegó al mínimo'),
     source: sectionChoice?.source ?? null,
     requested: sectionChoice?.requested ?? [],
     chosen: grouped?.chosen ?? [],
     dropped: grouped?.dropped ?? [],
+    displaced: grouped?.displaced ?? [],
   }
 
   // Avisos: cada paso se arma con el estado previo y sólo si algún resultado no cumple lo relajado.
@@ -631,6 +667,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     bar,
     results,
     sections: grouped?.sections ?? null,
+    forYou,
     relaxed,
     suggestedRemovals,
     needsLocation: interpretation.needsLocation,
@@ -697,6 +734,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       timings,
       cost: summarizeCost(costs),
       sections: sectionsDebug,
+      personal: personalDebug,
     }
   }
   return response

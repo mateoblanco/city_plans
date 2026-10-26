@@ -41,6 +41,22 @@ describe('atajo con diccionario', () => {
     expect(result?.must.neighborhoods).toEqual(['POCITOS'])
   })
 
+  it('platos genéricos sin tag propio: "comer carne" no pasa por el modelo', () => {
+    const carne = interpretWithDictionary('comer carne')
+    expect(carne?.dishes).toEqual([{ name: 'carne', relatedTags: ['grilled_meat'], relatedCategories: ['grill'] }])
+    expect(carne?.intent).toBe('eat')
+    expect(carne?.must.tags).toEqual([])
+    expect(interpretWithDictionary('carnes en pocitos')?.dishes).toEqual([{ name: 'carnes', relatedTags: ['grilled_meat'], relatedCategories: ['grill'] }])
+    expect(interpretWithDictionary('meat')?.language).toBe('en')
+    // "sin carne" sigue siendo vegetariano (la frase más larga gana).
+    expect(interpretWithDictionary('sin carne')?.must.diet).toEqual({ vegetarian: true })
+    expect(interpretWithDictionary('sin carne')?.dishes).toEqual([])
+    // pescado, mariscos y pollo ya estaban: son sinónimos de seafood y chicken.
+    expect(interpretWithDictionary('comer pescado')?.dishes).toEqual([{ name: 'pescado', relatedTags: ['seafood'], relatedCategories: [] }])
+    expect(interpretWithDictionary('mariscos')?.dishes).toEqual([{ name: 'mariscos', relatedTags: ['seafood'], relatedCategories: [] }])
+    expect(interpretWithDictionary('comer pollo')?.dishes).toEqual([{ name: 'pollo', relatedTags: ['chicken'], relatedCategories: [] }])
+  })
+
   it('resuelve dieta, horario y platos', () => {
     expect(interpretWithDictionary('vegano')?.must.diet).toEqual({ vegan: true })
     expect(interpretWithDictionary('sin tacc')?.must.diet).toEqual({ glutenFree: true })

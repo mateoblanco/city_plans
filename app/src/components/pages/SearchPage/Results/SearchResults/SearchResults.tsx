@@ -39,11 +39,12 @@ const SearchResults = async (props: Props) => {
   }
 
   // La barra de filtros se renderiza aparte (SearchFilters), con la misma búsqueda deduplicada.
-  const { interpreted, relaxed, results, sections } = response;
+  const { interpreted, relaxed, results, sections, forYou } = response;
   return (
     <ResultsView
       results={results}
       sections={sections}
+      forYou={forYou}
       notices={relaxed.map((notice) => notice.message)}
       scores={cardScores(response)}
       near={response.near}

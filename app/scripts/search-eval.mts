@@ -1,6 +1,6 @@
 // Corre el set de consultas de prueba contra Neon y muestra la interpretación y el top 5 de cada una, más las
 // verificaciones de search-checks.ts (sale con error si alguna falla).
-// Uso: yarn search:eval [--debug] [--top=10] [--f=open:today,diet:vegan] [consulta...]
+// Uso: yarn search:eval [--debug] [--top=10] [--f=open:today,diet:vegan] [--likes=<id>,<id>…] [consulta...]
 //      yarn search:check   (sólo las consultas con verificaciones, sin el detalle)
 import { neon } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
@@ -40,6 +40,8 @@ const checkOnly = args.includes("--check");
 const filters = args.find((arg) => arg.startsWith("--f="))?.slice("--f=".length) ?? null;
 // --top: cuántos resultados mostrar de cada consulta (5 si no se pide).
 const top = Number(args.find((arg) => arg.startsWith("--top="))?.slice("--top=".length)) || 5;
+// --likes: ids de lugares como si te hubieran gustado (lo que manda la cookie), para ver los bloques personales.
+const likes = args.find((arg) => arg.startsWith("--likes="))?.slice("--likes=".length).split(",").filter(Boolean) ?? [];
 const queries = args.filter((arg) => !arg.startsWith("--"));
 
 const store = neonPlacesStore(drizzle({ client: neon(process.env.DATABASE_URL!) }));
@@ -49,7 +51,7 @@ const compact = (value: unknown) => JSON.stringify(value, (_key, item) => (Array
 
 const failures: string[] = [];
 for (const query of queries.length ? queries : checkOnly ? Object.keys(CHECKS) : QUERIES) {
-  const response = await runSearch(query, { store, cache }, { debug: true, filters, widen: !checkOnly });
+  const response = await runSearch(query, { store, cache }, { debug: true, filters, widen: !checkOnly, likes });
   const info = response.debug!;
   const checks = runChecks(query, response);
   failures.push(...checks.failed.map((failure) => `${query} → ${failure}`));
@@ -58,7 +60,7 @@ for (const query of queries.length ? queries : checkOnly ? Object.keys(CHECKS) :
     for (const failure of checks.failed) console.log(`    ✗ ${failure}`);
     continue;
   }
-  console.log(`\n━━ ${query}${filters ? `  (f=${filters})` : ""}  [${info.source}${info.model ? ` · ${info.model}` : ""} · ${info.timings.total} ms]`);
+  console.log(`\n━━ ${query}${filters ? `  (f=${filters})` : ""}${likes.length ? `  (${likes.length} likes)` : ""}  [${info.source}${info.model ? ` · ${info.model}` : ""} · ${info.timings.total} ms]`);
   if (info.llmError) console.log(`  error del modelo: ${info.llmError}`);
   const calls = info.cost.calls.map((call) => `${call.step} ${call.cached ? "cache" : call.usd === null ? "?" : formatUsd(call.usd)}`);
   console.log(`  costo: ${formatUsd(info.cost.totalUsd)}${calls.length ? ` (${calls.join(", ")})` : ""}`);
@@ -97,6 +99,24 @@ for (const query of queries.length ? queries : checkOnly ? Object.keys(CHECKS) :
     console.log(`  secciones${requested}${dropped}`);
     const names = new Map(response.results.map((result) => [result.id, result.name]));
     for (const section of response.sections) console.log(`    ${section.title}: ${section.placeIds.map((id) => names.get(id)).join(", ")}`);
+  }
+  // Perfil: likes usados, el lugar de "Parecido a" y cada bloque personal con el parecido de sus lugares.
+  const personal = info.personal;
+  if (personal.skipped) console.log(`  perfil: no (${personal.skipped})`);
+  else {
+    console.log(`  perfil: ${personal.likes.map((like) => `${like.name} ${like.position === null ? "(no salió)" : `#${like.position}`}`).join(", ")}${personal.ignored.length ? ` · ignorados: ${personal.ignored.length}` : ""}`);
+    if (personal.similarTo) {
+      const { name, position, topCut, threshold } = personal.similarTo;
+      console.log(`  parecido a: ${name} (#${position}) · top ${Math.round(personal.thresholds.similarTopShare * 100)} % desde ${topCut?.toFixed(3) ?? "—"} → umbral ${threshold.toFixed(3)}`);
+    }
+    for (const group of personal.groups) {
+      const places = group.places.map((place) => `${place.name} ${place.similarity.toFixed(3)}`).join(", ");
+      console.log(`    ${group.shown ? "✓" : "✗"} ${group.title}${group.reason ? ` (${group.reason})` : ""}${places ? `: ${places}` : ""}`);
+    }
+  }
+  if (response.forYou) {
+    const names = new Map(response.results.map((result) => [result.id, result.name]));
+    console.log(`  ${response.forYou.title}: ${response.forYou.placeIds.map((id) => names.get(id)).join(", ")}`);
   }
   if (!checkOnly && response.results.length) {
     // Lo que ve la página de entrada (de a 12, grupos completos), los "Ver todos" y la invitación a ampliar.

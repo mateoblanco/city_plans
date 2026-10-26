@@ -98,7 +98,6 @@ export type PlaceLogo = {
 
 export type PlaceEnrichmentDraft = {
   name: string
-  address: string | null
   coordinates: {
     lat: number
     lng: number
@@ -132,12 +131,8 @@ export type PlaceEnrichmentDraft = {
     missingReason: 'chain_branch_not_found' | 'no_data' | null
   }
   contact: {
-    phone: string | null
-    whatsapp: string | null
     instagram: string | null
     website: string | null
-    menuUrl: string | null
-    reservationUrl: string | null
   }
   highlights: { es: string; en: string }[]
   /** Platos concretos de las fuentes, en español y minúscula; cada uno respaldado por un fact. Máx. 15. */
@@ -379,7 +374,6 @@ export type PlaceDetail = {
   id: string
   googlePlaceId: string | null
   name: string
-  address: string | null
   neighborhoodId: string
   status: string
   categories: string[]
@@ -457,7 +451,8 @@ export type PlaceEnrichmentResponse = {
   model: string
   sourceAudit: PlaceExtractionSourceAudit
   performance: PlaceExtractionPerformance
-  target: Pick<PlaceEnrichmentDraft, 'name' | 'address' | 'coordinates' | 'neighborhoodId' | 'city' | 'googlePlaceId' | 'transit'>
+  /** address es la de Google: sólo para identificar el local, no se guarda. */
+  target: Pick<PlaceEnrichmentDraft, 'name' | 'coordinates' | 'neighborhoodId' | 'city' | 'googlePlaceId' | 'transit'> & { address: string }
 }
 
 /** De dónde salió un handle candidato. */

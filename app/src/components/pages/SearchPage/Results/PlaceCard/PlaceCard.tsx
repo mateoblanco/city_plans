@@ -4,6 +4,7 @@ import { label } from "@shared/tags.ts";
 import type { SearchResult } from "@/server/search";
 import type { KeptBy } from "@/server/search/relevance";
 import PlaceImage from "./PlaceImage/PlaceImage";
+import LikeButton from "./LikeButton/LikeButton";
 import { cardId, useHoveredPlace } from "../Map/MapSync/MapSync";
 import styles from "./PlaceCard.module.scss";
 
@@ -83,6 +84,8 @@ const PlaceCard = (props: Props) => {
         )} */}
         {props.debug && <p className={styles.debug}>{debugLine(props.debug)}</p>}
       </div>
+
+      <LikeButton placeId={props.place.id} name={props.place.name} />
     </article>
   );
 };

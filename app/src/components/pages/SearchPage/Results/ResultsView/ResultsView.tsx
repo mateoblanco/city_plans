@@ -15,6 +15,7 @@ import type { SearchUrl } from "../../utils/search-href";
 type Props = {
   results: SearchResponse["results"];
   sections: SearchResponse["sections"];
+  forYou: SearchResponse["forYou"];
   /** Avisos de relajación, en lenguaje de usuario. */
   notices: string[];
   scores: Map<string, CardDebug> | null;
@@ -52,8 +53,11 @@ const ResultsView = (props: Props) => {
           <ResultSections sections={page.sections} scores={props.scores} state={props.state} />
         ) : (
           // Una sola grilla: los que tienen el plato ya vienen primero, y los "maybe" lo dicen en la card
-          // ("Puede que tengan pizza", en sus motivos).
-          <PlacesGrid places={page.list ?? []} scores={props.scores} />
+          // ("Puede que tengan pizza", en sus motivos). Con perfil, la fila "Para vos" arriba, sin repetirse abajo.
+          <>
+            {page.forYou && <ResultSections sections={[page.forYou]} scores={props.scores} state={props.state} />}
+            <PlacesGrid places={page.list ?? []} scores={props.scores} />
+          </>
         )}
 
         {page.hasMore ? (

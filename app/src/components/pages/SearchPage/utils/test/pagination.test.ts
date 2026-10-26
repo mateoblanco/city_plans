@@ -11,17 +11,34 @@ describe("Ver más sin grupos", () => {
 
   it("de a 12, en el orden de la respuesta, hasta el final", () => {
     expect(PAGE_SIZE).toBe(12);
-    const first = visiblePage({ results, sections: null }, 1);
+    const first = visiblePage({ results, sections: null, forYou: null }, 1);
     expect(ids(first.list)).toEqual(ids(results.slice(0, 12)));
     expect(first.hasMore).toBe(true);
-    expect(visiblePage({ results, sections: null }, 2).list).toHaveLength(24);
-    const last = visiblePage({ results, sections: null }, 3);
+    expect(visiblePage({ results, sections: null, forYou: null }, 2).list).toHaveLength(24);
+    const last = visiblePage({ results, sections: null, forYou: null }, 3);
     expect(last.list).toHaveLength(30);
     expect(last.hasMore).toBe(false);
   });
 
   it("una lista corta ya está al final", () => {
-    expect(visiblePage({ results: places(5), sections: null }, 1)).toMatchObject({ hasMore: false, sections: null });
+    expect(visiblePage({ results: places(5), sections: null, forYou: null }, 1)).toMatchObject({ hasMore: false, sections: null, forYou: null });
+  });
+});
+
+describe("Para vos", () => {
+  const results = places(20);
+  const forYou: SearchResponse["forYou"] = { id: "for_you", title: "Para vos", placeIds: ["p5", "p9", "p14"], total: null };
+
+  it("va arriba de la lista, que no los repite y sigue en el mismo orden", () => {
+    const page = visiblePage({ results, sections: null, forYou }, 1);
+    expect(ids(page.forYou?.places ?? null)).toEqual(["p5", "p9", "p14"]);
+    expect(page.list).toHaveLength(12);
+    expect(ids(page.list)).toEqual(ids(results.filter((item) => !["p5", "p9", "p14"].includes(item.id)).slice(0, 12)));
+    expect(ids(page.places).slice(0, 3)).toEqual(["p5", "p9", "p14"]);
+    expect(page.forYou && hasViewAll(page.forYou)).toBe(false);
+    const all = visiblePage({ results, sections: null, forYou }, 2);
+    expect(all.hasMore).toBe(false);
+    expect(all.list).toHaveLength(17);
   });
 });
 
@@ -34,20 +51,27 @@ describe("con grupos", () => {
   ];
 
   it("los grupos completos y Más opciones de a 12; el mapa, sólo lo visible", () => {
-    const first = visiblePage({ results, sections }, 1);
+    const first = visiblePage({ results, sections, forYou: null }, 1);
     expect(first.sections?.map((section) => section.places.length)).toEqual([6, 3, 12]);
     expect(first.hasMore).toBe(true);
     expect(first.places).toHaveLength(21);
-    const second = visiblePage({ results, sections }, 2);
+    const second = visiblePage({ results, sections, forYou: null }, 2);
     expect(second.sections?.at(-1)?.places).toHaveLength(20);
     expect(second.hasMore).toBe(false);
   });
 
   it("Ver todos sólo si el grupo tiene más de los que muestra", () => {
-    const [share, discover] = visiblePage({ results, sections }, 1).sections!;
+    const [share, discover] = visiblePage({ results, sections, forYou: null }, 1).sections!;
     expect(hasViewAll(share)).toBe(true);
     expect(hasViewAll(discover)).toBe(false);
     expect(hasViewAll({ ...share, total: 6 })).toBe(false);
+  });
+
+  it("los grupos personales no tienen Ver todos", () => {
+    const personal: SearchResponse["sections"] = [{ id: "profile", title: "Basado en lo que te gusta", placeIds: ["d0", "d1", "d2"], total: null }, ...sections!];
+    const [profile] = visiblePage({ results, sections: personal, forYou: null }, 1).sections!;
+    expect(profile.title).toBe("Basado en lo que te gusta");
+    expect(hasViewAll(profile)).toBe(false);
   });
 });
 

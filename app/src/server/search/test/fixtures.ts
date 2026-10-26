@@ -43,8 +43,17 @@ export const everyDay = (opens: string, closes: string | null) => ({
   status: 'exact' as const,
 })
 
-/** Store en memoria con la misma semántica de filtros que el SQL, para probar el flujo completo. */
-export function fakeStore(places: CandidateRow[], names: NameMatch[] = []) {
+const cosine = (a: number[], b: number[]) => {
+  const dot = a.reduce((sum, value, index) => sum + value * b[index], 0)
+  const norm = (vector: number[]) => Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0))
+  return dot / (norm(a) * norm(b))
+}
+
+/**
+ * Store en memoria con la misma semántica de filtros que el SQL, para probar el flujo completo. vectors: el embedding
+ * de cada lugar (vectores chicos), para los likes; un lugar sin vector es como uno sin embedding.
+ */
+export function fakeStore(places: CandidateRow[], names: NameMatch[] = [], vectors: Record<string, number[]> = {}) {
   const calls: { filters: CandidateFilters; scores: ScoreInputs }[] = []
   // Misma regla que openAtSql / opensTodaySql.
   const matchesOpenAt = (place: CandidateRow, { moment, today, night }: OpenFilter) =>
@@ -91,6 +100,31 @@ export function fakeStore(places: CandidateRow[], names: NameMatch[] = []) {
     },
     async neighborhoods() {
       return [...new Set(places.map((place) => place.neighborhoodId))].sort()
+    },
+    // Misma regla que likeSimilaritiesQuery: likes publicados con embedding, su promedio, el coseno con cada uno y,
+    // por like, el percentil de su parecido con el resto de la base (percentile_cont: interpolación lineal).
+    async likeSimilarities(likeIds, candidateIds, percentile) {
+      const liked = places.filter((place) => likeIds.includes(place.id) && vectors[place.id])
+      const topCut = (id: string) => {
+        const values = places.filter((place) => place.id !== id && vectors[place.id]).map((place) => cosine(vectors[place.id], vectors[id])).sort((a, b) => a - b)
+        if (!values.length) return null
+        const position = percentile * (values.length - 1)
+        const lower = Math.floor(position)
+        return values[lower] + (position - lower) * ((values[lower + 1] ?? values[lower]) - values[lower])
+      }
+      const profile = liked.length ? vectors[liked[0].id].map((_, index) => liked.reduce((sum, place) => sum + vectors[place.id][index], 0) / liked.length) : null
+      return {
+        liked: liked.map((place) => ({ id: place.id, name: place.name, topCut: topCut(place.id) })),
+        rows: candidateIds.flatMap((id) => {
+          const vector = vectors[id]
+          if (!vector) return []
+          return [{
+            id,
+            profile: profile ? cosine(vector, profile) : null,
+            byLike: Object.fromEntries(liked.map((place) => [place.id, cosine(vector, vectors[place.id])])),
+          }]
+        }),
+      }
     },
   }
   return { store, calls }

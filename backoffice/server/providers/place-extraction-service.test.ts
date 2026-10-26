@@ -29,6 +29,7 @@ import {
   isForeignSource,
   resolveDeterministicContact,
   isListingSource,
+  phonesInText,
   placeText,
   SYSTEM_PROMPT,
   HOURS_RETRY_PROMPT,
@@ -70,13 +71,12 @@ const extraction: PlaceExtraction = {
   dietary: { vegan: 'unknown', vegetarian: 'has_options', glutenFree: 'unknown' },
   price: 'moderate', reservations: 'unknown',
   hours: { raw: 'Lunes 08:00 a 19:00', display: null, blocks: [{ days: [1], opens: '08:00', closes: '19:00' }] },
-  contact: { phone: '2915 0000', whatsapp: '', instagram: 'cafebrasilero', website: 'https://cafe.example/', menuUrl: '', reservationUrl: '' },
+  contact: { instagram: 'cafebrasilero', website: 'https://cafe.example/' },
   highlights: [{ es: 'flat white', en: 'flat white', facts: ['F1'] }],
   dishes: [],
   signature: [],
   description: { es: 'Un café histórico para hacer una pausa.', en: 'A historic café for a relaxed break.' },
   name: '',
-  address: '',
   locatedIn: null,
   support: [],
   doubts: [],
@@ -926,10 +926,10 @@ describe('PlaceExtractionService', () => {
       phoneNumber: '+598 2418 5404',
     }, sources)
 
+    // El teléfono de las fuentes ya no se carga.
     expect(contact).toEqual({
       reservationUrl: 'https://oriundo.meitre.com/',
       instagram: 'oriundo.uy',
-      phone: '+598 99 111 222',
     })
     // La web y el teléfono de Google no se usan, tampoco una web de Google que sea de reservas.
     expect(resolveDeterministicContact({
@@ -999,9 +999,9 @@ describe('PlaceExtractionService', () => {
   it('convierte el contacto vacío del modelo en null', () => {
     const place = postProcess(target, {
       ...emptyExtraction,
-      contact: { phone: '  ', whatsapp: '', instagram: '', website: '', menuUrl: '', reservationUrl: '' },
+      contact: { instagram: '  ', website: '' },
     }, { sources: [{ id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://guia.example/', text: 'café' }] })
-    expect(place.contact).toEqual({ phone: null, whatsapp: null, instagram: null, website: null, menuUrl: null, reservationUrl: null })
+    expect(place.contact).toEqual({ instagram: null, website: null })
   })
 
   it('acepta una cocina sólo si un texto nombra su label o un sinónimo', () => {
@@ -1266,18 +1266,17 @@ describe('PlaceExtractionService', () => {
       ...extraction,
       tags: [{ group: 'categories', id: 'wine_bar', facts: ['F1'] }],
       reservations: 'no_reservations',
-      contact: { ...extraction.contact, phone: '000', instagram: 'marca-ajena', website: 'https://incorrecta.example/', reservationUrl: '' },
+      contact: { ...extraction.contact, instagram: 'marca-ajena', website: 'https://incorrecta.example/' },
       facts: [{ id: 'F1', text: 'es un wine bar', sourceId: 'S1', kind: 'other', proposedTag: null }],
       support: [],
     }, {
       seedCategories: ['bar'],
       sources: [{ id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://example.com/', text: 'wine bar' }],
-      deterministicContact: {
-        phone: '+598 2418 5404', instagram: 'oriundo.uy', reservationUrl: 'https://oriundo.meitre.com/',
-      },
+      deterministicContact: { instagram: 'oriundo.uy', reservationUrl: 'https://oriundo.meitre.com/' },
     })
     expect(place.categories).toEqual(['wine_bar', 'bar'])
-    expect(place.contact).toMatchObject({ phone: '+598 2418 5404', instagram: 'oriundo.uy', website: null, reservationUrl: 'https://oriundo.meitre.com/' })
+    // El link de reservas no se guarda: sólo dice que toma reservas.
+    expect(place.contact).toEqual({ instagram: 'oriundo.uy', website: null })
     expect(place.reservations).toBe('accepts')
   })
 
@@ -1299,31 +1298,32 @@ describe('PlaceExtractionService', () => {
     expect(instagramRejectedByModel({ contact: { ...extraction.contact, instagram: 'elsotano.uy' }, doubts: ['Horario tomado de elsotano.uy'] }, 'elsotano.uy')).toBe(false)
   })
 
-  it('guarda nombre y dirección sólo si una fuente citada los dice, nunca los de Google', () => {
+  it('guarda el nombre sólo si una fuente citada lo dice, nunca el de Google', () => {
     const source: Source = { id: 'S1', kind: 'web', trust: 'official', url: 'https://cafe.example/', text: 'Café Brasilero Montevideo. Estamos en Ituzaingó 1447, Ciudad Vieja.' }
     const facts = [
       { id: 'F1', text: 'El local se llama Café Brasilero', sourceId: 'S1', kind: 'other' as const, proposedTag: null },
       { id: 'F2', text: 'Está en Ituzaingó 1447', sourceId: 'S1', kind: 'other' as const, proposedTag: null },
     ]
-    const base = { ...emptyExtraction, facts, name: 'Café Brasilero', address: 'Ituzaingó 1447' }
+    const base = { ...emptyExtraction, facts, name: 'Café Brasilero' }
 
     const sourced = postProcess({ ...target, name: 'Nombre De Google', address: 'Dirección de Google 1' }, {
-      ...base, support: [{ field: 'name', facts: ['F1'] }, { field: 'address', facts: ['F2'] }],
+      ...base, support: [{ field: 'name', facts: ['F1'] }],
     }, { sources: [source] })
-    expect(sourced).toMatchObject({ name: 'Café Brasilero', address: 'Ituzaingó 1447' })
+    expect(sourced.name).toBe('Café Brasilero')
+    expect(sourced).not.toHaveProperty('address')
     expect(sourced.embeddingText).toContain('Café Brasilero')
     expect(sourced.embeddingText).not.toContain('Nombre De Google')
-    expect(sourced.placeFacts.map((fact) => fact.supports)).toEqual([['name'], ['address']])
+    expect(sourced.placeFacts.map((fact) => fact.supports)).toEqual([['name'], []])
     expect(reviewExtraction(sourced, base).doubts).toEqual([])
 
     // Sin support, o con un valor que no está en la fuente citada, no hay respaldo de Google
     // (cuando ninguna fuente nombra la marca de Google).
     const unknownBrand = { ...target, name: 'Nombre De Google' }
     const unsupported = postProcess(unknownBrand, base, { sources: [source] })
-    expect(unsupported).toMatchObject({ name: '', address: null })
+    expect(unsupported.name).toBe('')
     expect(postProcess(unknownBrand, {
-      ...base, name: 'Otro Nombre', address: 'Rambla 1', support: [{ field: 'name', facts: ['F1'] }, { field: 'address', facts: ['F2'] }],
-    }, { sources: [source] })).toMatchObject({ name: '', address: null })
+      ...base, name: 'Otro Nombre', support: [{ field: 'name', facts: ['F1'] }],
+    }, { sources: [source] }).name).toBe('')
     expect(reviewExtraction(unsupported, { ...base, doubts: ['d1', 'd2', 'd3', 'd4', 'd5'] }).doubts)
       .toEqual([MISSING_NAME_DOUBT, 'd1', 'd2', 'd3', 'd4'])
   })
@@ -1367,30 +1367,26 @@ describe('PlaceExtractionService', () => {
     const thisBranch: Source = { id: 'S3', kind: 'exa', trust: 'third_party', url: 'https://guia.example/marca-cordon', text: 'Heladería Marca en Cordón, Av. Gonzalo Ramírez 2051. Tel 2410 0000. Lunes 12 a 23. Tiene terraza.' }
     const fromSource = (sourceId: string): PlaceExtraction => ({
       ...emptyExtraction,
-      facts: [{ id: 'F1', text: 'Horario, teléfono, dirección, terraza y wifi', sourceId, kind: 'other', proposedTag: null }],
+      facts: [{ id: 'F1', text: 'Horario, terraza y wifi', sourceId, kind: 'other', proposedTag: null }],
       tags: [{ group: 'features', id: 'terrace', facts: ['F1'] }, { group: 'features', id: 'wifi', facts: ['F1'] }],
       hours: { raw: 'Lunes', display: null, blocks: [{ days: [1], opens: '10:00', closes: '22:00' }] },
-      contact: { ...emptyExtraction.contact, phone: '2622 0000', whatsapp: '', instagram: 'heladeriamarca', website: 'https://marca.example/', menuUrl: '', reservationUrl: '' },
-      address: sourceId === 'S2' ? 'Av. Luis Alberto de Herrera 1290' : 'Av. Gonzalo Ramírez 2051',
-      support: ['hours', 'contact.phone', 'contact.website', 'contact.instagram', 'address'].map((field) => ({ field, facts: ['F1'] })),
+      contact: { instagram: 'heladeriamarca', website: 'https://marca.example/' },
+      support: ['hours', 'contact.website', 'contact.instagram'].map((field) => ({ field, facts: ['F1'] })),
     })
 
-    it('descarta horario, teléfono, dirección y features físicos que vienen de otra sucursal', () => {
-      const place = postProcess(branch, fromSource('S2'), { sources: [web, otherBranch], deterministicContact: { phone: '+598 2622 0000' } })
+    it('descarta horario y features físicos que vienen de otra sucursal', () => {
+      const place = postProcess(branch, fromSource('S2'), { sources: [web, otherBranch] })
       expect(place.hours).toMatchObject({ status: 'none', slots: [], missingReason: 'chain_branch_not_found' })
       // Web e Instagram son de la marca: se mantienen aunque ninguna fuente confirme la sucursal.
-      expect(place.contact).toMatchObject({ phone: null, website: 'https://marca.example/', instagram: 'heladeriamarca' })
-      expect(place.address).toBeNull()
+      expect(place.contact).toEqual({ website: 'https://marca.example/', instagram: 'heladeriamarca' })
       // terrace depende del local; wifi es de la marca y se mantiene.
       expect(place.tags).not.toContain('terrace')
       expect(place.tags).toContain('wifi')
     })
 
     it('los acepta si la fuente menciona la dirección o el barrio de esta sucursal', () => {
-      const place = postProcess(branch, { ...fromSource('S3'), contact: { ...fromSource('S3').contact, phone: '2410 0000' } }, { sources: [web, otherBranch, thisBranch] })
+      const place = postProcess(branch, fromSource('S3'), { sources: [web, otherBranch, thisBranch] })
       expect(place.hours.status).toBe('exact')
-      expect(place.contact.phone).toBe('+598 2410 0000')
-      expect(place.address).toBe('Av. Gonzalo Ramírez 2051')
       expect(place.tags).toEqual(expect.arrayContaining(['terrace', 'wifi']))
 
       const byNeighborhood: Source = { ...thisBranch, text: 'Heladería Marca, sucursal Cordón. Lunes 12 a 23. Tiene terraza.' }
@@ -1403,44 +1399,13 @@ describe('PlaceExtractionService', () => {
     const plainWeb: Source = { ...web, text: 'Heladería Marca. Helados artesanales.' }
     it('con knownChain aplica las reglas de sucursal aunque ni el nombre ni las fuentes muestren sucursales', () => {
       const data = fromSource('S2')
-      expect(postProcess(branch, data, { sources: [plainWeb, otherBranch] }).contact.phone).toBe('+598 2622 0000')
-      const place = postProcess(branch, data, { sources: [plainWeb, otherBranch], knownChain: true, deterministicContact: { phone: '+598 2622 0000' } })
+      expect(postProcess(branch, data, { sources: [plainWeb, otherBranch] }).hours.status).toBe('exact')
+      const place = postProcess(branch, data, { sources: [plainWeb, otherBranch], knownChain: true })
       expect(place.signals.chainBranch).toBe(true)
-      expect(place.contact.phone).toBeNull()
-      expect(place.address).toBeNull()
       expect(place.hours.slots).toEqual([])
       // Lo de la marca queda.
       expect(place.contact).toMatchObject({ website: 'https://marca.example/', instagram: 'heladeriamarca' })
       expect(place.tags).toContain('wifi')
-    })
-
-    // BBC Parque Rodó: el modelo citó el resumen de Exa, pero una ficha de terceros da teléfono y dirección del local.
-    it('acepta el teléfono y la dirección si una fuente real los tiene junto a la dirección del local, y ganan al de la marca', () => {
-      const summary: Source = { id: 'S3', kind: 'exa', trust: 'third_party', url: EXA_SUMMARY_URL, text: 'Dirección: Av. Gonzalo Ramírez 2051. Teléfono +59891496496' }
-      const card: Source = { id: 'S5', kind: 'exa', trust: 'third_party', url: 'https://guiacomercial.uy/ficha/heladeria-marca-cordon/', text: 'Heladería Marca Cordón. Dirección Av. Gonzalo Ramírez 2051, Montevideo. Teléfono +59891496496' }
-      const brandWhatsapp: Source = { ...plainWeb, text: 'Heladería Marca. Pedí por WhatsApp.', links: ['https://wa.me/59898333222?text=Hola'] }
-      const data = { ...fromSource('S3'), contact: { ...fromSource('S3').contact, phone: '+59891496496' } }
-      const place = postProcess(branch, data, { sources: [brandWhatsapp, summary, card], knownChain: true, deterministicContact: { phone: '+598 98 333 222' } })
-      expect(place.contact.phone).toBe('+598 91 496 496')
-      expect(place.address).toBe('Av. Gonzalo Ramírez 2051')
-      // Sin la ficha, el número de la marca.
-      expect(postProcess(branch, data, { sources: [brandWhatsapp, summary], knownChain: true, deterministicContact: { phone: '+598 98 333 222' } }).contact.phone).toBe('+598 98 333 222')
-    })
-
-    it('el teléfono único de la marca en su fuente oficial (central de pedidos) se carga en todas las sucursales', () => {
-      const central: Source = { ...web, text: 'Heladería Marca. Conocé nuestras sucursales. Pedidos y delivery: 2600 1234.' }
-      const data = { ...fromSource('S1'), contact: { ...fromSource('S1').contact, phone: '2600 1234' } }
-      const place = postProcess(branch, data, { sources: [central, otherBranch], knownChain: true })
-      expect(place.contact.phone).toBe('+598 2600 1234')
-      // Como respaldo, sin teléfono del modelo.
-      const fallback = postProcess(branch, fromSource('S2'), { sources: [central, otherBranch], deterministicContact: { phone: '+598 2622 0000' } })
-      expect(fallback.contact.phone).toBe('+598 2600 1234')
-      // Una web oficial con un teléfono por sucursal no tiene teléfono de marca.
-      const perBranch: Source = { ...central, text: 'Heladería Marca. Sucursales: Pocitos 2600 1234 · Carrasco 2601 9999.' }
-      expect(postProcess(branch, data, { sources: [perBranch, otherBranch] }).contact.phone).toBeNull()
-      // La página oficial de otra sucursal tampoco.
-      const otherPage: Source = { ...central, url: 'https://marca.example/locales/carrasco/', text: 'Heladería Marca Carrasco. Arocena 1500. Tel 2600 1234.' }
-      expect(postProcess(branch, { ...data, facts: [{ ...data.facts[0], sourceId: 'S1' }] }, { sources: [otherPage], knownChain: true }).contact.phone).toBeNull()
     })
   })
 
@@ -1450,8 +1415,6 @@ describe('PlaceExtractionService', () => {
       id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://www.pocitospuntacarretas.com/directorio.php?c=9.0',
       text: 'Gastronomía | Pocitos Punta Carretas\n\nLa Kanti \n\n Francisco Ros 2748, Montevideo, Uruguay \n\nEl Viejo Sosa\n\n Coronel Mora 603, 11300 \n\n| 2712 6737 |\n| --- |\n\nVera \n\n Agr Francisco Ros 2758, 11300 \n\n| 098 462 655 |\n| --- |\n\nPomelo\n\n Miñones 461, Montevideo, Uruguay 11300\n\nLa Croissantería \n\n José Ellauri 534, Montevideo, Uruguay 11300\n\n| 2712 0777 | Sitio web |\n| --- | --- |',
     }
-    const details = (name: string) => ({ ...googleDetails, anchor: { ...googleDetails.anchor, name } })
-
     it('reconoce el directorio por la ruta o por tener 3+ teléfonos; una ficha de un solo local, no', () => {
       expect(isListingSource(directory, 'MOB')).toBe(true)
       expect(isListingSource({ ...directory, url: 'https://guia.example/lugares' }, 'MOB')).toBe(true)
@@ -1466,39 +1429,29 @@ describe('PlaceExtractionService', () => {
       expect(isListingSource({ ...directory, url: 'https://montevideo.evisos.com.uy/restaurantes-bares-sc-158-p-3' }, 'Impulsus')).toBe(true)
     })
 
-    it('sólo da el teléfono que está junto a la marca', () => {
-      expect(resolveDeterministicContact(details('MOB Punta Carretas'), [directory]).phone).toBeUndefined()
-      expect(resolveDeterministicContact(details('El Viejo Sosa'), [directory]).phone).toBe('+598 2712 6737')
+    it('el texto del lugar es el renglón de la marca y los que le siguen', () => {
+      expect(placeText(directory, 'El Viejo Sosa')).toContain('2712 6737')
+      expect(placeText(directory, 'MOB')).toBe('')
       // Pomelo no tiene teléfono en el directorio: no se lleva el de La Croissantería, que viene después.
-      expect(resolveDeterministicContact(details('Pomelo'), [directory]).phone).toBeUndefined()
       expect(placeText(directory, 'Pomelo')).toContain('Miñones 461')
+      expect(placeText(directory, 'Pomelo')).not.toContain('2712 0777')
     })
 
-    it('una ficha de un solo local sigue dando su teléfono', () => {
-      const card: Source = { id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://1122.com.uy/local/negroni/LOC1', text: '# NEGRONI\n## GUIPUZCOA 352 - Punta Carretas\n### 27167903' }
-      expect(resolveDeterministicContact(details('Negroni'), [card]).phone).toBe('+598 2716 7903')
-    })
-
-    it('el teléfono y la dirección del modelo citados de un directorio sólo valen junto a la marca', () => {
-      const mob = { ...target, name: 'MOB Punta Carretas' }
+    it('la web del modelo citada de un directorio sólo vale junto a la marca', () => {
+      const withWeb: Source = { ...directory, text: directory.text.replace('| 2712 6737 |', '| 2712 6737 | elviejososa.com.uy |') }
       const data = {
         ...emptyExtraction,
-        facts: [{ id: 'F1', text: 'Teléfono 2712 6737, Coronel Mora 603', sourceId: 'S1', kind: 'contact' as const, proposedTag: null }],
-        contact: { ...emptyExtraction.contact, phone: '2712 6737', website: '', instagram: '' },
-        address: 'Coronel Mora 603',
-        support: [{ field: 'contact.phone', facts: ['F1'] }, { field: 'address', facts: ['F1'] }],
+        facts: [{ id: 'F1', text: 'La web es elviejososa.com.uy', sourceId: 'S1', kind: 'contact' as const, proposedTag: null }],
+        contact: { instagram: '', website: 'https://elviejososa.com.uy/' },
+        support: [{ field: 'contact.website', facts: ['F1'] }],
       }
-      const mobPlace = postProcess(mob, data, { sources: [directory] })
-      expect(mobPlace.contact.phone).toBeNull()
-      expect(mobPlace.address).toBeNull()
-      const sosa = postProcess({ ...target, name: 'El Viejo Sosa' }, data, { sources: [directory] })
-      expect(sosa.contact.phone).toBe('+598 2712 6737')
-      expect(sosa.address).toBe('Coronel Mora 603')
+      expect(postProcess({ ...target, name: 'MOB Punta Carretas' }, data, { sources: [withWeb] }).contact.website).toBeNull()
+      expect(postProcess({ ...target, name: 'El Viejo Sosa' }, data, { sources: [withWeb] }).contact.website).toBe('https://elviejososa.com.uy/')
     })
   })
 
   it('valida los teléfonos como números de Uruguay: un CEP brasileño no es un teléfono', () => {
-    const phoneIn = (text: string) => resolveDeterministicContact(googleDetails, [{ id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://guia.example/', text }]).phone ?? null
+    const phoneIn = (text: string) => phonesInText(text)[0] ?? null
     expect(phoneIn('Porto Alegre - RS, 90035-077')).toBeNull()
     expect(phoneIn('Tel. 2710-7913')).toBe('+598 2710 7913')
     expect(phoneIn('Celular 092 207 690')).toBe('+598 92 207 690')
@@ -1509,7 +1462,7 @@ describe('PlaceExtractionService', () => {
   })
 
   it('una fecha no es un teléfono aunque libphonenumber la valide', () => {
-    const phoneIn = (text: string) => resolveDeterministicContact(googleDetails, [{ id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://guia.example/', text }]).phone ?? null
+    const phoneIn = (text: string) => phonesInText(text)[0] ?? null
     // Kumpir (post de LinkedIn) y Marlon Bar (fecha de una reseña en guiacomercial).
     expect(phoneIn('- [2026-05-25 · 23 reactions] Hace menos de 2 años')).toBeNull()
     expect(phoneIn('Ana\n ★★★★★ 26.11.2025 \nHermoso lugar')).toBeNull()
@@ -1521,38 +1474,14 @@ describe('PlaceExtractionService', () => {
     expect(phoneIn('Reseña del 2026-05-25. Reservas al 2710-7913')).toBe('+598 2710 7913')
   })
 
-  it('el teléfono del modelo que es una fecha no queda, aunque tenga support', () => {
-    const source: Source = { id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://guia.example/', text: '[2026-05-25 · 23 reactions]' }
-    const data = {
-      ...emptyExtraction,
-      facts: [{ id: 'F1', text: 'Teléfono 2026-05-25', sourceId: 'S1', kind: 'contact' as const, proposedTag: null }],
-      contact: { ...emptyExtraction.contact, phone: '2026-05-25', website: '', instagram: '' },
-      support: [{ field: 'contact.phone', facts: ['F1'] }],
-    }
-    expect(postProcess(target, data, { sources: [source] }).contact.phone).toBeNull()
-  })
-
   it('las fechas de las reseñas no hacen de una ficha un listado', () => {
     const card: Source = { id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://guia.example/lugar/123', text: 'Tel 2710 7913\n★ 26.11.2025\n★ 12.10.2025\n★ 2026-01-05' }
     expect(isListingSource(card, 'Marlon Bar')).toBe(false)
   })
 
-  it('el teléfono del modelo con support gana sobre el que aparece en el texto de las fuentes', () => {
-    const source: Source = { id: 'S1', kind: 'web', trust: 'official', url: 'https://cafe.example/', text: 'Tel 2915 0000' }
-    const data = {
-      ...emptyExtraction,
-      facts: [{ id: 'F1', text: 'El teléfono es 2915 0000', sourceId: 'S1', kind: 'contact' as const, proposedTag: null }],
-      contact: { ...emptyExtraction.contact, phone: '2915 0000', website: '', instagram: '' },
-    }
-    const context = { sources: [source], deterministicContact: { phone: '+598 99 111 222' } }
-
-    expect(postProcess(target, { ...data, support: [{ field: 'contact.phone', facts: ['F1'] }] }, context).contact.phone).toBe('+598 2915 0000')
-    expect(postProcess(target, data, context).contact.phone).toBe('+598 99 111 222')
-  })
-
   it('completa la web con la home de la web oficial scrapeada, salvo que el modelo traiga una con respaldo', () => {
     const official: Source = { id: 'S1', kind: 'web', trust: 'official', url: 'http://www.cafe.example/carta/menu.html?x=1', text: 'Carta del café. Web: https://cafe-oficial.example/' }
-    const data = { ...emptyExtraction, facts: [{ id: 'F1', text: 'La web es https://cafe-oficial.example/', sourceId: 'S1', kind: 'contact' as const, proposedTag: null }], contact: { ...emptyExtraction.contact, website: 'https://cafe-oficial.example/', phone: '', instagram: '' } }
+    const data = { ...emptyExtraction, facts: [{ id: 'F1', text: 'La web es https://cafe-oficial.example/', sourceId: 'S1', kind: 'contact' as const, proposedTag: null }], contact: { website: 'https://cafe-oficial.example/', instagram: '' } }
 
     expect(postProcess(target, data, { sources: [official] }).contact.website).toBe('https://www.cafe.example/')
     expect(postProcess(target, { ...data, support: [{ field: 'contact.website', facts: ['F1'] }] }, { sources: [official] }).contact.website).toBe('https://cafe-oficial.example/')
@@ -1650,7 +1579,7 @@ describe('PlaceExtractionService', () => {
           ...emptyExtraction,
           facts: [{ id: 'F1', text: 'es un wine bar', sourceId: 'S1', kind: 'other' as const, proposedTag: null }],
           tags: runs % 2 ? [{ group: 'categories' as const, id: 'wine_bar', facts: ['F1'] }] : [],
-          contact: { ...extraction.contact, instagram: 'magnolio.uy', reservationUrl: '' },
+          contact: { ...extraction.contact, instagram: 'magnolio.uy' },
           support: [],
         }
       },
@@ -1663,7 +1592,7 @@ describe('PlaceExtractionService', () => {
     for (const response of responses) {
       expect(response).toMatchObject({
         status: 'ok',
-        place: { categories: expect.arrayContaining(['bar']), contact: { instagram: 'oriundo.uy', reservationUrl: 'https://oriundo.meitre.com/' } },
+        place: { categories: expect.arrayContaining(['bar']), contact: { instagram: 'oriundo.uy' }, reservations: 'accepts' },
       })
     }
     expect(runs).toBe(3)
@@ -1809,7 +1738,7 @@ describe('PlaceExtractionService', () => {
       dietary: { vegan: 'has_options', vegetarian: 'unknown', glutenFree: 'unknown' },
       price: 'high',
       reservations: 'accepts',
-      contact: { phone: '2915 0000', whatsapp: '', instagram: '', website: 'https://local.example/', menuUrl: '', reservationUrl: '' },
+      contact: { instagram: '', website: 'https://local.example/' },
       support: [
         { field: 'reservations', facts: ['F3'] },
         { field: 'contact.website', facts: ['F1'] },
@@ -1823,21 +1752,24 @@ describe('PlaceExtractionService', () => {
     expect(place.dietary.vegan).toBe('unknown')
     expect(place.price).toBe('unknown')
     expect(place.reservations).toBe('unknown')
-    expect(place.contact).toMatchObject({ phone: null, website: 'https://local.example/' })
+    expect(place.contact).toMatchObject({ website: 'https://local.example/' })
   })
 
-  it('mueve la evidencia de un website de reservas a reservationUrl', () => {
-    expect(classifyContact({ phone: null, whatsapp: null, instagram: null, website: 'https://local.meitre.com/', menuUrl: null, reservationUrl: null }))
-      .toMatchObject({ website: null, reservationUrl: 'https://local.meitre.com/' })
-    const place = postProcess(target, {
+  it('un website de reservas o de WhatsApp no queda como web; el de reservas, con support, dice que toma reservas', () => {
+    expect(classifyContact({ instagram: null, website: 'https://local.meitre.com/' })).toEqual({ instagram: null, website: null })
+    expect(classifyContact({ instagram: null, website: 'https://wa.me/59899111222' })).toEqual({ instagram: null, website: null })
+    const data: PlaceExtraction = {
       ...emptyExtraction,
       facts: [{ id: 'F1', text: 'reserva por Meitre', sourceId: 'S1', kind: 'reservations', proposedTag: null }],
-      contact: { phone: '', whatsapp: '', instagram: '', website: 'https://local.meitre.com/', menuUrl: '', reservationUrl: '' },
+      contact: { instagram: '', website: 'https://local.meitre.com/' },
       support: [{ field: 'contact.website', facts: ['F1'] }],
-    }, { sources: [{ id: 'S1', kind: 'web', trust: 'official', url: 'https://local.example/', text: 'Reservas por Meitre' }] })
-    // La web de reservas pasa a reservationUrl; website queda con la home de la web oficial scrapeada.
-    expect(place.contact).toMatchObject({ website: 'https://local.example/', reservationUrl: 'https://local.meitre.com/' })
+    }
+    const sources: Source[] = [{ id: 'S1', kind: 'web', trust: 'official', url: 'https://local.example/', text: 'Reservas por Meitre' }]
+    const place = postProcess(target, data, { sources })
+    // website queda con la home de la web oficial scrapeada; el link de reservas no se guarda.
+    expect(place.contact).toEqual({ instagram: null, website: 'https://local.example/' })
     expect(place.reservations).toBe('accepts')
+    expect(postProcess(target, { ...data, support: [] }, { sources }).reservations).toBe('unknown')
   })
 
   it('devuelve placeFacts con id y lo que respalda cada uno, hasta 40, y sin usarlos para la búsqueda', () => {
@@ -2051,7 +1983,7 @@ describe('PlaceExtractionService', () => {
         { id: 'F2', text: 'Instagram @resto', sourceId: 'S1', kind: 'contact', proposedTag: null },
       ],
       dietary: { vegan: 'fully', vegetarian: 'unknown', glutenFree: 'unknown' },
-      contact: { ...emptyExtraction.contact, instagram: 'resto', website: '', phone: '' },
+      contact: { instagram: 'resto', website: '' },
       support: [{ field: 'dietary.vegan', facts: ['F1'] }, { field: 'contact.instagram', facts: ['F2'] }],
     }
     const place = postProcess(target, data, { sources: [source], seedCategories: ['restaurant'] })

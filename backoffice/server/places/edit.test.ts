@@ -9,7 +9,7 @@ import { computeProminence } from './prominence.ts'
 
 function row(overrides: Partial<EditRow> = {}): EditRow {
   const base: EditRow = {
-    id: 'uuid-1', googlePlaceId: 'place-1', name: 'El Palenque', address: 'Sarandí 675', neighborhoodId: 'ciudad_vieja', status: 'published',
+    id: 'uuid-1', googlePlaceId: 'place-1', name: 'El Palenque', neighborhoodId: 'ciudad_vieja', status: 'published',
     descriptionEs: 'Parrilla clásica.', descriptionEn: 'Classic grill.', locatedIn: 'Mercado del Puerto', categories: ['grill'],
     tags: ['seafood', 'terrace'], signature: ['seafood'], dishes: ['pulpo a la gallega'], highlights: [],
     dietVegan: 'unknown', dietVegetarian: 'has_options', dietGlutenFree: 'no', price: 'high', style: 'casual', iconCategory: 'grill',

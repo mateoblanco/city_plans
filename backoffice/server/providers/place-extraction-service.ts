@@ -149,22 +149,17 @@ export const PlaceExtraction = z.object({
   }),
   // "" = sin dato. Strings y no nullable para que entre la gramática; postProcess los pasa a null.
   contact: z.object({
-    phone: z.string(),
-    whatsapp: z.string(),
     instagram: z.string(),
     website: z.string(),
-    menuUrl: z.string(),
-    reservationUrl: z.string(),
   }),
   highlights: z.array(z.object({ es: z.string(), en: z.string(), facts: z.array(z.string()) })),
   // Platos y signature como strings simples: postProcess valida el respaldo, los ids y los topes.
   dishes: z.array(z.string()),
   signature: z.array(z.string()),
   description: z.object({ es: z.string(), en: z.string() }),
-  // Nombre y dirección según las fuentes, con sus facts en support; "" si ninguna fuente los dice.
-  // Strings simples y no nullable: cada nullable suma una rama a la gramática, que ya está al límite.
+  // Nombre según las fuentes, con sus facts en support; "" si ninguna fuente lo dice.
+  // String simple y no nullable: cada nullable suma una rama a la gramática.
   name: z.string(),
-  address: z.string(),
   // Lugar que contiene al local; sus facts van en support con field locatedIn. Un string y no un
   // objeto: el objeto nullable agranda la gramática del output estructurado y Anthropic la rechaza.
   locatedIn: z.string().nullable(),
@@ -183,12 +178,8 @@ type Contact = PlaceEnrichmentDraft['contact']
 function contactFromModel(contact: PlaceExtraction['contact']): Contact {
   const value = (text: string) => text.trim() || null
   return {
-    phone: value(contact.phone),
-    whatsapp: value(contact.whatsapp),
     instagram: value(contact.instagram),
     website: value(contact.website),
-    menuUrl: value(contact.menuUrl),
-    reservationUrl: value(contact.reservationUrl),
   }
 }
 
@@ -363,7 +354,7 @@ PASO 1 — facts
 
 PASO 2 — el resto del JSON, sólo a partir de facts
 - tags es una lista de { group, id, facts } con las categorías, los tags y el style del local: group es categories, moments, cuisines, foods, drinks, features, atmosphere, goodFor, offers o style; id es uno de los ids permitidos de ese grupo (ver IDS PERMITIDOS); facts son los ids de los facts que lo respaldan (por ejemplo ["F3", "F7"]).
-- support respalda los demás datos: una entrada { field, facts }, con los ids de los facts, para cada uno que completes, con field exactamente igual a uno de estos: dietary.vegan, dietary.vegetarian, dietary.glutenFree, price, reservations, hours, contact.phone, contact.whatsapp, contact.instagram, contact.website, contact.menuUrl, contact.reservationUrl, locatedIn, name, address.
+- support respalda los demás datos: una entrada { field, facts }, con los ids de los facts, para cada uno que completes, con field exactamente igual a uno de estos: dietary.vegan, dietary.vegetarian, dietary.glutenFree, price, reservations, hours, contact.instagram, contact.website, locatedIn, name.
 - Lo que no cite un fact se descarta.
 - proposedTag: en cada fact que no cites en ningún tag ni support, completá proposedTag: el id existente que debería haberse usado, un id nuevo en snake_case si ningún tag encaja, o null. proposedTag es null solo para anécdotas, historia de la marca, nombre o dirección del local, datos de contacto, medios de pago o información de otras sucursales. Si el fact describe comida, bebida, actividades o características del lugar, proponé un tag existente o uno nuevo. En los facts citados, null.
 - Platos y bebidas concretos nunca van con proposedTag null: mapealos al tag más cercano (tapas o platos pequeños → tapas, y además picada si mencionan tablas, fiambres o quesos para compartir; postres dulces → desserts; jugos o licuados → smoothies; yogur, tostadas o similares → breakfast).
@@ -397,11 +388,10 @@ PASO 2 — el resto del JSON, sólo a partir de facts
 - Una versión vegetal explícita de un plato (de soja, de seitán, veggie, de lentejas) cuenta como vegetarian has_options.
 - price sólo con precios o una mención explícita. reservations sólo con un fact que lo diga.
 - Cada campo de contact va con "" si las fuentes no lo dicen.
-- contact.website es exclusivamente la web propia del local. Los links de reservas, delivery, WhatsApp o Linktree van a su campo, nunca a website.
+- contact.website es exclusivamente la web propia del local: nunca un link de reservas, delivery, WhatsApp o Linktree.
 - Si las fuentes dicen que el local está dentro de otro lugar (shopping, mercado, galería, hotel, museo, polo gastronómico), completá locatedIn con el nombre de ese lugar. Si no lo dicen claramente, null. No lo deduzcas solo de la dirección.
 - Si completás locatedIn, citá en support los facts que lo dicen, con field locatedIn.
 - name es el nombre de la marca tal como lo escriben las fuentes, sin la sucursal (barrio, shopping, "sucursal X"). Citá en support, con field name, los facts que lo dicen. Si ninguna fuente lo nombra, "". El Nombre de LOCAL OBJETIVO sirve para identificar el local, no es una fuente.
-- address es la dirección del local tal como aparece en una fuente, con su support (field address). Si ninguna fuente la trae, "". No copies la Dirección de LOCAL OBJETIVO.
 
 HORARIOS
 - Si hay un horario en una fuente OFICIAL, usá sólo ese para raw y blocks: no lo completes ni lo mezcles con horarios de TERCEROS (por ejemplo, no tomes una hora de cierre de un directorio).
@@ -562,7 +552,7 @@ function otherAddressInBio(bio: string, address: string): boolean {
 function profileHasPhone(details: GooglePlaceDetailsResponse, profile: InstagramProfileData): boolean {
   const googlePhone = normalizeUruguayPhone(details.phoneNumber ?? null)
   const bio = [profile.bio, ...(profile.posts ?? [])].join('\n')
-  return Boolean(googlePhone && phonesInText(bio).map(normalizeUruguayPhone).includes(googlePhone))
+  return Boolean(googlePhone && phonesInText(bio).includes(googlePhone))
 }
 
 /** El perfil enlaza la web oficial (la que se encontró o la de Google, que sólo confirma). */
@@ -639,18 +629,13 @@ export function instagramProfileMatch(details: GooglePlaceDetailsResponse, profi
   return { accepted: false, rule: 'no_identity_signal' }
 }
 
+const WHATSAPP_URL = /^https?:\/\/(?:wa\.me|api\.whatsapp\.com|web\.whatsapp\.com)\//i
+
+/** Un link de WhatsApp, de reservas o de un agregador no es la web del local. */
 export function classifyContact(contact: Contact) {
-  const normalized = { ...contact }
-  if (normalized.website && /^https?:\/\/(?:wa\.me|api\.whatsapp\.com|web\.whatsapp\.com)\//i.test(normalized.website)) {
-    normalized.whatsapp ??= normalized.website
-    normalized.website = null
-  } else if (normalized.website && hostedBy(normalized.website, DEFAULT_RESERVATION_HOSTS)) {
-    normalized.reservationUrl ??= normalized.website
-    normalized.website = null
-  } else if (normalized.website && hostedBy(normalized.website, LINK_AGGREGATOR_HOSTS)) {
-    normalized.website = null
-  }
-  return normalized
+  const { website } = contact
+  const notOwn = website && (WHATSAPP_URL.test(website) || hostedBy(website, DEFAULT_RESERVATION_HOSTS) || hostedBy(website, LINK_AGGREGATOR_HOSTS))
+  return notOwn ? { ...contact, website: null } : { ...contact }
 }
 
 function isBlockedSource(url: string) {
@@ -1289,10 +1274,9 @@ const LLM_TAG_GROUPS = ['moments', 'cuisines', 'foods', 'drinks', 'features', 'a
 const HOURS_DERIVED_TAGS = new Set(['late_night', 'breakfast', 'lunch', 'dinner'])
 const MAX_CUISINES = 3
 
-type ProcessedExtraction = Omit<PlaceExtraction, 'hours' | 'facts' | 'support' | 'tags' | 'highlights' | 'doubts' | 'locatedIn' | 'name' | 'address' | 'dishes' | 'signature' | 'contact' | 'iconCategory'> & {
+type ProcessedExtraction = Omit<PlaceExtraction, 'hours' | 'facts' | 'support' | 'tags' | 'highlights' | 'doubts' | 'locatedIn' | 'name' | 'dishes' | 'signature' | 'contact' | 'iconCategory'> & {
   contact: Contact
   name: string
-  address: string | null
   locatedIn: string | null
   highlights: { es: string; en: string }[]
   categories: CategoryId[]
@@ -1531,19 +1515,6 @@ function normalizeUruguayPhone(value: string | null) {
   return isUruguayPhone(phone) ? phone.formatInternational() : null
 }
 
-function whatsappNumber(value: string | null) {
-  if (!value) return null
-  try {
-    const url = new URL(value)
-    if (/^(wa\.me|api\.whatsapp\.com|web\.whatsapp\.com)$/i.test(url.hostname.replace(/^www\./, ''))) {
-      return url.searchParams.get('phone') ?? url.pathname.split('/').filter(Boolean)[0] ?? null
-    }
-  } catch {
-    // También se aceptan números escritos directamente.
-  }
-  return value
-}
-
 function httpsUrl(value: string | null) {
   if (!value) return null
   try {
@@ -1555,23 +1526,16 @@ function httpsUrl(value: string | null) {
   }
 }
 
-function normalizeContact(contact: Contact) {
+function normalizeContact(contact: Contact): Contact {
   const normalizedInstagram = contact.instagram?.replace(/^@/, '').trim().toLowerCase() || null
   const instagram = contact.instagram ? instagramHandle(contact.instagram) ?? normalizedInstagram : null
-  return {
-    ...contact,
-    phone: normalizeUruguayPhone(contact.phone),
-    whatsapp: normalizeUruguayPhone(whatsappNumber(contact.whatsapp)),
-    instagram,
-    website: httpsUrl(contact.website),
-    menuUrl: httpsUrl(contact.menuUrl),
-    reservationUrl: httpsUrl(contact.reservationUrl),
-  }
+  return { instagram, website: httpsUrl(contact.website) }
 }
 
 const SOCIAL_HOSTS = ['instagram.com', 'instagr.am', 'facebook.com', 'tiktok.com', 'x.com', 'twitter.com', 'linkedin.com', 'youtube.com']
 
-export type DeterministicContact = Partial<Pick<PlaceExtraction['contact'], 'phone' | 'instagram' | 'reservationUrl'>>
+// reservationUrl no se guarda: sólo dice que el local toma reservas. Los snapshots viejos traen también phone, que se ignora.
+export type DeterministicContact = { instagram?: string; reservationUrl?: string }
 
 function linksInText(value: string): string[] {
   return value.match(/https?:\/\/[^\s<>"')\]]+/gi)?.map((link) => link.replace(/[.,;:!?]+$/, '')) ?? []
@@ -1690,7 +1654,7 @@ export function isListingSource(source: Source, brand: string): boolean {
   const brandWords = canonical(brand).split(/[^a-z0-9]+/).filter(Boolean)
   if (brandWords.length > 0 && ` ${path.split(/[^a-z0-9]+/).join(' ')} `.includes(` ${brandWords.join(' ')} `)) return false
   if (LISTING_PATH.test(path)) return true
-  return new Set(phonesInText(source.text).map(normalizeUruguayPhone).filter(Boolean)).size >= LISTING_MIN_PHONES
+  return new Set(phonesInText(source.text)).size >= LISTING_MIN_PHONES
 }
 
 // En un directorio cada local ocupa unos pocos renglones (nombre, dirección, teléfono): el dato de un local está en
@@ -1718,31 +1682,18 @@ export function placeText(source: Source, brand: string): string {
   return entries.join('\n\n')
 }
 
-/**
- * Primer teléfono uruguayo que aparece en el texto o los links de las fuentes. En una página de varios locales,
- * sólo el que está junto a la marca, y sin sus links (no se sabe de qué local son).
- */
-function firstSourcePhone(sources: Source[], brand: string): string | null {
-  return sources
-    // De los links, sólo tel: y WhatsApp: cualquier otra URL puede tener dígitos que no son un teléfono.
-    .flatMap((source) => isListingSource(source, brand)
-      ? phonesInText(placeText(source, brand))
-      : [...phonesInText(source.text), ...sourceLinks(source).filter((link) => /^tel:/i.test(link) || whatsappNumber(link) !== link).map(whatsappNumber)])
-    .map(normalizeUruguayPhone)
-    .find((value): value is string => Boolean(value)) ?? null
-}
-
-function phonesInText(value: string): string[] {
+/** Fijos y celulares de Uruguay del texto, en formato internacional: para leer las fuentes, no para guardarlos. */
+export function phonesInText(value: string): string[] {
   return findPhoneNumbersInText(value, 'UY')
     // Una fecha (2026-05-25, 26.11.2025) no es un teléfono aunque libphonenumber la valide.
     .filter(({ startsAt, endsAt }) => !looksLikeDate(value.slice(startsAt, endsAt)))
     .filter(({ number }) => isUruguayPhone(number))
-    .map(({ number }) => number.number)
+    .map(({ number }) => number.formatInternational())
 }
 
 /**
- * Contacto que sale directo del texto y los links de las fuentes. Nada de Google: su web y su
- * teléfono no se guardan. La marca (nombre de Google sin sucursal) sólo se usa para elegir entre handles de Instagram.
+ * Contacto que sale directo del texto y los links de las fuentes: el Instagram y un link de reservas (sólo como señal de
+ * reservations). Nada de Google. La marca (nombre de Google sin sucursal) sólo se usa para elegir entre handles de Instagram.
  */
 export function resolveDeterministicContact(
   details: GooglePlaceDetailsResponse,
@@ -1753,12 +1704,10 @@ export function resolveDeterministicContact(
     .flatMap(sourceLinks)
     .map(httpsUrl)
     .find((url): url is string => Boolean(url && hostedBy(url, reservationHosts))) ?? null
-  const phone = firstSourcePhone(sources, brandFromGoogleName(details.anchor.name))
   const instagram = preferredInstagramHandle(brandFromGoogleName(details.anchor.name), sources)
   return {
     ...(reservationUrl ? { reservationUrl } : {}),
     ...(instagram ? { instagram } : {}),
-    ...(phone ? { phone } : {}),
   }
 }
 
@@ -1793,18 +1742,13 @@ export function postProcess(
   const factsById = new Map(facts.map((fact) => [fact.id, fact]))
   const validCitations = (ids: string[]) => [...new Set(ids.map((id) => id.trim()).filter((id) => factsById.has(id)))]
 
-  const movedReservation = Boolean(result.contact.website && hostedBy(result.contact.website, DEFAULT_RESERVATION_HOSTS) && !result.contact.reservationUrl)
-  const movedWhatsapp = Boolean(result.contact.website && /^https?:\/\/(?:wa\.me|api\.whatsapp\.com|web\.whatsapp\.com)\//i.test(result.contact.website) && !result.contact.whatsapp)
+  // Un link de reservas como website no se guarda, pero con su support dice que el local toma reservas.
+  const reservationWebsite = Boolean(result.contact.website && hostedBy(result.contact.website, DEFAULT_RESERVATION_HOSTS))
   result.contact = classifyContact(result.contact)
   // Support: cada campo queda con los facts válidos que lo respaldan.
   const support = new Map<string, string[]>()
   for (const item of result.support) {
-    const canonicalField = canonicalSupportField(item.field)
-    const field = movedReservation && canonicalField === 'contact.website'
-      ? 'contact.reservationUrl'
-      : movedWhatsapp && canonicalField === 'contact.website'
-        ? 'contact.whatsapp'
-        : canonicalField
+    const field = canonicalSupportField(item.field)
     const cited = validCitations(item.facts)
     if (cited.length > 0) support.set(field, [...new Set([...(support.get(field) ?? []), ...cited])])
   }
@@ -2043,27 +1987,15 @@ export function postProcess(
   // no cuenta porque sale de una búsqueda con ese nombre. Si no, el del modelo con su support.
   const brand = brandFromGoogleName(target.name)
   const brandConfirmed = sources.some((source) => source.url !== EXA_SUMMARY_URL && hasPhrase(source.text, brand))
-  // Nombre del modelo y dirección: con support y escritos tal cual en alguna fuente citada. Nunca los de Google.
-  const sourcedText = (field: 'name' | 'address') => {
-    const value = result[field].trim()
-    const citedSources = (support.get(field) ?? []).map((id) => factsById.get(id)!.source)
-    // La dirección de una página de varios locales sólo vale junto a la marca.
-    const text = (source: Source) => field === 'address' ? placeText(source, brand) : source.text
-    return value && citedSources.some((source) => hasPhrase(text(source), value)) ? value : null
+  // Nombre del modelo: con support y escrito tal cual en alguna fuente citada. Nunca el de Google.
+  const sourcedName = () => {
+    const value = result.name.trim()
+    const citedSources = (support.get('name') ?? []).map((id) => factsById.get(id)!.source)
+    return value && citedSources.some((source) => hasPhrase(source.text, value)) ? value : null
   }
 
-  // Una cadena también acepta el teléfono o la dirección del modelo si alguna fuente real (no el resumen de Exa) los
-  // tiene junto a la dirección del local, aunque el modelo citara otra: la fuente los asocia a esta sucursal.
-  const branchSources = chain ? sources.filter((source) => source.url !== EXA_SUMMARY_URL && mentionsAddress(placeText(source, brand), target.address)) : []
-  const branchBacked = (field: 'phone' | 'address', value: string) => branchSources.some((source) => field === 'phone'
-    ? nearBrand('phone', value, placeText(source, brand))
-    : hasPhrase(placeText(source, brand), value))
-
-  // En una cadena la dirección además tiene que ser la de esta sucursal, no la de otra de la misma fuente.
-  const address = sourcedText('address')
   const processed: ProcessedExtraction = {
-    name: brandConfirmed ? brand : sourcedText('name') ?? '',
-    address: address && (branchOnly('address') || branchBacked('address', address)) && (!chain || mentionsAddress(address, target.address)) ? address : null,
+    name: brandConfirmed ? brand : sourcedName() ?? '',
     categories,
     tags,
     dietary: result.dietary,
@@ -2091,31 +2023,18 @@ export function postProcess(
     style = fallback.style
     tagEvidence.push({ ...fallback.evidence, factIds: fallback.evidence.basis === 'price' ? support.get('price') ?? [] : [] })
   }
-  for (const field of ['phone', 'whatsapp', 'instagram', 'website', 'menuUrl', 'reservationUrl'] as const) {
+  // Un link de reservas citado como website, o uno en las fuentes, dice que el local toma reservas.
+  const reservationLink = (reservationWebsite && supported('contact.website')) || Boolean(context.deterministicContact?.reservationUrl)
+  for (const field of ['instagram', 'website'] as const) {
     if (processed.contact[field] && !supported(`contact.${field}`)) processed.contact[field] = null
   }
-  // En una cadena, el teléfono único que la marca publica en su fuente oficial (central de pedidos, delivery) vale
-  // para todas las sucursales aunque la fuente no nombre esta. Es el último recurso: el de la sucursal gana.
-  const brandPhone = chain ? brandWidePhone(sources, target) : null
-  for (const field of ['phone', 'whatsapp'] as const) {
-    const value = processed.contact[field]
-    if (value && !branchOnly(`contact.${field}`) && !branchBacked('phone', value) && !(brandPhone && normalizeUruguayPhone(value) === brandPhone)) processed.contact[field] = null
-  }
-  // Teléfono y web de una página de varios locales: sólo si aparecen junto a la marca en alguna fuente citada.
-  for (const field of ['phone', 'website'] as const) {
-    const value = processed.contact[field]
-    const cited = (support.get(`contact.${field}`) ?? []).map((id) => factsById.get(id)!.source)
-    if (value && cited.length > 0 && !cited.some((source) => !isListingSource(source, brand) || nearBrand(field, value, placeText(source, brand)))) processed.contact[field] = null
-  }
+  // Web de una página de varios locales: sólo si aparece junto a la marca en alguna fuente citada.
+  const website = processed.contact.website
+  const websiteSources = (support.get('contact.website') ?? []).map((id) => factsById.get(id)!.source)
+  if (website && websiteSources.length > 0 && !websiteSources.some((source) => !isListingSource(source, brand) || nearBrand(website, placeText(source, brand)))) processed.contact.website = null
 
-  processed.contact = normalizeContact(processed.contact)
-  if (context.deterministicContact) {
-    // El teléfono del modelo, con su support, gana; el que aparece en el texto de las fuentes es respaldo.
-    // En una cadena, el teléfono de respaldo sólo de fuentes que hablan de esta sucursal.
-    const { phone: anyPhone, ...deterministic } = context.deterministicContact
-    const phone = chain ? firstSourcePhone(sources.filter((source) => mentionsBranch(source, target)), brand) ?? brandPhone : anyPhone
-    processed.contact = normalizeContact({ ...processed.contact, ...deterministic, phone: processed.contact.phone ?? phone ?? null })
-  }
+  const deterministicInstagram = context.deterministicContact?.instagram
+  processed.contact = normalizeContact({ ...processed.contact, ...(deterministicInstagram ? { instagram: deterministicInstagram } : {}) })
   // El Instagram validado por Apify no queda si el modelo lo rechazó (vio que es de otro negocio). El cargado a mano
   // en la revisión gana siempre, también "No tiene Instagram".
   const instagramRejected = !context.instagramManual && Boolean(processed.contact.instagram && instagramRejectedByModel(data, processed.contact.instagram))
@@ -2123,7 +2042,7 @@ export function postProcess(
   if (context.instagramManual) processed.contact.instagram = context.instagramManual.handle
   // La web que el modelo respalda con un fact gana; si no hay, la home de la web oficial scrapeada.
   processed.contact.website ??= officialWebsiteHome(sources)
-  if (processed.contact.reservationUrl && (processed.reservations === 'unknown' || processed.reservations === 'no_reservations')) {
+  if (reservationLink && (processed.reservations === 'unknown' || processed.reservations === 'no_reservations')) {
     processed.reservations = 'accepts'
   }
 
@@ -2256,28 +2175,6 @@ export function isChainBranch(target: Pick<Target, 'name'>, sources: Source[]): 
 }
 
 /**
- * Teléfono único de la marca: una fuente oficial (web o Instagram) con un solo teléfono distinto en su texto y sus
- * links (tel: y WhatsApp), que no es la página de otra sucursal. null si no hay o si dos fuentes oficiales dan
- * teléfonos distintos.
- */
-export function brandWidePhone(sources: Source[], target: Pick<Target, 'name' | 'address' | 'neighborhoodId'>): string | null {
-  const phones = new Set<string>()
-  for (const source of sources) {
-    if (source.trust !== 'official' || source.url === EXA_SUMMARY_URL) continue
-    let path = ''
-    try { path = new URL(source.url).pathname.toLowerCase() } catch { /* URL inválida: sólo el texto */ }
-    if (MULTI_BRANCH_PATH.test(path) && !mentionsBranch(source, target)) continue
-    const found = new Set([
-      ...phonesInText(source.text),
-      ...sourceLinks(source).filter((link) => /^tel:/i.test(link) || whatsappNumber(link) !== link).map(whatsappNumber),
-    ].map(normalizeUruguayPhone).filter((value): value is string => Boolean(value)))
-    if (found.size > 1) return null
-    for (const phone of found) phones.add(phone)
-  }
-  return phones.size === 1 ? [...phones][0] : null
-}
-
-/**
  * La fuente habla de esta sucursal: menciona su dirección o su barrio. El resumen de Exa no
  * cuenta: en una cadena junta datos de varias sucursales.
  */
@@ -2289,9 +2186,8 @@ export function mentionsBranch(source: Source, target: Pick<Target, 'name' | 'ad
   return mentionsAddress(text, target.address) || Boolean(neighborhood && hasPhrase(text, neighborhood))
 }
 
-/** El teléfono o la web aparece en el texto (el teléfono comparado ya normalizado, la web por su host). */
-function nearBrand(field: 'phone' | 'website', value: string, text: string): boolean {
-  if (field === 'phone') return phonesInText(text).map(normalizeUruguayPhone).includes(normalizeUruguayPhone(value))
+/** La web aparece en el texto, por su host. */
+function nearBrand(value: string, text: string): boolean {
   const host = hostname(value)?.replace(/^www\./, '')
   return Boolean(host && canonical(text).includes(canonical(host)))
 }

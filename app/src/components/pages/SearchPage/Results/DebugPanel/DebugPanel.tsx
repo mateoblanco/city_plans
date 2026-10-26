@@ -1,6 +1,7 @@
 import type { Chip, IntentBar, SearchDebug, SearchResponse } from "@/server/search";
 import { formatUsd } from "@/server/search/cost";
 import { DAY_NAMES } from "@/server/search/labels";
+import ClearLikes from "./ClearLikes/ClearLikes";
 import CopyResponse from "./CopyResponse/CopyResponse";
 import styles from "./DebugPanel.module.scss";
 
@@ -18,7 +19,9 @@ const origin = ({ fromText, fromFilter }: Chip) => (fromText && fromFilter ? "te
 
 /** Grupos elegidos (de dónde, cuántos lugares y su puntaje promedio) y los descartados por chicos; o por qué no se agrupó. */
 const sectionsSummary = (sections: SearchDebug["sections"]) => {
-  const dropped = sections.dropped.length ? ` · descartados: ${sections.dropped.map((group) => `${group.id} (${group.count})`).join(", ")}` : "";
+  const dropped =
+    (sections.dropped.length ? ` · descartados: ${sections.dropped.map((group) => `${group.id} (${group.count})`).join(", ")}` : "") +
+    (sections.displaced.length ? ` · desplazados por los personales: ${sections.displaced.join(", ")}` : "");
   if (sections.notGrouped) return `sin agrupar: ${sections.notGrouped}${sections.source ? ` · ${sections.source === "llm" ? "modelo" : "reglas"}: ${join(sections.requested)}` : ""}${dropped}`;
   const chosen = sections.chosen.map((group) => `${group.id} (${group.count}, ${group.avgScore.toFixed(4)})`).join(", ");
   return `${sections.source === "llm" ? "modelo" : "reglas"}: ${join(sections.requested)} · elegidos: ${chosen}${dropped}`;
@@ -115,6 +118,46 @@ const Relevance = (props: RelevanceProps) => {
   );
 };
 
+type ProfileProps = {
+  personal: SearchDebug["personal"];
+};
+
+/** Perfil: qué likes se usaron, el lugar de "Parecido a" y el parecido de cada lugar de los bloques personales. */
+const Profile = (props: ProfileProps) => {
+  const { skipped, likes, ignored, similarTo, thresholds, groups } = props.personal;
+  return (
+    <div>
+      <p>
+        Perfil: {skipped ? `no se usó (${skipped})` : `${likes.length} likes`} · umbrales: perfil {decimal(thresholds.profile)}; parecido a un lugar,
+        su top {Math.round(thresholds.similarTopShare * 100)} % de la base con piso {decimal(thresholds.similarFloor)}
+      </p>
+      <ClearLikes />
+      {likes.length > 0 && (
+        <p>Likes usados: {likes.map((like) => `${like.name} (${like.position === null ? "no salió" : `#${like.position}`})`).join(", ")}</p>
+      )}
+      {ignored.length > 0 && <p>Ignorados (no publicados o sin embedding): {ignored.join(", ")}</p>}
+      {!skipped && (
+        <p>
+          Parecido a:{" "}
+          {similarTo
+            ? `${similarTo.name} (#${similarTo.position}, el mejor ubicado de los likes que salieron) · top ${Math.round(thresholds.similarTopShare * 100)} % desde ${decimal(similarTo.topCut)} → umbral ${decimal(similarTo.threshold)}`
+            : "ningún like salió en esta búsqueda"}
+        </p>
+      )}
+      {groups.length > 0 && (
+        <ul>
+          {groups.map((group) => (
+            <li key={group.id}>
+              {group.title}: {group.shown ? "sí" : `no (${group.reason})`}
+              {group.places.length > 0 && ` · ${group.places.map((place) => `${place.name} ${decimal(place.similarity)}`).join(", ")}`}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+};
+
 type Props = {
   debug: SearchDebug;
   /** Todos los chips de la búsqueda (la UI sólo muestra los de la barra). */
@@ -141,6 +184,7 @@ const DebugPanel = (props: Props) => {
       </p>
       <Interpreted debug={props.debug} chips={props.chips} bar={props.bar} />
       <Relevance debug={props.debug} />
+      <Profile personal={props.debug.personal} />
       <Json title="Interpretación" value={{ source, model, llmError, discarded, original, interpretation, nameMatches, semanticText, keywords }} />
       <Json title="Intentos" value={props.debug.attempts} />
       <Json title="Rankings" value={props.debug.rankings} />

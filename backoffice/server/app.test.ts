@@ -497,7 +497,6 @@ describe('exploración multi-fuente', () => {
       sourceAudit: { google: true, exa: true, instagram: false, instagramCandidates: [] },
       place: {
         name: 'Café Brasilero',
-        address: 'Ituzaingó 1447',
         coordinates: { lat: -34.906, lng: -56.202, source: 'google' as const, fetchedAt: '2026-10-01T00:00:00.000Z' },
         neighborhoodId: 'CIUDAD VIEJA',
         city: 'Montevideo' as const,
@@ -506,7 +505,7 @@ describe('exploración multi-fuente', () => {
         categories: ['cafe'], tags: [],
         dietary: { vegan: 'unknown' as const, vegetarian: 'unknown' as const, glutenFree: 'unknown' as const },
         price: 'unknown' as const, reservations: 'unknown' as const,
-        hours: { raw: null, display: null, slots: [], status: 'none' as const, source: null }, contact: { phone: null, whatsapp: null, instagram: null, website: null, menuUrl: null, reservationUrl: null },
+        hours: { raw: null, display: null, slots: [], status: 'none' as const, source: null }, contact: { instagram: null, website: null },
         highlights: [], description: { es: 'Un café.', en: 'A café.' }, placeFacts: [], searchText: 'Café Brasilero.',
       },
       review: { unmappedFacts: [], doubts: [], anomalies: [], hoursRetry: { attempted: false, recovered: false, costUsd: 0 } },

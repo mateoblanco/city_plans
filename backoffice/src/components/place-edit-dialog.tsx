@@ -323,7 +323,7 @@ function PlaceEditForm({ placeId, onClose, onSaved, onDeleted }: Omit<PlaceEditD
         <DialogDescription>
           {neighborhoodDisplayName(place!.neighborhoodId)} · Lo que cambies queda editado a mano: una re-extracción no lo pisa.
         </DialogDescription>
-        <PlaceAddress place={place!} />
+        <PlaceMapsLink place={place!} />
       </DialogHeader>
 
       <div className="grid gap-5 px-5 py-5">
@@ -523,14 +523,14 @@ function PlaceEditForm({ placeId, onClose, onSaved, onDeleted }: Omit<PlaceEditD
   )
 }
 
-/** Dirección guardada como link a Google Maps (la ficha del lugar si hay googlePlaceId). */
-function PlaceAddress({ place }: { place: PlaceDetail }) {
+/** Link a la ficha del lugar en Google Maps: la dirección y el teléfono están ahí. */
+function PlaceMapsLink({ place }: { place: PlaceDetail }) {
   const href = googleMapsUrl(place)
-  if (!href) return <p className="text-sm text-muted-foreground">Sin dirección</p>
+  if (!href) return <p className="text-sm text-muted-foreground">Sin ficha de Google Maps</p>
   return (
     <a href={href} target="_blank" rel="noreferrer" className="inline-flex w-fit items-center gap-1 text-sm underline-offset-4 hover:underline">
       <MapPin className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-      {place.address ?? 'Ver en Google Maps'}
+      Ver en Google Maps
       <ArrowUpRight className="size-3 shrink-0" aria-hidden="true" />
       <span className="sr-only">(abre Google Maps en una nueva pestaña)</span>
     </a>

@@ -20,7 +20,7 @@ import { estimatedEmbeddingUsd } from './search-text-backfill.ts'
 
 /** Lo que la edición lee de un lugar guardado. */
 export type EditRow = Pick<Place,
-  'id' | 'googlePlaceId' | 'name' | 'address' | 'neighborhoodId' | 'status' | 'descriptionEs' | 'descriptionEn' | 'locatedIn' |
+  'id' | 'googlePlaceId' | 'name' | 'neighborhoodId' | 'status' | 'descriptionEs' | 'descriptionEn' | 'locatedIn' |
   'categories' | 'tags' | 'signature' | 'dishes' | 'highlights' | 'dietVegan' | 'dietVegetarian' | 'dietGlutenFree' |
   'price' | 'style' | 'iconCategory' | 'instagram' | 'website' | 'brandKey' | 'featured' | 'logoKey' | 'logoKind' |
   'logoBgColor' | 'logoColor' | 'logoSource' | 'igFollowers' | 'chainBranch' | 'prominence' | 'embeddingTextHash'> & {
@@ -93,7 +93,6 @@ export function toDetail(row: EditRow, brandKeys: string[] = []): PlaceDetail {
     id: row.id,
     googlePlaceId: row.googlePlaceId,
     name: row.name,
-    address: row.address,
     neighborhoodId: row.neighborhoodId,
     status: row.status,
     categories: row.categories,
@@ -385,7 +384,7 @@ export async function deletePlace(id: string, deps: EditDeps): Promise<PlaceDele
 type Database = NeonHttpDatabase<typeof schema>
 
 const EDIT_COLUMNS = {
-  id: places.id, googlePlaceId: places.googlePlaceId, name: places.name, address: places.address, neighborhoodId: places.neighborhoodId, status: places.status,
+  id: places.id, googlePlaceId: places.googlePlaceId, name: places.name, neighborhoodId: places.neighborhoodId, status: places.status,
   descriptionEs: places.descriptionEs, descriptionEn: places.descriptionEn, locatedIn: places.locatedIn, categories: places.categories,
   tags: places.tags, signature: places.signature, dishes: places.dishes, highlights: places.highlights, dietVegan: places.dietVegan,
   dietVegetarian: places.dietVegetarian, dietGlutenFree: places.dietGlutenFree, price: places.price, style: places.style,

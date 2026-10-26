@@ -13,6 +13,8 @@ export type SearchUrl = {
   /** Cerca mío: lat,lng redondeados a 3 decimales. */
   near?: string | null;
   debug?: boolean;
+  /** false: profile=off (la misma búsqueda sin perfil); se conserva en los links, como debug. */
+  profile?: boolean;
 };
 
 export type ChipRef = { kind: string; id: string; fromText?: boolean; fromFilter?: boolean };
@@ -38,7 +40,7 @@ export function filterKey({ kind, id }: { kind: string; id: string }): string | 
 }
 
 /** URL de /search. `add` suma un chip a remove (lo que hacía antes quitar un chip). */
-export function searchHref({ q, remove, intent, sub, f, near, debug, add }: SearchUrl & { add?: { kind: string; id: string } }): string {
+export function searchHref({ q, remove, intent, sub, f, near, debug, profile, add }: SearchUrl & { add?: { kind: string; id: string } }): string {
   const removals = list(remove);
   if (add) removals.push(`${add.kind}:${add.id}`);
 
@@ -55,6 +57,7 @@ export function searchHref({ q, remove, intent, sub, f, near, debug, add }: Sear
   if (filters.length) params.set("f", filters.join(","));
   if (near) params.set("near", near);
   if (debug) params.set("debug", "1");
+  if (profile === false) params.set("profile", "off");
   const query = params.toString();
   return query ? `/search?${query}` : "/search";
 }

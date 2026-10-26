@@ -9,7 +9,7 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 const detail = (overrides: Partial<PlaceDetail> = {}): PlaceDetail => ({
-  id: 'uuid-1', googlePlaceId: 'place-1', name: 'El Palenque', address: 'Sarandí 675', neighborhoodId: 'CIUDAD VIEJA', status: 'published', categories: ['grill'],
+  id: 'uuid-1', googlePlaceId: 'place-1', name: 'El Palenque', neighborhoodId: 'CIUDAD VIEJA', status: 'published', categories: ['grill'],
   tags: ['seafood', 'terrace', 'italian'], style: 'casual', iconCategory: 'grill', price: 'high', dietVegan: 'unknown', dietVegetarian: 'has_options',
   dietGlutenFree: 'no', instagram: 'elpalenque', website: null, brandKey: null, featured: false, logoUrl: null, logoKind: null, logoBgColor: null,
   logoColor: null, logoSource: null, igFollowers: 999, prominence: 0.6, manualOverrides: {}, editedFields: [], brandKeys: ['cordon-beer'],
@@ -88,18 +88,18 @@ describe('PlaceEditDialog', () => {
     expect(screen.queryByRole('button', { name: 'Sacar Patio' })).toBeNull()
   })
 
-  it('muestra la dirección como link a la ficha de Google Maps', async () => {
+  it('muestra el link a la ficha de Google Maps', async () => {
     fakeApi({ 'GET /api/places/uuid-1': () => jsonResponse({ place: detail() }) })
     renderDialog()
 
-    const link = await screen.findByRole('link', { name: /Sarandí 675/ })
-    expect(link).toHaveAttribute('href', 'https://www.google.com/maps/search/?api=1&query=Sarand%C3%AD+675&query_place_id=place-1')
+    const link = await screen.findByRole('link', { name: /Ver en Google Maps/ })
+    expect(link).toHaveAttribute('href', 'https://www.google.com/maps/search/?api=1&query=El+Palenque&query_place_id=place-1')
     expect(link).toHaveAttribute('target', '_blank')
     cleanup()
 
-    fakeApi({ 'GET /api/places/uuid-1': () => jsonResponse({ place: detail({ address: null, googlePlaceId: null }) }) })
+    fakeApi({ 'GET /api/places/uuid-1': () => jsonResponse({ place: detail({ googlePlaceId: null }) }) })
     renderDialog()
-    expect(await screen.findByText('Sin dirección')).toBeTruthy()
+    expect(await screen.findByText('Sin ficha de Google Maps')).toBeTruthy()
   })
 
   it('si no carga muestra el error y permite reintentar', async () => {

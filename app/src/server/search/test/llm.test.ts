@@ -11,5 +11,6 @@ describe('interpretationRequest', () => {
     expect(request.prompt).toBe('Consulta: cafe tranquilo')
     expect(SYSTEM_PROMPT).not.toContain('cafe tranquilo')
     expect(request.reasoning).toBe('none')
+    expect(request.temperature).toBe(0)
   })
 })

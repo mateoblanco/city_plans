@@ -88,7 +88,6 @@ export const places = pgTable(
 
     // Identidad y ubicación
     name: text("name").notNull(),
-    address: text("address"),
     locatedIn: text("located_in"),
     neighborhoodId: text("neighborhood_id").notNull(),
     city: text("city").notNull().default("Montevideo"),
@@ -115,12 +114,8 @@ export const places = pgTable(
     hours: jsonb("hours").$type<Hours>().notNull().default({ slots: [], status: "none" }),
 
     // Contacto
-    phone: text("phone"),
-    whatsapp: text("whatsapp"),
     instagram: text("instagram"),
     website: text("website"),
-    menuUrl: text("menu_url"),
-    reservationUrl: text("reservation_url"),
 
     // Contenido para la UI
     descriptionEs: text("description_es"),

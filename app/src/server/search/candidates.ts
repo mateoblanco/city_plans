@@ -255,6 +255,41 @@ export function nameMatchQuery(name: string, limit = 3): SQL {
     limit ${limit}`
 }
 
+/**
+ * Lugar que te gustó, publicado y con embedding (los demás ids se ignoran). topCut: el parecido a partir del cual otro
+ * lugar publicado está en su top (1 − percentile) más parecido; null si no hay otros.
+ */
+export type LikedPlace = { id: string; name: string; topCut: number | null }
+
+/** Parecido de un candidato con el perfil (promedio de los likes; null sin likes válidos) y con cada like. */
+export type LikeSimilarity = { id: string; profile: number | null; byLike: Record<string, number> }
+
+export type LikeSimilarities = { liked: LikedPlace[]; rows: LikeSimilarity[] }
+
+/**
+ * Likes: cuáles son lugares publicados con embedding y el coseno de cada candidato con el promedio de sus embeddings
+ * y con cada uno. Sólo lectura, sin llamadas pagas; no se guarda nada.
+ */
+export function likeSimilaritiesQuery(likeIds: string[], candidateIds: string[], percentile: number): SQL {
+  return sql`
+    with liked as (
+      select id::text as id, name, embedding from places
+      where status = 'published' and embedding is not null and id::text = any(${textArray(likeIds)})
+    ),
+    profile as (select avg(embedding) as v from liked)
+    select
+      (select coalesce(json_agg(json_build_object('id', l.id, 'name', l.name, 'topCut', (
+          select percentile_cont(${percentile}::float) within group (order by 1 - (o.embedding <=> l.embedding))
+          from places o where o.status = 'published' and o.embedding is not null and o.id::text <> l.id
+        ))), '[]'::json) from liked l) as liked,
+      (select coalesce(json_agg(json_build_object(
+          'id', c.id::text,
+          'profile', 1 - (c.embedding <=> (select v from profile)),
+          'byLike', (select coalesce(json_object_agg(l.id, 1 - (c.embedding <=> l.embedding)), '{}'::json) from liked l)
+        )), '[]'::json)
+        from places c where c.embedding is not null and c.id::text = any(${textArray(candidateIds)})) as rows`
+}
+
 /** Barrios con al menos un lugar publicado, para el filtro de la barra. */
 export function neighborhoodsQuery(): SQL {
   return sql`select distinct neighborhood_id as id from places where status = 'published' order by 1`

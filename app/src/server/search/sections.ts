@@ -3,12 +3,13 @@ import type { IntentId } from '@shared/intents.ts'
 import { SEARCH_CONFIG } from './config'
 import type { Fused } from './fuse'
 import type { Interpretation, Lang } from './interpretation'
+import type { PersonalGroup, PersonalId } from './personal'
 
 /**
  * Una sección de la página de resultados: un grupo del catálogo o more = "Más opciones". total: cuántos resultados
  * cumplen la regla del grupo: si supera lo que muestra, tiene "Ver todos" (busca con `f=section:<id>`); null en discover y more.
  */
-export type Section = { id: SectionId | 'more'; title: string; placeIds: string[]; total: number | null }
+export type Section = { id: SectionId | PersonalId | 'more'; title: string; placeIds: string[]; total: number | null }
 
 export type SectionsDebug = {
   /** null si la búsqueda se agrupó (o pudo agruparse); si no, por qué no. */
@@ -19,6 +20,8 @@ export type SectionsDebug = {
   chosen: { id: SectionId; count: number; avgScore: number }[]
   /** Pedidos que no llegaron a minPlaces lugares, con cuántos tenían. */
   dropped: { id: SectionId; count: number }[]
+  /** Grupos del catálogo que desplazaron los grupos personales (los de menor puntaje promedio, por el tope de grupos). */
+  displaced: SectionId[]
 }
 
 const MORE_TITLE: Record<Lang, string> = { es: 'Más opciones', en: 'More options' }
@@ -138,23 +141,26 @@ function matcher(items: Fused[]) {
  * todos los que le sirven están llenos, el lugar va a "Más opciones". Los grupos chicos se descartan (los que ni solos
  * llegan, o el más chico) y sus lugares se reparten de nuevo. Sin ningún grupo que llegue, null: la lista de siempre.
  */
-export function buildSections(items: Fused[], requested: SectionId[], lang: Lang) {
+export function buildSections(items: Fused[], requested: SectionId[], lang: Lang, personal: PersonalGroup[] = []) {
   const config = SEARCH_CONFIG.sections
   const fits = matcher(items)
+  // Los grupos personales van primero y sus lugares no se repiten en los del catálogo.
+  const taken = new Set(personal.flatMap((group) => group.items.map((item) => item.row.id)))
+  const available = items.filter((item) => !taken.has(item.row.id))
 
   let active = [...requested]
   const dropped: SectionsDebug['dropped'] = []
   let members = new Map<SectionId, Fused[]>()
   for (;;) {
     members = new Map(active.map((id) => [id, []]))
-    for (const item of items) {
+    for (const item of available) {
       const fitting = active.filter((candidate) => members.get(candidate)!.length < config.maxPlaces && fits(candidate, item))
       const id = fitting.reduce<SectionId | null>((best, candidate) => (best === null || members.get(candidate)!.length < members.get(best)!.length ? candidate : best), null)
       if (id) members.get(id)!.push(item)
     }
     const small = active.filter((id) => members.get(id)!.length < config.minPlaces)
     // Primero los que ni solos llegarían al mínimo; si no hay, el más chico (a igual tamaño, el de menor prioridad).
-    const hopeless = small.filter((id) => items.filter((item) => fits(id, item)).length < config.minPlaces)
+    const hopeless = small.filter((id) => available.filter((item) => fits(id, item)).length < config.minPlaces)
     const smallest = [...small].reverse().sort((a, b) => members.get(a)!.length - members.get(b)!.length).slice(0, 1)
     const drop = hopeless.length ? hopeless : smallest
     if (drop.length) {
@@ -167,17 +173,23 @@ export function buildSections(items: Fused[], requested: SectionId[], lang: Lang
 
   const average = (group: Fused[]) => group.reduce((sum, item) => sum + item.score, 0) / group.length
   // Quién entra sale del orden de siempre; adentro de cada grupo, primero los que tienen más señales de la sección.
-  const chosen = active
+  const sorted = active
     .map((id) => ({ id, items: [...members.get(id)!].sort((a, b) => scoreIn(id, b) - scoreIn(id, a)), avgScore: average(members.get(id)!) }))
     .sort((a, b) => b.avgScore - a.avgScore)
-  const debug = { chosen: chosen.map(({ id, items: group, avgScore }) => ({ id, count: group.length, avgScore })), dropped }
-  if (chosen.length === 0) return { sections: null, ...debug }
+  // Con el tope de grupos, los personales desplazan a los del catálogo de menor puntaje promedio (sus lugares van a
+  // "Más opciones").
+  const chosen = sorted.slice(0, Math.max(0, config.maxGroups - personal.length))
+  const displaced = sorted.slice(chosen.length).map((group) => group.id)
+  const debug = { chosen: chosen.map(({ id, items: group, avgScore }) => ({ id, count: group.length, avgScore })), dropped, displaced }
+  if (chosen.length + personal.length === 0) return { sections: null, ...debug }
 
-  const grouped = new Set(chosen.flatMap((group) => group.items))
-  const more = items.filter((item) => !grouped.has(item))
+  const grouped = new Set([...personal, ...chosen].flatMap((group) => group.items.map((item) => item.row.id)))
+  const more = items.filter((item) => !grouped.has(item.row.id))
   const ids = (group: Fused[]) => group.map((item) => item.row.id)
   const total = (id: SectionId) => (id === 'discover' ? null : items.filter((item) => fits(id, item)).length)
   const sections: Section[] = [
+    // Sin "Ver todos": total null.
+    ...personal.map((group) => ({ id: group.id, title: group.title, placeIds: ids(group.items), total: null })),
     ...chosen.map((group) => ({ id: group.id, title: SECTIONS[group.id].title[lang], placeIds: ids(group.items), total: total(group.id) })),
     ...(more.length ? [{ id: 'more' as const, title: MORE_TITLE[lang], placeIds: ids(more), total: null }] : []),
   ]

@@ -12,11 +12,9 @@
 // --tags <id>,… lista lo mismo para esos tags (dancing, accessible…), sin escribir; --apply-tags <id>,… los escribe.
 // --review lista, sin escribir, cómo quedarían status y review_reasons de los lugares guardados (lo que escribiría
 // --apply-review), contra lo guardado y sin Place Details: el nombre y la dirección salen del snapshot.
-// --branch-contact lista, sin escribir, los lugares de cadena (chain_branch guardado, brand_key o Instagram compartidos)
-// cuyo teléfono o dirección guardados cambiarían con las reglas de sucursal (antes → después y por qué), y el horario
-// sólo como aviso. Pide Place Details de esos lugares (la dirección real decide qué fuente es de la sucursal).
-// --apply-branch-contact escribe sólo phone y address de esos lugares, sin tocar updatedAt.
-// Uso: yarn extraction:replay [--only <googlePlaceId>,…] [--json <archivo>] [--review | --apply-review] [--style | --apply-style] [--moments | --apply-moments] [--tags | --apply-tags <id>,…] [--branch-contact | --apply-branch-contact]
+// En --review, --style y los demás modos sin Place Details, la dirección del local sale de la salida del modelo en los
+// snapshots viejos (los nuevos ya no la traen y la de Google no se guarda): queda vacía.
+// Uso: yarn extraction:replay [--only <googlePlaceId>,…] [--json <archivo>] [--review | --apply-review] [--style | --apply-style] [--moments | --apply-moments] [--tags | --apply-tags <id>,…]
 import './env.ts'
 import { writeFileSync } from 'node:fs'
 import { eq, inArray } from 'drizzle-orm'
@@ -28,7 +26,7 @@ import { applyOverrides } from '../places/manual-overrides.ts'
 import { parseManualOverrides } from '../../src/data/manual-overrides.ts'
 import { readSnapshots, replaySnapshot } from '../providers/extraction-snapshots.ts'
 import { GooglePlacesProvider } from '../providers/google-places-provider.ts'
-import { brandWidePhone, reviewExtraction, targetFromDetails } from '../providers/place-extraction-service.ts'
+import { reviewExtraction } from '../providers/place-extraction-service.ts'
 import { instagramKey, sharedBrandKeys } from '../places/brand-key.ts'
 import { instagramOperating, reviewReasonsFor } from '../providers/review-reasons.ts'
 import { gatewayEmbedder } from '../places/save.ts'
@@ -51,14 +49,12 @@ const momentsMode = applyMoments || process.argv.includes('--moments')
 const applyTags = process.argv.includes('--apply-tags')
 const tagIds = (arg('--apply-tags') ?? arg('--tags'))?.split(',').map((id) => id.trim()).filter(Boolean) ?? null
 const tagsMode = tagIds !== null
-const applyBranchContact = process.argv.includes('--apply-branch-contact')
-const branchContactMode = applyBranchContact || process.argv.includes('--branch-contact')
 if ((applyTags || process.argv.includes('--tags')) && !tagIds?.every((id) => groupOf(id))) throw new Error('--tags y --apply-tags llevan ids de tags.ts separados por coma.')
-if ([styleMode, momentsMode, tagsMode, reviewMode || applyReview, branchContactMode].filter(Boolean).length > 1) throw new Error('--style, --moments, --tags, --review y --branch-contact van por separado.')
+if ([styleMode, momentsMode, tagsMode, reviewMode || applyReview].filter(Boolean).length > 1) throw new Error('--style, --moments, --tags y --review van por separado.')
 if (reviewMode && applyReview) throw new Error('--review lista sin escribir; --apply-review escribe: uno u otro.')
 if (applyReview && !process.env.DATABASE_URL) throw new Error('Falta configurar DATABASE_URL en .env.local: --apply-review escribe status y review_reasons.')
-if ((styleMode || momentsMode || tagsMode || reviewMode || branchContactMode) && !process.env.DATABASE_URL) throw new Error('Falta configurar DATABASE_URL en .env.local: --style, --moments, --tags, --review y --branch-contact comparan con lo guardado.')
-const db = applyReview || styleMode || momentsMode || tagsMode || reviewMode || branchContactMode ? (await import('../db/index.ts')).db : null
+if ((styleMode || momentsMode || tagsMode || reviewMode) && !process.env.DATABASE_URL) throw new Error('Falta configurar DATABASE_URL en .env.local: --style, --moments, --tags y --review comparan con lo guardado.')
+const db = applyReview || styleMode || momentsMode || tagsMode || reviewMode ? (await import('../db/index.ts')).db : null
 
 /**
  * googlePlaceId de los lugares guardados que tienen otro lugar de la misma marca (brand_key o Instagram compartidos),
@@ -190,59 +186,6 @@ if (reviewMode) {
 const key = process.env.GOOGLE_PLACES_API_KEY?.trim()
 if (!key) throw new Error('Falta GOOGLE_PLACES_API_KEY: la re-corrida pide Place Details para el nombre y la dirección.')
 const google = new GooglePlacesProvider(key)
-
-if (branchContactMode) {
-  const rows = await db!.select({
-    id: placesTable.id, googlePlaceId: placesTable.googlePlaceId, name: placesTable.name, neighborhoodId: placesTable.neighborhoodId,
-    phone: placesTable.phone, address: placesTable.address, hours: placesTable.hours, chainBranch: placesTable.chainBranch, manualOverrides: placesTable.manualOverrides,
-  }).from(placesTable).where(inArray(placesTable.googlePlaceId, snapshots.map((snapshot) => snapshot.googlePlaceId)))
-  const byPlaceId = new Map(rows.map((row) => [row.googlePlaceId, row]))
-  const candidates = snapshots.filter((snapshot) => { const row = byPlaceId.get(snapshot.googlePlaceId); return row && (row.chainBranch || chains.has(snapshot.googlePlaceId)) })
-  console.log(`${candidates.length} lugares de cadena con snapshot: ${candidates.length} Place Details (US$ ${(candidates.length * 0.025).toFixed(3)} aprox.).\n`)
-  const changes: { id: string; name: string; values: { phone?: string | null; address?: string | null }; overrides: ReturnType<typeof parseManualOverrides> }[] = []
-  for (const snapshot of candidates) {
-    const row = byPlaceId.get(snapshot.googlePlaceId)!
-    const withNeighborhood = { ...snapshot, request: { ...snapshot.request, neighborhoodId: row.neighborhoodId } }
-    let replayed, details
-    try {
-      details = await google.getDetails(snapshot.googlePlaceId)
-      replayed = await replaySnapshot(withNeighborhood, { getDetails: async () => details! }, { knownChain: chains.has(snapshot.googlePlaceId) })
-    } catch (error) {
-      console.log(`${row.name} · Place Details falló: ${error instanceof Error ? error.message : String(error)}`)
-      continue
-    }
-    const target = targetFromDetails(snapshot.googlePlaceId, details, withNeighborhood.request, snapshot.transit)
-    const brandPhone = brandWidePhone(snapshot.sources, target)
-    const values: { phone?: string | null; address?: string | null } = {}
-    const lines: string[] = []
-    if ((row.phone ?? null) !== replayed.contact.phone) {
-      values.phone = replayed.contact.phone
-      const why = !replayed.contact.phone ? 'ninguna fuente lo asocia a esta sucursal' : replayed.contact.phone === brandPhone ? 'teléfono único de la marca' : 'de esta sucursal'
-      lines.push(`  teléfono: ${row.phone ?? '—'} → ${replayed.contact.phone ?? 'vacío'} (${why})`)
-    } else if (row.phone) {
-      lines.push(`  teléfono: ${row.phone} queda (${row.phone === brandPhone ? 'teléfono único de la marca' : 'de esta sucursal'})`)
-    }
-    if ((row.address ?? null) !== replayed.address) {
-      values.address = replayed.address
-      lines.push(`  dirección: ${row.address ?? '—'} → ${replayed.address ?? 'vacía'}${replayed.address ? '' : ' (ninguna fuente la asocia a esta sucursal)'}`)
-    }
-    const hoursBefore = (row.hours as { status?: string } | null)?.status ?? 'none'
-    if (hoursBefore !== replayed.hours.status) lines.push(`  horario (sólo aviso, no se escribe): ${hoursBefore} → ${replayed.hours.status}`)
-    console.log(`${row.name} · ${details.anchor.address}`)
-    for (const line of lines.length ? lines : ['  sin cambios']) console.log(line)
-    if (Object.keys(values).length > 0) changes.push({ id: row.id, name: row.name, values, overrides: parseManualOverrides(row.manualOverrides) })
-  }
-  console.log(`\n${changes.length} lugares cambiarían teléfono o dirección.`)
-  if (applyBranchContact) {
-    for (const change of changes) {
-      await db!.update(placesTable).set({ ...applyOverrides(change.values, change.overrides), updatedAt: placesTable.updatedAt }).where(eq(placesTable.id, change.id))
-    }
-    console.log(`Escritos: ${changes.length}.`)
-  } else {
-    console.log('Sin escribir: --apply-branch-contact escribe phone y address.')
-  }
-  process.exit(0)
-}
 
 const occasions = new Set<string>(OCCASION_TAGS)
 const places = []

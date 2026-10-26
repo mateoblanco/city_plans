@@ -18,10 +18,10 @@ const base: PlaceExtraction = {
   dietary: { vegan: 'unknown', vegetarian: 'unknown', glutenFree: 'unknown' },
   price: 'unknown', reservations: 'unknown',
   hours: { raw: null, display: null, blocks: [] },
-  contact: { phone: '', whatsapp: '', instagram: '', website: '', menuUrl: '', reservationUrl: '' },
+  contact: { instagram: '', website: '' },
   highlights: [], dishes: [], signature: [],
   description: { es: 'Un bar.', en: 'A bar.' },
-  name: '', address: '', locatedIn: null, support: [], doubts: [], iconCategory: 'beer',
+  name: '', locatedIn: null, support: [], doubts: [], iconCategory: 'beer',
 }
 
 const web = (text: string): Source => ({ id: 'S1', kind: 'web', trust: 'official', url: 'https://bar.example/', text })

@@ -99,6 +99,25 @@ export const SEARCH_CONFIG = {
    */
   sections: { minResults: 10, minPlaces: 3, maxPlaces: 6, maxGroups: 5, minRequested: 2 },
 
+  /**
+   * Likes (cookie espejo de localStorage, sólo en el pedido): el perfil es el promedio de los embeddings de los lugares
+   * que te gustaron. Nunca reordena ni cambia quién entra: sólo elige qué lugares de la misma búsqueda van a
+   * "Parecido a <lugar>" (desde 1 like; va primero), "Basado en lo que te gusta" (desde minLikesProfile, con lo que queda)
+   * o, sin grupos, "Para vos"; siempre entre los resultados "has".
+   * profileThreshold es coseno contra el promedio de los likes. "Parecido a" no tiene umbral fijo: entran los lugares
+   * que están en el top `similar.topShare` más parecido a ese lugar dentro de toda la base publicada, con piso
+   * `similar.floor` (unos lugares tienen vecinos mucho más cercanos que otros).
+   */
+  personal: {
+    maxLikes: 100,
+    minLikesProfile: 3,
+    minPlaces: 3,
+    maxPlaces: 6,
+    forYou: { min: 3, max: 4 },
+    profileThreshold: 0.72,
+    similar: { topShare: 0.1, floor: 0.65 },
+  },
+
   /** Cerca mío: radio inicial y cómo se amplía (en metros) si no hay resultados. */
   near: { radii: [1500, 3000, 5000] },
 
