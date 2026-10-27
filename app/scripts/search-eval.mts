@@ -1,6 +1,6 @@
 // Corre el set de consultas de prueba contra Neon y muestra la interpretación y el top 5 de cada una, más las
 // verificaciones de search-checks.ts (sale con error si alguna falla).
-// Uso: yarn search:eval [--debug] [--top=10] [--f=open:today,diet:vegan] [--likes=<id>,<id>…] [consulta...]
+// Uso: yarn search:eval [--debug] [--top=10] [--f=open:today,diet:vegan] [--intent=eat] [--sub=breakfast] [--likes=<id>,<id>…] [consulta...]
 //      yarn search:check   (sólo las consultas con verificaciones, sin el detalle)
 import { neon } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
@@ -38,6 +38,9 @@ const debug = args.includes("--debug");
 const checkOnly = args.includes("--check");
 // --f: los filtros de la barra, como el `f` de la URL.
 const filters = args.find((arg) => arg.startsWith("--f="))?.slice("--f=".length) ?? null;
+// --intent y --sub: la intención y los sub-filtros de la barra, como `intent` y `sub` de la URL.
+const intent = args.find((arg) => arg.startsWith("--intent="))?.slice("--intent=".length) ?? null;
+const sub = args.find((arg) => arg.startsWith("--sub="))?.slice("--sub=".length) ?? null;
 // --top: cuántos resultados mostrar de cada consulta (5 si no se pide).
 const top = Number(args.find((arg) => arg.startsWith("--top="))?.slice("--top=".length)) || 5;
 // --likes: ids de lugares como si te hubieran gustado (lo que manda la cookie), para ver los bloques personales.
@@ -51,7 +54,7 @@ const compact = (value: unknown) => JSON.stringify(value, (_key, item) => (Array
 
 const failures: string[] = [];
 for (const query of queries.length ? queries : checkOnly ? Object.keys(CHECKS) : QUERIES) {
-  const response = await runSearch(query, { store, cache }, { debug: true, filters, widen: !checkOnly, likes });
+  const response = await runSearch(query, { store, cache }, { debug: true, filters, intent, sub, widen: !checkOnly, likes });
   const info = response.debug!;
   const checks = runChecks(query, response);
   failures.push(...checks.failed.map((failure) => `${query} → ${failure}`));
@@ -60,7 +63,7 @@ for (const query of queries.length ? queries : checkOnly ? Object.keys(CHECKS) :
     for (const failure of checks.failed) console.log(`    ✗ ${failure}`);
     continue;
   }
-  console.log(`\n━━ ${query}${filters ? `  (f=${filters})` : ""}${likes.length ? `  (${likes.length} likes)` : ""}  [${info.source}${info.model ? ` · ${info.model}` : ""} · ${info.timings.total} ms]`);
+  console.log(`\n━━ ${query}${filters ? `  (f=${filters})` : ""}${intent ? `  (intent=${intent}${sub ? `, sub=${sub}` : ""})` : ""}${likes.length ? `  (${likes.length} likes)` : ""}  [${info.source}${info.model ? ` · ${info.model}` : ""} · ${info.timings.total} ms]`);
   if (info.llmError) console.log(`  error del modelo: ${info.llmError}`);
   const calls = info.cost.calls.map((call) => `${call.step} ${call.cached ? "cache" : call.usd === null ? "?" : formatUsd(call.usd)}`);
   console.log(`  costo: ${formatUsd(info.cost.totalUsd)}${calls.length ? ` (${calls.join(", ")})` : ""}`);
@@ -126,7 +129,7 @@ for (const query of queries.length ? queries : checkOnly ? Object.keys(CHECKS) :
     for (const section of page.sections ?? []) {
       if (!hasViewAll(section)) continue;
       // La misma búsqueda con la regla del grupo (sin llamadas pagas: interpretación y embedding en cache).
-      const all = await runSearch(query, { store, cache }, { filters: [filters, `section:${section.id}`].filter(Boolean).join(",") });
+      const all = await runSearch(query, { store, cache }, { filters: [filters, `section:${section.id}`].filter(Boolean).join(","), intent, sub });
       console.log(`  Ver todos en ${section.title} (${section.total} en la regla) → muestra ${all.results.length}`);
     }
     const widen = response.widen ?? [];

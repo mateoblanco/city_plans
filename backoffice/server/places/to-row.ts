@@ -10,12 +10,13 @@ export const MISSING_NAME = 'Sin nombre: ninguna fuente confirma el nombre'
 const text = (value: string | null | undefined) => value?.trim() ? value : null
 
 /**
- * Convierte el place del pipeline en una fila de `places`, con prominence calculado desde signals.
+ * Convierte el place del pipeline en una fila de `places`, con prominence calculado desde signals (igMedian: lo que
+ * vale sin seguidores, `medianIgTerm`).
  * Nunca incluye featured (curaduría manual). placeFacts y lo que está fuera de
  * place (review, sourceAudit, performance) no se guardan. El barrio ya tiene que estar validado.
  * Los textos vacíos pasan a null; sin nombre (NOT NULL en la tabla) tira un error.
  */
-export function toRow(place: PlaceEnrichmentDraft & { neighborhoodId: string }): PlaceRow {
+export function toRow(place: PlaceEnrichmentDraft & { neighborhoodId: string }, igMedian: number): PlaceRow {
   const { coordinates, dietary, contact, description, signals, logo } = place
   const name = text(place.name)
   if (!name) throw new Error(MISSING_NAME)
@@ -46,7 +47,7 @@ export function toRow(place: PlaceEnrichmentDraft & { neighborhoodId: string }):
     transitLines: place.transit.lines,
     igFollowers: signals.igFollowers,
     chainBranch: signals.chainBranch,
-    prominence: computeProminence(signals),
+    prominence: computeProminence(signals, igMedian),
     logoKey: logo?.key ?? null,
     logoKind: logo?.kind ?? null,
     logoBgColor: logo?.bgColor ?? null,

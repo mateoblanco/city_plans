@@ -1,4 +1,4 @@
-import { ArrowUpRight, LoaderCircle, Play } from 'lucide-react'
+import { ArrowUpRight, LoaderCircle, Play, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -22,6 +22,8 @@ type InstagramReviewPanelProps = {
   running: boolean
   invalidCount: number
   onDraftChange: (id: string, draft: ReviewDraft) => void
+  /** Saca el lugar del lote: no sigue a la extracción. */
+  onRemove: (id: string) => void
   onContinue: () => void
 }
 
@@ -55,7 +57,7 @@ const STATUS_DOT: Record<InstagramDiscovery['status'], { className: string; labe
  * Revisión del Instagram entre el descubrimiento y la extracción: por lugar, el Instagram encontrado con su estado,
  * el input para pegar o corregir el handle y "No tiene Instagram". Arriba, los que necesitan revisión.
  */
-export function InstagramReviewPanel({ rows, drafts, places, running, invalidCount, onDraftChange, onContinue }: InstagramReviewPanelProps) {
+export function InstagramReviewPanel({ rows, drafts, places, running, invalidCount, onDraftChange, onRemove, onContinue }: InstagramReviewPanelProps) {
   const byId = new Map(places.map((place) => [place.placeId, place]))
   const discovering = Object.entries(rows).filter(([, row]) => row.status === 'discovering' || (row.status === 'queued' && row.phase === 'discover'))
   const reviewing = Object.entries(rows)
@@ -81,6 +83,7 @@ export function InstagramReviewPanel({ rows, drafts, places, running, invalidCou
               <TableHead className="px-4 sm:px-5">Instagram encontrado</TableHead>
               <TableHead className="px-4 sm:px-5">Instagram a usar</TableHead>
               <TableHead className="px-4 sm:px-5">Sin Instagram</TableHead>
+              <TableHead className="w-12 px-2"><span className="sr-only">Quitar</span></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -153,6 +156,11 @@ export function InstagramReviewPanel({ rows, drafts, places, running, invalidCou
                       No tiene Instagram
                     </label>
                   </TableCell>
+                  <TableCell className="px-2 py-2 align-top">
+                    <Button type="button" variant="ghost" size="sm" className="size-8 p-0" disabled={running} aria-label={`Quitar ${name} del lote`} title="Quitar del lote" onClick={() => onRemove(id)}>
+                      <X className="size-4" aria-hidden="true" />
+                    </Button>
+                  </TableCell>
                 </TableRow>
               )
             })}
@@ -161,7 +169,7 @@ export function InstagramReviewPanel({ rows, drafts, places, running, invalidCou
                 <TableCell className="px-4 py-3 sm:px-5">
                   <span className="block font-medium">{byId.get(id)?.name ?? id}</span>
                 </TableCell>
-                <TableCell colSpan={3} className="px-4 py-3 sm:px-5">
+                <TableCell colSpan={4} className="px-4 py-3 sm:px-5">
                   <span className="sr-only">Descubriendo…</span>
                   <Skeleton className="h-4 w-48" />
                 </TableCell>

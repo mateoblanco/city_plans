@@ -23,6 +23,7 @@ export function row(overrides: Partial<CandidateRow> & { id: string }): Candidat
     iconCategory: null,
     logoKey: null,
     logoBgColor: null,
+    locatedIn: null,
     brandKey: null,
     brandCount: 1,
     lat: -34.9011,

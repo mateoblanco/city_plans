@@ -118,7 +118,7 @@ describe('runSearch', () => {
   })
 
   const places = [
-    row({ id: 'cafe-cordon', name: 'Café del Cordón', categories: ['cafe'], tags: ['terrace'], iconCategory: 'coffee', logoKey: 'cafe-cordon.png', logoBgColor: '#f4e1c1', hours: everyDay('08:00', '20:00'), diet: { vegan: 'has_options', vegetarian: 'unknown', glutenFree: 'unknown' } }),
+    row({ id: 'cafe-cordon', name: 'Café del Cordón', categories: ['cafe'], tags: ['terrace'], iconCategory: 'coffee', logoKey: 'cafe-cordon.png', logoBgColor: '#f4e1c1', locatedIn: 'Mercado Ferrando', hours: everyDay('08:00', '20:00'), diet: { vegan: 'has_options', vegetarian: 'unknown', glutenFree: 'unknown' } }),
     row({ id: 'cafe-rodo', name: 'Café Rodó', neighborhoodId: 'PARQUE RODO', categories: ['cafe'], distance: 500 }),
     row({ id: 'pizzeria', name: 'Pizzería', categories: ['pizzeria', 'restaurant'], tags: ['pizza'], hours: everyDay('19:00', '01:00') }),
     row({ id: 'bodegon', name: 'Bodegón', categories: ['restaurant'], tags: ['milanesa'], dishes: ['milanesa napolitana'], diet: { vegan: 'unknown', vegetarian: 'unknown', glutenFree: 'fully' } }),
@@ -141,7 +141,7 @@ describe('runSearch', () => {
     // El horario, el barrio y la categoría ya están en la card: no son motivos.
     expect(response.results[0].reasons).toEqual([])
     expect(response.results[0].iconCategory).toBe('coffee')
-    expect(response.results[0]).toMatchObject({ logoKey: 'cafe-cordon.png', logoBgColor: '#f4e1c1' })
+    expect(response.results[0]).toMatchObject({ logoKey: 'cafe-cordon.png', logoBgColor: '#f4e1c1', locatedIn: 'Mercado Ferrando' })
   })
 
   it('arma logoUrl en el servidor desde LOGO_BASE_URL; sin clave queda en null', async () => {
@@ -526,6 +526,38 @@ describe('exclusiones', () => {
   })
 })
 
+describe('mensaje de vacío', () => {
+  const places = [row({ id: 'tinkal', name: 'Bar Tinkal', categories: ['bar'] }), row({ id: 'otro', categories: ['restaurant'] })]
+  const noCandidates = (rows: typeof places) => {
+    const { store } = fakeStore(rows)
+    return { ...store, candidates: async () => [] }
+  }
+
+  it('con una coincidencia de nombre, ningún mensaje de vacío', async () => {
+    const { store } = fakeStore(places, [{ id: 'tinkal', name: 'Bar Tinkal', similarity: 0.6, wordSimilarity: 1 }])
+    const response = await runSearch('Tinkal', { store, cache: fakeCache().cache }, { now, debug: true })
+    expect(response.results.map((result) => result.id)).toContain('tinkal')
+    expect(response.relaxed.filter((notice) => notice.what === 'noMatch')).toEqual([])
+    expect(response.sections).toBeNull()
+    expect(response.debug?.sections.notGrouped).toBe('nombre')
+  })
+
+  it('sin resultados y con lugares publicados: que no se encontró la consulta', async () => {
+    const response = await runSearch('xqzw', { store: noCandidates(places), cache: fakeCache().cache }, { now })
+    expect(response.relaxed).toEqual([{ what: 'noMatch', message: 'No encontramos lugares para “xqzw”. Probá con otras palabras o sacá algún filtro.' }])
+  })
+
+  it('sin texto, sólo con filtros', async () => {
+    const response = await runSearch('', { store: noCandidates(places), cache: fakeCache().cache }, { now, filters: 'open:today' })
+    expect(response.relaxed).toEqual([{ what: 'noMatch', message: 'No encontramos lugares con estos filtros. Probá sacar alguno.' }])
+  })
+
+  it('"Todavía no hay lugares publicados" sólo con la base vacía', async () => {
+    const response = await runSearch('xqzw', { store: fakeStore([]).store, cache: fakeCache().cache }, { now })
+    expect(response.relaxed).toEqual([{ what: 'noMatch', message: 'Todavía no hay lugares publicados.' }])
+  })
+})
+
 describe('barra de filtros y cerca mío', () => {
   const places = [
     row({ id: 'cafe-cordon', categories: ['cafe'], hours: everyDay('08:00', '20:00'), prominence: 0.3, distance: 400 }),
@@ -714,7 +746,7 @@ describe('sucursales de una marca', () => {
     const response = await runSearch('', { store, cache: fakeCache().cache }, { now, intent: 'cafes', debug: true })
     expect(response.results).toHaveLength(9)
     expect(response.sections).toBeNull()
-    expect(response.debug?.sections.notGrouped).toBe('menos de 10 resultados')
+    expect(response.debug?.sections.notGrouped).toBe('menos de 12 resultados')
   })
 })
 

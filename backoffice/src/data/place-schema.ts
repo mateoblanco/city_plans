@@ -90,6 +90,8 @@ export const PlaceDraft = z.object({
     signals: z.array(z.string()),
     factIds: z.array(z.string()),
   })).default([]),
+  // Web descartada (WhatsApp, reservas, otro país…): sólo para la duda del reporte, no se guarda.
+  websiteRejected: z.object({ url: z.string(), reason: z.string(), detail: z.string() }).optional(),
   embeddingText: z.string(),
   keywordText: z.string(),
 })

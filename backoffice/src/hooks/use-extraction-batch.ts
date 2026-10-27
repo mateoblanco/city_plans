@@ -317,6 +317,14 @@ export function useExtractionBatch() {
     setRows((current) => current[id]?.instagramError ? { ...current, [id]: { ...current[id], instagramError: undefined } } : current)
   }, [])
 
+  /** Saca un lugar de la revisión: no sigue al paso 2. El descubrimiento del server vence solo. */
+  const remove = useCallback((id: string) => {
+    requestsRef.current.delete(id)
+    discoveriesRef.current.delete(id)
+    setRows(({ [id]: _removed, ...rest }) => rest)
+    setDrafts(({ [id]: _removed, ...rest }) => rest)
+  }, [])
+
   const reviewing = Object.entries(rows).filter(([, row]) => row.status === 'reviewing' && row.discovery)
   const choices = new Map(reviewing.map(([id, row]) => [id, instagramChoiceFor(row.discovery!, drafts[id] ?? initialDraft(row.discovery!))]))
   const invalidCount = [...choices.values()].filter((choice) => choice === 'invalid').length
@@ -357,5 +365,5 @@ export function useExtractionBatch() {
 
   const failedCount = Object.values(rows).filter((row) => row.status === 'error').length
 
-  return { rows, running, metrics, failedCount, drafts, invalidCount, reviewCount: reviewing.length, run, discover, setDraft, complete, retryFailed, reset }
+  return { rows, running, metrics, failedCount, drafts, invalidCount, reviewCount: reviewing.length, run, discover, setDraft, remove, complete, retryFailed, reset }
 }

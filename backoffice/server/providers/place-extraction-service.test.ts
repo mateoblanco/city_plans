@@ -5,6 +5,7 @@ import { getNeighborhood } from '../../src/lib/getNeighborhood.ts'
 import {
   PlaceExtractionService,
   filterSources,
+  brandWebsite,
   classifyContact,
   classifySource,
   deduplicateSourceText,
@@ -1490,6 +1491,25 @@ describe('PlaceExtractionService', () => {
     expect(officialWebsiteHome([{ ...official, kind: 'instagram', url: 'https://instagram.com/cafe/' }])).toBeNull()
   })
 
+  it('nunca toma WhatsApp, delivery, reservas ni agregadores como web, aunque Google tenga ese link (Himalayan)', () => {
+    const notOwn = [
+      'https://api.whatsapp.com/send?phone=59899111222', 'https://wa.me/59899111222', 'https://wa.me', 'https://web.whatsapp.com/',
+      'https://chat.whatsapp.com/AbCdEf', 'https://www.whatsapp.com/send?phone=59899111222', 'https://api.whatsapp.com',
+      'https://www.pedidosya.com.uy/restaurantes/montevideo/himalayan-menu', 'https://www.rappi.com.uy/restaurantes/1-himalayan',
+      'https://himalayan.meitre.com/', 'https://linktr.ee/himalayan', 'https://wa.link/abc123', 'https://walink.com/',
+      'https://claude.ai/artifact/GEgdqEtQ1vPCW8WAWPYAqG',
+    ]
+    for (const url of notOwn) {
+      expect(classifyContact({ instagram: null, website: url }).website).toBeNull()
+      expect(brandWebsite([url], 'Himalayan', undefined, url)).toBeNull()
+      expect(officialWebsiteHome([{ id: 'S1', kind: 'web', trust: 'official', url, text: 'Open WhatsApp' }])).toBeNull()
+    }
+    // Lo que le pasó a Himalayan: el modelo dejó la web vacía y la home de la "web" scrapeada no la rellena.
+    const whatsappPage: Source = { id: 'S1', kind: 'web', trust: 'official', url: 'https://api.whatsapp.com/', text: 'Open WhatsApp' }
+    expect(postProcess(target, emptyExtraction, { sources: [whatsappPage] }).contact.website).toBeNull()
+    expect(brandWebsite(['https://himalayan.com.uy/menu'], 'Himalayan', undefined, 'https://api.whatsapp.com/send?phone=598')).toBe('https://himalayan.com.uy/')
+  })
+
   it('mantiene horarios y highlights aislados al extraer Namasté, Culto Café y Oriundo en secuencia', async () => {
     const fixtures = {
       'Namasté': {
@@ -2235,15 +2255,72 @@ describe('señales de prominencia', () => {
     expect(scrapeMany).toHaveBeenCalledOnce()
   })
 
-  it('en una sucursal de cadena guarda los seguidores de la marca y la marca como cadena', () => {
-    const source: Source = { id: 'S1', kind: 'web', trust: 'official', url: 'https://marca.example/', text: 'La Nueva Roma. Helados artesanales.' }
+  describe('chain_branch: sólo con evidencia oficial u otro lugar de la marca', () => {
     const prominenceSignals = { instagramFollowers: 40_000 }
+    const web: Source = { id: 'S1', kind: 'web', trust: 'official', url: 'https://marca.example/', text: 'La Nueva Roma. Helados artesanales.' }
+    const withWebsite: PlaceExtraction = {
+      ...emptyExtraction,
+      facts: [{ id: 'F1', text: 'Web oficial', sourceId: 'S1', kind: 'contact', proposedTag: null }],
+      contact: { instagram: '', website: 'https://marca.example/' },
+      support: [{ field: 'contact.website', facts: ['F1'] }],
+    }
 
-    const branch = postProcess({ ...target, name: 'La Nueva Roma Cordón' }, emptyExtraction, { sources: [source], prominenceSignals })
-    const single = postProcess({ ...target, name: 'La Nueva Roma' }, emptyExtraction, { sources: [source], prominenceSignals })
+    it('el nombre de Google con sucursal no alcanza, aunque las reglas de sucursal sigan activas', () => {
+      const place = postProcess({ ...target, name: 'La Nueva Roma Cordón' }, withWebsite, { sources: [web], prominenceSignals })
+      expect(place.signals).toEqual({ igFollowers: 40_000, chainBranch: false })
+      expect(place.hours.missingReason).toBe('chain_branch_not_found')
+    })
 
-    expect(branch.signals).toEqual({ igFollowers: 40_000, chainBranch: true })
-    expect(single.signals).toEqual({ igFollowers: 40_000, chainBranch: false })
+    it('un tercero que llama "sucursal" a un local único no lo marca', () => {
+      const press: Source = { id: 'S2', kind: 'exa', trust: 'third_party', url: 'https://www.elobservador.com.uy/nota/tasende', text: 'Colgó un cartel en la entrada: "no tiene sucursales".' }
+      const place = postProcess({ ...target, name: 'Bar Tasende' }, withWebsite, { sources: [web, press], prominenceSignals })
+      expect(place.signals.chainBranch).toBe(false)
+    })
+
+    it('la web oficial (o un resultado de Exa de su dominio) que lista locales la marca', () => {
+      const locales: Source = { id: 'S2', kind: 'exa', trust: 'third_party', url: 'https://marca.example/locales/', text: 'Nuestros locales: Pocitos, Cordón y Carrasco.' }
+      expect(postProcess({ ...target, name: 'La Nueva Roma' }, withWebsite, { sources: [web, locales], prominenceSignals }).signals)
+        .toEqual({ igFollowers: 40_000, chainBranch: true })
+      const officialText: Source = { ...web, text: 'La Nueva Roma. Visitá nuestras sucursales.' }
+      expect(postProcess({ ...target, name: 'La Nueva Roma' }, withWebsite, { sources: [officialText], prominenceSignals }).signals.chainBranch).toBe(true)
+    })
+
+    it('una fuente oficial de otro dominio que la web que queda guardada no cuenta', () => {
+      // Ébano: entró la web de una cadena homónima de otro país, pero la web del lugar es otra.
+      const foreign: Source = { id: 'S3', kind: 'web', trust: 'official', url: 'https://otra-marca.example/', text: 'Con sucursales en Bogotá y Pereira.' }
+      const place = postProcess({ ...target, name: 'Ébano' }, withWebsite, { sources: [web, foreign], prominenceSignals })
+      expect(place.contact.website).toBe('https://marca.example/')
+      expect(place.signals.chainBranch).toBe(false)
+    })
+
+    it('una web de otro país no queda, deja la duda con el motivo y sus sucursales no la hacen cadena', () => {
+      const foreignWeb: Source = { id: 'S1', kind: 'web', trust: 'official', url: 'https://peperoncinopizzeria.com/', text: 'Peperoncino. Sucursales Cd. Chihuahua.' }
+      const data: PlaceExtraction = { ...withWebsite, contact: { instagram: '', website: 'https://peperoncinopizzeria.com/' } }
+      const place = postProcess({ ...target, name: 'Peperoncino' }, data, { sources: [foreignWeb], prominenceSignals })
+      expect(place.contact.website).toBeNull()
+      expect(place.signals.chainBranch).toBe(false)
+      expect(place.websiteRejected).toMatchObject({ url: 'https://peperoncinopizzeria.com/', reason: 'foreign_content' })
+      expect(reviewExtraction(place, data).doubts[0]).toMatch(/^Web descartada: https:\/\/peperoncinopizzeria\.com\/ — web de otro país/)
+    })
+
+    it('una web de reservas citada por el modelo queda como duda y no como web', () => {
+      const booking: Source = { id: 'S1', kind: 'web', trust: 'official', url: 'https://pausat.setmore.com/', text: 'Pausat. Reservá tu mesa. Montevideo.' }
+      const data: PlaceExtraction = { ...withWebsite, contact: { instagram: '', website: 'https://pausat.setmore.com/' } }
+      const place = postProcess({ ...target, name: 'Pausat' }, data, { sources: [booking], prominenceSignals })
+      expect(place.contact.website).toBeNull()
+      expect(reviewExtraction(place, data).doubts).toContain('Web descartada: https://pausat.setmore.com/ — sistema de reservas (pausat.setmore.com).')
+    })
+
+    it('la web extranjera que no entró como fuente llega como duda desde las fuentes', () => {
+      const websiteRejected = { url: 'https://kntina.es/', reason: 'foreign_domain' as const, detail: '.es' }
+      const place = postProcess({ ...target, name: 'KNTINA' }, { ...emptyExtraction }, { sources: [], prominenceSignals, websiteRejected })
+      expect(place.websiteRejected).toEqual(websiteRejected)
+      expect(place.contact.website).toBeNull()
+    })
+
+    it('otro lugar guardado de la marca (knownChain) la marca', () => {
+      expect(postProcess({ ...target, name: 'La Nueva Roma' }, withWebsite, { sources: [web], prominenceSignals, knownChain: true }).signals.chainBranch).toBe(true)
+    })
   })
 
   it('sin señales del pipeline no hay seguidores', () => {

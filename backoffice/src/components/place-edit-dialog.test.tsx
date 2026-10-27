@@ -11,7 +11,7 @@ function jsonResponse(body: unknown, status = 200) {
 const detail = (overrides: Partial<PlaceDetail> = {}): PlaceDetail => ({
   id: 'uuid-1', googlePlaceId: 'place-1', name: 'El Palenque', neighborhoodId: 'CIUDAD VIEJA', status: 'published', categories: ['grill'],
   tags: ['seafood', 'terrace', 'italian'], style: 'casual', iconCategory: 'grill', price: 'high', dietVegan: 'unknown', dietVegetarian: 'has_options',
-  dietGlutenFree: 'no', instagram: 'elpalenque', website: null, brandKey: null, featured: false, logoUrl: null, logoKind: null, logoBgColor: null,
+  dietGlutenFree: 'no', instagram: 'elpalenque', website: null, brandKey: null, chainBranch: false, featured: false, logoUrl: null, logoKind: null, logoBgColor: null,
   logoColor: null, logoSource: null, igFollowers: 999, prominence: 0.6, manualOverrides: {}, editedFields: [], brandKeys: ['cordon-beer'],
   ...overrides,
 })

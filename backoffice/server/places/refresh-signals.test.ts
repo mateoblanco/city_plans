@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ExaPlaceResponse, ExaPlaceResult } from '../../src/types/places.ts'
 import { computeProminence } from './prominence.ts'
-import { refreshSignals, signalsFromSnapshots, type RefreshDeps, type SignalsRow } from './refresh-signals.ts'
+
+// Lo que vale un lugar sin seguidores en estas pruebas (distinto de 0,5 para que se note).
+const MEDIAN = 0.8
+import { recomputeChains, refreshSignals, signalsFromSnapshots, type RefreshDeps, type SignalsRow } from './refresh-signals.ts'
 
 const row = (overrides: Partial<SignalsRow> = {}): SignalsRow => ({
   id: 'uuid-1', googlePlaceId: 'g-1', name: 'El Palenque', instagram: 'elpalenque',
-  igFollowers: null, chainBranch: false, prominence: computeProminence({ igFollowers: null }), ...overrides,
+  igFollowers: null, chainBranch: false, prominence: computeProminence({ igFollowers: null }, MEDIAN), ...overrides,
 })
 
 const exa = (results: ExaPlaceResult[]): ExaPlaceResponse => ({
@@ -23,6 +26,7 @@ function deps(overrides: Partial<RefreshDeps> = {}): RefreshDeps {
     searchPlace: vi.fn(async () => exa(press)),
     scrapeInstagram: vi.fn(async () => ({ url: 'https://www.instagram.com/elpalenque/', name: 'El Palenque', bio: '', links: [], followers: 999 })),
     write: vi.fn(async () => {}),
+    igMedian: MEDIAN,
     ...overrides,
   }
 }
@@ -46,7 +50,7 @@ describe('refreshSignals', () => {
     await refreshSignals([edited], d)
     await signalsFromSnapshots([edited], [{
       googlePlaceId: 'g-1', sources: [], prominenceSignals: { instagramFollowers: 500 } as never, instagramAudit: { saved: 'elpalenque' } as never,
-    }], { write: d.write })
+    }], { igMedian: MEDIAN, write: d.write })
 
     expect(d.write).toHaveBeenCalledTimes(2)
     for (const [, values] of vi.mocked(d.write!).mock.calls) {
@@ -68,17 +72,26 @@ describe('refreshSignals', () => {
     expect(d.write).not.toHaveBeenCalled()
   })
 
-  it('sin instagram no llama a Apify; una cadena (marca repetida) usa los seguidores de la marca, descontados', async () => {
+  it('sin instagram no llama a Apify; una cadena (brand_key compartida) usa los seguidores de la marca, descontados', async () => {
     const d = deps()
     const results = await refreshSignals([
       row({ instagram: null }),
-      row({ id: 'uuid-2', name: 'La Nueva Roma', instagram: 'lanuevaroma', igFollowers: 5000 }),
-      row({ id: 'uuid-3', name: 'La Nueva Roma', instagram: 'lanuevaroma' }),
+      row({ id: 'uuid-2', name: 'La Nueva Roma', instagram: 'lanuevaroma', igFollowers: 5000, brandKey: 'la-nueva-roma' }),
+      row({ id: 'uuid-3', name: 'La Nueva Roma', instagram: 'lanuevaroma', brandKey: 'la-nueva-roma' }),
     ], d)
 
     expect(d.scrapeInstagram).toHaveBeenCalledTimes(2)
     expect(results.map((result) => [result.chain, result.after?.igFollowers, result.after?.chainBranch])).toEqual([[false, null, false], [true, 999, true], [true, 999, true]])
-    expect(results[1].after!.prominence).toBeCloseTo(computeProminence({ igFollowers: 999 }) * 0.85)
+    expect(results[1].after!.prominence).toBeCloseTo(computeProminence({ igFollowers: 999 }, MEDIAN) * 0.85)
+  })
+
+  it('el mismo nombre sin brand_key compartida no es cadena: desmarca un chain_branch viejo', async () => {
+    const d = deps()
+    const results = await refreshSignals([
+      row({ id: 'a', name: 'Rosa', instagram: 'rosa.pizzeria', chainBranch: true, brandKey: 'rosa' }),
+      row({ id: 'b', name: 'Rosa', instagram: 'rosa.bar' }),
+    ], d)
+    expect(results.map((result) => [result.id, result.chain, result.after?.chainBranch])).toEqual([['a', false, false], ['b', false, false]])
   })
 
   it('errores parciales: Exa falla en un lugar y sigue; Apify falla y quedan los seguidores anteriores', async () => {
@@ -94,7 +107,7 @@ describe('refreshSignals', () => {
 
     expect(broken).toMatchObject({ status: 'error', error: 'Exa: timeout', after: null })
     expect(ok.status).toBe('changed')
-    expect(ok.after).toEqual({ igFollowers: 321, chainBranch: false, prominence: computeProminence({ igFollowers: 321 }) })
+    expect(ok.after).toEqual({ igFollowers: 321, chainBranch: false, prominence: computeProminence({ igFollowers: 321 }, MEDIAN) })
     expect(ok.warnings[0]).toContain('quota')
     expect(d.write).toHaveBeenCalledTimes(1)
   })
@@ -105,11 +118,18 @@ describe('refreshSignals', () => {
     expect(results.map((result) => result.status).sort()).toEqual(['changed', 'error'])
   })
 
-  it('una sucursal de cadena según las fuentes usa los seguidores de la marca, descontados', async () => {
+  it('una sucursal de cadena según su web oficial usa los seguidores de la marca, descontados', async () => {
     const d = deps({ searchPlace: vi.fn(async () => exa([{ title: 'Sucursales', url: 'https://elpalenque.com.uy/sucursales', highlights: ['El Palenque: nuestras sucursales'] }])) })
-    const [result] = await refreshSignals([row({ igFollowers: 5000, prominence: computeProminence({ igFollowers: 5000 }) })], d)
+    const [result] = await refreshSignals([row({ website: 'https://www.elpalenque.com.uy/', igFollowers: 5000, prominence: computeProminence({ igFollowers: 5000 }, MEDIAN) })], d)
     expect(result).toMatchObject({ chain: true, after: { igFollowers: 999, chainBranch: true, prominence: expect.closeTo(0.6 * 0.85) } })
     expect(d.scrapeInstagram).toHaveBeenCalledTimes(1)
+  })
+
+  it('un tercero que habla de sucursales no la hace cadena', async () => {
+    // Bar Tasende: la nota de prensa dice "no tiene sucursales".
+    const d = deps({ searchPlace: vi.fn(async () => exa([{ title: 'Bar Tasende, 90 años', url: 'https://www.elobservador.com.uy/nota/tasende', highlights: ['Colgó un cartel en la entrada: "no tiene sucursales".'] }])) })
+    const [result] = await refreshSignals([row({ website: 'https://www.elpalenque.com.uy/', chainBranch: true })], d)
+    expect(result).toMatchObject({ chain: false, after: { chainBranch: false } })
   })
 
   it('busca en Exa con la marca y el tipo de lugar de Google; si Google falla, sólo con la marca', async () => {
@@ -124,11 +144,11 @@ describe('refreshSignals', () => {
     expect(second.warnings[0]).toContain('Google: quota')
   })
 
-  it('con onlyIds procesa sólo esos, pero cuenta marcas repetidas sobre todos', async () => {
+  it('con onlyIds procesa sólo esos, pero cuenta brand_key compartidas sobre todos', async () => {
     const d = deps()
     const results = await refreshSignals([
-      row({ id: 'a', name: 'La Nueva Roma' }),
-      row({ id: 'b', name: 'La Nueva Roma' }),
+      row({ id: 'a', name: 'La Nueva Roma', brandKey: 'la-nueva-roma' }),
+      row({ id: 'b', name: 'La Nueva Roma', brandKey: 'la-nueva-roma' }),
       row({ id: 'c', name: 'Otro' }),
     ], d, { onlyIds: new Set(['a']) })
     expect(results.map((result) => [result.id, result.chain])).toEqual([['a', true]])
@@ -137,8 +157,8 @@ describe('refreshSignals', () => {
 })
 
 describe('signalsFromSnapshots', () => {
-  const snapshot = (googlePlaceId: string, followers: number | null, saved: string | null = null, text = 'pizza al corte') => ({
-    googlePlaceId, sources: [{ id: 'S1', kind: 'instagram' as const, trust: 'official' as const, url: 'https://www.instagram.com/x/', text }], prominenceSignals: followers === null ? null : { instagramFollowers: followers },
+  const snapshot = (googlePlaceId: string, followers: number | null, saved: string | null = null, text = 'pizza al corte', url = 'https://www.instagram.com/x/') => ({
+    googlePlaceId, sources: [{ id: 'S1', kind: 'instagram' as const, trust: 'official' as const, url, text }], prominenceSignals: followers === null ? null : { instagramFollowers: followers },
     ...(saved ? { instagramAudit: { candidates: [], validated: saved, modelRejected: false, saved } } : {}),
   })
 
@@ -150,13 +170,13 @@ describe('signalsFromSnapshots', () => {
       row({ id: 'c', googlePlaceId: 'g-c', name: 'Con Seguidores', instagram: 'con', igFollowers: 10 }),
       row({ id: 'd', googlePlaceId: 'g-d', name: 'Sin Instagram', instagram: null }),
     ], [
-      snapshot('g-a', 34_390, null, 'en el video están las sucursales de Cordón y Ciudad Vieja'),
-      snapshot('g-b', 999),
-    ], { write })
+      snapshot('g-a', 34_390, null, 'en el video están las sucursales de Cordón y Ciudad Vieja', 'https://www.instagram.com/fundamento.pizza/'),
+      snapshot('g-b', 999, null, 'nuestras sucursales'),
+    ], { igMedian: MEDIAN, write })
 
-    // Fundamento: el snapshot menciona sucursales. Único: sin evidencia, sin descuento.
+    // Fundamento: su Instagram menciona sucursales. Único: las menciona un Instagram que no es el suyo, sin descuento.
     expect(results.map((result) => [result.id, result.status, result.after?.chainBranch])).toEqual([['a', 'changed', true], ['b', 'changed', false]])
-    expect(results[0].after!.prominence).toBeCloseTo(computeProminence({ igFollowers: 34_390 }) * 0.85)
+    expect(results[0].after!.prominence).toBeCloseTo(computeProminence({ igFollowers: 34_390 }, MEDIAN) * 0.85)
     expect(results[1].after!.prominence).toBeCloseTo(0.6)
     expect(write).toHaveBeenCalledTimes(2)
   })
@@ -166,11 +186,48 @@ describe('signalsFromSnapshots', () => {
       row({ id: 'a', googlePlaceId: 'g-a', instagram: 'a' }),
       row({ id: 'b', googlePlaceId: 'g-b', instagram: 'b' }),
       row({ id: 'c', googlePlaceId: 'g-c', instagram: 'c' }),
-    ], [snapshot('g-b', null), snapshot('g-c', 50, 'otro')])
+    ], [snapshot('g-b', null), snapshot('g-c', 50, 'otro')], { igMedian: MEDIAN })
     expect(results.map((result) => [result.id, result.status, result.reason])).toEqual([
       ['a', 'skipped', 'sin snapshot'],
       ['b', 'skipped', 'el snapshot no tiene seguidores'],
       ['c', 'skipped', 'el snapshot es de @otro'],
     ])
+  })
+})
+
+describe('recomputeChains', () => {
+  const source = (url: string, text: string, kind: 'web' | 'exa' | 'instagram' = 'exa') =>
+    ({ id: 'S1', kind, trust: kind === 'exa' ? 'third_party' as const : 'official' as const, url, text })
+  const snapshot = (googlePlaceId: string, sources: ReturnType<typeof source>[]) => ({ googlePlaceId, sources })
+
+  it('un local único que un tercero llama "sucursal" deja de ser cadena, con la prominencia sin descuento', () => {
+    const tasende = row({ id: 'a', googlePlaceId: 'g-a', name: 'Bar Tasende', instagram: 'bartasende', igFollowers: 12_889, chainBranch: true, brandKey: 'bar-tasende', prominence: computeProminence({ igFollowers: 12_889, chainBranch: true }, MEDIAN) })
+    const changes = recomputeChains([tasende], [snapshot('g-a', [source('https://www.elobservador.com.uy/nota/tasende', 'No tiene sucursales.')])], MEDIAN)
+    expect(changes).toEqual([{ id: 'a', name: 'Bar Tasende', before: expect.objectContaining({ chainBranch: true }), after: { igFollowers: 12_889, chainBranch: false, prominence: computeProminence({ igFollowers: 12_889 }, MEDIAN) }, evidence: [] }])
+  })
+
+  it('una cadena con una sola sucursal guardada y otras en su web oficial queda (o pasa a) true', () => {
+    const freddo = row({ id: 'a', googlePlaceId: 'g-a', name: 'Freddo', instagram: 'freddouy', website: 'https://uy.freddo.com/', igFollowers: 24_469 })
+    const changes = recomputeChains([freddo, { ...freddo, id: 'b', googlePlaceId: 'g-b', name: 'Freddo bis', chainBranch: true }], [
+      snapshot('g-a', [source('https://uy.freddo.com/locales/', 'Freddo')]),
+      snapshot('g-b', [source('https://uy.freddo.com/store/pocitos/', 'Pocitos')]),
+    ], MEDIAN)
+    expect(changes.map((change) => [change.id, change.after.chainBranch, change.evidence])).toEqual([['a', true, ['https://uy.freddo.com/locales/']]])
+  })
+
+  it('dos lugares con la misma brand_key son cadena aunque no tengan snapshot', () => {
+    const changes = recomputeChains([
+      row({ id: 'a', googlePlaceId: 'g-a', brandKey: 'la-pasiva' }),
+      row({ id: 'b', googlePlaceId: 'g-b', brandKey: 'la-pasiva' }),
+    ], [], MEDIAN)
+    expect(changes.map((change) => [change.id, change.after.chainBranch, change.evidence])).toEqual([['a', true, ['brand_key la-pasiva']], ['b', true, ['brand_key la-pasiva']]])
+  })
+
+  it('sin snapshot ni brand_key compartida, o con chain_branch a mano, no lo toca', () => {
+    const changes = recomputeChains([
+      row({ id: 'a', googlePlaceId: 'g-a', chainBranch: true }),
+      row({ id: 'b', googlePlaceId: 'g-b', chainBranch: true, manualOverrides: { chain_branch: true } }),
+    ], [snapshot('g-b', [])], MEDIAN)
+    expect(changes).toEqual([])
   })
 })

@@ -2,6 +2,7 @@ import { buildEmbeddingText, buildKeywordText, type StyleId, type TagId } from '
 import type { ManualOverrides, PlaceEdit } from '../../src/data/manual-overrides.ts'
 import { searchTextInput } from '../providers/place-extraction-service.ts'
 import type { NewPlace, Place } from '../db/schema.ts'
+import { computeProminence } from './prominence.ts'
 
 // Overrides de un valor: clave de manual_overrides (columna SQL) → key de Drizzle.
 const SCALAR_COLUMNS = {
@@ -17,6 +18,7 @@ const SCALAR_COLUMNS = {
   instagram: 'instagram',
   website: 'website',
   brand_key: 'brandKey',
+  chain_branch: 'chainBranch',
 } as const satisfies Partial<Record<keyof ManualOverrides, keyof NewPlace>>
 
 const LOGO_COLUMNS = ['logoKey', 'logoKind', 'logoBgColor', 'logoColor', 'logoSource', 'logoFetchedAt'] as const
@@ -35,7 +37,8 @@ export function applyTagDiff(auto: readonly string[], diff: ManualOverrides['tag
  * Pone los overrides manuales encima de valores automáticos. Única función que lo hace: la usan la re-extracción
  * (savePlaces), extraction:replay, signals:refresh, prominence:recompute y brands:backfill. Sólo toca las claves que
  * vienen en `auto`, así un camino que escribe tres columnas sigue escribiendo esas tres. Con tags, también saca de
- * signature los tags que se sacaron a mano.
+ * signature los tags que se sacaron a mano. Con chain_branch a mano, la prominence que viene se recalcula con ese valor
+ * (si hay seguidores): el ×0,85 sigue al override.
  */
 export function applyOverrides<T extends Partial<NewPlace>>(auto: T, overrides: ManualOverrides): T {
   const result: Partial<NewPlace> = { ...auto }
@@ -45,6 +48,10 @@ export function applyOverrides<T extends Partial<NewPlace>>(auto: T, overrides: 
   if (overrides.logo && LOGO_COLUMNS.some((column) => Object.hasOwn(auto, column))) {
     const { key, kind, bgColor, color, source, fetchedAt } = overrides.logo
     Object.assign(result, { logoKey: key, logoKind: kind, logoBgColor: bgColor, logoColor: color, logoSource: source, logoFetchedAt: new Date(fetchedAt) })
+  }
+  // Sin seguidores no hace falta: vale la mediana con o sin cadena, y la prominence que viene ya es esa.
+  if (Object.hasOwn(overrides, 'chain_branch') && Object.hasOwn(auto, 'prominence') && typeof auto.igFollowers === 'number') {
+    result.prominence = computeProminence({ igFollowers: auto.igFollowers, chainBranch: overrides.chain_branch }, auto.prominence ?? 0)
   }
   if (overrides.tags && auto.tags) {
     const tags = applyTagDiff(auto.tags, overrides.tags)
@@ -85,7 +92,7 @@ export function placeSearchTexts(values: SearchTextValues): { keywordText: strin
 /** Valores de los campos editables tal como están guardados (los finales). */
 export type EditableValues = Pick<Place,
   'name' | 'tags' | 'style' | 'iconCategory' | 'price' | 'dietVegan' | 'dietVegetarian' | 'dietGlutenFree' |
-  'instagram' | 'website' | 'brandKey'>
+  'instagram' | 'website' | 'brandKey' | 'chainBranch'>
 
 // Campo del modal → clave de manual_overrides.
 const EDIT_TO_OVERRIDE = {
@@ -99,6 +106,7 @@ const EDIT_TO_OVERRIDE = {
   instagram: 'instagram',
   website: 'website',
   brandKey: 'brand_key',
+  chainBranch: 'chain_branch',
 } as const satisfies Partial<Record<keyof PlaceEdit, keyof ManualOverrides>>
 
 const sameTags = (left: readonly string[], right: readonly string[]) =>

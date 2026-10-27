@@ -74,6 +74,8 @@ export type CandidateRow = {
   logoKey: string | null
   /** Color de fondo del logo (#rrggbb) o null. */
   logoBgColor: string | null
+  /** Lugar que contiene al local (mercado, shopping…); null si no. */
+  locatedIn: string | null
   /** Marca con sucursales (backoffice: server/places/brand-key.ts); null = sin marca. */
   brandKey: string | null
   /** Sucursales publicadas de la marca, aunque no cumplan la búsqueda; 1 sin marca. */
@@ -219,7 +221,7 @@ export function candidatesQuery(filters: CandidateFilters, scores: ScoreInputs):
     ${withVector}select id, slug, name, neighborhood_id as "neighborhoodId", categories, tags, signature, dishes,
       json_build_object('vegan', diet_vegan, 'vegetarian', diet_vegetarian, 'glutenFree', diet_gluten_free) as diet,
       price, style, hours, prominence, featured, icon_category as "iconCategory",
-      logo_key as "logoKey", logo_bg_color as "logoBgColor", brand_key as "brandKey",
+      logo_key as "logoKey", logo_bg_color as "logoBgColor", located_in as "locatedIn", brand_key as "brandKey",
       case when brand_key is null then 1
         else (select count(*)::int from places b where b.brand_key = places.brand_key and b.status = 'published') end as "brandCount",
       ST_Y(location::geometry) as lat, ST_X(location::geometry) as lng,

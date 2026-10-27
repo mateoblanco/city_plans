@@ -75,6 +75,8 @@ export type SearchResult = {
   logoUrl: string | null
   /** Fondo del banner del logo (#rrggbb) o null. */
   logoBgColor: string | null
+  /** Lugar que contiene al local, para "Dentro de …"; null si no. */
+  locatedIn: string | null
   lat: number
   lng: number
   /** Sucursales publicadas de la marca (1 sin marca), para "N sucursales". */
@@ -276,7 +278,8 @@ export function strongNameMatch(matches: NameMatch[], query: string, structured:
 
 /**
  * Qué impide encontrar lugares cuando ya se relajó todo: la dieta, los exclude, la intención o la combinación.
- * Se marcan los que dan cero por separado; si ninguno da cero, es la combinación y se marcan todos los pedidos.
+ * Se marcan los que dan cero por separado; si ninguno da cero, es la combinación y se marcan la dieta y los exclude
+ * pedidos. Sin dieta ni exclude, nada bloquea: published dice si hay algún lugar publicado.
  */
 async function blockingConditions(store: SearchDeps['store'], filters: CandidateFilters) {
   const hasDiet = filters.diet.length > 0
@@ -290,7 +293,10 @@ async function blockingConditions(store: SearchDeps['store'], filters: Candidate
   ])
   const blocks = { diet: withDiet === 0, exclude: withExclude === 0, intent: withIntent === 0 }
   if (blocks.diet || blocks.exclude || blocks.intent) return blocks
-  return { diet: hasDiet, exclude: hasExclude, intent: hasIntent }
+  if (hasDiet || hasExclude) return { diet: hasDiet, exclude: hasExclude, intent: hasIntent }
+  // Nada bloquea por sí solo: ¿hay algún lugar publicado?
+  const published = await store.count({ ...none, categories: [], tags: [], neighborhoods: [], price: [], openAt: null, near: null })
+  return { diet: false, exclude: false, intent: false, published }
 }
 
 /** Cuántas invitaciones a ampliar se muestran como mucho. */
@@ -536,6 +542,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       logoKey: item.row.logoKey,
       logoUrl: logoUrl(item.row.logoKey),
       logoBgColor: item.row.logoBgColor,
+      locatedIn: item.row.locatedIn,
       lat: item.row.lat,
       lng: item.row.lng,
       branchCount: item.row.brandCount,
@@ -553,9 +560,10 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
 
   // Secciones: sólo en búsquedas amplias y con suficientes resultados.
   const minResults = SEARCH_CONFIG.sections.minResults
-  const notGrouped = notBroadReason(interpretation, { pinned: pinned !== null, subs: resolved.subs.length, section: filters.section !== null }) ??
+  const notGrouped = notBroadReason(interpretation, { pinned: pinned !== null, section: filters.section !== null }) ??
     (fused.length < minResults ? `menos de ${minResults} resultados` : null)
-  const sectionChoice = notGrouped ? null : requestedSections(interpretation, { fromLlm: source === 'llm', intent: state.intent })
+  const sectionSubs = state.subs.map((id) => ({ id, fromText: resolved.subs.some((sub) => sub.id === id && sub.fromText) }))
+  const sectionChoice = notGrouped ? null : requestedSections(interpretation, { fromLlm: source === 'llm', intent: state.intent, subs: sectionSubs })
   const catalogOnly = sectionChoice ? buildSections(fused, sectionChoice.requested, interpretation.language) : null
 
   // Perfil (likes del pedido): elige lugares de esta misma búsqueda para los bloques personales; no toca el ranking.
@@ -605,14 +613,15 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     before = relax(before, relaxStep)
   }
 
-  // Cero resultados: sólo pueden bloquear la dieta o los exclude, que nunca se relajan.
+  // Cero resultados (un lugar fijado por nombre cuenta): sólo pueden bloquear la dieta o los exclude, que nunca se
+  // relajan.
   let suggestedRemovals: Chip[] = []
-  if (shownRows.length === 0) {
+  if (fused.length === 0) {
     step = performance.now()
     const blocking = await blockingConditions(deps.store, filtersOf(state))
     const chips = chipsOf(buildChips(interpretation, today))
     suggestedRemovals = chips.filter((chip) => (blocking.diet && chip.kind === 'diet') || (blocking.exclude && chip.kind === 'exclude'))
-    relaxed.push(noMatchNotice(interpretation, blocking, state.intent))
+    relaxed.push(noMatchNotice(interpretation, blocking, state.intent, rawQuery))
     timings.diagnose = elapsed(step)
   }
   timings.total = elapsed(started)

@@ -1,6 +1,6 @@
 // Vuelve a leer los seguidores de Instagram de los lugares guardados y recalcula prominence, sin
 // reprocesarlos: Apify (si ya tiene instagram), y Exa con la marca y el tipo de lugar de Google sólo
-// para detectar sucursales de cadena. No llama al LLM ni toca otras columnas.
+// para detectar sucursales de cadena (sólo cuentan resultados del dominio de su web). No llama al LLM ni toca otras columnas.
 // --from-snapshots: sin Apify ni Exa, completa los lugares con instagram y sin seguidores con los que midió el
 // pipeline (cache/extractions); escribe ig_followers, chain_branch y prominence sin tocar updatedAt.
 // Uso: yarn signals:refresh [--dry-run] [--from-snapshots] [--only <id o nombre>,<id o nombre>…]
@@ -10,6 +10,7 @@ import { places } from '../db/schema.ts'
 import { parseManualOverrides } from '../../src/data/manual-overrides.ts'
 import { refreshSignals, signalsFromSnapshots, type RefreshResult, type SignalsUpdate, type SnapshotSignalsResult } from '../places/refresh-signals.ts'
 import { readSnapshots } from '../providers/extraction-snapshots.ts'
+import { drizzleIgMedian } from '../places/list.ts'
 import { ApifyInstagramProvider } from '../providers/apify-instagram-provider.ts'
 import { ExaPlaceSearchProvider } from '../providers/exa-place-provider.ts'
 import { GooglePlacesProvider } from '../providers/google-places-provider.ts'
@@ -56,7 +57,7 @@ function reportSnapshots(results: SnapshotSignalsResult[], dryRun: boolean) {
 
 const selectRows = async (db: Awaited<typeof import('../db/index.ts')>['db']) => (await db
   .select({
-    id: places.id, googlePlaceId: places.googlePlaceId, name: places.name, instagram: places.instagram,
+    id: places.id, googlePlaceId: places.googlePlaceId, name: places.name, instagram: places.instagram, website: places.website,
     igFollowers: places.igFollowers, chainBranch: places.chainBranch, prominence: places.prominence, brandKey: places.brandKey, manualOverrides: places.manualOverrides,
   })
   .from(places))
@@ -73,6 +74,7 @@ async function main() {
     const { db } = await import('../db/index.ts')
     const rows = await selectRows(db)
     const results = await signalsFromSnapshots(rows, await readSnapshots(), {
+      igMedian: await drizzleIgMedian(db),
       // Sólo las columnas de prominencia, sin tocar updatedAt: no es una actualización del contenido.
       write: dryRun ? undefined : async (id, values) => {
         await db.update(places).set({ ...values, updatedAt: places.updatedAt }).where(eq(places.id, id))
@@ -95,6 +97,7 @@ async function main() {
   console.log(`${ids ? `${ids.size} de ${rows.length}` : rows.length} lugares guardados${dryRun ? ' (dry-run)' : ''}.\n`)
 
   const results = await refreshSignals(rows, {
+    igMedian: await drizzleIgMedian(db),
     placeType: google ? (googlePlaceId) => google.getPlaceType(googlePlaceId) : undefined,
     searchPlace: (term) => exa.searchPlace(term),
     scrapeInstagram: (url) => instagram.configured ? instagram.scrape(url) : Promise.reject(new Error('Apify sin configurar')),

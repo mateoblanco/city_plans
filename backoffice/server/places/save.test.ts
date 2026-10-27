@@ -2,6 +2,9 @@ import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import type { NewPlace } from '../db/schema.ts'
 import { computeProminence } from './prominence.ts'
+
+// Lo que vale un lugar sin seguidores en estas pruebas (distinto de 0,5 para que se note).
+const MEDIAN = 0.8
 import { EMBEDDING_MODEL, pipelineStatus, savePlaces, slugify, type ExistingPlace, type PlacesStore } from './save.ts'
 import { draft } from './test-fixtures.ts'
 import type { BrandRow } from './brand-key.ts'
@@ -27,6 +30,7 @@ function fakeStore(existing: ExistingPlace[] = [], slugs: string[] = [], saved: 
       saved.filter((row) => handles.includes(row.instagram?.toLowerCase() ?? '') || brandKeys.includes(row.brandKey ?? '')),
     setBrandKey: async (id, brandKey) => { brandUpdates.push({ id, brandKey }) },
     setChainBranch: async (id, prominence) => { chainUpdates.push({ id, prominence }) },
+    igMedian: async () => MEDIAN,
   }
   return { store, inserted, updated, brandUpdates, chainUpdates }
 }
@@ -238,18 +242,18 @@ describe('savePlaces', () => {
     await savePlaces([ok(), ok({ googlePlaceId: 'place-2', contact: { ...draft().contact, instagram: 'otro' } })], { store, embed: vectors })
 
     expect(updated[0].values).toMatchObject({ igFollowers: 999 })
-    expect(updated[0].values.prominence).toBeCloseTo(computeProminence(draft().signals))
+    expect(updated[0].values.prominence).toBeCloseTo(computeProminence(draft().signals, MEDIAN))
     expect(updated[0].values).not.toHaveProperty('featured')
     expect(inserted[0]).not.toHaveProperty('featured')
   })
 
-  it('una sucursal de cadena (sin seguidores) pasa a prominence neutra al actualizar', async () => {
+  it('una sucursal de cadena (sin seguidores) pasa a la prominence de la mediana, sin ×0,85, al actualizar', async () => {
     const existing = { id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(draft().embeddingText), manualOverrides: {}, status: 'published' as const }
     const { store, updated } = fakeStore([existing])
 
     await savePlaces([ok({ signals: { igFollowers: null, chainBranch: false } })], { store, embed: vectors })
 
-    expect(updated[0].values).toMatchObject({ igFollowers: null, prominence: 0.5 })
+    expect(updated[0].values).toMatchObject({ igFollowers: null, prominence: MEDIAN })
   })
 
   it('guarda la categoría de ícono al insertar y la actualiza al reprocesar; sin ella, null', async () => {
@@ -279,7 +283,7 @@ describe('savePlaces', () => {
     const results = await savePlaces([{ source: 'llm', status: 'ok', place }], { store, embed: vectors })
 
     expect(results[0].action).toBe('created')
-    expect(inserted[0]).toMatchObject({ igFollowers: null, prominence: 0.5 })
+    expect(inserted[0]).toMatchObject({ igFollowers: null, prominence: MEDIAN })
 
     const legacy = { ...place, googlePlaceId: 'place-2', signals: { editorialMentions: 3, listedOrAwarded: true, igFollowers: 999 } }
     await savePlaces([{ source: 'llm', status: 'ok', place: legacy }], { store, embed: vectors })
@@ -380,8 +384,8 @@ describe('savePlaces', () => {
     it('dos lugares con la misma brand_key quedan como sucursales de cadena, también el ya guardado', async () => {
       const { store, inserted, chainUpdates } = fakeStore([], [], [savedRow({ id: 'uuid-a', igFollowers: 10_000 })])
       await savePlaces([ok({ name: 'Cordón Beer Pocitos', contact: contact('cordonbeer'), signals: { igFollowers: 10_000, chainBranch: false } })], { store, embed: vectors })
-      expect(inserted[0]).toMatchObject({ brandKey: 'cordon-beer', chainBranch: true, prominence: computeProminence({ igFollowers: 10_000, chainBranch: true }) })
-      expect(chainUpdates).toEqual([{ id: 'uuid-a', prominence: computeProminence({ igFollowers: 10_000, chainBranch: true }) }])
+      expect(inserted[0]).toMatchObject({ brandKey: 'cordon-beer', chainBranch: true, prominence: computeProminence({ igFollowers: 10_000, chainBranch: true }, MEDIAN) })
+      expect(chainUpdates).toEqual([{ id: 'uuid-a', prominence: computeProminence({ igFollowers: 10_000, chainBranch: true }, MEDIAN) }])
     })
 
     it('cuenta los guardados con la misma key aunque no compartan Instagram, y no repite a los que ya son cadena', async () => {
@@ -391,7 +395,19 @@ describe('savePlaces', () => {
       ])
       await savePlaces([ok({ name: 'Cordón Beer Malvín', contact: contact('cordonbeer') })], { store, embed: vectors })
       expect(inserted[0]).toMatchObject({ brandKey: 'cordon-beer', chainBranch: true })
-      expect(chainUpdates).toEqual([{ id: 'uuid-b', prominence: computeProminence({ igFollowers: null, chainBranch: true }) }])
+      expect(chainUpdates).toEqual([{ id: 'uuid-b', prominence: computeProminence({ igFollowers: null, chainBranch: true }, MEDIAN) }])
+    })
+
+    it('un chain_branch puesto a mano gana sobre la brand_key compartida, y la prominencia lo sigue', async () => {
+      const existing = { id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(draft().embeddingText), manualOverrides: { chain_branch: false }, status: 'published' as const }
+      const { store, updated, chainUpdates } = fakeStore([existing], [], [
+        savedRow({ id: 'uuid-a', igFollowers: 5_000 }),
+        savedRow({ id: 'uuid-b', instagram: 'otro', brandKey: 'cordon-beer', chainLocked: true }),
+      ])
+      await savePlaces([ok({ name: 'Cordón Beer Pocitos', contact: contact('cordonbeer'), signals: { igFollowers: 10_000, chainBranch: true } })], { store, embed: vectors })
+      expect(updated[0].values).toMatchObject({ brandKey: 'cordon-beer', chainBranch: false, prominence: computeProminence({ igFollowers: 10_000 }, MEDIAN) })
+      // El otro marcado a mano tampoco cambia.
+      expect(chainUpdates).toEqual([{ id: 'uuid-a', prominence: computeProminence({ igFollowers: 5_000, chainBranch: true }, MEDIAN) }])
     })
 
     it('sin otro lugar de la marca no cambia chain_branch', async () => {

@@ -62,7 +62,7 @@ const PlaceCard = (props: Props) => {
         <p className={styles.meta}>
           {[
             props.place.neighborhood,
-            props.place.branchCount > 1 ? `${props.place.branchCount} sucursales` : null,
+            props.place.locatedIn ? `Dentro de ${props.place.locatedIn}` : null,
             ...props.place.categories.map((id) => label(id, "es")),
           ]
             .filter(Boolean)

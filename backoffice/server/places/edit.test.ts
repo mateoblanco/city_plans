@@ -1,11 +1,14 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import type { NewPlace } from '../db/schema.ts'
-import type { BrandRow } from './brand-key.ts'
+import { brandSlug, type BrandRow } from './brand-key.ts'
 import { applyEdit, deletePlace, EditError, planEdit, toDetail, type EditDeps, type EditRow, type EditStore } from './edit.ts'
 import { placeSearchTexts } from './manual-overrides.ts'
 import { parseManualOverrides } from '../../src/data/manual-overrides.ts'
 import { computeProminence } from './prominence.ts'
+
+// Lo que vale un lugar sin seguidores en estas pruebas (distinto de 0,5 para que se note).
+const MEDIAN = 0.8
 
 function row(overrides: Partial<EditRow> = {}): EditRow {
   const base: EditRow = {
@@ -41,6 +44,7 @@ function fakeStore(rows: EditRow[], brandRows: BrandRow[] = []) {
     setBrandKey: vi.fn(async (id: string, brandKey: string | null) => { brandUpdates.push({ id, brandKey }) }),
     setChainBranch: vi.fn(async (id: string, prominence: number) => { chainUpdates.push({ id, prominence }) }),
     delete: vi.fn(async (id: string) => byId.delete(id)),
+    igMedian: async () => MEDIAN,
   }
   return { store, updates, brandUpdates, chainUpdates }
 }
@@ -157,7 +161,7 @@ describe('applyEdit', () => {
     await applyEdit('uuid-1', { instagram: 'palenque.uy' }, d, { confirmSharedInstagram: true })
     expect(d.scrapeInstagram).toHaveBeenCalledWith('https://www.instagram.com/palenque.uy/')
     expect(updates[0].values).toMatchObject({
-      instagram: 'palenque.uy', igFollowers: 9999, prominence: computeProminence({ igFollowers: 9999 }),
+      instagram: 'palenque.uy', igFollowers: 9999, prominence: computeProminence({ igFollowers: 9999 }, MEDIAN),
       brandKey: 'el-palenque', manualOverrides: { instagram: 'palenque.uy' },
     })
     expect(brandUpdates).toEqual([{ id: 'uuid-2', brandKey: 'el-palenque' }])
@@ -188,12 +192,12 @@ describe('applyEdit', () => {
     expect(updates).toEqual([])
   })
 
-  it('"No tiene Instagram": sin seguidores, prominencia neutra y el override en null', async () => {
+  it('"No tiene Instagram": sin seguidores, la prominencia de la mediana y el override en null', async () => {
     const { store, updates } = fakeStore([row()])
     const d = deps(store)
     await applyEdit('uuid-1', { instagram: null }, d)
     expect(d.scrapeInstagram).not.toHaveBeenCalled()
-    expect(updates[0].values).toMatchObject({ instagram: null, igFollowers: null, prominence: 0.5, manualOverrides: { instagram: null } })
+    expect(updates[0].values).toMatchObject({ instagram: null, igFollowers: null, prominence: MEDIAN, manualOverrides: { instagram: null } })
   })
 
   it('brand_key: se escribe y queda bloqueado, sin recalcular las otras sucursales', async () => {
@@ -207,8 +211,53 @@ describe('applyEdit', () => {
     const other: BrandRow = { id: 'uuid-2', name: 'Plaza de Chueca', neighborhoodId: 'pocitos', instagram: 'plazadechueca', chainBranch: false, brandKey: 'plaza-de-chueca', igFollowers: 20_000 }
     const { store, updates, chainUpdates } = fakeStore([row({ chainBranch: false })], [other])
     await applyEdit('uuid-1', { brandKey: 'plaza-de-chueca' }, deps(store))
-    expect(updates[0].values).toMatchObject({ brandKey: 'plaza-de-chueca', chainBranch: true, prominence: computeProminence({ igFollowers: row().igFollowers, chainBranch: true }) })
-    expect(chainUpdates).toEqual([{ id: 'uuid-2', prominence: computeProminence({ igFollowers: 20_000, chainBranch: true }) }])
+    expect(updates[0].values).toMatchObject({ brandKey: 'plaza-de-chueca', chainBranch: true, prominence: computeProminence({ igFollowers: row().igFollowers, chainBranch: true }, MEDIAN) })
+    expect(chainUpdates).toEqual([{ id: 'uuid-2', prominence: computeProminence({ igFollowers: 20_000, chainBranch: true }, MEDIAN) }])
+  })
+
+  it('sucursal de cadena a mano: queda bloqueada y recalcula la prominencia, sin re-extraer', async () => {
+    const { store, updates } = fakeStore([row({ chainBranch: true, prominence: computeProminence({ igFollowers: 999, chainBranch: true }, MEDIAN) })])
+    const plan = await planEdit(row({ chainBranch: true }), { chainBranch: false }, deps(store))
+    expect(plan.steps.map((step) => step.id)).toEqual(['prominence', 'brand_keys'])
+    await applyEdit('uuid-1', { chainBranch: false }, deps(store))
+    expect(updates[0].values).toEqual({ chainBranch: false, prominence: computeProminence({ igFollowers: 999 }, MEDIAN), manualOverrides: { chain_branch: false } })
+  })
+
+  it('marcar sucursal de cadena a mano sin Instagram compartido le da la brand_key de la marca', async () => {
+    const { store, updates } = fakeStore([row()])
+    await applyEdit('uuid-1', { chainBranch: true }, deps(store))
+    expect(updates[0].values).toMatchObject({ chainBranch: true, brandKey: brandSlug('El Palenque'), manualOverrides: { chain_branch: true } })
+  })
+
+  it('desmarcarla a mano sin Instagram compartido le saca la brand_key', async () => {
+    const { store, updates } = fakeStore([row({ chainBranch: true, brandKey: 'el-palenque' })])
+    await applyEdit('uuid-1', { chainBranch: false }, deps(store))
+    expect(updates[0].values).toMatchObject({ chainBranch: false, brandKey: null })
+  })
+
+  it('con el Instagram compartido la key del grupo no cambia, y la de los otros tampoco', async () => {
+    const other: BrandRow = { id: 'uuid-2', name: 'El Palenque Pocitos', neighborhoodId: 'pocitos', instagram: 'elpalenque', chainBranch: true, brandKey: 'palenque' }
+    const { store, updates, brandUpdates } = fakeStore([row({ brandKey: 'palenque' })], [other])
+    await applyEdit('uuid-1', { chainBranch: true }, deps(store))
+    expect(updates[0].values).not.toHaveProperty('brandKey')
+    expect(brandUpdates).toEqual([])
+  })
+
+  it('una brand_key editada a mano no se recalcula al cambiar la sucursal de cadena', async () => {
+    const edited = row({ brandKey: 'palenque-mvd', manualOverrides: { brand_key: 'palenque-mvd' } })
+    const { store, updates } = fakeStore([edited])
+    const plan = await planEdit(edited, { chainBranch: true }, deps(store))
+    expect(plan.steps.map((step) => step.id)).toEqual(['prominence'])
+    await applyEdit('uuid-1', { chainBranch: true }, deps(store))
+    expect(updates[0].values).not.toHaveProperty('brandKey')
+  })
+
+  it('brand_key compartida no marca como cadena a uno puesto a mano como no cadena', async () => {
+    const other: BrandRow = { id: 'uuid-2', name: 'Plaza de Chueca', neighborhoodId: 'pocitos', instagram: 'plazadechueca', chainBranch: false, brandKey: 'plaza-de-chueca', igFollowers: 20_000, chainLocked: true }
+    const { store, updates, chainUpdates } = fakeStore([row({ manualOverrides: { chain_branch: false } })], [other])
+    await applyEdit('uuid-1', { brandKey: 'plaza-de-chueca' }, deps(store))
+    expect(updates[0].values).not.toHaveProperty('chainBranch')
+    expect(chainUpdates).toEqual([])
   })
 
   it('un lugar que no existe es 404', async () => {

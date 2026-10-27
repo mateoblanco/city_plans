@@ -44,6 +44,8 @@ export const ManualOverrides = z.object({
   diet_gluten_free: z.enum(DIET_LEVELS).optional(),
   website: z.url({ protocol: /^https?$/ }).max(500).nullable().optional(),
   brand_key: z.string().regex(BRAND_KEY).max(100).nullable().optional(),
+  // Sucursal de cadena puesta a mano: manda sobre la regla automática (y el ×0,85 de prominencia la sigue).
+  chain_branch: z.boolean().optional(),
   logo: ManualLogo.optional(),
 
   tags: z.object({ add: z.array(z.enum(TAG_IDS)), remove: z.array(z.enum(TAG_IDS)) }).optional(),
@@ -56,7 +58,7 @@ export type OverrideField = keyof ManualOverrides
 /** Campos que cuentan como "editado a mano": Publicar y los motivos de revisión son decisiones de status, no edición. */
 export const EDIT_FIELDS = [
   'name', 'tags', 'style', 'icon_category', 'price', 'diet_vegan', 'diet_vegetarian', 'diet_gluten_free',
-  'instagram', 'website', 'brand_key', 'logo',
+  'instagram', 'website', 'brand_key', 'chain_branch', 'logo',
 ] as const satisfies readonly OverrideField[]
 export type EditField = (typeof EDIT_FIELDS)[number]
 
@@ -97,6 +99,7 @@ export const PlaceEdit = z.object({
   instagram: ManualOverrides.shape.instagram,
   website: ManualOverrides.shape.website,
   brandKey: ManualOverrides.shape.brand_key,
+  chainBranch: ManualOverrides.shape.chain_branch,
   logo: ManualLogo.optional(),
   featured: z.boolean().optional(),
 }).strict()

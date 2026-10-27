@@ -51,15 +51,18 @@ import {
   BLOCKED_HOSTS,
   DEFAULT_RESERVATION_HOSTS,
   DELIVERY_HOSTS,
-  DIRECTORY_HOSTS,
   EXA_SUMMARY_URL,
-  LINK_AGGREGATOR_HOSTS,
+  FOREIGN_ADDRESS,
+  FOREIGN_TLDS,
+  MENTIONS_URUGUAY,
   canonical,
   hasPhrase,
   hostedBy,
   hostname,
+  isDirectoryHost,
   matchesPlaceDomain,
 } from './source-hosts.ts'
+import { websiteHostRejection, websiteRejection, websiteRejectionLabel, type WebsiteRejection } from './website-check.ts'
 import { DiscoveryExpired, ExaProviderFailure, InstagramNotFound, InstagramProviderFailure, PlacesProviderError } from './places-provider.ts'
 import { DiscoveryStore } from './discovery-store.ts'
 import { APIFY_TRANSIENT_DELAYS_MS, RateLimitLog, withRateLimitRetry, type RateLimitRetryOptions } from './rate-limit.ts'
@@ -558,7 +561,7 @@ function profileHasPhone(details: GooglePlaceDetailsResponse, profile: Instagram
 /** El perfil enlaza la web oficial (la que se encontró o la de Google, que sólo confirma). */
 function profileLinksWebsite(details: GooglePlaceDetailsResponse, profile: InstagramProfileData, websiteUrl: string | null): boolean {
   const linkedHosts = [websiteUrl, details.websiteUri ?? null]
-    .filter((url): url is string => Boolean(url && !instagramProfileUrl(url) && !isSocialUrl(url)))
+    .filter((url): url is string => Boolean(url && isOwnWebsite(url)))
     .map(hostname).filter(Boolean)
   return profile.links.some((link) => linkedHosts.includes(hostname(link)))
 }
@@ -629,13 +632,10 @@ export function instagramProfileMatch(details: GooglePlaceDetailsResponse, profi
   return { accepted: false, rule: 'no_identity_signal' }
 }
 
-const WHATSAPP_URL = /^https?:\/\/(?:wa\.me|api\.whatsapp\.com|web\.whatsapp\.com)\//i
-
-/** Un link de WhatsApp, de reservas o de un agregador no es la web del local. */
+/** Un link de WhatsApp, de reservas, de delivery, de un agregador o de una red no es la web del local. */
 export function classifyContact(contact: Contact) {
   const { website } = contact
-  const notOwn = website && (WHATSAPP_URL.test(website) || hostedBy(website, DEFAULT_RESERVATION_HOSTS) || hostedBy(website, LINK_AGGREGATOR_HOSTS))
-  return notOwn ? { ...contact, website: null } : { ...contact }
+  return website && !isOwnWebsite(website) ? { ...contact, website: null } : { ...contact }
 }
 
 function isBlockedSource(url: string) {
@@ -656,21 +656,16 @@ export function classifySource(url: string, context: SourceContext): SourceKind 
   if (hostedBy(url, DEFAULT_RESERVATION_HOSTS)) return 'reservations'
   const knownWebsite = hostname(context.websiteUrl ?? null)
   if (knownWebsite === host) return 'web'
-  if (DIRECTORY_HOSTS.some((directory) => host === directory || host.endsWith(`.${directory}`) || host.split('.').includes(directory))) return 'directory'
+  if (isDirectoryHost(url)) return 'directory'
   return matchesPlaceDomain(host, context.name) ? 'web' : 'directory'
 }
-
-// Dominios de otros países (".com.br", ".ar"…). ".co" no: lo usan directorios uruguayos.
-const FOREIGN_TLDS = new Set(['br', 'ar', 'cl', 'py', 'pe', 'bo', 'mx', 'es', 'ec', 've', 'ph', 'pt', 'it', 'fr', 'de', 'uk', 'au', 'ca', 'us'])
-// Señales de dirección de otro país: ciudades, CEP brasileño o prefijos telefónicos de Brasil y Argentina.
-const FOREIGN_ADDRESS = /\b(?:porto alegre|sao paulo|rio de janeiro|florianopolis|curitiba|buenos aires|santiago de chile|asuncion)\b|\b\d{5}-\d{3}\b|\+\s?5[45]\b/
 
 /** Fuente de otro país: dominio extranjero, o dirección extranjera sin ninguna mención de Uruguay o Montevideo. */
 export function isForeignSource(url: string, text: string): boolean {
   const host = hostname(url)
   if (host && FOREIGN_TLDS.has(host.split('.').at(-1)!)) return true
   const normalized = canonical(text)
-  return FOREIGN_ADDRESS.test(normalized) && !/\b(?:uruguay|montevideo)\b/.test(normalized)
+  return FOREIGN_ADDRESS.test(normalized) && !MENTIONS_URUGUAY.test(normalized)
 }
 
 export function filterSources(sources: SourceCandidate[]): Source[] {
@@ -1532,8 +1527,6 @@ function normalizeContact(contact: Contact): Contact {
   return { instagram, website: httpsUrl(contact.website) }
 }
 
-const SOCIAL_HOSTS = ['instagram.com', 'instagr.am', 'facebook.com', 'tiktok.com', 'x.com', 'twitter.com', 'linkedin.com', 'youtube.com']
-
 // reservationUrl no se guarda: sólo dice que el local toma reservas. Los snapshots viejos traen también phone, que se ignora.
 export type DeterministicContact = { instagram?: string; reservationUrl?: string }
 
@@ -1545,13 +1538,12 @@ function sourceLinks(source: Source): string[] {
   return [source.url, ...(source.links ?? []), ...linksInText(source.text)]
 }
 
-function isSocialUrl(value: string) {
-  return hostedBy(value, SOCIAL_HOSTS)
-}
-
-/** Web propia scrapeable: ni Instagram ni otra red, ni reservas ni agregador de links. */
-function isOwnWebsite(url: string, reservationHosts: readonly string[]) {
-  return !instagramProfileUrl(url) && !hostedBy(url, reservationHosts) && !isSocialUrl(url) && !hostedBy(url, LINK_AGGREGATOR_HOSTS)
+/**
+ * Web propia scrapeable: ni Instagram ni otra red, ni WhatsApp, reservas, pedidos, agregador de links, plataforma
+ * compartida o directorio (`websiteHostRejection`). El país se mira después, con el texto de la web (`websiteRejection`).
+ */
+export function isOwnWebsite(url: string, reservationHosts: readonly string[] = DEFAULT_RESERVATION_HOSTS) {
+  return !instagramProfileUrl(url) && !websiteHostRejection(url, reservationHosts)
 }
 
 /** Home de la primera URL cuyo dominio lleva el nombre de la marca (no directorios, redes ni reservas). */
@@ -1563,16 +1555,16 @@ function isOwnWebsite(url: string, reservationHosts: readonly string[]) {
 export function brandWebsite(urls: string[], brand: string, reservationHosts: readonly string[] = DEFAULT_RESERVATION_HOSTS, googleWebsite: string | null = null): string | null {
   const own = urls.filter((url) => isOwnWebsite(url, reservationHosts))
   const named = own.find((url) => classifySource(url, { name: brand }) === 'web')
-  const googleHost = googleWebsite && !isSocialUrl(googleWebsite) ? hostname(googleWebsite) : ''
+  const googleHost = googleWebsite && isOwnWebsite(googleWebsite, reservationHosts) ? hostname(googleWebsite) : ''
   const confirmed = named ?? (googleHost ? own.find((url) => hostname(url) === googleHost) : undefined)
   return confirmed ? `https://${new URL(confirmed).host}/` : null
 }
 
-/** Home (https://dominio/) de la web oficial scrapeada; null si no hay o si es red social, reservas o agregador. */
+/** Home (https://dominio/) de la web oficial scrapeada; null si no hay o si no es web propia (`isOwnWebsite`). */
 export function officialWebsiteHome(sources: Source[]): string | null {
   for (const source of sources) {
     if (source.kind !== 'web' || source.trust !== 'official') continue
-    if (isSocialUrl(source.url) || hostedBy(source.url, DEFAULT_RESERVATION_HOSTS) || hostedBy(source.url, LINK_AGGREGATOR_HOSTS)) continue
+    if (!isOwnWebsite(source.url)) continue
     try {
       return `https://${new URL(source.url).host}/`
     } catch {
@@ -1724,7 +1716,7 @@ type TaggedItem = PlaceExtraction['tags'][number]
 export function postProcess(
   target: Target,
   data: PlaceExtraction,
-  context: { sources?: Source[]; seedCategories?: CategoryId[]; categoryFallback?: string[]; deterministicContact?: DeterministicContact; prominenceSignals?: ProminenceSourceSignals; instagramManual?: InstagramManual; knownChain?: boolean } = {},
+  context: { sources?: Source[]; seedCategories?: CategoryId[]; categoryFallback?: string[]; deterministicContact?: DeterministicContact; prominenceSignals?: ProminenceSourceSignals; instagramManual?: InstagramManual; knownChain?: boolean; websiteRejected?: RejectedWebsite } = {},
 ): PlaceEnrichmentDraft {
   const sources = context.sources ?? []
   const sourcesById = new Map(sources.map((source) => [source.id, source]))
@@ -1744,6 +1736,10 @@ export function postProcess(
 
   // Un link de reservas como website no se guarda, pero con su support dice que el local toma reservas.
   const reservationWebsite = Boolean(result.contact.website && hostedBy(result.contact.website, DEFAULT_RESERVATION_HOSTS))
+  // La web descartada (WhatsApp, reservas, agregador, otro país…) queda como duda con el motivo.
+  const modelWebsiteRejection = result.contact.website ? websiteHostRejection(result.contact.website) : null
+  let websiteRejected: RejectedWebsite | undefined = context.websiteRejected
+    ?? (modelWebsiteRejection ? { url: result.contact.website!, ...modelWebsiteRejection } : undefined)
   result.contact = classifyContact(result.contact)
   // Support: cada campo queda con los facts válidos que lo respaldan.
   const support = new Map<string, string[]>()
@@ -1779,7 +1775,8 @@ export function postProcess(
 
   // Cadenas: horario, teléfono, dirección y features físicos sólo si todas sus fuentes hablan de
   // esta sucursal (dirección o barrio). Web, Instagram, categorías, platos, descripción, dieta y precio son de la marca.
-  // knownChain: otro lugar guardado de la misma marca (Instagram o brand_key compartidos).
+  // knownChain: otro lugar guardado de la misma marca (Instagram o brand_key compartidos). Es a propósito más amplio
+  // que signals.chainBranch (ver abajo): basta el nombre de Google o un tercero que muestre sucursales.
   const chain = isChainBranch(target, sources) || Boolean(context.knownChain)
   const branchFact = (fact: ValidFact) => mentionsBranch(fact.source, target)
   const branchOnly = (field: string) => {
@@ -2042,6 +2039,17 @@ export function postProcess(
   if (context.instagramManual) processed.contact.instagram = context.instagramManual.handle
   // La web que el modelo respalda con un fact gana; si no hay, la home de la web oficial scrapeada.
   processed.contact.website ??= officialWebsiteHome(sources)
+  // La web final, con el texto de las fuentes de ese dominio: de otro país no queda. Va antes de chain_branch, que mira
+  // las fuentes del dominio de esta web ya validada.
+  if (processed.contact.website) {
+    const host = hostname(processed.contact.website)
+    const texts = sources.filter((source) => source.url !== EXA_SUMMARY_URL && hostname(source.url) === host).map((source) => source.text)
+    const rejection = websiteRejection(processed.contact.website, texts)
+    if (rejection) {
+      websiteRejected = { url: processed.contact.website, ...rejection }
+      processed.contact.website = null
+    }
+  }
   if (reservationLink && (processed.reservations === 'unknown' || processed.reservations === 'no_reservations')) {
     processed.reservations = 'accepts'
   }
@@ -2110,7 +2118,11 @@ export function postProcess(
   const searchInput = searchTextInput({ ...processed, neighborhoodId: target.neighborhoodId, dishes, signature, style })
   // En una sucursal de cadena los seguidores son de la marca: quedan, y computeProminence los descuenta.
   const prominence = context.prominenceSignals ?? NO_PROMINENCE_SIGNALS
-  const signals = { igFollowers: instagramRejected ? null : prominence.instagramFollowers, chainBranch: chain }
+  // chain_branch pide más que las reglas de sucursal de arriba: descuenta la popularidad y agrupa la marca, así que
+  // sólo cuenta una fuente oficial o otro lugar guardado de la marca (knownChain). Las reglas de sucursal usan `chain`,
+  // más amplio: ahí un falso positivo sólo hace perder un horario o un feature físico.
+  const chainBranch = Boolean(context.knownChain) || officialBranchEvidence(sources, processed.contact).length > 0
+  const signals = { igFollowers: instagramRejected ? null : prominence.instagramFollowers, chainBranch }
   return PlaceDraft.parse({
     ...target,
     ...processed,
@@ -2127,6 +2139,7 @@ export function postProcess(
     signature,
     placeFacts,
     signals,
+    ...(websiteRejected ? { websiteRejected } : {}),
     embeddingText: buildEmbeddingText(searchInput),
     keywordText: buildKeywordText(searchInput),
   })
@@ -2167,11 +2180,27 @@ const MULTI_BRANCH_PATH = /\/(?:store|stores|locales|sucursales|tiendas)\//
  */
 export function isChainBranch(target: Pick<Target, 'name'>, sources: Source[]): boolean {
   if (googleNameParts(target.name).branch) return true
-  return sources.some((source) => {
-    let path = ''
-    try { path = new URL(source.url).pathname.toLowerCase() } catch { /* URL inválida: sólo el texto */ }
-    return MULTI_BRANCH_TEXT.test(canonical(source.text)) || MULTI_BRANCH_PATH.test(path)
-  })
+  return sources.some(showsBranches)
+}
+
+function showsBranches(source: Source): boolean {
+  let path = ''
+  try { path = new URL(source.url).pathname.toLowerCase() } catch { /* URL inválida: sólo el texto */ }
+  return MULTI_BRANCH_TEXT.test(canonical(source.text)) || MULTI_BRANCH_PATH.test(path)
+}
+
+/**
+ * Evidencia de cadena para la columna chain_branch (que descuenta la prominencia y agrupa la marca): una fuente
+ * oficial del propio local muestra varias sucursales. Oficial es por el host de la web del lugar (también un
+ * resultado de Exa de ese dominio) o el handle de su Instagram, no por el trust con que llegó: una web que ya no es
+ * la del lugar no cuenta. No alcanzan el nombre de Google ni las fuentes de terceros, ni el resumen de Exa.
+ */
+export function officialBranchEvidence(sources: Source[], official: { website: string | null; instagram: string | null }): Source[] {
+  const host = hostname(official.website)
+  const handle = official.instagram?.replace(/^@/, '').toLowerCase() || null
+  return sources.filter((source) => source.url !== EXA_SUMMARY_URL
+    && ((host !== null && hostname(source.url) === host) || (handle !== null && instagramHandle(source.url)?.toLowerCase() === handle))
+    && showsBranches(source))
 }
 
 /**
@@ -2215,6 +2244,12 @@ export function mentionsAddress(text: string, address: string): boolean {
 }
 
 const MAX_DOUBTS = 5
+
+export type RejectedWebsite = WebsiteRejection & { url: string }
+
+export function websiteRejectedDoubt(rejected: { url: string; reason: string; detail: string }): string {
+  return `Web descartada: ${rejected.url} — ${websiteRejectionLabel(rejected)}.`
+}
 export const MISSING_NAME_DOUBT = 'Nombre: ninguna fuente confirma el nombre del local; no se puede guardar.'
 const DAY_LABELS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb']
 
@@ -2247,6 +2282,7 @@ export function reviewExtraction(
   // Sin nombre de las fuentes el lugar no se puede guardar: el aviso va primero para que el tope no lo corte.
   const doubts = [...new Set([
     ...(place.name.trim() ? [] : [MISSING_NAME_DOUBT]),
+    ...(place.websiteRejected ? [websiteRejectedDoubt(place.websiteRejected)] : []),
     ...data.doubts.map((doubt) => doubt.trim()).filter(Boolean),
   ])].slice(0, MAX_DOUBTS)
 
@@ -2489,6 +2525,8 @@ export type CollectedSources = {
   instagramTieBreak?: NonNullable<PlaceReview['instagramTieBreak']>
   /** Seguidores del Instagram validado; postProcess decide igFollowers (null en cadenas). */
   prominenceSignals?: ProminenceSourceSignals
+  /** La web scrapeada era de otro país: no entró como fuente y queda como duda. */
+  websiteRejected?: RejectedWebsite
   /** Paso del logo, desde la foto de perfil del Instagram validado. */
   logo?: LogoOutcome
   /** 429 de esta etapa; extractFrom sigue sumando los suyos. Falta si las fuentes vienen de un JSON. */
@@ -2913,8 +2951,11 @@ export class PlaceExtractionService implements PlaceExtractor {
         .map((source) => source.url))]
       const blockedDomains = [...new Set(blockedUrls.map((url) => hostname(url)).filter(Boolean))]
       console.info(JSON.stringify({ event: 'place_extraction_sources', placeId, name: details.anchor.name, blockedSourceCount: blockedUrls.length, blockedDomains }))
+      // Una web de otro país (dominio o contenido, sin mención de Uruguay) no es fuente: es otro negocio homónimo.
+      const websiteSource = website ? sourceFromWebsite(website) : null
+      const websiteRejected = websiteSource ? websiteRejection(websiteSource.url, [websiteSource.text], this.reservationHosts) : null
       const staged = [
-        ...(website ? filterSources([sourceFromWebsite(website)]).map((source) => ({ source, origin: 'website' as const })) : []),
+        ...(websiteSource && !websiteRejected ? filterSources([websiteSource]).map((source) => ({ source, origin: 'website' as const })) : []),
         ...(instagramSource ? filterSources([instagramSource]).map((source) => ({ source, origin: 'instagram' as const })) : []),
         ...(exaSummary ? filterSources([exaSummary]).map((source) => ({ source, origin: 'exa' as const })) : []),
         ...filterSources(exaCandidates).map((source) => ({ source, origin: 'exa' as const })),
@@ -2948,6 +2989,7 @@ export class PlaceExtractionService implements PlaceExtractor {
         ...(instagramTieBreak ? { instagramTieBreak } : {}),
         instagramActivity: profile ? instagramActivity(profile) : null,
         sharedInstagram: [...discovery.shared].map(([handle, places]) => ({ handle, places })),
+        ...(websiteSource && websiteRejected ? { websiteRejected: { url: websiteSource.url, ...websiteRejected } } : {}),
         prominenceSignals,
         logo,
         rateLimits,
@@ -3058,6 +3100,7 @@ export class PlaceExtractionService implements PlaceExtractor {
         deterministicContact: collected.deterministicContact,
         prominenceSignals: collected.prominenceSignals,
         instagramManual: collected.instagramManual,
+        websiteRejected: collected.websiteRejected,
         categoryFallback: [],
         knownChain: await this.knownChain(collected),
       }

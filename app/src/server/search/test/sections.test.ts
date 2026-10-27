@@ -5,7 +5,7 @@ import type { Fused } from '../fuse'
 import { emptyInterpretation, validateInterpretation, type Interpretation, type LlmInterpretation } from '../interpretation'
 import { runSearch } from '../search'
 import { buildSections, notBroadReason, requestedSections, ruleSections, sectionSignals } from '../sections'
-import { fakeCache, fakeStore, llmOutput, row } from './fixtures'
+import { everyDay, fakeCache, fakeStore, llmOutput, row } from './fixtures'
 
 // Lunes 12/10/2026 13:00 en Montevideo.
 const now = new Date('2026-10-12T16:00:00Z')
@@ -21,7 +21,7 @@ const ranked = (n: number, tags: Record<number, string[]> = {}, extra: Record<nu
 const interpretation = (overrides: Partial<Interpretation> = {}): Interpretation => ({ ...emptyInterpretation(), ...overrides })
 
 describe('cuándo una búsqueda es amplia', () => {
-  const broad = { pinned: false, subs: 0 }
+  const broad = { pinned: false }
 
   it('la intención, los momentos, el style, el barrio y la vibe no la vuelven específica', () => {
     const value = interpretation({
@@ -33,18 +33,23 @@ describe('cuándo una búsqueda es amplia', () => {
     expect(notBroadReason(value, broad)).toBeNull()
   })
 
-  it('un nombre, un plato o un filtro obligatorio sí', () => {
+  it('el horario, la dieta, el precio y los exclude mantienen los grupos', () => {
     const must = emptyInterpretation().must
-    expect(notBroadReason(interpretation(), { pinned: true, subs: 0 })).toBe('nombre')
+    expect(notBroadReason(interpretation({ must: { ...must, openAt: 'today' } }), broad)).toBeNull()
+    expect(notBroadReason(interpretation({ must: { ...must, diet: { vegan: true } } }), broad)).toBeNull()
+    expect(notBroadReason(interpretation({ must: { ...must, price: ['low'] } }), broad)).toBeNull()
+    expect(notBroadReason(interpretation({ exclude: { categories: [], tags: ['grilled_meat'] } }), broad)).toBeNull()
+  })
+
+  it('un nombre, un plato, una cocina o tag, una categoría o el "Ver todos" pasan a lista', () => {
+    const must = emptyInterpretation().must
+    expect(notBroadReason(interpretation(), { pinned: true })).toBe('nombre')
+    expect(notBroadReason(interpretation({ nameQuery: 'tinkal' }), broad)).toBe('nombre')
     expect(notBroadReason(interpretation({ dishes: [{ name: 'pizza', relatedTags: [], relatedCategories: [] }] }), broad)).toBe('plato')
+    expect(notBroadReason(interpretation({ must: { ...must, tags: ['japanese'] } }), broad)).toBe('tag obligatorio')
     expect(notBroadReason(interpretation({ must: { ...must, tags: ['terrace'] } }), broad)).toBe('tag obligatorio')
     expect(notBroadReason(interpretation({ must: { ...must, categories: ['cafe'] } }), broad)).toBe('categoría obligatoria')
-    expect(notBroadReason(interpretation({ must: { ...must, diet: { vegan: true } } }), broad)).toBe('dieta')
-    expect(notBroadReason(interpretation({ must: { ...must, price: ['low'] } }), broad)).toBe('precio')
-    expect(notBroadReason(interpretation({ must: { ...must, openAt: 'today' } }), broad)).toBe('horario')
-    expect(notBroadReason(interpretation({ exclude: { categories: [], tags: ['pizza'] } }), broad)).toBe('exclude')
-    expect(notBroadReason(interpretation(), { pinned: false, subs: 1 })).toBe('sub-filtro')
-    expect(notBroadReason(interpretation(), { pinned: false, subs: 0, section: true })).toBe('sección')
+    expect(notBroadReason(interpretation(), { pinned: false, section: true })).toBe('sección')
   })
 })
 
@@ -60,6 +65,22 @@ describe('qué grupos se piden', () => {
     expect(requestedSections(value, { fromLlm: false, intent: 'bars' }).requested).not.toContain('casual')
     expect(requestedSections(interpretation(), { fromLlm: false, intent: 'bars' }).requested).not.toContain('drinks')
     expect(requestedSections(interpretation({ sections: ['eat', 'outdoor', 'share'] }), { fromLlm: true, intent: 'eat' }).requested).toEqual(['outdoor', 'share'])
+  })
+
+  it('un sub-filtro de la barra usa las reglas de su momento, no lo que eligió el modelo sólo con el texto', () => {
+    const value = interpretation({ sections: ['share', 'classics', 'world'] })
+    const breakfast = requestedSections(value, { fromLlm: true, intent: 'eat', subs: [{ id: 'breakfast', fromText: false }] })
+    expect(breakfast).toEqual({ source: 'rules', requested: ['outdoor', 'casual', 'special', 'discover'] })
+    // Si el sub-filtro salió del texto ("desayunar"), el modelo ya lo tuvo en cuenta.
+    expect(requestedSections(value, { fromLlm: true, intent: 'eat', subs: [{ id: 'breakfast', fromText: true }] }).source).toBe('llm')
+    // Almuerzo no tiene reglas propias: las de Comer.
+    expect(requestedSections(interpretation(), { fromLlm: false, intent: 'eat', subs: [{ id: 'lunch', fromText: false }] }).requested).toEqual(['world', 'classics', 'share', 'outdoor', 'discover'])
+  })
+
+  it('se saca el grupo que repite un sub-filtro activo', () => {
+    const requested = requestedSections(interpretation(), { fromLlm: false, intent: 'bars', subs: [{ id: 'live_music', fromText: false }] }).requested
+    expect(requested).not.toContain('live_music')
+    expect(requestedSections(interpretation(), { fromLlm: false, intent: 'bars', subs: [{ id: 'wine', fromText: false }] }).requested).toContain('live_music')
   })
 
   it('los del modelo si dio al menos dos ids válidos; si no, las reglas', () => {
@@ -207,11 +228,58 @@ describe('en la búsqueda', () => {
     expect(casual.results.every((result) => Number(result.id.slice(1)) % 2 === 1)).toBe(true)
   })
 
-  it('con menos de 10 resultados, tampoco', async () => {
-    const { store } = fakeStore(places.slice(0, 9))
+  it('con menos de 12 resultados, tampoco', async () => {
+    const { store } = fakeStore(places.slice(0, 11))
     const response = await runSearch('comer con amigos', { store, cache: fakeCache().cache }, { now, debug: true })
     expect(response.sections).toBeNull()
-    expect(response.debug?.sections.notGrouped).toBe('menos de 10 resultados')
+    expect(response.debug?.sections.notGrouped).toBe('menos de 12 resultados')
+  })
+
+  it('Abre hoy, dieta, precio y exclude mantienen los grupos', async () => {
+    const open = places.map((place) => ({ ...place, hours: everyDay('08:00', '23:00'), diet: { ...place.diet, vegan: 'has_options' as const }, price: 'low' as const }))
+    const { store } = fakeStore(open)
+    for (const filters of ['open:today', 'diet:vegan']) {
+      const response = await runSearch('comer', { store, cache: fakeCache().cache }, { now, debug: true, filters })
+      expect(response.debug?.sections.notGrouped, filters).toBeNull()
+      expect(response.sections, filters).not.toBeNull()
+    }
+    const cache = fakeCache(llmOutput({
+      must: { categories: [], tags: [], diet: { vegan: false, vegetarian: false, glutenFree: false }, neighborhoods: [], price: ['low'], openAt: null },
+      exclude: { categories: [], tags: ['grilled_meat'] },
+    })).cache
+    const response = await runSearch('algo barato sin carne', { store, cache }, { now, debug: true })
+    expect(response.debug?.sections.notGrouped).toBeNull()
+    expect(response.sections).not.toBeNull()
+  })
+
+  it('los sub-filtros (Comer + Desayuno, Bares + Vinos) mantienen los grupos', async () => {
+    const breakfast = await runSearch('', { store: fakeStore(places.map((place) => ({ ...place, tags: [...place.tags, 'breakfast'] }))).store, cache: fakeCache().cache }, {
+      now, debug: true, intent: 'eat', sub: 'breakfast',
+    })
+    expect(breakfast.debug?.sections).toMatchObject({ notGrouped: null, source: 'rules', requested: ['outdoor', 'casual', 'special', 'discover'] })
+    expect(breakfast.sections).not.toBeNull()
+
+    const bars = places.map((place) => ({ ...place, categories: ['bar'], tags: [...place.tags, 'wine'] }))
+    const wine = await runSearch('', { store: fakeStore(bars).store, cache: fakeCache().cache }, { now, debug: true, intent: 'bars', sub: 'wine' })
+    expect(wine.debug?.sections.notGrouped).toBeNull()
+    expect(wine.sections).not.toBeNull()
+  })
+
+  it('los grupos salen de lo filtrado: con Abre hoy, un grupo que no llega a 3 abiertos no aparece', async () => {
+    // 16 lugares, 6 con picada; 4 de ésos no abren el lunes: quedan 12 resultados y 2 para Para compartir.
+    const closedMonday = { slots: [{ day: 3, opens: '08:00', closes: '10:00' }], status: 'exact' as const }
+    const sixteen = Array.from({ length: 16 }, (_, index) => row({
+      id: `s${index}`,
+      categories: ['restaurant'],
+      tags: index % 3 === 0 ? ['picada'] : index % 3 === 1 ? ['japanese'] : ['terrace'],
+      hours: [3, 6, 9, 12].includes(index) ? closedMonday : everyDay('08:00', '23:00'),
+      prominence: 0.5 + index / 50,
+    }))
+    const response = await runSearch('comer', { store: fakeStore(sixteen).store, cache: fakeCache().cache }, { now, debug: true, filters: 'open:today' })
+    expect(response.results).toHaveLength(12)
+    expect(response.debug?.sections.requested).toContain('share')
+    expect(response.debug?.sections.dropped).toContainEqual({ id: 'share', count: 2 })
+    expect(response.sections?.map((section) => section.id)).not.toContain('share')
   })
 })
 

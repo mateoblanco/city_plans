@@ -160,6 +160,23 @@ function reasonColumnWithRelease(released: ReadonlySet<string>, onToggle: (place
   }
 }
 
+/** Encabezado del grupo por motivo en A revisar: el cerrado según Google en español, el resto con su código. */
+function reasonGroup(place: NeighborhoodSweepPlace) {
+  const key = place.reason ?? ''
+  const label = isClosedReason(place.reason)
+    ? CLOSED_REASONS[place.reason]
+    : <span className="font-mono">{place.reason ?? 'Sin motivo'}</span>
+  return { key, label }
+}
+
+/** Ordena por motivo, el más frecuente primero, sin cambiar el orden dentro de cada motivo. */
+function sortByReason(places: NeighborhoodSweepPlace[]) {
+  const counts = new Map<string, number>()
+  for (const place of places) counts.set(place.reason ?? '', (counts.get(place.reason ?? '') ?? 0) + 1)
+  const rank = (place: NeighborhoodSweepPlace) => counts.get(place.reason ?? '') ?? 0
+  return [...places].sort((a, b) => rank(b) - rank(a) || (a.reason ?? '').localeCompare(b.reason ?? ''))
+}
+
 const locationColumn: PlacesTableColumn<NeighborhoodSweepPlace> = {
   header: 'Ubicación',
   cell: (place) =>
@@ -401,14 +418,22 @@ export function NeighborhoodSweepPage() {
   const existingText = existingLabel(existingStatus, existingInView, hideExisting)
   const groupCounts = { accepted: 0, review: 0, rejected: 0 }
   for (const place of locationVisible) if (place.group) groupCounts[place.group] += 1
-  const visiblePlaces = canFilter ? locationVisible.filter((place) => place.group === group) : shownPlaces
+  const groupedByReason = canFilter && group === 'review'
+  const groupPlaces = canFilter ? locationVisible.filter((place) => place.group === group) : shownPlaces
+  const visiblePlaces = groupedByReason ? sortByReason(groupPlaces) : groupPlaces
+  // El motivo va justo después del nombre.
   const tableColumns = [
-    ...columns,
     ...(canFilter && group !== 'accepted' ? [group === 'review' ? reasonColumnWithRelease(releasedIds, toggleReleased) : reasonColumn] : []),
+    ...columns,
     ...(canFilter && !onlyInside ? [locationColumn] : []),
   ]
   const selectable = canFilter && group !== 'rejected'
   const hasBatch = Object.keys(batch.rows).length > 0
+  // Grupos con algún lugar en cola o procesándose: su tab muestra un spinner.
+  const busyGroups = new Set(places.flatMap((place) => {
+    const row = batch.rows[place.placeId]
+    return place.group && row && (row.status === 'queued' || row.status === 'discovering' || row.status === 'running') ? [place.group] : []
+  }))
   const processedCount = Object.values(batch.rows).filter((row) => row.status === 'done' || row.status === 'error').length
   const processedTabOpen = view === 'processed' && canFilter && processedCount > 0
   // En revisión y los que se están descubriendo (aparecen en la revisión mientras cargan).
@@ -582,7 +607,8 @@ export function NeighborhoodSweepPage() {
             </Alert>
           )}
 
-          <div className="overflow-hidden rounded-2xl border bg-background shadow-[0_1px_2px_rgb(0_0_0/0.03)]">
+          {/* overflow-clip y no hidden: hidden haría de contenedor de scroll y el mapa no quedaría sticky. */}
+          <div className="overflow-clip rounded-2xl border bg-background shadow-[0_1px_2px_rgb(0_0_0/0.03)]">
             <div className="flex min-h-16 flex-col justify-center gap-1 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
               <div>
                 <h2 id="sweep-results-title" className="text-sm font-semibold">
@@ -715,7 +741,10 @@ export function NeighborhoodSweepPage() {
                           : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >
-                      {item.label} ({groupCounts[item.id]})
+                      <span className="inline-flex items-center gap-1.5">
+                        {item.label} ({groupCounts[item.id]})
+                        {busyGroups.has(item.id) && <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />}
+                      </span>
                     </button>
                   ))}
                   {reviewTabCount > 0 && (
@@ -729,7 +758,10 @@ export function NeighborhoodSweepPage() {
                           : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >
-                      Revisión de Instagram ({reviewTabCount})
+                      <span className="inline-flex items-center gap-1.5">
+                        Revisión de Instagram ({reviewTabCount})
+                        {batch.running && reviewTabCount > 0 && Object.values(batch.rows).some((row) => row.phase === 'discover' && (row.status === 'queued' || row.status === 'discovering')) && <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />}
+                      </span>
                     </button>
                   )}
                   {processedCount > 0 && (
@@ -743,7 +775,10 @@ export function NeighborhoodSweepPage() {
                           : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >
-                      Procesados ({processedCount})
+                      <span className="inline-flex items-center gap-1.5">
+                        Procesados ({processedCount})
+                        {batch.running && Object.values(batch.rows).some((row) => row.phase !== 'discover' && (row.status === 'queued' || row.status === 'running')) && <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />}
+                      </span>
                     </button>
                   )}
                 </div>
@@ -803,6 +838,11 @@ export function NeighborhoodSweepPage() {
                 running={batch.running}
                 invalidCount={batch.invalidCount}
                 onDraftChange={batch.setDraft}
+                onRemove={(id) => {
+                  // También se deselecciona: si no, "Procesar" lo vuelve a meter en el lote.
+                  batch.remove(id)
+                  setSelectedIds((current) => withoutIds(current, new Set([id])))
+                }}
                 onContinue={() => {
                   setView('processed')
                   void batch.complete()
@@ -845,6 +885,7 @@ export function NeighborhoodSweepPage() {
                       subtitle={(place) => containedInLabel(place, placesById)}
                       highlightedId={showMap ? hoveredId : null}
                       onHover={showMap ? setHoveredId : undefined}
+                      groupBy={groupedByReason ? reasonGroup : undefined}
                       selection={
                         selectable
                           ? {

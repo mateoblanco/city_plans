@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { draft } from './test-fixtures.ts'
 import { computeProminence } from './prominence.ts'
+
+// Lo que vale un lugar sin seguidores en estas pruebas (distinto de 0,5 para que se note).
+const MEDIAN = 0.8
 import { toRow } from './to-row.ts'
 
 describe('toRow', () => {
   it('convierte el place del pipeline en una fila de places sin placeFacts', () => {
-    const row = toRow({ ...draft(), neighborhoodId: 'ciudad_vieja' })
+    const row = toRow({ ...draft(), neighborhoodId: 'ciudad_vieja' }, MEDIAN)
 
     expect(row).toEqual({
       googlePlaceId: 'place-1',
@@ -34,7 +37,7 @@ describe('toRow', () => {
       transitLines: [{ line: '121', stopId: '42', meters: 150 }],
       igFollowers: 999,
       chainBranch: false,
-      prominence: expect.closeTo(computeProminence(draft().signals)),
+      prominence: expect.closeTo(computeProminence(draft().signals, MEDIAN)),
       logoKey: 'logos/place-1-0a1b2c3d.webp',
       logoKind: 'logo',
       logoBgColor: '#ffffff',
@@ -54,7 +57,7 @@ describe('toRow', () => {
     const row = toRow({
       ...draft({ locatedIn: '  ', contact: { instagram: ' ', website: '' }, description: { es: '', en: '' }, embeddingText: '', keywordText: '' }),
       neighborhoodId: 'ciudad_vieja',
-    })
+    }, MEDIAN)
 
     expect(row).toMatchObject({
       locatedIn: null, instagram: null, website: null,
@@ -63,6 +66,6 @@ describe('toRow', () => {
   })
 
   it('sin nombre falla con un error claro', () => {
-    expect(() => toRow({ ...draft({ name: '  ' }), neighborhoodId: 'ciudad_vieja' })).toThrow('Sin nombre: ninguna fuente confirma el nombre')
+    expect(() => toRow({ ...draft({ name: '  ' }), neighborhoodId: 'ciudad_vieja' }, MEDIAN)).toThrow('Sin nombre: ninguna fuente confirma el nombre')
   })
 })

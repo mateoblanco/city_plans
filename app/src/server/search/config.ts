@@ -93,11 +93,11 @@ export const SEARCH_CONFIG = {
   relevance: { maxSemanticGap: 0.08 },
 
   /**
-   * Secciones de las búsquedas amplias: desde cuántos resultados se agrupa, cuántos lugares necesita un grupo y
+   * Secciones de las búsquedas amplias: desde cuántos resultados (después de los filtros) se agrupa, cuántos lugares necesita un grupo y
    * cuántos entran como mucho (el resto va a "Más opciones"), hasta cuántos grupos se muestran y cuántos ids válidos
    * tiene que dar el modelo para no usar las reglas.
    */
-  sections: { minResults: 10, minPlaces: 3, maxPlaces: 6, maxGroups: 5, minRequested: 2 },
+  sections: { minResults: 12, minPlaces: 3, maxPlaces: 6, maxGroups: 5, minRequested: 2 },
 
   /**
    * Likes (cookie espejo de localStorage, sólo en el pedido): el perfil es el promedio de los embeddings de los lugares

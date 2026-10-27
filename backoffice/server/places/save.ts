@@ -10,6 +10,7 @@ import { MISSING_NAME, toRow, type PlaceRow } from './to-row.ts'
 import { slugify } from './slug.ts'
 import { assignBrandKeys, brandSlug, instagramKey, sharedBrandKeys, type BrandRow } from './brand-key.ts'
 import { computeProminence } from './prominence.ts'
+import { drizzleIgMedian } from './list.ts'
 import { parseManualOverrides, type ManualOverrides } from '../../src/data/manual-overrides.ts'
 import { applyOverrides, overridesAffectSearch, placeSearchTexts } from './manual-overrides.ts'
 
@@ -47,6 +48,8 @@ export type PlacesStore = {
   setBrandKey(id: string, brandKey: string | null): Promise<void>
   /** Sólo chain_branch = true y prominence, sin tocar updatedAt: un guardado que pasa a compartir brand_key. */
   setChainBranch(id: string, prominence: number): Promise<void>
+  /** Mediana del término de Instagram de los publicados (`drizzleIgMedian`): la prominence de un lugar sin seguidores. */
+  igMedian(): Promise<number>
 }
 
 export type Embedder = (texts: string[]) => Promise<number[][]>
@@ -80,7 +83,7 @@ export function pipelineStatus(current: Pick<ExistingPlace, 'status' | 'manualOv
  * guardados leídos por Instagram: de esos se conoce el grupo entero. `chains`: los del lote cuya brand_key queda en 2+
  * lugares (sucursales de cadena); `newChains`: los guardados que pasan a serlo. null si no se pudo leer la base.
  */
-async function brandKeysFor(candidates: Prepared[], store: PlacesStore) {
+async function brandKeysFor(candidates: Prepared[], store: PlacesStore, igMedian: number) {
   const batch = candidates.map(({ googlePlaceId, row, current, overrides }) => ({
     googlePlaceId,
     row: {
@@ -123,8 +126,8 @@ async function brandKeysFor(candidates: Prepared[], store: PlacesStore) {
   return {
     batch: new Map(batch.map(({ googlePlaceId, row }) => [googlePlaceId, keys.get(row.id) ?? null])),
     chains: new Set(batch.flatMap(({ googlePlaceId, row }) => shared.has(row.id) ? [googlePlaceId] : [])),
-    newChains: [...known.values()].filter((row) => shared.has(row.id) && !row.chainBranch)
-      .map((row) => ({ id: row.id, prominence: computeProminence({ igFollowers: row.igFollowers ?? null, chainBranch: true }) })),
+    newChains: [...known.values()].filter((row) => shared.has(row.id) && !row.chainBranch && !row.chainLocked)
+      .map((row) => ({ id: row.id, prominence: computeProminence({ igFollowers: row.igFollowers ?? null, chainBranch: true }, igMedian) })),
     others,
   }
 }
@@ -169,11 +172,11 @@ function candidateFrom(result: unknown): Candidate | SavePlaceResult | null {
  * mano en la revisión pasa a ser el override de instagram (pisa al anterior). Si un override cambia lo que entra en
  * la búsqueda, los textos se arman de nuevo con los valores finales: los del borrador son de los automáticos.
  */
-function prepare(candidate: Candidate, current: ExistingPlace | undefined): Prepared {
+function prepare(candidate: Candidate, current: ExistingPlace | undefined, igMedian: number): Prepared {
   const { place, manualInstagram } = candidate
   const base = current?.manualOverrides ?? {}
   const overrides: ManualOverrides = manualInstagram ? { ...base, instagram: manualInstagram.handle } : base
-  let row = applyOverrides(toRow(place), overrides)
+  let row = applyOverrides(toRow(place, igMedian), overrides)
   if (overridesAffectSearch(overrides)) {
     row = { ...row, ...placeSearchTexts({
       name: row.name, neighborhoodId: row.neighborhoodId, descriptionEs: row.descriptionEs ?? null, descriptionEn: row.descriptionEn ?? null,
@@ -207,10 +210,12 @@ export async function savePlaces(results: unknown[], deps: { store: PlacesStore;
   const written = new Map<string, SavePlaceResult>()
   const failed = (googlePlaceId: string, error: unknown) =>
     written.set(googlePlaceId, { googlePlaceId, id: existing.get(googlePlaceId)?.id ?? null, action: 'skipped', embedded: false, error: `No se pudo guardar: ${message(error)}` })
+  // Lo que vale un lugar sin seguidores: una consulta por lote.
+  const igMedian = candidates.length > 0 ? await store.igMedian() : 0
   // Si toRow rechaza un lugar, falla sólo ese y no el lote.
   const prepared = candidates.flatMap((candidate) => {
     try {
-      return [prepare(candidate, existing.get(candidate.googlePlaceId))]
+      return [prepare(candidate, existing.get(candidate.googlePlaceId), igMedian)]
     } catch (error) {
       failed(candidate.googlePlaceId, error)
       return []
@@ -230,7 +235,7 @@ export async function savePlaces(results: unknown[], deps: { store: PlacesStore;
     slugs.set(googlePlaceId, slug)
   }
 
-  const brands = prepared.length > 0 ? await brandKeysFor(prepared, store) : null
+  const brands = prepared.length > 0 ? await brandKeysFor(prepared, store, igMedian) : null
 
   // Embeddings: sólo los que cambiaron de texto, todos en un único llamado.
   const hashes = new Map(prepared.map(({ googlePlaceId, row }) => [googlePlaceId, sha256(row.embeddingText ?? '')]))
@@ -253,9 +258,9 @@ export async function savePlaces(results: unknown[], deps: { store: PlacesStore;
     try {
       // Un brand_key bloqueado ya quedó en la fila final: no lo pisa el agrupado.
       const brandKey = brands && !Object.hasOwn(overrides, 'brand_key') ? { brandKey: brands.batch.get(googlePlaceId) ?? null } : {}
-      // Comparte brand_key con otro lugar: sucursal de cadena, con los seguidores de la marca descontados.
-      const chain = !finalRow.chainBranch && brands?.chains.has(googlePlaceId)
-        ? { chainBranch: true, prominence: computeProminence({ igFollowers: finalRow.igFollowers ?? null, chainBranch: true }) }
+      // Comparte brand_key con otro lugar: sucursal de cadena, con los seguidores de la marca descontados. Salvo a mano.
+      const chain = !finalRow.chainBranch && !Object.hasOwn(overrides, 'chain_branch') && brands?.chains.has(googlePlaceId)
+        ? { chainBranch: true, prominence: computeProminence({ igFollowers: finalRow.igFollowers ?? null, chainBranch: true }, igMedian) }
         : {}
       const row: Omit<NewPlace, 'slug'> = {
         ...finalRow,
@@ -322,6 +327,7 @@ export function drizzlePlacesStore(db: Database): PlacesStore {
         .select({
           id: places.id, name: places.name, neighborhoodId: places.neighborhoodId, instagram: places.instagram, chainBranch: places.chainBranch, brandKey: places.brandKey,
           igFollowers: places.igFollowers, locked: sql<boolean>`${places.manualOverrides} ? 'brand_key'`,
+          chainLocked: sql<boolean>`${places.manualOverrides} ? 'chain_branch'`,
         })
         .from(places)
         .where(or(...conditions))
@@ -332,6 +338,7 @@ export function drizzlePlacesStore(db: Database): PlacesStore {
     async setChainBranch(id, prominence) {
       await db.update(places).set({ chainBranch: true, prominence, updatedAt: places.updatedAt }).where(eq(places.id, id))
     },
+    igMedian: () => drizzleIgMedian(db),
   }
 }
 

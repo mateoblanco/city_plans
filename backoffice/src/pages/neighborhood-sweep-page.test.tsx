@@ -333,7 +333,8 @@ describe('Buscar por barrio', () => {
     expect(within(rejectedTable).queryByRole('button', { name: /Buscar información/ })).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'A revisar (1)' }))
-    expect(within(screen.getAllByRole('table')[0]).getByText('primary_type_missing')).toBeInTheDocument()
+    // En el encabezado del grupo y en la columna Motivo.
+    expect(within(screen.getAllByRole('table')[0]).getAllByText('primary_type_missing')).toHaveLength(2)
 
     expect(screen.getByText('Rechazados (primeros 1 de 1)')).toBeInTheDocument()
     expect(screen.getByText('A revisar (primeros 1 de 1)')).toBeInTheDocument()
@@ -733,8 +734,9 @@ describe('Buscar por barrio', () => {
     expect(await screen.findByLabelText('Recorrido completo')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'A revisar (3)' }))
-    expect(screen.getByText('Cerrado definitivamente según Google')).toBeInTheDocument()
-    expect(screen.getByText('Cerrado temporalmente según Google')).toBeInTheDocument()
+    // En el encabezado del grupo y en la columna Motivo.
+    expect(screen.getAllByText('Cerrado definitivamente según Google')).toHaveLength(2)
+    expect(screen.getAllByText('Cerrado temporalmente según Google')).toHaveLength(2)
     expect(screen.getByLabelText('Seleccionar Cerrado Uno')).toBeDisabled()
     // "Seleccionar todos" sólo toma los que se pueden procesar.
     await user.click(screen.getByLabelText('Seleccionar todos'))
@@ -765,6 +767,49 @@ describe('Buscar por barrio', () => {
 
     await user.click(screen.getByRole('button', { name: /Procesados/ }))
     expect(screen.getByText('Irá a revisión: Todavía no abrió · Sin datos del local: las fuentes eran de otros lugares')).toBeInTheDocument()
+  })
+
+  it('A revisar agrupa por motivo, el más frecuente primero, con el motivo después del nombre y spinner en la tab mientras procesa', async () => {
+    const review = (id: string, reason: string) => ({ ...place, placeId: id, name: `Lugar ${id}`, group: 'review' as const, reason })
+    const items = [review('t1', 'primary_type_missing'), review('f1', 'few_reviews'), review('t2', 'unknown_type:kiosk'), review('f2', 'few_reviews')]
+    let release: () => void = () => {}
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/sweep')) {
+        return ndjson([
+          { type: 'places', items },
+          { type: 'done', summary: summary({ totalPlaces: 4, byGroup: { accepted: 0, review: 4, rejected: 0 } }) },
+        ])
+      }
+      if (url.startsWith('/api/places/exists')) return Promise.resolve(new Response(JSON.stringify({ ids: [] }), { status: 200 }))
+      // El descubrimiento queda pendiente para ver el spinner.
+      return new Promise<Response>((resolve) => {
+        release = () => resolve(new Response(JSON.stringify({ error: { code: 'EXA_PROVIDER_ERROR', message: 'Error de Exa' } }), { status: 502 }))
+      })
+    }))
+    render(<App />)
+    const user = await startSweep()
+    await screen.findByLabelText('Recorrido completo')
+    await user.click(screen.getByRole('button', { name: 'A revisar (4)' }))
+
+    const table = screen.getAllByRole('table')[0]
+    expect(within(table).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual(['', 'Nombre', 'Motivo', 'Categorías', 'Encontrado por'])
+    const rows = within(table).getAllByRole('row').slice(1).map((row) => row.textContent ?? '')
+    expect(rows[0]).toBe('few_reviews · 2')
+    expect(rows[1]).toContain('Lugar f1')
+    expect(rows[2]).toContain('Lugar f2')
+    expect(rows[3]).toBe('primary_type_missing · 1')
+    expect(rows[4]).toContain('Lugar t1')
+    expect(rows[5]).toBe('unknown_type:kiosk · 1')
+    expect(rows[6]).toContain('Lugar t2')
+
+    const tab = screen.getByRole('button', { name: 'A revisar (4)' })
+    expect(tab.querySelector('.animate-spin')).toBeNull()
+    await user.click(screen.getByLabelText('Seleccionar Lugar f1'))
+    await user.click(screen.getByRole('button', { name: 'Procesar (1)' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'A revisar (4)' }).querySelector('.animate-spin')).not.toBeNull())
+    release()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'A revisar (4)' }).querySelector('.animate-spin')).toBeNull())
   })
 
   it('procesa los seleccionados de Aceptados y A revisar con concurrencia 5, estados por fila, reintento y métricas', async () => {
@@ -1073,6 +1118,60 @@ describe('Buscar por barrio', () => {
     await user.click(await screen.findByRole('button', { name: /Aceptados/ }))
     await user.click(screen.getByRole('button', { name: 'Reintentar fallidos (1)' }))
     await waitFor(() => expect(discoverBodies.filter((id) => id === 'fails')).toHaveLength(2))
+  })
+
+  it('quita lugares de la revisión de Instagram: no siguen a la extracción ni quedan seleccionados', async () => {
+    const places = ['a', 'b', 'c'].map((id) => ({ ...place, placeId: id, name: `Lugar ${id}` }))
+    const completed: string[] = []
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const json = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status }))
+      if (url.includes('/sweep')) {
+        return ndjson([
+          { type: 'places', items: places },
+          { type: 'done', summary: summary({ totalPlaces: 3, byGroup: { accepted: 3, review: 0, rejected: 0 } }) },
+        ])
+      }
+      if (url === '/api/extraction-reports') return json({ path: 'output/report.json' })
+      if (url.startsWith('/api/places/exists')) return json({ ids: [] })
+      const body = JSON.parse(String(init?.body)) as { googlePlaceId: string }
+      if (url === '/api/extract/discover') {
+        return json({ googlePlaceId: body.googlePlaceId, costUsd: 0.03, status: 'none', handle: null, doubt: null, candidates: [] })
+      }
+      if (url === '/api/extract/complete') {
+        completed.push(body.googlePlaceId)
+        return json({
+          source: 'llm', status: 'ok', model: 'anthropic/claude-sonnet-5.5',
+          performance: { totalMs: 1000, stepsMs: {}, costUsd: { totalUsd: 0.1, providers: { llm: { costUsd: 0.04 } } } },
+          place: { googlePlaceId: body.googlePlaceId, name: `Lugar ${body.googlePlaceId}`, categories: ['bar'], tags: [], placeFacts: [], hours: { status: 'exact' }, contact: { instagram: null, website: null } },
+          review: { unmappedFacts: [], doubts: [], anomalies: [], hoursRetry: { attempted: false, recovered: false, costUsd: 0 } },
+          sourceAudit: { instagram: false, instagramSelection: { handle: null, origin: null, candidates: [] } },
+        })
+      }
+      throw new Error(`fetch inesperado: ${url}`)
+    }))
+    render(<App />)
+    const user = await startSweep()
+    await screen.findByLabelText('Recorrido completo')
+    await user.click(screen.getByLabelText('Seleccionar todos'))
+    await user.click(screen.getByRole('button', { name: 'Procesar (3)' }))
+
+    const review = await screen.findByRole('table', { name: 'Revisión de Instagram' })
+    await waitFor(() => expect(within(review).getAllByRole('textbox')).toHaveLength(3))
+    // Un Instagram inválido bloquea seguir; al quitar ese lugar se destraba.
+    await user.type(within(review).getByLabelText('Instagram de Lugar a'), 'no es un handle')
+    expect(screen.getByRole('button', { name: 'Continuar con la extracción (3)' })).toBeDisabled()
+    await user.click(within(review).getByRole('button', { name: 'Quitar Lugar a del lote' }))
+    expect(within(review).queryByText('Lugar a')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Revisión de Instagram (2)' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continuar con la extracción (2)' })).toBeEnabled()
+
+    await user.click(screen.getByRole('button', { name: 'Continuar con la extracción (2)' }))
+    await waitFor(() => expect(completed.sort()).toEqual(['b', 'c']))
+
+    // Quedó deseleccionado: "Procesar" no lo vuelve a meter.
+    await user.click(await screen.findByRole('button', { name: /Aceptados/ }))
+    expect(screen.getByRole('button', { name: 'Procesar (2)' })).toBeInTheDocument()
   })
 })
 

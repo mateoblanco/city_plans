@@ -158,6 +158,8 @@ export type PlaceEnrichmentDraft = {
    * Sólo para auditar; no se guarda en la base.
    */
   tagEvidence?: TagEvidence[]
+  /** Web descartada (WhatsApp, reservas, agregador, red, directorio u otro país) con el motivo; no se guarda. */
+  websiteRejected?: { url: string; reason: string; detail: string }
   embeddingText: string
   keywordText: string
 }
@@ -387,6 +389,8 @@ export type PlaceDetail = {
   instagram: string | null
   website: string | null
   brandKey: string | null
+  /** Sucursal de cadena (chain_branch): descuenta la prominencia. */
+  chainBranch: boolean
   featured: boolean
   logoUrl: string | null
   logoKind: LogoKind | null

@@ -44,6 +44,7 @@ type Draft = {
   noInstagram: boolean
   website: string
   brandKey: string
+  chainBranch: boolean
   featured: boolean
   logo: { logo: ManualLogo; url: string | null; classificationUsd: number } | null
 }
@@ -65,6 +66,7 @@ function draftOf(place: PlaceDetail): Draft {
     noInstagram: !place.instagram,
     website: place.website ?? '',
     brandKey: place.brandKey ?? '',
+    chainBranch: place.chainBranch,
     featured: place.featured,
     logo: null,
   }
@@ -102,6 +104,7 @@ function editOf(place: PlaceDetail, draft: Draft): Validated {
   const brandKey = draft.brandKey.trim()
   if (brandKey && !BRAND_KEY.test(brandKey)) errors.brandKey = 'Sólo minúsculas, números y guiones (como cordon-beer).'
   else if ((brandKey || null) !== place.brandKey) edit.brandKey = brandKey || null
+  if (draft.chainBranch !== place.chainBranch) edit.chainBranch = draft.chainBranch
   if (draft.featured !== place.featured) edit.featured = draft.featured
   if (draft.logo) edit.logo = draft.logo.logo
   return { edit, errors }
@@ -415,6 +418,12 @@ function PlaceEditForm({ placeId, onClose, onSaved, onDeleted }: Omit<PlaceEditD
             <datalist id="edit-brand-keys">
               {place!.brandKeys.map((key) => <option key={key} value={key} />)}
             </datalist>
+          </Field>
+          <Field label="Sucursal de cadena" edited={edited('chain_branch')}>
+            <label className="flex h-9 items-center gap-2 text-sm" title="Los seguidores son de la marca: la prominencia se descuenta (×0,85)">
+              <input type="checkbox" className="size-4 accent-primary" checked={draft.chainBranch} disabled={busy} onChange={(event) => update({ chainBranch: event.target.checked })} />
+              Tiene otras sucursales
+            </label>
           </Field>
           <Field label="Destacado">
             <label className="flex h-9 items-center gap-2 text-sm">

@@ -13,6 +13,8 @@ export type BrandRow = {
   igFollowers?: number | null
   /** brand_key editado a mano (manual_overrides): se conserva y, si comparte Instagram, arrastra a los demás. */
   locked?: boolean
+  /** chain_branch editado a mano: compartir brand_key no lo cambia. */
+  chainLocked?: boolean
 }
 
 export type BrandAssignment = {

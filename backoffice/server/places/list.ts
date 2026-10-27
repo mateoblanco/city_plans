@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, ne, or, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, ne, or, sql, type SQL } from 'drizzle-orm'
 import type { NeonHttpDatabase } from 'drizzle-orm/neon-http'
 import type * as schema from '../db/schema.ts'
 import type { PlaceListItem, PlaceListPage, PlaceListQuery } from '../../src/types/places.ts'
@@ -6,6 +6,7 @@ import { editedFields, parseManualOverrides } from '../../src/data/manual-overri
 import { places } from '../db/schema.ts'
 import { logoUrl } from '../providers/logo-storage.ts'
 import { brandSlug, instagramKey } from './brand-key.ts'
+import { medianIgTerm } from './prominence.ts'
 import type { InstagramOwners, ManualInstagramLookup } from '../providers/instagram-candidate-registry.ts'
 import type { BrandSiblings } from '../providers/place-extraction-service.ts'
 
@@ -135,6 +136,13 @@ export function drizzleInstagramOwners(db: NeonHttpDatabase<typeof schema>): Ins
       .where(and(inArray(handle, handles.map((item) => item.toLowerCase())), ne(places.googlePlaceId, exceptPlaceId)))
     return rows.flatMap((row) => row.googlePlaceId ? [{ handle: row.handle, googlePlaceId: row.googlePlaceId, name: row.name }] : [])
   }
+}
+
+/** Mediana del término de Instagram entre los publicados con seguidores: lo que vale un lugar sin dato. Una consulta. */
+export async function drizzleIgMedian(db: NeonHttpDatabase<typeof schema>): Promise<number> {
+  const rows = await db.select({ igFollowers: places.igFollowers }).from(places)
+    .where(and(eq(places.status, 'published'), isNotNull(places.igFollowers)))
+  return medianIgTerm(rows.map((row) => row.igFollowers))
 }
 
 /**

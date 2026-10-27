@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { Fragment, type ReactNode } from 'react'
 import { ArrowUpRight, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -36,6 +36,8 @@ type PlacesTableProps<T extends PlaceSummary> = {
   /** Fila resaltada desde afuera (por ejemplo, el punto del mapa bajo el mouse). */
   highlightedId?: string | null
   onHover?: (placeId: string | null) => void
+  /** Agrupa las filas con un encabezado por grupo; places ya viene ordenado por grupo. */
+  groupBy?: (place: T) => { key: string; label: ReactNode }
 }
 
 export function PlacesTable<T extends PlaceSummary>({
@@ -47,7 +49,11 @@ export function PlacesTable<T extends PlaceSummary>({
   subtitle,
   highlightedId,
   onHover,
+  groupBy,
 }: PlacesTableProps<T>) {
+  const columnCount = columns.length + 1 + (selection ? 1 : 0) + (onSelect ? 1 : 0)
+  const groupSizes = new Map<string, number>()
+  if (groupBy) for (const place of places) groupSizes.set(groupBy(place).key, (groupSizes.get(groupBy(place).key) ?? 0) + 1)
   return (
     <>
       <div className="overflow-x-auto">
@@ -75,9 +81,19 @@ export function PlacesTable<T extends PlaceSummary>({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {places.map((place) => (
+            {places.map((place, index) => {
+              const group = groupBy?.(place)
+              const startsGroup = group && (index === 0 || groupBy!(places[index - 1]).key !== group.key)
+              return (
+              <Fragment key={place.placeId}>
+              {startsGroup && (
+                <TableRow className="bg-muted/25 hover:bg-muted/25">
+                  <TableCell colSpan={columnCount} className="px-4 py-2 text-xs font-medium sm:px-5">
+                    {group.label} <span className="font-normal text-muted-foreground tabular-nums">· {groupSizes.get(group.key)}</span>
+                  </TableCell>
+                </TableRow>
+              )}
               <TableRow
-                key={place.placeId}
                 data-highlighted={place.placeId === highlightedId || undefined}
                 className="data-highlighted:bg-muted"
                 onMouseEnter={onHover ? () => onHover(place.placeId) : undefined}
@@ -131,7 +147,9 @@ export function PlacesTable<T extends PlaceSummary>({
                       </TableCell>
                     )}
                   </TableRow>
-            ))}
+              </Fragment>
+              )
+            })}
           </TableBody>
         </Table>
       </div>

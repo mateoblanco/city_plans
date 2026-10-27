@@ -1,5 +1,5 @@
 import { SECTIONS, type SectionId } from '@shared/sections.ts'
-import type { IntentId } from '@shared/intents.ts'
+import { intentDef, type IntentId } from '@shared/intents.ts'
 import { SEARCH_CONFIG } from './config'
 import type { Fused } from './fuse'
 import type { Interpretation, Lang } from './interpretation'
@@ -27,30 +27,36 @@ export type SectionsDebug = {
 const MORE_TITLE: Record<Lang, string> = { es: 'Más opciones', en: 'More options' }
 
 /**
- * Por qué la búsqueda no es amplia (null si lo es): un nombre, un plato o cualquier filtro obligatorio (categoría,
- * tag, dieta, precio, horario, exclude, sub-filtro o la sección de "Ver todos") la vuelven específica. La intención,
- * los momentos y el style en prefer, el barrio, la vibe y "cerca mío" no.
+ * Por qué la búsqueda no es amplia (null si lo es): un nombre, un plato, una categoría o un tag obligatorio (las cocinas
+ * son tags) o la sección de "Ver todos" la vuelven específica. La intención y sus sub-filtros, los momentos y el style
+ * en prefer, el barrio, la dieta, el precio, el horario, los exclude, la vibe y "cerca mío" no: restringen, pero la
+ * búsqueda sigue siendo amplia y los grupos se arman sobre lo que queda.
  */
-export function notBroadReason(value: Interpretation, context: { pinned: boolean; subs: number; section?: boolean }): string | null {
+export function notBroadReason(value: Interpretation, context: { pinned: boolean; section?: boolean }): string | null {
   if (context.pinned || value.nameQuery) return 'nombre'
   if (context.section) return 'sección'
   if (value.dishes.length) return 'plato'
   if (value.must.categories.length) return 'categoría obligatoria'
   if (value.must.tags.length) return 'tag obligatorio'
-  if (Object.values(value.must.diet).some(Boolean)) return 'dieta'
-  if (value.must.price.length) return 'precio'
-  if (value.must.openAt) return 'horario'
-  if (value.exclude.categories.length || value.exclude.tags.length) return 'exclude'
-  if (context.subs) return 'sub-filtro'
   return null
 }
 
-/** Grupos por reglas, en orden de prioridad, según la intención y el momento pedido. */
-const RULES: Record<IntentId | 'none', { groups?: SectionId[]; date?: SectionId[]; base: SectionId[] }> = {
+/** Un sub-filtro activo de la intención y si lo pidió el texto (o sólo la barra). */
+export type SectionSub = { id: string; fromText: boolean }
+
+/**
+ * Grupos por reglas, en orden de prioridad, según la intención, el momento pedido y el sub-filtro de la barra
+ * (moments: desayunar no es "Clásicos uruguayos" ni "Para compartir").
+ */
+const RULES: Record<IntentId | 'none', { groups?: SectionId[]; date?: SectionId[]; base: SectionId[]; moments?: Record<string, SectionId[]> }> = {
   eat: {
     groups: ['share', 'casual', 'world', 'discover'],
     date: ['special', 'world', 'outdoor', 'discover'],
     base: ['world', 'classics', 'share', 'outdoor', 'discover'],
+    moments: {
+      breakfast: ['outdoor', 'casual', 'special', 'discover'],
+      brunch: ['outdoor', 'casual', 'special', 'discover'],
+    },
   },
   bars: {
     groups: ['share', 'live_music', 'casual', 'outdoor', 'discover'],
@@ -65,28 +71,49 @@ const RULES: Record<IntentId | 'none', { groups?: SectionId[]; date?: SectionId[
   },
 }
 
-export function ruleSections(value: Interpretation, intent: IntentId | null): SectionId[] {
+export function ruleSections(value: Interpretation, intent: IntentId | null, subs: string[] = []): SectionId[] {
   const rules = RULES[intent ?? 'none']
   const tags = value.prefer.tags
+  const moment = subs.flatMap((id) => rules.moments?.[id] ?? [])
+  if (moment.length) return [...new Set(moment)]
   return (tags.includes('groups') && rules.groups) || (tags.includes('date') && rules.date) || rules.base
 }
 
-/** Sin el grupo que repite lo pedido: Comer no muestra "Para comer", ni style casual "Descontracturado". */
-function withoutRedundant(ids: SectionId[], value: Interpretation, intent: IntentId | null): SectionId[] {
+/**
+ * Sin el grupo que repite lo pedido: Comer no muestra "Para comer", ni style casual "Descontracturado", ni el sub-filtro
+ * Música en vivo "Con música en vivo" (un grupo con alguna categoría o tag del sub-filtro).
+ */
+function withoutRedundant(ids: SectionId[], value: Interpretation, intent: IntentId | null, subs: string[]): SectionId[] {
+  const subTerms = new Set<string>(
+    intent ? subs.flatMap((id) => {
+      const sub = intentDef(intent).subs[id]
+      return sub ? [...(sub.categories ?? []), ...(sub.tags ?? [])] : []
+    }) : [],
+  )
+  const repeatsSub = (id: SectionId) => {
+    const { match } = SECTIONS[id] as { match: { categories?: string[]; tags?: string[] } }
+    return [...(match.categories ?? []), ...(match.tags ?? [])].some((term) => subTerms.has(term))
+  }
   const redundant = new Set<SectionId>([
     ...(intent === 'eat' ? ['eat' as const] : []),
     ...(intent === 'bars' ? ['drinks' as const] : []),
     ...(value.prefer.style === 'casual' ? ['casual' as const] : []),
     ...(value.prefer.style === 'cuidado' ? ['special' as const] : []),
   ])
-  return ids.filter((id) => !redundant.has(id))
+  return ids.filter((id) => !redundant.has(id) && !repeatsSub(id))
 }
 
-/** Los grupos que pidió el modelo si dio suficientes ids válidos; si no (o sin modelo), los de las reglas. */
-export function requestedSections(value: Interpretation, context: { fromLlm: boolean; intent: IntentId | null }) {
-  const fromLlm = context.fromLlm ? withoutRedundant(value.sections, value, context.intent) : []
+/**
+ * Los grupos que pidió el modelo si dio suficientes ids válidos; si no (o sin modelo), los de las reglas. El modelo
+ * eligió sólo con el texto: con un sub-filtro que viene de la barra (Comer + Desayuno) mandan las reglas.
+ */
+export function requestedSections(value: Interpretation, context: { fromLlm: boolean; intent: IntentId | null; subs?: SectionSub[] }) {
+  const subs = context.subs ?? []
+  const ids = subs.map((sub) => sub.id)
+  const fromBar = subs.some((sub) => !sub.fromText)
+  const fromLlm = context.fromLlm && !fromBar ? withoutRedundant(value.sections, value, context.intent, ids) : []
   if (fromLlm.length >= SEARCH_CONFIG.sections.minRequested) return { source: 'llm' as const, requested: fromLlm }
-  return { source: 'rules' as const, requested: withoutRedundant(ruleSections(value, context.intent), value, context.intent) }
+  return { source: 'rules' as const, requested: withoutRedundant(ruleSections(value, context.intent, ids), value, context.intent, ids) }
 }
 
 /**

@@ -188,9 +188,16 @@ const DIET_WORDS: Record<Lang, Record<DietKey, string>> = {
 
 /**
  * Aviso cuando ni el último recurso encuentra nada: nombra la dieta y/o los exclude que bloquean. La dieta está
- * en la barra de filtros, así que se sugiere sacarla de ahí; los exclude sólo se cambian editando el texto.
+ * en la barra de filtros, así que se sugiere sacarla de ahí; los exclude sólo se cambian editando el texto. Si no
+ * bloquea nada, "Todavía no hay lugares publicados" sólo con la base vacía (published 0); si no, que no se encontró
+ * la consulta.
  */
-export function noMatchNotice(value: Interpretation, blocking: { diet: boolean; exclude: boolean; intent?: boolean }, intent: IntentId | null = null) {
+export function noMatchNotice(
+  value: Interpretation,
+  blocking: { diet: boolean; exclude: boolean; intent?: boolean; published?: number },
+  intent: IntentId | null = null,
+  query = '',
+) {
   const lang = value.language
   const es = lang === 'es'
   const noun = intent ? intentDef(intent).noun[lang] : null
@@ -208,8 +215,11 @@ export function noMatchNotice(value: Interpretation, blocking: { diet: boolean; 
   const notExcluded = excluded.length ? (es ? ` que no sean ${list(excluded, lang, 'ni')}` : ` that aren't ${list(excluded, lang, 'or')}`) : ''
   const filters = list(dietKeys.map((key) => dietLabel(key, lang)), lang, es ? 'o' : 'or')
   const hint = filters ? (es ? ` Probá sacar ${filters} de los filtros.` : ` Try removing ${filters} from the filters.`) : ''
+  const text = query.trim()
   const message = withDiet || notExcluded
     ? es ? `No encontramos ${noun ?? 'lugares'}${withDiet}${notExcluded}.${hint}` : `We couldn't find ${noun ?? 'places'}${withDiet}${notExcluded}.${hint}`
-    : es ? 'Todavía no hay lugares publicados.' : 'There are no published places yet.'
+    : blocking.published === 0 ? es ? 'Todavía no hay lugares publicados.' : 'There are no published places yet.'
+    : text ? es ? `No encontramos lugares para “${text}”. Probá con otras palabras o sacá algún filtro.` : `We couldn't find places for “${text}”. Try other words or remove a filter.`
+    : es ? 'No encontramos lugares con estos filtros. Probá sacar alguno.' : "We couldn't find places with these filters. Try removing one."
   return { what: 'noMatch' as const, message }
 }

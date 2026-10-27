@@ -4,7 +4,7 @@ import { applyOverrides, changedEditFields, mergeEdit, overridesAffectSearch, ty
 
 const current: EditableValues = {
   name: 'El Palenque', tags: ['seafood', 'terrace'], style: 'casual', iconCategory: 'grill', price: 'high',
-  dietVegan: 'unknown', dietVegetarian: 'has_options', dietGlutenFree: 'no', instagram: '@ElPalenque', website: null, brandKey: null,
+  dietVegan: 'unknown', dietVegetarian: 'has_options', dietGlutenFree: 'no', instagram: '@ElPalenque', website: null, brandKey: null, chainBranch: false,
 }
 
 describe('applyOverrides', () => {
@@ -24,6 +24,13 @@ describe('applyOverrides', () => {
       logoKey: logo.key, logoKind: 'logo', logoBgColor: '#ffffff', logoColor: '#000000', logoSource: 'manual', logoFetchedAt: new Date(logo.fetchedAt),
     })
     expect(applyOverrides({ prominence: 0.5 }, { logo })).toEqual({ prominence: 0.5 })
+  })
+
+  it('chain_branch a mano: la prominencia se recalcula con ese valor si vienen los seguidores', () => {
+    expect(applyOverrides({ igFollowers: 10_000, chainBranch: true, prominence: 0.68 }, { chain_branch: false }))
+      .toEqual({ igFollowers: 10_000, chainBranch: false, prominence: expect.closeTo(0.8, 4) })
+    expect(applyOverrides({ igFollowers: null, chainBranch: false, prominence: 0.5 }, { chain_branch: true }))
+      .toEqual({ igFollowers: null, chainBranch: true, prominence: 0.5 })
   })
 
   it('sin overrides devuelve lo mismo', () => {

@@ -14,6 +14,7 @@ import { llmUsageCost, LLM_PRICES_PER_MILLION } from '../providers/place-extract
 import { assignBrandKeys, brandSlug, instagramKey, type BrandRow } from './brand-key.ts'
 import { changedEditFields, mergeEdit, placeSearchTexts } from './manual-overrides.ts'
 import { computeProminence } from './prominence.ts'
+import { drizzleIgMedian } from './list.ts'
 import { instagramProfileUrl } from './refresh-signals.ts'
 import { EMBEDDING_MODEL, type Embedder } from './save.ts'
 import { estimatedEmbeddingUsd } from './search-text-backfill.ts'
@@ -41,6 +42,8 @@ export type EditStore = {
   setBrandKey(id: string, brandKey: string | null): Promise<void>
   /** Sólo chain_branch = true y prominence, sin tocar updatedAt: otro lugar que pasa a compartir brand_key. */
   setChainBranch(id: string, prominence: number): Promise<void>
+  /** Mediana del término de Instagram de los publicados (`drizzleIgMedian`): la prominence de un lugar sin seguidores. */
+  igMedian(): Promise<number>
   delete(id: string): Promise<boolean>
 }
 
@@ -106,6 +109,7 @@ export function toDetail(row: EditRow, brandKeys: string[] = []): PlaceDetail {
     instagram: instagramKey(row.instagram),
     website: row.website,
     brandKey: row.brandKey,
+    chainBranch: row.chainBranch,
     featured: row.featured,
     logoUrl: logoUrl(row.logoKey),
     logoKind: row.logoKind,
@@ -168,17 +172,23 @@ export async function planEdit(row: EditRow, edit: PlaceEdit, deps: Pick<EditDep
       steps.push({ id: 'brand_keys', label: 'Agrupado de sucursales (brand_key) por el Instagram y sucursal de cadena', costUsd: 0 })
     }
   }
+  if (changed.includes('chainBranch') && !changed.includes('instagram')) {
+    steps.push({ id: 'prominence', label: edit.chainBranch ? 'Sucursal de cadena: prominencia con el descuento (×0,85)' : 'No es sucursal de cadena: prominencia sin descuento', costUsd: 0 })
+    if (!changed.includes('brandKey') && !Object.hasOwn(row.manualOverrides, 'brand_key')) {
+      steps.push({ id: 'brand_keys', label: 'Agrupado de sucursales (brand_key) por sucursal de cadena', costUsd: 0 })
+    }
+  }
   if (changed.includes('brandKey')) steps.push({ id: 'brand_keys', label: 'Agrupado de sucursales (brand_key) y sucursal de cadena', costUsd: 0 })
   if (steps.length === 0 && changed.length > 0) steps.push({ id: 'column_only', label: 'Sólo se guardan los campos, sin recálculos', costUsd: 0 })
   return { changed, steps, totalUsd: round(steps.reduce((sum, step) => sum + step.costUsd, 0)), instagramOwners }
 }
 
 /** brand_key de este lugar y de los que comparten su Instagram (viejo o nuevo), como en savePlaces. */
-async function brandKeyChanges(row: EditRow, next: { name: string; instagram: string | null; brandKey: string | null; locked: boolean }, store: EditStore) {
+async function brandKeyChanges(row: EditRow, next: { name: string; instagram: string | null; brandKey: string | null; locked: boolean; chainBranch: boolean }, store: EditStore) {
   const handles = [...new Set([instagramKey(row.instagram), instagramKey(next.instagram)].flatMap((handle) => handle ?? []))]
   const saved = (await store.brandRows(handles, [...new Set([row.brandKey, brandSlug(next.name)].flatMap((key) => key ?? []))]))
     .filter((other) => other.id !== row.id)
-  const self: BrandRow = { id: row.id, name: next.name, neighborhoodId: row.neighborhoodId, instagram: next.instagram, chainBranch: row.chainBranch, brandKey: next.brandKey, locked: next.locked }
+  const self: BrandRow = { id: row.id, name: next.name, neighborhoodId: row.neighborhoodId, instagram: next.instagram, chainBranch: next.chainBranch, brandKey: next.brandKey, locked: next.locked }
   const { keys } = assignBrandKeys([self, ...saved])
   const handleSet = new Set(handles)
   return {
@@ -235,25 +245,40 @@ export async function applyEdit(id: string, edit: PlaceEdit, deps: EditDeps, opt
       }
     }
     values.igFollowers = followers
-    values.prominence = computeProminence({ igFollowers: followers, chainBranch: row.chainBranch })
+  }
+  // Una sola consulta por edición, y sólo si hace falta recalcular la prominencia.
+  let igMedian: Promise<number> | undefined
+  const median = () => igMedian ??= store.igMedian()
+  // Seguidores nuevos o sucursal de cadena puesta a mano: la prominencia con los valores finales.
+  if (plan.changed.includes('instagram') || plan.changed.includes('chainBranch')) {
+    const followers = Object.hasOwn(values, 'igFollowers') ? values.igFollowers ?? null : row.igFollowers
+    values.prominence = computeProminence({ igFollowers: followers, chainBranch: Object.hasOwn(values, 'chainBranch') ? values.chainBranch : row.chainBranch }, await median())
   }
 
+  // Con otro Instagram o con la sucursal de cadena puesta a mano, la brand_key se recalcula con la regla de savePlaces.
   let othersBrandKeys: { id: string; brandKey: string | null }[] = []
-  if (plan.changed.includes('instagram') && !Object.hasOwn(overrides, 'brand_key')) {
+  const instagramChanged = plan.changed.includes('instagram')
+  if ((instagramChanged || plan.changed.includes('chainBranch')) && !Object.hasOwn(overrides, 'brand_key')) {
     try {
-      // Sin su key anterior: con otro Instagram puede pasar a otro grupo (o a ninguno).
-      const brands = await brandKeyChanges(row, { name: (values.name as string | undefined) ?? row.name, instagram: edit.instagram ?? null, brandKey: null, locked: false }, store)
-      values.brandKey = brands.self
+      const brands = await brandKeyChanges(row, {
+        name: (values.name as string | undefined) ?? row.name,
+        instagram: instagramChanged ? edit.instagram ?? null : row.instagram,
+        // Sin su key anterior si cambia el Instagram: puede pasar a otro grupo (o a ninguno).
+        brandKey: instagramChanged ? null : row.brandKey,
+        locked: false,
+        chainBranch: Object.hasOwn(values, 'chainBranch') ? Boolean(values.chainBranch) : row.chainBranch,
+      }, store)
+      if (instagramChanged || brands.self !== row.brandKey) values.brandKey = brands.self
       othersBrandKeys = brands.others
     } catch (error) {
       warnings.push(`No se pudo recalcular el agrupado de sucursales: ${message(error)}. Corré yarn brands:backfill.`)
     }
   }
 
-  // Con la brand_key final compartida, este lugar y los otros de la marca son sucursales de cadena. Si queda sola no se
-  // desmarca: no se sabe si la cadena venía del nombre de Google.
+  // Con la brand_key final compartida, este lugar y los otros de la marca son sucursales de cadena, salvo los marcados a
+  // mano. Si queda sola no se desmarca: puede tener evidencia oficial de otras sucursales (chains:backfill lo revisa).
   let newChains: { id: string; prominence: number }[] = []
-  if (plan.changed.includes('instagram') || plan.changed.includes('brandKey')) {
+  if (plan.changed.includes('instagram') || plan.changed.includes('brandKey') || plan.changed.includes('chainBranch')) {
     const finalKey = Object.hasOwn(values, 'brandKey') ? values.brandKey ?? null : row.brandKey
     try {
       const updatedKeys = new Map(othersBrandKeys.map((other) => [other.id, other.brandKey]))
@@ -261,11 +286,12 @@ export async function applyEdit(id: string, edit: PlaceEdit, deps: EditDeps, opt
       const siblings = new Map(read.filter((other) => other.id !== id).map((other) => [other.id, other]))
       const rows = [...siblings.values()].filter((other) => (updatedKeys.has(other.id) ? updatedKeys.get(other.id) : other.brandKey) === finalKey)
       if (rows.length > 0) {
-        if (!row.chainBranch) {
+        if (!row.chainBranch && !Object.hasOwn(overrides, 'chain_branch')) {
           values.chainBranch = true
-          values.prominence = computeProminence({ igFollowers: Object.hasOwn(values, 'igFollowers') ? values.igFollowers ?? null : row.igFollowers, chainBranch: true })
+          values.prominence = computeProminence({ igFollowers: Object.hasOwn(values, 'igFollowers') ? values.igFollowers ?? null : row.igFollowers, chainBranch: true }, await median())
         }
-        newChains = rows.filter((other) => !other.chainBranch).map((other) => ({ id: other.id, prominence: computeProminence({ igFollowers: other.igFollowers ?? null, chainBranch: true }) }))
+        const igMedianValue = await median()
+        newChains = rows.filter((other) => !other.chainBranch && !other.chainLocked).map((other) => ({ id: other.id, prominence: computeProminence({ igFollowers: other.igFollowers ?? null, chainBranch: true }, igMedianValue) }))
       }
     } catch (error) {
       warnings.push(`No se pudo recalcular la sucursal de cadena: ${message(error)}. Corré yarn chains:backfill.`)
@@ -420,6 +446,7 @@ export function drizzleEditStore(db: Database): EditStore {
         .select({
           id: places.id, name: places.name, neighborhoodId: places.neighborhoodId, instagram: places.instagram, chainBranch: places.chainBranch, brandKey: places.brandKey,
           igFollowers: places.igFollowers, locked: sql<boolean>`${places.manualOverrides} ? 'brand_key'`,
+          chainLocked: sql<boolean>`${places.manualOverrides} ? 'chain_branch'`,
         })
         .from(places)
         .where(or(...conditions))
@@ -433,6 +460,7 @@ export function drizzleEditStore(db: Database): EditStore {
     async setChainBranch(id, prominence) {
       await db.update(places).set({ chainBranch: true, prominence, updatedAt: places.updatedAt }).where(eq(places.id, id))
     },
+    igMedian: () => drizzleIgMedian(db),
     async delete(id) {
       const deleted = await db.delete(places).where(eq(places.id, id)).returning({ id: places.id })
       return deleted.length > 0

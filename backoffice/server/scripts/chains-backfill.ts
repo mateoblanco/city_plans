@@ -1,14 +1,15 @@
-// Marca chain_branch en los lugares que comparten brand_key con otro (sucursales de una marca), sin Exa, Apify ni LLM:
-// sólo con lo guardado. Por defecto no escribe: lista cada lugar que pasa a cadena con su prominence antes → después.
-// --write escribe sólo chain_branch y prominence, sin tocar updatedAt. No desmarca: una marca con un solo lugar
-// guardado queda como estaba.
+// Recalcula chain_branch de los lugares guardados con la regla del pipeline, sin Exa, Apify ni LLM: es cadena si
+// comparte brand_key con otro lugar o una fuente oficial del snapshot (la web o el Instagram guardados) muestra varias
+// sucursales. Marca y desmarca. Por defecto no escribe: lista cada lugar que cambia con la evidencia y su prominence
+// antes → después. Sin snapshot ni brand_key compartida, o con chain_branch puesto a mano, no lo toca.
+// --write escribe sólo chain_branch y prominence, sin tocar updatedAt.
 // Uso: yarn chains:backfill [--write]
 import './env.ts'
 import { eq } from 'drizzle-orm'
 import { places } from '../db/schema.ts'
-import { sharedBrandKeys } from '../places/brand-key.ts'
-import { computeProminence } from '../places/prominence.ts'
-import { applyOverrides } from '../places/manual-overrides.ts'
+import { recomputeChains } from '../places/refresh-signals.ts'
+import { drizzleIgMedian } from '../places/list.ts'
+import { readSnapshots } from '../providers/extraction-snapshots.ts'
 import { parseManualOverrides } from '../../src/data/manual-overrides.ts'
 import { neighborhoodDisplayName } from '../../src/data/neighborhood-names.ts'
 
@@ -16,30 +17,30 @@ async function main() {
   const write = process.argv.includes('--write')
   if (!process.env.DATABASE_URL) throw new Error('Falta configurar DATABASE_URL en .env.local.')
   const { db } = await import('../db/index.ts')
-  const rows = await db.select({
-    id: places.id, name: places.name, neighborhoodId: places.neighborhoodId, brandKey: places.brandKey, igFollowers: places.igFollowers,
-    chainBranch: places.chainBranch, prominence: places.prominence, manualOverrides: places.manualOverrides,
-  }).from(places)
+  const rows = (await db.select({
+    id: places.id, googlePlaceId: places.googlePlaceId, name: places.name, neighborhoodId: places.neighborhoodId, instagram: places.instagram,
+    website: places.website, brandKey: places.brandKey, igFollowers: places.igFollowers, chainBranch: places.chainBranch, prominence: places.prominence,
+    manualOverrides: places.manualOverrides,
+  }).from(places)).map((row) => ({ ...row, manualOverrides: parseManualOverrides(row.manualOverrides) }))
 
-  const shared = sharedBrandKeys(rows)
-  const changes = rows.filter((row) => shared.has(row.id) && !row.chainBranch)
-    .map((row) => ({ row, prominence: computeProminence({ igFollowers: row.igFollowers, chainBranch: true }) }))
-    .sort((a, b) => a.row.brandKey!.localeCompare(b.row.brandKey!) || a.row.name.localeCompare(b.row.name))
-
-  for (const { row, prominence } of changes) {
-    const followers = row.igFollowers === null ? 'sin seguidores' : `${row.igFollowers} seg`
-    console.log(`${row.brandKey} · ${row.name} (${neighborhoodDisplayName(row.neighborhoodId) ?? row.neighborhoodId}) · ${followers} · prominence ${row.prominence.toFixed(3)} → ${prominence.toFixed(3)}`)
+  const changes = recomputeChains(rows, await readSnapshots(), await drizzleIgMedian(db))
+    .sort((a, b) => Number(a.after.chainBranch) - Number(b.after.chainBranch) || a.name.localeCompare(b.name))
+  const neighborhood = new Map(rows.map((row) => [row.id, neighborhoodDisplayName(row.neighborhoodId) ?? row.neighborhoodId]))
+  for (const change of changes) {
+    const followers = change.before.igFollowers === null ? 'sin seguidores' : `${change.before.igFollowers} seg`
+    const direction = change.after.chainBranch ? 'false → true ' : 'true → false '
+    console.log(`${direction} ${change.name} (${neighborhood.get(change.id)}) · ${followers} · prominence ${change.before.prominence.toFixed(3)} → ${change.after.prominence.toFixed(3)}`)
+    for (const evidence of change.evidence) console.log(`              ${evidence}`)
   }
-  const already = rows.filter((row) => shared.has(row.id) && row.chainBranch).length
-  console.log(`\n${changes.length} pasan a cadena; ${already} con brand_key compartida ya eran cadena.`)
+  const marked = changes.filter((change) => change.after.chainBranch).length
+  const manual = rows.filter((row) => Object.hasOwn(row.manualOverrides, 'chain_branch')).length
+  console.log(`\n${marked} pasan a cadena, ${changes.length - marked} dejan de serlo, ${rows.length - changes.length} sin cambio (${manual} a mano).`)
   if (!write) {
     console.log('Sin escribir: --write escribe chain_branch y prominence.')
     return
   }
-  for (const { row, prominence } of changes) {
-    await db.update(places)
-      .set({ ...applyOverrides({ chainBranch: true, prominence }, parseManualOverrides(row.manualOverrides)), updatedAt: places.updatedAt })
-      .where(eq(places.id, row.id))
+  for (const change of changes) {
+    await db.update(places).set({ chainBranch: change.after.chainBranch, prominence: change.after.prominence, updatedAt: places.updatedAt }).where(eq(places.id, change.id))
   }
   console.log(`Escritos: ${changes.length}.`)
 }
