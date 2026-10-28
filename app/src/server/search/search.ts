@@ -11,6 +11,7 @@ import { summarizeCost, type CostEntry, type SearchCost } from './cost'
 import { collapseBranches } from './branches'
 import { buildChips, type Chip } from './chips'
 import { interpretWithDictionary } from './dictionary'
+import { applyWhen, TIME_WORDS } from './when'
 import { checkMust, intendedDiscards, reportMust, type Discard, type MustCheck } from './invariant'
 import { dishTargetFor, type DishTarget } from './dishes'
 import { applyFilters, filterChipKeys, parseFilters, parseNear, type LatLng } from './filters'
@@ -205,17 +206,18 @@ export function keywordsFor(normalized: string, value: Interpretation, edits: Te
   // Con el atajo, la consulta es lo que pidió la persona (menos lo quitado); con el modelo y chips quitados, sólo los platos.
   const fromQuery = edits.removed && !edits.shortcut ? [] : queryWords(normalized).filter((word) => !edits.removedWords.has(word))
   const words = [...value.dishes.flatMap((dish) => queryWords(normalize(dish.name))), ...fromQuery]
-  // El verbo que eligió la intención ("tomar algo") ya hizo su trabajo: como keyword empata a casi todos.
+  // El verbo que eligió la intención ("tomar algo") ya hizo su trabajo: como keyword empata a casi todos. Las
+  // palabras de horario ("tarde", "martes") ya están en openAt.
   const verb = (word: string) => value.intent !== null && INTENT_VERB_WORDS.has(word)
-  return [...new Set(words)].filter((word) => word.length > 1 && !STOPWORDS.has(word) && !excluded.has(word) && !verb(word))
+  return [...new Set(words)].filter((word) => word.length > 1 && !STOPWORDS.has(word) && !excluded.has(word) && !verb(word) && !TIME_WORDS.has(word))
 }
 
 /**
- * Palabras para buscar por nombre: la consulta sin palabras vacías, sin los verbos de intención ("comer algo" → nada)
- * y sin las de los chips quitados. Sin ninguna, la búsqueda por nombre no corre.
+ * Palabras para buscar por nombre: la consulta sin palabras vacías, sin los verbos de intención ("comer algo" → nada),
+ * sin las de horario ("tarde", "martes") y sin las de los chips quitados. Sin ninguna, la búsqueda por nombre no corre.
  */
 export function nameWordsFor(normalized: string, removedWords: Set<string>): string[] {
-  return [...new Set(queryWords(normalized))].filter((word) => !STOPWORDS.has(word) && !INTENT_VERB_WORDS.has(word) && !removedWords.has(word))
+  return [...new Set(queryWords(normalized))].filter((word) => !STOPWORDS.has(word) && !INTENT_VERB_WORDS.has(word) && !TIME_WORDS.has(word) && !removedWords.has(word))
 }
 
 /**
@@ -369,7 +371,8 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     if (llm.ok) {
       const validation = validateInterpretation(priced('interpret', llm.value).data)
       source = 'llm'
-      original = validation.interpretation
+      // El horario escrito manda sobre el del modelo ("tomar algo tarde" es trasnoche, no 21:00).
+      original = applyWhen(validation.interpretation, normalized)
       discarded = [
         ...validation.discarded.map((value) => ({ value, reason: 'no está en los catálogos' })),
         ...validation.toPrefer.map((value) => ({ value, reason: 'momento: va como preferencia, nunca como filtro' })),
@@ -574,11 +577,15 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   // Se decide si la búsqueda se agrupa sin el perfil, como siempre.
   const likes = (options.likes ?? []).slice(0, SEARCH_CONFIG.personal.maxLikes)
   const nameSearch = pinned !== null || interpretation.nameQuery !== null
+  // Con pocos resultados "has" (los únicos que eligen los bloques), la fila se llevaría casi todo.
+  const hasCount = fused.filter((item) => item.matchLevel === 'has').length
+  const minHas = SEARCH_CONFIG.personal.minHas
   const personalSkipped =
     options.profile === false ? 'profile=off'
     : likes.length === 0 ? 'sin likes'
     : nameSearch ? 'búsqueda por nombre'
     : fused.length === 0 ? 'sin resultados'
+    : hasCount < minHas ? `${hasCount} resultados "has" (mínimo ${minHas})`
     : null
   step = performance.now()
   const likeData = personalSkipped ? null : await deps.store.likeSimilarities(likes, fused.map((item) => item.row.id), 1 - SEARCH_CONFIG.personal.similar.topShare).catch(() => null)

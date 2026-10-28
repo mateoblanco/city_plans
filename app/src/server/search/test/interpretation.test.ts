@@ -4,8 +4,9 @@ import { resolveNeighborhood } from '@shared/neighborhood-aliases.ts'
 import centroids from '@shared/neighborhood-centroids.json'
 import { interpretWithDictionary } from '../dictionary'
 import { dishTarget } from '../dishes'
-import { applyRemove, classifyTerm, parseRemove, validateInterpretation } from '../interpretation'
+import { applyRemove, classifyTerm, emptyInterpretation, parseRemove, validateInterpretation } from '../interpretation'
 import { normalizeQuery } from '../normalize'
+import { applyWhen } from '../when'
 import { llmOutput } from './fixtures'
 
 describe('normalizeQuery', () => {
@@ -31,6 +32,49 @@ describe('barrios', () => {
     for (const alias of ['prado', 'rodo', 'parque batlle', 'capurro', 'maronas', 'penarol', 'villa munoz', 'old town']) {
       expect(NEIGHBORHOOD_NAMES).toHaveProperty([resolveNeighborhood(alias)!])
     }
+  })
+})
+
+describe('horario del texto', () => {
+  it('"tarde" con bares es trasnoche: late_night y 23:30 del día pedido (o de hoy)', () => {
+    const martes = interpretWithDictionary('tomar algo tarde un martes')
+    expect(martes?.intent).toBe('bars')
+    expect(martes?.prefer.tags).toContain('late_night')
+    expect(martes?.must.openAt).toEqual({ day: 2, time: '23:30' })
+    const hoy = interpretWithDictionary('salir tarde hoy')
+    expect(hoy?.intent).toBe('bars')
+    expect(hoy?.prefer.tags).toContain('late_night')
+    expect(hoy?.must.openAt).toEqual({ day: null, time: '23:30' })
+    expect(interpretWithDictionary('unos tragos tarde esta noche')?.must.openAt).toEqual({ day: null, time: '23:30' })
+  })
+
+  it('las franjas: a la tarde 17:00, a la noche 21:00; "esta noche" y "hoy" como siempre', () => {
+    const merienda = interpretWithDictionary('merendar a la tarde')
+    expect(merienda?.must.tags).toEqual(['afternoon_snack'])
+    expect(merienda?.must.openAt).toEqual({ day: null, time: '17:00' })
+    expect(merienda?.prefer.tags).not.toContain('late_night')
+    expect(interpretWithDictionary('cafe por la tarde el domingo')?.must.openAt).toEqual({ day: 0, time: '17:00' })
+    expect(interpretWithDictionary('cena el viernes a la noche')?.must.openAt).toEqual({ day: 5, time: '21:00' })
+    expect(interpretWithDictionary('tomar algo esta noche')?.must.openAt).toBe('tonight')
+    expect(interpretWithDictionary('cenar hoy')?.must.openAt).toBe('today')
+  })
+
+  it('"tarde" sin bares y "salir" sin noche no se fuerzan: va al modelo', () => {
+    expect(interpretWithDictionary('comer tarde')).toBeNull()
+    expect(interpretWithDictionary('salir con amigos')).toBeNull()
+    // "abierto hasta tarde" es la frase del catálogo (late_night), no "abierto" + "tarde".
+    expect(interpretWithDictionary('bar abierto hasta tarde')?.must.openAt).toBeNull()
+  })
+
+  it('sobre lo que dijo el modelo: lo escrito manda', () => {
+    const fromLlm = { ...emptyInterpretation(), intent: 'bars' as const, must: { ...emptyInterpretation().must, openAt: { day: 2, time: '21:00' } } }
+    const result = applyWhen(fromLlm, 'tomar algo tarde un martes')
+    expect(result.must.openAt).toEqual({ day: 2, time: '23:30' })
+    expect(result.prefer.tags).toEqual(['late_night'])
+    // Sin horario en el texto, queda lo del modelo (la hora concreta, "a las 22").
+    const hour = { ...fromLlm, must: { ...fromLlm.must, openAt: { day: null, time: '22:00' } } }
+    expect(applyWhen(hour, 'bar a las 22').must.openAt).toEqual({ day: null, time: '22:00' })
+    expect(applyWhen(hour, 'bar el viernes a las 22').must.openAt).toEqual({ day: 5, time: '22:00' })
   })
 })
 

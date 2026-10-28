@@ -35,7 +35,7 @@ export function memoryCache(base: SearchCache = uncached, ttlMs = SEARCH_CONFIG.
     return value
   }
   return {
-    interpret: (normalized) => remember(`i:${normalized}`, () => base.interpret(normalized)),
+    interpret: (normalized) => remember(`i${SEARCH_CONFIG.interpretationCacheVersion}:${normalized}`, () => base.interpret(normalized)),
     embed: (text) => remember(`e:${text}`, () => base.embed(text)),
   }
 }

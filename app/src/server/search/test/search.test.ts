@@ -6,7 +6,7 @@ import { buildChips } from '../chips'
 import { emptyInterpretation } from '../interpretation'
 import { noMatchNotice } from '../relax'
 import { memoryCache } from '../cache'
-import { keywordsFor, runSearch } from '../search'
+import { keywordsFor, nameWordsFor, runSearch } from '../search'
 import { interpretWithDictionary } from '../dictionary'
 import { normalizeQuery } from '../normalize'
 import { everyDay, fakeCache, fakeStore, llmOutput, row } from './fixtures'
@@ -818,6 +818,14 @@ describe('keywords', () => {
     expect(keywords('ir a tomar algo')).toEqual([])
     expect(keywords('grab a drink')).toEqual(['drink'])
     expect(keywords('comer carne')).toEqual(['carne'])
+  })
+
+  it('las palabras de horario ya están en openAt: no van como keyword ni al nombre', () => {
+    expect(keywords('tomar algo tarde un martes')).toEqual([])
+    expect(keywords('cena el viernes a la noche')).toEqual(['cena'])
+    expect(keywords('merendar a la tarde')).toEqual(['merendar'])
+    expect(nameWordsFor('tomar algo tarde un martes', new Set())).toEqual([])
+    expect(nameWordsFor('pizza hoy', new Set())).toEqual(['pizza'])
   })
 
   it('sin intención del texto el verbo sigue siendo keyword; "unas" y "algo" nunca', () => {

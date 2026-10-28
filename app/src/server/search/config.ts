@@ -120,6 +120,8 @@ export const SEARCH_CONFIG = {
     minPlaces: 3,
     maxPlaces: 6,
     forYou: { min: 3, max: 4 },
+    /** Con menos resultados "has" que esto no hay bloques personales: con pocos, la fila se lleva casi todo. */
+    minHas: 12,
     profileThreshold: 0.72,
     similar: { topShare: 0.1, floor: 0.65 },
   },
@@ -144,6 +146,11 @@ export const SEARCH_CONFIG = {
 
   /** La interpretación y el embedding de una consulta duran 24 h en la cache de Next. */
   cacheSeconds: 60 * 60 * 24,
+  /**
+   * Va en la clave de la interpretación cacheada: subirla cuando cambia cómo se interpreta (prompt, schema,
+   * validación) para no usar lo guardado con el criterio viejo. 2: horario del texto ("tarde" con bares).
+   */
+  interpretationCacheVersion: 2,
 
   timeZone: 'America/Montevideo',
   /** Faltando esto o menos para el cierre o la apertura, la card dice "Cierra pronto" / "Abre pronto". */
@@ -152,5 +159,10 @@ export const SEARCH_CONFIG = {
    * "Abre hoy" a la noche (cenar o "esta noche"): abierto en algún momento desde `from`. Antes de `until` (madrugada)
    * todavía es la noche anterior: alcanza con estar abierto ahora.
    */
-  night: { from: '20:00', until: '06:00' },
+  night: { from: '20:00', until: '06:00', late: '23:30' },
+  /**
+   * Horas de las franjas del texto ("a la tarde", "a la noche"). "tarde" con bares es trasnoche: night.late, antes de la
+   * medianoche para que siga siendo el día pedido ("martes 00:00" sería la noche del lunes).
+   */
+  slots: { afternoon: '17:00', night: '21:00' },
 } as const

@@ -82,7 +82,7 @@ export const INTENTS = {
     aliases: ['bar'],
     detect: ['drinks', 'late_night', 'happy_hour', 'after_office', 'vermouth', 'gin', 'whisky', 'cider', 'medio_y_medio'],
     verbs: {
-      es: ['tomar algo', 'salir a tomar algo', 'salir a tomar', 'tomar unas cervezas', 'tomar unas birras', 'unas cervezas', 'unas birras', 'unos tragos', 'tomar unos tragos', 'tomar unos vinos'],
+      es: ['tomar algo', 'salir a tomar algo', 'salir a tomar', 'tomar unas cervezas', 'tomar unas birras', 'unas cervezas', 'unas birras', 'unos tragos', 'tomar unos tragos', 'tomar unos vinos', 'un trago', 'tomar un trago'],
       en: ['grab a drink', 'have drinks', 'have a drink', 'get drinks'],
     },
     subs: {

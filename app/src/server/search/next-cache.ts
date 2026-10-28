@@ -6,14 +6,15 @@ import { embedQuery, type SearchCache } from './cache'
 import { interpretWithLlm } from './llm'
 import { neonPlacesStore } from './store'
 
-// La clave de cada entrada es el argumento: la consulta normalizada o el texto a embeber.
+// La clave de cada entrada son los argumentos: la consulta normalizada (con la versión de la interpretación) o el
+// texto a embeber.
 // expire marca el TTL de 24 h; revalidate tiene que ser menor y renueva en segundo plano.
 const lifetime = { stale: 60 * 60, revalidate: SEARCH_CONFIG.cacheSeconds - 60 * 60, expire: SEARCH_CONFIG.cacheSeconds }
 
-async function cachedInterpretation(normalized: string) {
+async function cachedInterpretation(normalized: string, version: number) {
   'use cache'
   cacheLife(lifetime)
-  cacheTag('search-interpretation')
+  cacheTag('search-interpretation', `search-interpretation-v${version}`)
   return interpretWithLlm(normalized)
 }
 
@@ -32,4 +33,7 @@ export async function publishedNeighborhoods(): Promise<string[]> {
   return neonPlacesStore(getDb()).neighborhoods()
 }
 
-export const nextSearchCache: SearchCache = { interpret: cachedInterpretation, embed: cachedEmbedding }
+export const nextSearchCache: SearchCache = {
+  interpret: (normalized) => cachedInterpretation(normalized, SEARCH_CONFIG.interpretationCacheVersion),
+  embed: cachedEmbedding,
+}

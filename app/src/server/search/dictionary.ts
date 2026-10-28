@@ -2,18 +2,12 @@ import { findDef, isStyleId, normalize, type StyleId } from '@shared/tags.ts'
 import { resolveNeighborhood } from '@shared/neighborhood-aliases.ts'
 import { INTENT_VERBS, type IntentId } from '@shared/intents.ts'
 import { canonicalOf, singularForms } from './dishes'
+import { readWhen, WHEN_PHRASES } from './when'
 import { BEST_WORDS, emptyInterpretation, tidy, type Interpretation, type Price } from './interpretation'
 
 const STOPWORDS_ES = new Set(['en', 'de', 'del', 'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'y', 'o', 'con', 'para', 'por', 'a', 'al', 'zona', 'barrio'])
 const STOPWORDS_EN = new Set(['in', 'at', 'near', 'the', 'a', 'an', 'with', 'for', 'and', 'or', 'of', 'to', 'around', 'area'])
 
-// "Abre hoy": abierto ahora o abre más tarde hoy ("esta noche": a la noche). Otro día ("el sábado") va por DAYS.
-const OPENS_TODAY = new Map<string, ['today' | 'tonight', 'es' | 'en']>([
-  ['abierto ahora', ['today', 'es']], ['abiertos ahora', ['today', 'es']], ['abierto', ['today', 'es']], ['abiertos', ['today', 'es']],
-  ['ahora', ['today', 'es']], ['hoy', ['today', 'es']], ['abre hoy', ['today', 'es']], ['abierto hoy', ['today', 'es']],
-  ['abiertos hoy', ['today', 'es']], ['esta noche', ['tonight', 'es']], ['hoy a la noche', ['tonight', 'es']],
-  ['open now', ['today', 'en']], ['open', ['today', 'en']], ['today', ['today', 'en']], ['open today', ['today', 'en']], ['tonight', ['tonight', 'en']],
-])
 const NEAR_ME = new Map([
   ['cerca mio', 'es'], ['cerca mia', 'es'], ['cerca de mi', 'es'], ['cerca de aca', 'es'], ['near me', 'en'], ['nearby', 'en'],
 ] as const)
@@ -43,11 +37,6 @@ const VERBS = new Map<string, [IntentId, 'es' | 'en']>(INTENT_VERBS.map(([phrase
 type GenericDish = { relatedTags: string[]; relatedCategories: string[]; language: 'es' | 'en' }
 const MEAT = (language: 'es' | 'en'): GenericDish => ({ relatedTags: ['grilled_meat'], relatedCategories: ['grill'], language })
 const GENERIC_DISHES = new Map<string, GenericDish>([['carne', MEAT('es')], ['carnes', MEAT('es')], ['meat', MEAT('en')]])
-
-const DAYS = new Map<string, [number, 'es' | 'en']>([
-  ['domingo', [0, 'es']], ['lunes', [1, 'es']], ['martes', [2, 'es']], ['miercoles', [3, 'es']], ['jueves', [4, 'es']], ['viernes', [5, 'es']], ['sabado', [6, 'es']],
-  ['sunday', [0, 'en']], ['monday', [1, 'en']], ['tuesday', [2, 'en']], ['wednesday', [3, 'en']], ['thursday', [4, 'en']], ['friday', [5, 'en']], ['saturday', [6, 'en']],
-])
 
 const MAX_PHRASE_WORDS = 5
 
@@ -79,8 +68,9 @@ function applyTerm(target: Interpretation, phrase: string): 'es' | 'en' | null |
 const NEGATIONS = new Set(['no', 'ni', 'sin', 'excepto', 'salvo', 'menos', 'not', 'except', 'without'])
 
 /**
- * Atajo sin LLM: si toda la consulta se cubre con barrios, tags, días, "hoy" / "abierto ahora" y palabras vacías,
- * arma la interpretación directamente. Devuelve null en cuanto queda una palabra sin reconocer.
+ * Atajo sin LLM: si toda la consulta se cubre con barrios, tags, horario (when.ts) y palabras vacías,
+ * arma la interpretación directamente. El horario lo resuelve applyWhen al final, con todo el texto. Devuelve null
+ * en cuanto queda una palabra sin reconocer.
  *
  * partial: respaldo cuando el modelo no responde. Toma lo que reconoce e ignora el resto (que igual cuenta
  * para el embedding y las palabras clave); lo que sigue a una negación suelta se descarta.
@@ -92,6 +82,8 @@ export function interpretWithDictionary(normalized: string, { partial = false }:
   const votes = { es: 0, en: 0 }
   let matched = 0
   let negated = false
+  let lateWord = false
+  let outWord = false
 
   for (let index = 0; index < words.length; ) {
     let consumed = 0
@@ -100,25 +92,22 @@ export function interpretWithDictionary(normalized: string, { partial = false }:
     for (let length = Math.min(MAX_PHRASE_WORDS, words.length - index); length >= 1 && consumed === 0; length--) {
       const phrase = words.slice(index, index + length).join(' ')
       const neighborhood = resolveNeighborhood(phrase)
-      const opensToday = OPENS_TODAY.get(phrase)
+      const when = WHEN_PHRASES.get(phrase)
       const nearMe = NEAR_ME.get(phrase as never)
-      const day = DAYS.get(phrase)
       const price = PRICE_WORDS.get(phrase)
       const dateStyle = DATE_STYLES.get(phrase)
       const verb = VERBS.get(phrase)
       const genericDish = GENERIC_DISHES.get(phrase)
       if (neighborhood) {
         target.must.neighborhoods.push(neighborhood)
-      } else if (opensToday) {
-        target.must.openAt = opensToday[0]
-        votes[opensToday[1]]++
+      } else if (when) {
+        // "tarde" suelta sólo se entiende con bares ("tomar algo tarde"); si no, que la lea el modelo.
+        if (when[0].kind === 'late') lateWord = true
+        votes[when[1]]++
       } else if (nearMe) {
         target.unrecognized.push(phrase)
         target.needsLocation = true
         votes[nearMe]++
-      } else if (day) {
-        target.must.openAt = { day: day[0], time: null }
-        votes[day[1]]++
       } else if (price) {
         target.must.price.push(...price[0])
         votes[price[1]]++
@@ -147,6 +136,10 @@ export function interpretWithDictionary(normalized: string, { partial = false }:
         result.wantsBest = true
         const language = BEST_WORDS.get(word)
         if (language) votes[language] += 0.5
+      } else if (word === 'salir') {
+        // "salir" sólo se entiende con un horario de noche ("salir tarde", "salir de noche"): lo decide applyWhen.
+        outWord = true
+        votes.es += 0.5
       } else if (STOPWORDS_ES.has(word)) votes.es += 0.5
       else if (STOPWORDS_EN.has(word)) votes.en += 0.5
       else if (!partial) return null
@@ -161,5 +154,8 @@ export function interpretWithDictionary(normalized: string, { partial = false }:
 
   if (matched === 0 && !partial) return null
   result.language = votes.en > votes.es ? 'en' : 'es'
-  return tidy(result)
+  const timed = readWhen(tidy(result), normalized)
+  // "tarde" o "salir" que el horario no usó (sin bares ni noche) quedan sin reconocer: que la lea el modelo.
+  if (!partial && ((lateWord && !timed.late) || (outWord && !timed.out))) return null
+  return tidy(timed.interpretation)
 }

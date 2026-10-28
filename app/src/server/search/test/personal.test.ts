@@ -184,6 +184,14 @@ describe('sin grupos: "Para vos"', () => {
     expect(response.debug?.personal.groups.find((group) => group.id === 'for_you')?.reason).toMatch(/^0 resultados "has"/)
   })
 
+  it('con menos de 12 resultados "has" no hay bloques personales; desde 12, sí', async () => {
+    const few = await setup(withPizza().slice(0, 11)).search('pizza', { likes: ['c0', 'c1', 'c2'] })
+    expect(few.forYou).toBeNull()
+    expect(few.debug?.personal.skipped).toBe('11 resultados "has" (mínimo 12)')
+    const enough = await setup(withPizza().slice(0, 12)).search('pizza', { likes: ['c0', 'c1', 'c2'] })
+    expect(enough.forYou?.placeIds.length).toBeGreaterThanOrEqual(3)
+  })
+
   it('no aparece en búsquedas por nombre', async () => {
     const { search } = setup(withPizza(), [{ id: 'c3', name: 'c3', similarity: 0.9, wordSimilarity: 0.9 }])
     const response = await search('cafe tres', { likes: ['c0', 'c1', 'c2'] })
