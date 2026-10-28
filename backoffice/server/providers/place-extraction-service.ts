@@ -367,6 +367,7 @@ PASO 2 — el resto del JSON, sólo a partir de facts
 - Un lugar nikkei lleva nikkei y, además, japanese si sirve sushi u otro plato japonés, y peruvian si sirve ceviche u otro plato peruano.
 - features, atmosphere y los goodFor work, solo, after_office y lgbtq_friendly también necesitan un fact que nombre el tag con palabras de esa idea ("tiene terraza", "ideal para trabajar", "ambiente tranquilo"). El RESUMEN ESTRUCTURADO DE EXA no alcanza solo para features, goodFor, offers ni atmosphere: necesitan un fact de otra fuente.
 - atmosphere (quiet, lively, cozy, elegant) sólo con un fact que describa el ambiente del lugar. cozy sólo si la fuente dice textualmente acogedor o cozy: no lo deduzcas de otras palabras. neighborhood_spot (de barrio) sólo si la fuente dice textualmente "bar de barrio", "boliche de barrio", "restaurante de barrio", "bodegón de barrio", "bodegón" o "clásico del barrio": nunca por el precio, la categoría ni la estética.
+- rooftop (azotea), wood_fired_oven (horno a leña) y shared_afternoon_tea (merienda para compartir) sólo si la fuente lo dice textualmente: "rooftop", "azotea" o "terraza en la azotea"; "horno a leña", "pizza a la leña" o "pizzas a la leña" ("carne a la leña" o "parrilla a la leña" no son horno); "merienda para dos", "merienda para compartir" o "tabla de merienda". No los deduzcas de otras palabras.
 - Los momentos de goodFor (groups, date, kids_friendly, celebration, quick) van si un fact los nombra ("ideal para ir con amigos", "para una cita", "menú para chicos") o, por inferencia, sólo con señales concretas en los facts que cites: una señal fuerte, o dos débiles distintas.
   - groups: fuerte: picada o tabla para compartir. Débiles: tapas o platitos para compartir, cerveza tirada, tragos, ambiente animado, música en vivo o DJ, mesas grandes o largas.
   - date: sin señales fuertes. Débiles: ambiente tranquilo, íntimo, vinos o carta de vinos, cocina cuidada o de autor, reservas, ambiente acogedor.
@@ -379,7 +380,7 @@ PASO 2 — el resto del JSON, sólo a partir de facts
 - Si hay facts de bebidas, tiene que haber al menos un tag de bebida. Una mención genérica de tragos o cócteles → classic_cocktails. Tragos propios de la casa, de autor, o cócteles con una base especial (ej. a base de vino) → signature_cocktails.
 - moments: no devuelvas late_night; lo decide el código con los horarios.
 - features: open_kitchen sólo si se menciona una cocina a la vista o abierta; bar_seating sólo si se puede comer en la barra, no por tener una barra para pedir bebidas. delivery y takeaway sólo para comida del local, nunca envíos de una tienda online.
-- Distinguí espacios al aire libre: patio = espacio interno o trasero; terrace = terraza o azotea elevada; sidewalk = mesas en la vereda. No los uses como sinónimos.
+- Distinguí espacios al aire libre: patio = espacio interno o trasero; terrace = terraza elevada; rooftop = azotea (sólo si la fuente dice azotea o rooftop); sidewalk = mesas en la vereda. No los uses como sinónimos.
 - Usá patio, terrace o sidewalk solo si la fuente dice explícitamente patio, terraza/azotea o vereda. Si solo dice al aire libre o mesas afuera sin detalle, usá outdoor.
 - Sesiones de discos o escucha de vinilos → vinyl.
 - Si una fuente dice que solo se paga en efectivo, usá cash_only.
@@ -782,7 +783,7 @@ function displayDayRange(days: number[], language: 'es' | 'en') {
   return language === 'es' ? `${start} a ${end.toLowerCase()}` : `${start} to ${end}`
 }
 
-function displayFromSlots(slots: HoursSlot[]): { es: string; en: string } | null {
+export function displayFromSlots(slots: HoursSlot[]): { es: string; en: string } | null {
   const byDay = new Map<number, HoursSlot[]>()
   for (const slot of slots) byDay.set(slot.day, [...(byDay.get(slot.day) ?? []), slot])
 
@@ -1215,9 +1216,17 @@ export function tagMentioned(id: string, texts: string[]) {
  */
 export const MENTION_PHRASES: Partial<Record<TagId, string[]>> = {
   neighborhood_spot: ['bar de barrio', 'boliche de barrio', 'restaurante de barrio', 'bodegón de barrio', 'bodegón', 'clásico del barrio'],
+  shared_afternoon_tea: ['merienda para dos', 'merienda para compartir', 'tabla de merienda'],
+  wood_fired_oven: ['horno a leña', 'pizza a la leña', 'pizzas a la leña'],
+  rooftop: ['rooftop', 'azotea', 'terraza en la azotea'],
   // "Rusa" suelta es la ensalada rusa, una pareja rusa o un White Russian: la cocina rusa sólo sale por sus platos.
   russian: [],
 }
+
+/** Tags que sólo valen si la fuente dice la frase (label o sinónimo, o la de MENTION_PHRASES): no se deducen. */
+export const LITERAL_TAGS = new Set<string>(['cozy', 'neighborhood_spot', 'shared_afternoon_tea', 'wood_fired_oven', 'rooftop'])
+/** Tags que el código agrega aunque el modelo no los proponga, si una fuente real dice su frase de MENTION_PHRASES. */
+export const SOURCE_TEXT_TAGS = ['neighborhood_spot', 'shared_afternoon_tea', 'wood_fired_oven', 'rooftop'] as const satisfies readonly TagId[]
 
 /** El label o sinónimo del tag (o su frase de MENTION_PHRASES) que aparece en algún texto; null si ninguno. */
 export function tagMention(id: string, texts: string[]): string | null {
@@ -1464,11 +1473,16 @@ function applyConsistencyRules(result: ProcessedExtraction) {
   if (hasMealFood && isOpenAt(slots, 21 * 60)) addUnique(result.tags, 'dinner')
   if (isRestaurant && (slots.some((entry) => minutes(entry.opens) < 13 * 60) || isOpenAt(slots, 13 * 60 + 30))) addUnique(result.tags, 'lunch')
   if (isRestaurant && isOpenAt(slots, 21 * 60 + 30)) addUnique(result.tags, 'dinner')
-  if (slots.some((entry) => {
+  if (lateNightFromSlots(slots)) addUnique(result.tags, 'late_night')
+}
+
+/** Trasnoche (late_night): algún turno cierra entre las 02:00 y las 06:00. Sólo depende del horario. */
+export function lateNightFromSlots(slots: readonly HoursSlot[]) {
+  return slots.some((entry) => {
     if (!entry.closes) return false
     const closes = minutes(entry.closes)
     return closes >= 2 * 60 && closes <= 6 * 60
-  })) addUnique(result.tags, 'late_night')
+  })
 }
 
 // Fijos y celulares: libphonenumber también da por válidos números cortos (UAN) como "2110".
@@ -1809,9 +1823,9 @@ export function postProcess(
   }
   // Un tag que el modelo sólo respaldó con el resumen de Exa se queda si una fuente real (web,
   // Instagram, páginas de Exa) lo nombra: la línea que lo nombra pasa a ser su respaldo.
-  const backedBySourceText = (id: string, field: string) => {
+  const backedBySourceText = (id: string, field: string, accept: (source: Source) => boolean = () => true) => {
     for (const source of sources) {
-      if (source.url === EXA_SUMMARY_URL) continue
+      if (source.url === EXA_SUMMARY_URL || !accept(source)) continue
       const line = source.text.split(/\n|(?<=\.)\s/).find((part) => tagMentioned(id, [part]))
       if (!line) continue
       addCodeFact(field, line, source)
@@ -1831,8 +1845,8 @@ export function postProcess(
     return null
   }
   // Sin facts fuera del resumen de Exa: vale si una fuente real lo nombra (la línea pasa a ser su respaldo).
-  const sourceTextEvidence = (id: string, field: string): TagEvidence | null =>
-    backedBySourceText(id, field) ? { tag: id, mode: 'explicit', signals: [tagMention(id, sources.map((source) => source.text)) ?? id], factIds: lastSupport(field) } : null
+  const sourceTextEvidence = (id: string, field: string, accept?: (source: Source) => boolean): TagEvidence | null =>
+    backedBySourceText(id, field, accept) ? { tag: id, mode: 'explicit', signals: [tagMention(id, sources.map((source) => source.text)) ?? id], factIds: lastSupport(field) } : null
   // Facts citados en un campo que salen del resumen de Exa: sus señales cuentan como débiles.
   const summaryFacts = (field: string) => (support.get(field) ?? []).map((factId) => factsById.get(factId)!).filter((fact) => fact.source.url === EXA_SUMMARY_URL)
   const inferredEvidence = (id: string, signals: SignalMatch[]): TagEvidence => ({
@@ -1850,7 +1864,7 @@ export function postProcess(
     if (signals) return inferredEvidence(id, signals)
     return eligible.length === 0 ? sourceTextEvidence(id, field) : null
   }
-  // cozy y neighborhood_spot no distinguen nada si se deducen: sólo si la fuente dice la frase (acogedor, bar de barrio…).
+  // LITERAL_TAGS (cozy, neighborhood_spot…) no distinguen nada si se deducen: sólo si la fuente dice la frase.
   const literalEvidence = (id: string, field: string, eligible: ValidFact[]) =>
     eligible.length === 0 ? sourceTextEvidence(id, field) : explicitEvidence(id, eligible)
   const gated = (evidence: TagEvidence | null) => {
@@ -1874,15 +1888,27 @@ export function postProcess(
       const field = `${group}.${id}`
       const eligible = (support.get(field) ?? []).map((factId) => factsById.get(factId)!).filter((fact) => fact.source.url !== EXA_SUMMARY_URL)
       if (group === 'goodFor' && isMomentId(id)) return gated(momentEvidence(id, field, eligible))
-      if (id === 'cozy' || id === 'neighborhood_spot') return gated(literalEvidence(id, field, eligible))
+      if (LITERAL_TAGS.has(id)) return gated(literalEvidence(id, field, eligible))
       if (eligible.length === 0) return backedBySourceText(id, field)
       return !MENTION_REQUIRED_GROUPS.has(group) || tagMentioned(id, eligible.map((fact) => fact.text))
     })
   // En una cadena, un feature físico necesita un fact de una fuente que hable de esta sucursal.
     .filter((id) => !chain || !BRANCH_FEATURES.has(id) || (support.get(`features.${id}`) ?? []).some((factId) => branchFact(factsById.get(factId)!))))]
-  // De barrio aunque el modelo no lo proponga: una fuente real (no el resumen de Exa) dice la frase. No es deducción:
-  // sólo las frases de MENTION_PHRASES, y su línea pasa a ser el respaldo.
-  if (!tags.includes('neighborhood_spot') && gated(sourceTextEvidence('neighborhood_spot', 'atmosphere.neighborhood_spot'))) tags.push('neighborhood_spot')
+  // SOURCE_TEXT_TAGS (de barrio, azotea…) aunque el modelo no los proponga: una fuente real (no el resumen de Exa) dice
+  // la frase. No es deducción: sólo las frases de MENTION_PHRASES, y su línea pasa a ser el respaldo. Un feature físico,
+  // en una cadena, sólo de una fuente que habla de esta sucursal.
+  for (const id of SOURCE_TEXT_TAGS) {
+    if (tags.includes(id)) continue
+    const accept = chain && BRANCH_FEATURES.has(id) ? (source: Source) => mentionsBranch(source, target) : undefined
+    if (gated(sourceTextEvidence(id, `${groupOf(id)}.${id}`, accept))) tags.push(id)
+  }
+  // Una azotea es una terraza: el fact de rooftop es su respaldo (buscar "terraza" también la trae).
+  if (tags.includes('rooftop') && !tags.includes('terrace')) {
+    const factIds = support.get('features.rooftop') ?? []
+    tags.push('terrace')
+    support.set('features.terrace', [...new Set([...(support.get('features.terrace') ?? []), ...factIds])])
+    tagEvidence.push({ tag: 'terrace', mode: 'inferred', signals: ['azotea (rooftop)'], factIds })
+  }
   // Un espacio para niños hace al lugar apto niños: el fact de kids_area es su respaldo.
   if (tags.includes('kids_area') && !tags.includes('kids_friendly')) {
     const factIds = support.get('features.kids_area') ?? []
@@ -2170,7 +2196,7 @@ export function withRecoveredHours(data: PlaceExtraction, retry: HoursRetryExtra
  * número, todas las palabras de la calle.
  */
 // Features que dependen del local físico: en una cadena varían de una sucursal a otra.
-const BRANCH_FEATURES = new Set<string>(['terrace', 'sidewalk', 'patio', 'sea_view', 'kids_area', 'accessible', 'pool_table'])
+const BRANCH_FEATURES = new Set<string>(['terrace', 'rooftop', 'wood_fired_oven', 'sidewalk', 'patio', 'sea_view', 'kids_area', 'accessible', 'pool_table'])
 const MULTI_BRANCH_TEXT = /\b(?:sucursales|nuestros locales|nuestras tiendas|todos los locales|otros locales|otras sucursales)\b/
 const MULTI_BRANCH_PATH = /\/(?:store|stores|locales|sucursales|tiendas)\//
 

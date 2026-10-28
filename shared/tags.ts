@@ -108,7 +108,7 @@ export const FOODS = {
   milanesa: tag('Milanesas', 'Milanesas', ['milanesa', 'milanga', 'milanesa napolitana'], ['milanesa', 'breaded steak', 'schnitzel'], 'Breaded meat cutlet, a local staple'),
   empanadas: tag('Empanadas', 'Empanadas', ['empanada', 'empanadas'], ['empanadas', 'turnovers']),
   burgers: tag('Hamburguesas', 'Burgers', ['hamburguesa', 'hamburguesas', 'hamburguesería'], ['burger', 'burgers', 'hamburger']),
-  pizza: tag('Pizza', 'Pizza', ['pizza', 'pizzas', 'fainá', 'muzzarella', 'pizza a la leña'], ['pizza', 'wood-fired pizza']),
+  pizza: tag('Pizza', 'Pizza', ['pizza', 'pizzas', 'fainá', 'muzzarella'], ['pizza']),
   pasta: tag('Pastas', 'Pasta', ['pasta', 'pastas', 'ñoquis', 'ravioles', 'sorrentinos', 'fideos', 'canelones'], ['pasta', 'gnocchi', 'ravioli', 'homemade pasta', 'cannelloni']),
   seafood: tag('Pescados y mariscos', 'Seafood', ['pescado', 'mariscos', 'frutos de mar', 'rabas'], ['seafood', 'fish', 'calamari']),
   sushi: tag('Sushi', 'Sushi', ['sushi', 'rolls', 'nigiri', 'sashimi'], ['sushi', 'rolls', 'sashimi']),
@@ -146,10 +146,11 @@ export const DRINKS = {
 } satisfies TagGroup
 
 export const FEATURES = {
-  terrace: tag('Terraza', 'Terrace', ['terraza', 'azotea'], ['terrace', 'rooftop']),
+  terrace: tag('Terraza', 'Terrace', ['terraza'], ['terrace']),
   sidewalk: tag('Mesas en la vereda', 'Sidewalk tables', ['mesas en la vereda', 'vereda'], ['sidewalk', 'outside tables', 'street-side tables']),
   outdoor: tag('Al aire libre', 'Outdoor seating', ['mesas afuera', 'al aire libre', 'exterior', 'a la sombra'], ['outdoor seating']),
   patio: tag('Patio', 'Patio', ['patio', 'jardín', 'patio interno'], ['patio', 'garden', 'courtyard']),
+  rooftop: tag('Azotea', 'Rooftop', ['rooftop', 'azotea', 'terraza en la azotea'], ['rooftop', 'rooftop bar', 'rooftop terrace']),
   sea_view: tag('Vista al mar', 'Sea view', ['vista al mar', 'frente al mar', 'frente a la rambla', 'sobre la rambla', 'vista al río'], ['sea view', 'ocean view', 'waterfront', 'rambla']),
   live_music: tag('Música en vivo', 'Live music', ['música en vivo', 'bandas', 'bandas en vivo', 'shows', 'toques', 'jazz en vivo', 'tributos musicales'], ['live music', 'live band', 'gigs', 'live jazz']),
   dj: tag('DJ', 'DJ', ['dj', 'djs', 'dj set', 'con dj'], ['dj', 'djs', 'dj set']),
@@ -167,6 +168,7 @@ export const FEATURES = {
   outlets: tag('Enchufes', 'Power outlets', ['enchufes', 'para cargar la compu'], ['power outlets', 'plugs', 'charging']),
   pet_friendly: tag('Pet friendly', 'Pet friendly', ['pet friendly', 'se aceptan perros', 'con mascotas'], ['pet friendly', 'dog friendly', 'dogs allowed']),
   accessible: tag('Accesible', 'Accessible', ['accesible', 'silla de ruedas', 'rampa'], ['wheelchair accessible', 'accessible']),
+  wood_fired_oven: tag('Horno a leña', 'Wood-fired oven', ['horno a leña', 'pizza a la leña', 'pizzas a la leña'], ['wood-fired oven', 'wood-fired pizza']),
   open_kitchen: tag('Cocina a la vista', 'Open kitchen', ['cocina a la vista', 'cocina abierta'], ['open kitchen', 'visible kitchen']),
   bar_seating: tag('Para comer en la barra', 'Bar seating', ['barra central', 'barra larga', 'comer en la barra'], ['bar seating', 'long bar', 'counter']),
   accepts_meal_vouchers: tag('Acepta tickets alimentación', 'Accepts meal vouchers', ['acepta tickets', 'tickets alimentación', 'edenred', 'sodexo', 'pluxee'], ['meal vouchers', 'meal tickets', 'edenred', 'sodexo', 'pluxee']),
@@ -198,7 +200,8 @@ export const ATMOSPHERE = {
 
 export const OFFERS = {
   menu_of_the_day: tag('Menú del día', 'Set lunch', ['menú ejecutivo', 'menú del día', 'plato del día'], ['set lunch', 'lunch special', 'menu of the day']),
-  all_you_can_eat: tag('Tenedor libre', 'All you can eat', ['tenedor libre', 'buffet libre'], ['all you can eat', 'buffet']),
+  all_you_can_eat: tag('Tenedor libre', 'All you can eat', ['tenedor libre', 'buffet libre', 'buffet'], ['all you can eat', 'buffet']),
+  shared_afternoon_tea: tag('Merienda para compartir', 'Shared afternoon tea', ['merienda para dos', 'merienda para compartir', 'tabla de merienda'], ['afternoon tea for two', 'shared afternoon tea']),
   happy_hour: tag('Happy hour', 'Happy hour', ['happy hour', '2x1 en tragos'], ['happy hour', 'drink specials']),
 } satisfies TagGroup
 

@@ -250,6 +250,42 @@ describe('remove', () => {
   })
 })
 
+describe('tenedor libre, horno a leña y azotea', () => {
+  const read = (query: string) => interpretWithDictionary(normalizeQuery(query))
+
+  it('"tenedor libre", "buffet" y "X libre" piden all_you_can_eat', () => {
+    expect(read('tenedor libre')?.must.tags).toEqual(['all_you_can_eat'])
+    expect(read('buffet en pocitos')?.must.tags).toEqual(['all_you_can_eat'])
+    expect(read('buffet')?.language).toBe('es')
+    expect(read('comer libre')?.must.tags).toEqual(['all_you_can_eat'])
+    const sushi = read('sushi libre')
+    expect(sushi?.must.tags).toEqual(['all_you_can_eat'])
+    expect(sushi?.dishes.map((dish) => dish.name)).toEqual(['sushi'])
+    expect(read('parrilla libre')?.must.tags).toContain('all_you_can_eat')
+  })
+
+  it('"libre" fuera de comida no es tenedor libre', () => {
+    expect(read('al aire libre')?.must.tags ?? []).not.toContain('all_you_can_eat')
+    expect(read('al aire libre')?.must.tags).toEqual(['outdoor'])
+    expect(read('barra libre')).toBeNull()
+    expect(interpretWithDictionary('libre de gluten', { partial: true })!.must.tags).toEqual([])
+  })
+
+  it('"pizza a la leña" pide la pizza y el horno a leña; azotea es rooftop, no terrace', () => {
+    const pizza = read('pizza a la leña')
+    expect(pizza?.must.tags).toEqual(['wood_fired_oven'])
+    expect(pizza?.dishes.map((dish) => dish.name)).toEqual(['pizza'])
+    expect(read('horno a leña')?.must.tags).toEqual(['wood_fired_oven'])
+    expect(read('pizzas a la leña')?.must.tags).toEqual(['wood_fired_oven'])
+    // "a la leña" suelto ya no es un sinónimo: una parrilla a la leña no pide horno.
+    expect(interpretWithDictionary(normalizeQuery('parrilla a la leña'), { partial: true })!.must.tags).not.toContain('wood_fired_oven')
+    expect(read('azotea')?.must.tags).toEqual(['rooftop'])
+    expect(read('rooftop')?.must.tags).toEqual(['rooftop'])
+    expect(read('terraza')?.must.tags).toEqual(['terrace'])
+    expect(read('merienda para compartir')?.must.tags).toEqual(['shared_afternoon_tea'])
+  })
+})
+
 describe('diccionario parcial (respaldo sin modelo)', () => {
   it('toma lo reconocido, ignora lo desconocido y lo que sigue a una negación', () => {
     const value = interpretWithDictionary('algo tranqui con terraza en cordon que no sea pizza', { partial: true })!

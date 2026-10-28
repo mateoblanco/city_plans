@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react'
-import { AlertCircle, ChevronLeft, ChevronRight, Database, LoaderCircle, PencilLine, RotateCcw, Search, Send } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, Database, LoaderCircle, PencilLine, RotateCcw, Search, Send } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PlaceEditDialog } from '@/components/place-edit-dialog'
 import { PlaceIcon } from '@/components/place-icon'
 import { PlaceLogo } from '@/components/place-logo'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Table,
@@ -18,8 +19,9 @@ import {
 import { CATEGORIES } from '@/data/tags'
 import { NEIGHBORHOOD_NAMES, neighborhoodDisplayName } from '@/data/neighborhood-names'
 import { reviewReasonLabel } from '@/data/review-reasons'
-import { listSavedPlaces, publishPlace, setPlaceFeatured } from '@/lib/places-api'
-import { PLACE_LIST_CATEGORIES, type PlaceListItem, type PlaceListPage, type PlaceListQuery } from '@/types/places'
+import { PRICE_LEVELS } from '@/data/manual-overrides'
+import { listSavedPlaces, publishPlace, savePlaceEdit, setPlaceFeatured } from '@/lib/places-api'
+import { PLACE_LIST_CATEGORIES, PLACE_LIST_MISSING, type PlaceListItem, type PlaceListMissing, type PlaceListPage, type PlaceListQuery, type PriceLevel } from '@/types/places'
 
 type LoadState =
   | { status: 'loading' }
@@ -33,6 +35,12 @@ const SEARCH_DEBOUNCE_MS = 300
 const STATUS_LABELS: Record<string, string> = { draft: 'Borrador', published: 'Publicado', review: 'A revisar', hidden: 'Oculto' }
 const HOURS_LABELS: Record<string, string> = { exact: 'Exacto', partial: 'Parcial', vague: 'Vago', none: 'Sin horario' }
 const SORT_LABELS: Record<PlaceListQuery['sort'], string> = { recent: 'Más reciente', prominence: 'Prominencia', name: 'Nombre' }
+const MISSING_LABELS: Record<PlaceListMissing, string> = { price: 'Precio', hours: 'Horario', logo: 'Logo', instagram: 'Instagram' }
+const PRICE_LABELS: Record<PriceLevel, string> = { low: '$', moderate: '$$', high: '$$$', very_high: '$$$$', unknown: 'Sin precio' }
+// Sin precio al final, como en la lista de opciones.
+const PRICE_OPTIONS: PriceLevel[] = [...PRICE_LEVELS.filter((id) => id !== 'unknown'), 'unknown']
+// Cuánto queda "Guardado" en la celda.
+const SAVED_FEEDBACK_MS = 2500
 // Los ids del shapefile con su nombre (sin cargar barrios.json, que es el GeoJSON entero).
 const NEIGHBORHOOD_OPTIONS = Object.entries(NEIGHBORHOOD_NAMES)
   .map(([id, name]) => ({ id, name }))
@@ -63,6 +71,9 @@ export function SavedPlacesPage() {
   const [featuredErrors, setFeaturedErrors] = useState<Record<string, string>>({})
   const [publishing, setPublishing] = useState<ReadonlySet<string>>(new Set())
   const [publishErrors, setPublishErrors] = useState<Record<string, string>>({})
+  // Precio editado desde la fila: guardando, guardado (unos segundos) o el error, por id.
+  const [priceStates, setPriceStates] = useState<Record<string, { status: 'saving' } | { status: 'saved' } | { status: 'error'; message: string }>>({})
+  const priceTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
   const [editing, setEditing] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
@@ -126,6 +137,32 @@ export function SavedPlacesPage() {
     }
   }
 
+  useEffect(() => {
+    const timers = priceTimers.current
+    return () => timers.forEach((timer) => clearTimeout(timer))
+  }, [])
+
+  // Optimista, como el destacado: el precio queda enseguida y vuelve al anterior si no se pudo guardar. Se guarda como la
+  // edición del modal (override price), sin abrirlo.
+  async function changePrice(place: PlaceListItem, price: PriceLevel) {
+    if (price === place.price) return
+    clearTimeout(priceTimers.current.get(place.id))
+    updateRow(place.id, { price })
+    setPriceStates((current) => ({ ...current, [place.id]: { status: 'saving' } }))
+    try {
+      const { place: saved } = await savePlaceEdit(place.id, { price })
+      updateRow(place.id, { price: saved.price, editedFields: saved.editedFields })
+      setPriceStates((current) => ({ ...current, [place.id]: { status: 'saved' } }))
+      priceTimers.current.set(place.id, setTimeout(() => {
+        setPriceStates(({ [place.id]: _previous, ...rest }) => rest)
+        priceTimers.current.delete(place.id)
+      }, SAVED_FEEDBACK_MS))
+    } catch (error) {
+      updateRow(place.id, { price: place.price })
+      setPriceStates((current) => ({ ...current, [place.id]: { status: 'error', message: error instanceof Error ? error.message : 'No se pudo guardar el precio.' } }))
+    }
+  }
+
   // Optimista: queda publicado enseguida; vuelve con el error si no se pudo. Después se recarga la página (sale de "A revisar").
   async function publish(place: PlaceListItem) {
     updateRow(place.id, { status: 'published' })
@@ -151,7 +188,8 @@ export function SavedPlacesPage() {
   const tab = tabOf(query.status)
   const reviewTab = tab === 'review'
   const pages = page ? Math.max(1, Math.ceil(page.total / query.pageSize)) : 1
-  const filtered = Boolean(query.q || query.neighborhood || query.category || query.edited || query.noLogo || query.noHours)
+  const filtered = Boolean(query.q || query.neighborhood || query.category || query.edited || query.missing?.length)
+  const missing = query.missing ?? []
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6 lg:px-8 lg:py-14">
@@ -195,14 +233,31 @@ export function SavedPlacesPage() {
             <input type="checkbox" className="size-4 accent-primary" checked={Boolean(query.edited)} onChange={(event) => filter({ edited: event.target.checked || undefined })} />
             Editado a mano
           </label>
-          <label className="flex h-9 items-center gap-2 text-sm">
-            <input type="checkbox" className="size-4 accent-primary" checked={Boolean(query.noLogo)} onChange={(event) => filter({ noLogo: event.target.checked || undefined })} />
-            Sin logo
-          </label>
-          <label className="flex h-9 items-center gap-2 text-sm">
-            <input type="checkbox" className="size-4 accent-primary" checked={Boolean(query.noHours)} onChange={(event) => filter({ noHours: event.target.checked || undefined })} />
-            Sin horario
-          </label>
+          <Popover>
+            <PopoverTrigger render={<Button type="button" variant="outline" className="h-9" aria-label={missing.length ? `Le falta… (${missing.length})` : 'Le falta…'} />}>
+              {missing.length ? `Le falta… (${missing.length})` : 'Le falta…'}
+              <ChevronDown className="size-3.5" aria-hidden="true" />
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-56">
+              <fieldset className="grid gap-2">
+                <legend className="mb-1 text-xs text-muted-foreground">Le falta cualquiera de estos</legend>
+                {PLACE_LIST_MISSING.map((id) => (
+                  <label key={id} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="size-4 accent-primary"
+                      checked={missing.includes(id)}
+                      onChange={(event) => {
+                        const next = event.target.checked ? [...missing, id] : missing.filter((item) => item !== id)
+                        filter({ missing: next.length ? PLACE_LIST_MISSING.filter((item) => next.includes(item)) : undefined })
+                      }}
+                    />
+                    {MISSING_LABELS[id]}
+                  </label>
+                ))}
+              </fieldset>
+            </PopoverContent>
+          </Popover>
         </div>
 
         {notice && (
@@ -282,6 +337,7 @@ export function SavedPlacesPage() {
                       {reviewTab && <TableHead className="px-4 sm:px-5">Motivos</TableHead>}
                       {reviewTab && <TableHead className="px-4 sm:px-5">Acciones</TableHead>}
                       <TableHead className="px-4 sm:px-5">Horario</TableHead>
+                      <TableHead className="px-4 sm:px-5">Precio</TableHead>
                       <TableHead className="px-4 text-center sm:px-5">Embedding</TableHead>
                       <TableHead className="px-4 text-right sm:px-5" aria-sort={query.sort === 'prominence' ? 'descending' : 'none'}>Prominencia</TableHead>
                       <TableHead className="px-4 text-right sm:px-5">Seguidores</TableHead>
@@ -348,6 +404,26 @@ export function SavedPlacesPage() {
                         )}
                         <TableCell className="px-4 py-3 text-muted-foreground sm:px-5">
                           {HOURS_LABELS[place.hoursStatus] ?? place.hoursStatus ?? '—'}
+                        </TableCell>
+                        <TableCell className="px-4 py-3 sm:px-5" onClick={(event) => event.stopPropagation()}>
+                          <select
+                            className="h-8 rounded-lg border bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-60"
+                            value={place.price}
+                            disabled={priceStates[place.id]?.status === 'saving'}
+                            onChange={(event) => void changePrice(place, event.target.value as PriceLevel)}
+                            aria-label={`Precio de ${place.name}`}
+                          >
+                            {PRICE_OPTIONS.map((id) => <option key={id} value={id}>{PRICE_LABELS[id]}</option>)}
+                          </select>
+                          <p className="mt-1 min-h-4 text-xs whitespace-nowrap" aria-live="polite" aria-label={`Guardado del precio de ${place.name}`}>
+                            {priceStates[place.id]?.status === 'saving' && <span className="text-muted-foreground">Guardando…</span>}
+                            {priceStates[place.id]?.status === 'saved' && <span className="text-emerald-700">Guardado</span>}
+                          </p>
+                          {priceStates[place.id]?.status === 'error' && (
+                            <p className="mt-1 max-w-48 text-xs text-destructive" role="alert">
+                              {(priceStates[place.id] as { message: string }).message}
+                            </p>
+                          )}
                         </TableCell>
                         <TableCell className="px-4 py-3 text-center sm:px-5">
                           {place.hasEmbedding

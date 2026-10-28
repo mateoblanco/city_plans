@@ -68,7 +68,7 @@ export type Hours = {
   display?: Localized | null;
   slots: { day: number; opens: string; closes: string | null }[];
   status: "exact" | "partial" | "vague" | "none";
-  source?: "official" | "third_party" | null;
+  source?: "official" | "third_party" | "manual" | null;
   missingReason?: string | null;
 };
 

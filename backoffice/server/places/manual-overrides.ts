@@ -1,7 +1,8 @@
 import { buildEmbeddingText, buildKeywordText, type StyleId, type TagId } from '../../src/data/tags.ts'
 import type { ManualOverrides, PlaceEdit } from '../../src/data/manual-overrides.ts'
-import { searchTextInput } from '../providers/place-extraction-service.ts'
-import type { NewPlace, Place } from '../db/schema.ts'
+import { sameSlots, sortedSlots, type ManualSlot } from '../../src/data/hours-edit.ts'
+import { displayFromSlots, lateNightFromSlots, searchTextInput } from '../providers/place-extraction-service.ts'
+import type { Hours, NewPlace, Place } from '../db/schema.ts'
 import { computeProminence } from './prominence.ts'
 
 // Overrides de un valor: clave de manual_overrides (columna SQL) → key de Drizzle.
@@ -23,6 +24,19 @@ const SCALAR_COLUMNS = {
 
 const LOGO_COLUMNS = ['logoKey', 'logoKind', 'logoBgColor', 'logoColor', 'logoSource', 'logoFetchedAt'] as const
 
+/** Columna hours de un horario cargado a mano: exacto, con display (es/en) y raw armados desde los turnos. */
+export function hoursFromSlots(slots: readonly ManualSlot[]): Hours {
+  const sorted = sortedSlots(slots)
+  const display = displayFromSlots(sorted)
+  return { raw: display?.es ?? null, display, slots: sorted, status: 'exact', source: 'manual', missingReason: null }
+}
+
+/** late_night según los turnos: se agrega o se saca (sólo depende del horario). */
+export function withLateNight(tags: readonly string[], slots: readonly ManualSlot[]): string[] {
+  const rest = tags.filter((id) => id !== 'late_night')
+  return lateNightFromSlots(slots) ? [...rest, 'late_night'] : rest
+}
+
 /** Tags finales: los automáticos sin los sacados a mano, más los agregados. */
 export function applyTagDiff(auto: readonly string[], diff: ManualOverrides['tags']): string[] {
   if (!diff) return [...auto]
@@ -34,7 +48,8 @@ export function applyTagDiff(auto: readonly string[], diff: ManualOverrides['tag
  * Pone los overrides manuales encima de valores automáticos. Única función que lo hace: la usan la re-extracción
  * (savePlaces), extraction:replay, signals:refresh, prominence:recompute y brands:backfill. Sólo toca las claves que
  * vienen en `auto`, así un camino que escribe tres columnas sigue escribiendo esas tres. Con tags, también saca de
- * signature los tags que se sacaron a mano. Con chain_branch a mano, la prominence que viene se recalcula con ese valor
+ * signature los tags que se sacaron a mano. Con el horario a mano, late_night sale de esos turnos (antes del diff de tags,
+ * así un late_night sacado o agregado a mano sigue mandando). Con chain_branch a mano, la prominence que viene se recalcula con ese valor
  * (si hay seguidores): el ×0,85 sigue al override.
  */
 export function applyOverrides<T extends Partial<NewPlace>>(auto: T, overrides: ManualOverrides): T {
@@ -42,6 +57,7 @@ export function applyOverrides<T extends Partial<NewPlace>>(auto: T, overrides: 
   for (const [field, column] of Object.entries(SCALAR_COLUMNS) as [keyof typeof SCALAR_COLUMNS, keyof NewPlace][]) {
     if (Object.hasOwn(auto, column) && Object.hasOwn(overrides, field)) (result as Record<string, unknown>)[column] = overrides[field]
   }
+  if (overrides.hours && Object.hasOwn(auto, 'hours')) result.hours = hoursFromSlots(overrides.hours.slots)
   if (overrides.logo && LOGO_COLUMNS.some((column) => Object.hasOwn(auto, column))) {
     const { key, kind, bgColor, color, source, fetchedAt } = overrides.logo
     Object.assign(result, { logoKey: key, logoKind: kind, logoBgColor: bgColor, logoColor: color, logoSource: source, logoFetchedAt: new Date(fetchedAt) })
@@ -50,8 +66,10 @@ export function applyOverrides<T extends Partial<NewPlace>>(auto: T, overrides: 
   if (Object.hasOwn(overrides, 'chain_branch') && Object.hasOwn(auto, 'prominence') && typeof auto.igFollowers === 'number') {
     result.prominence = computeProminence({ igFollowers: auto.igFollowers, chainBranch: overrides.chain_branch }, auto.prominence ?? 0)
   }
-  if (overrides.tags && auto.tags) {
-    const tags = applyTagDiff(auto.tags, overrides.tags)
+  const autoTags = auto.tags && overrides.hours ? withLateNight(auto.tags, overrides.hours.slots) : auto.tags
+  if (autoTags !== auto.tags) result.tags = autoTags as string[]
+  if (overrides.tags && autoTags) {
+    const tags = applyTagDiff(autoTags, overrides.tags)
     result.tags = tags
     if (auto.signature) result.signature = auto.signature.filter((id) => tags.includes(id))
   }
@@ -85,7 +103,7 @@ export function placeSearchTexts(values: SearchTextValues): { keywordText: strin
 /** Valores de los campos editables tal como están guardados (los finales). */
 export type EditableValues = Pick<Place,
   'name' | 'tags' | 'style' | 'iconCategory' | 'price' | 'dietVegan' | 'dietVegetarian' | 'dietGlutenFree' |
-  'instagram' | 'website' | 'brandKey' | 'chainBranch'>
+  'instagram' | 'website' | 'brandKey' | 'chainBranch' | 'hours'>
 
 // Campo del modal → clave de manual_overrides.
 const EDIT_TO_OVERRIDE = {
@@ -118,6 +136,8 @@ export function changedEditFields(current: EditableValues, edit: PlaceEdit): (ke
       if (!sameTags(current.tags, value as string[])) changed.push(key)
     } else if (key === 'instagram') {
       if (handleOf(current.instagram) !== value) changed.push(key)
+    } else if (key === 'hours') {
+      if (current.hours.source !== 'manual' || !sameSlots(current.hours.slots, edit.hours!.slots)) changed.push(key)
     } else if (key === 'logo' || key === 'featured') {
       changed.push(key)
     } else if ((current as Record<string, unknown>)[key] !== value) {
@@ -139,6 +159,7 @@ export function mergeEdit(overrides: ManualOverrides, current: EditableValues, e
     if (changed.has(key)) (next as Record<string, unknown>)[field] = edit[key]
   }
   if (edit.logo) next.logo = edit.logo
+  if (edit.hours && changed.has('hours')) next.hours = { slots: sortedSlots(edit.hours.slots) }
   if (edit.tags && changed.has('tags')) {
     const added = edit.tags.filter((id) => !current.tags.includes(id))
     const removed = current.tags.filter((id) => !edit.tags!.includes(id as TagId)) as TagId[]

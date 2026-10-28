@@ -12,7 +12,7 @@ import { logoUrl } from '../providers/logo-storage.ts'
 import { fetchPlaceLogo, processLogoImage, type LogoDeps } from '../providers/place-logo.ts'
 import { llmUsageCost, LLM_PRICES_PER_MILLION } from '../providers/place-extraction-service.ts'
 import { assignBrandKeys, brandSlug, instagramKey, type BrandRow } from './brand-key.ts'
-import { changedEditFields, mergeEdit, placeSearchTexts } from './manual-overrides.ts'
+import { changedEditFields, hoursFromSlots, mergeEdit, placeSearchTexts, withLateNight } from './manual-overrides.ts'
 import { computeProminence } from './prominence.ts'
 import { drizzleIgMedian } from './list.ts'
 import { instagramProfileUrl } from './refresh-signals.ts'
@@ -24,7 +24,7 @@ export type EditRow = Pick<Place,
   'id' | 'googlePlaceId' | 'name' | 'neighborhoodId' | 'status' | 'descriptionEs' | 'descriptionEn' | 'locatedIn' |
   'categories' | 'tags' | 'signature' | 'dishes' | 'highlights' | 'dietVegan' | 'dietVegetarian' | 'dietGlutenFree' |
   'price' | 'style' | 'iconCategory' | 'instagram' | 'website' | 'brandKey' | 'featured' | 'logoKey' | 'logoKind' |
-  'logoBgColor' | 'logoColor' | 'logoSource' | 'igFollowers' | 'chainBranch' | 'prominence' | 'embeddingTextHash'> & {
+  'logoBgColor' | 'logoColor' | 'logoSource' | 'igFollowers' | 'chainBranch' | 'prominence' | 'embeddingTextHash' | 'hours'> & {
   manualOverrides: ManualOverrides
 }
 
@@ -118,6 +118,7 @@ export function toDetail(row: EditRow, brandKeys: string[] = []): PlaceDetail {
     logoSource: row.logoSource,
     igFollowers: row.igFollowers,
     prominence: row.prominence,
+    hours: { raw: null, display: null, source: null, ...row.hours, missingReason: (row.hours.missingReason ?? null) as PlaceDetail['hours']['missingReason'] },
     manualOverrides: row.manualOverrides,
     editedFields: editedFields(row.manualOverrides),
     brandKeys,
@@ -132,6 +133,8 @@ function editedValues(row: EditRow, edit: PlaceEdit, changed: readonly (keyof Pl
       values.tags = edit.tags!
       // signature es un subconjunto de tags: un tag sacado a mano sale también de ahí.
       values.signature = row.signature.filter((id) => edit.tags!.includes(id as never))
+    } else if (key === 'hours') {
+      values.hours = hoursFromSlots(edit.hours!.slots)
     } else if (key === 'logo') {
       const logo = edit.logo!
       Object.assign(values, { logoKey: logo.key, logoKind: logo.kind, logoBgColor: logo.bgColor, logoColor: logo.color, logoSource: logo.source, logoFetchedAt: new Date(logo.fetchedAt) })
@@ -139,8 +142,24 @@ function editedValues(row: EditRow, edit: PlaceEdit, changed: readonly (keyof Pl
       (values as Record<string, unknown>)[key] = edit[key]
     }
   }
+  // late_night sale del horario: con los turnos nuevos se agrega o se saca, salvo que esté fijado a mano (en el diff de
+  // tags guardado o en los tags de esta misma edición).
+  if (changed.includes('hours')) {
+    const tags = (values.tags ?? row.tags) as string[]
+    const pinned = row.manualOverrides.tags?.add.includes('late_night') || row.manualOverrides.tags?.remove.includes('late_night')
+      || (changed.includes('tags') && tags.includes('late_night') !== row.tags.includes('late_night'))
+    const next = pinned ? tags : withLateNight(tags, edit.hours!.slots)
+    if (next.includes('late_night') !== tags.includes('late_night')) {
+      values.tags = next as NewPlace['tags']
+      values.signature = row.signature.filter((id) => next.includes(id))
+    }
+  }
   return values
 }
+
+/** Cambia algo de la búsqueda: los campos de SEARCH_FIELDS o los tags por el horario (late_night). */
+const touchesSearch = (row: EditRow, changed: readonly (keyof PlaceEdit)[], values: Partial<NewPlace>) =>
+  changed.some((key) => SEARCH_FIELDS.has(key)) || (values.tags !== undefined && values.tags.includes('late_night') !== row.tags.includes('late_night'))
 
 /**
  * Qué se recalcula al guardar la edición y cuánto cuesta. Si cambia algo de la búsqueda (nombre, tags, cocinas,
@@ -151,8 +170,15 @@ function editedValues(row: EditRow, edit: PlaceEdit, changed: readonly (keyof Pl
 export async function planEdit(row: EditRow, edit: PlaceEdit, deps: Pick<EditDeps, 'store' | 'instagramRunUsd' | 'logo'>): Promise<PlaceEditPlan> {
   const changed = changedEditFields(row, edit)
   const steps: PlaceEditPlan['steps'] = []
-  if (changed.some((key) => SEARCH_FIELDS.has(key))) {
-    const values = { ...row, ...editedValues(row, edit, changed) } as EditRow
+  const edited = editedValues(row, edit, changed)
+  if (changed.includes('hours')) {
+    steps.push({ id: 'hours', label: 'Horario manual (exacto); el texto del horario sale de los turnos', costUsd: 0 })
+    if (edited.tags && !changed.includes('tags')) {
+      steps.push({ id: 'late_night', label: edited.tags.includes('late_night') ? 'Trasnoche (late_night): se agrega por el horario nuevo' : 'Trasnoche (late_night): se saca por el horario nuevo', costUsd: 0 })
+    }
+  }
+  if (touchesSearch(row, changed, edited)) {
+    const values = { ...row, ...edited } as EditRow
     const { embeddingText } = placeSearchTexts(values)
     steps.push({ id: 'search_texts', label: 'Texto de búsqueda y búsqueda por palabra (search_tsv)', costUsd: 0 })
     const hash = createHash('sha256').update(embeddingText).digest('hex')
@@ -298,7 +324,7 @@ export async function applyEdit(id: string, edit: PlaceEdit, deps: EditDeps, opt
     }
   }
 
-  if (plan.changed.some((key) => SEARCH_FIELDS.has(key))) {
+  if (touchesSearch(row, plan.changed, values)) {
     const texts = placeSearchTexts({ ...row, ...values } as EditRow)
     Object.assign(values, texts)
     const hash = createHash('sha256').update(texts.embeddingText).digest('hex')
@@ -417,7 +443,7 @@ const EDIT_COLUMNS = {
   iconCategory: places.iconCategory, instagram: places.instagram, website: places.website, brandKey: places.brandKey,
   featured: places.featured, logoKey: places.logoKey, logoKind: places.logoKind, logoBgColor: places.logoBgColor,
   logoColor: places.logoColor, logoSource: places.logoSource, igFollowers: places.igFollowers, chainBranch: places.chainBranch,
-  prominence: places.prominence, embeddingTextHash: places.embeddingTextHash, manualOverrides: places.manualOverrides,
+  prominence: places.prominence, embeddingTextHash: places.embeddingTextHash, hours: places.hours, manualOverrides: places.manualOverrides,
 }
 
 export function drizzleEditStore(db: Database): EditStore {

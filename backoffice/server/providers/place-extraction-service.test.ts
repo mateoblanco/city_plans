@@ -1649,7 +1649,7 @@ describe('PlaceExtractionService', () => {
     expect(SYSTEM_PROMPT).toContain('Una mención genérica de tragos o cócteles → classic_cocktails. Tragos propios de la casa, de autor, o cócteles con una base especial (ej. a base de vino) → signature_cocktails.')
     expect(SYSTEM_PROMPT).toContain('Si solo dice al aire libre o mesas afuera sin detalle, usá outdoor.')
     expect(SYSTEM_PROMPT).toContain('- features: terrace, sidewalk, outdoor, patio')
-    expect(SYSTEM_PROMPT).toContain('Distinguí espacios al aire libre: patio = espacio interno o trasero; terrace = terraza o azotea elevada; sidewalk = mesas en la vereda. No los uses como sinónimos.')
+    expect(SYSTEM_PROMPT).toContain('Distinguí espacios al aire libre: patio = espacio interno o trasero; terrace = terraza elevada; rooftop = azotea (sólo si la fuente dice azotea o rooftop); sidewalk = mesas en la vereda. No los uses como sinónimos.')
     expect(SYSTEM_PROMPT).toContain('Nunca estimes ni inventes horas que no estén en las fuentes.')
     expect(SYSTEM_PROMPT).toContain('no agregues ningún dato que no esté en raw')
     expect(SYSTEM_PROMPT).toContain('vegan no puede ser fully')

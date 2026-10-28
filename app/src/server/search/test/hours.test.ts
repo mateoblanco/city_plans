@@ -66,6 +66,18 @@ describe('openStatus', () => {
   })
 })
 
+describe('horario cargado a mano en el backoffice', () => {
+  it('se lee igual que uno del pipeline: los campos de más (source manual, display, raw) no cambian nada', () => {
+    const manual = { ...lateBar, source: 'manual', missingReason: null, raw: 'Viernes: 20:00–02:00', display: { es: 'Viernes: 20:00–02:00', en: 'Friday: 20:00–02:00' } } as Hours
+    for (const at of [{ day: 5, time: '23:00' }, { day: 6, time: '01:30' }, { day: 6, time: '02:00' }, { day: 5, time: '19:00' }]) {
+      expect(openStatus(manual, at)).toEqual(openStatus(lateBar, at))
+      expect(opensToday(manual, at)).toEqual(opensToday(lateBar, at))
+    }
+    expect(openStateLabel(openStatus(manual, { day: 5, time: '23:00' }), 'es', { day: 5, time: '23:00' }, true)).toBe('Abierto · cierra 02:00')
+    expect(opensToday(manual, { day: 5, time: '19:00' })).toBe('yes')
+  })
+})
+
 describe('nextOpening', () => {
   const label = (hours: Hours, at: { day: number; time: string }, lang: 'es' | 'en' = 'es') =>
     openStateLabel(openStatus(hours, at), lang, at, true, nextOpening(hours, at))

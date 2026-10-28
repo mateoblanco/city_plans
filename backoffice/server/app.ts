@@ -25,7 +25,7 @@ import type { PlacesSaver } from './places/save.ts'
 import type { PlacesReader } from './places/list.ts'
 import { EditError, type PlaceEditor } from './places/edit.ts'
 import { PlaceEdit } from '../src/data/manual-overrides.ts'
-import { PLACE_LIST_CATEGORIES, PLACE_LIST_SORTS } from '../src/types/places.ts'
+import { PLACE_LIST_CATEGORIES, PLACE_LIST_MISSING, PLACE_LIST_SORTS } from '../src/types/places.ts'
 import {
   buildExtractionReport,
   extractionReportRequestSchema,
@@ -126,8 +126,10 @@ const listQuerySchema = z.object({
   category: z.enum(PLACE_LIST_CATEGORIES).optional(),
   status: z.enum(['published', 'review']).optional(),
   edited: z.enum(['1', 'true']).optional().transform((value) => value !== undefined),
-  noLogo: z.enum(['1', 'true']).optional().transform((value) => value !== undefined),
-  noHours: z.enum(['1', 'true']).optional().transform((value) => value !== undefined),
+  // "price,instagram": le falta alguno. Un valor desconocido es un 400, como los demás filtros.
+  missing: z.string().optional()
+    .transform((value) => value ? [...new Set(value.split(',').map((item) => item.trim()).filter(Boolean))] : undefined)
+    .pipe(z.array(z.enum(PLACE_LIST_MISSING)).min(1).optional()),
   sort: z.enum(PLACE_LIST_SORTS).default('recent'),
   page: z.coerce.number().int().min(1).max(10_000).default(1),
   pageSize: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(50),

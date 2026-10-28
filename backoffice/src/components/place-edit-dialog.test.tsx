@@ -13,6 +13,7 @@ const detail = (overrides: Partial<PlaceDetail> = {}): PlaceDetail => ({
   tags: ['seafood', 'terrace', 'italian'], style: 'casual', iconCategory: 'grill', price: 'high', dietVegan: 'unknown', dietVegetarian: 'has_options',
   dietGlutenFree: 'no', instagram: 'elpalenque', website: null, brandKey: null, chainBranch: false, featured: false, logoUrl: null, logoKind: null, logoBgColor: null,
   logoColor: null, logoSource: null, igFollowers: 999, prominence: 0.6, manualOverrides: {}, editedFields: [], brandKeys: ['cordon-beer'],
+  hours: { raw: null, display: null, slots: [{ day: 1, opens: '12:00', closes: '16:00' }], status: 'exact', source: 'official', missingReason: null },
   ...overrides,
 })
 
@@ -142,6 +143,53 @@ describe('PlaceEditDialog', () => {
     await waitFor(() => expect(props.onClose).toHaveBeenCalled())
     expect(bodies('PATCH /api/places/uuid-1')).toEqual([{ edit: { tags: ['terrace', 'italian'], price: 'low' }, confirmSharedInstagram: false }])
     expect(props.onSaved).toHaveBeenCalledWith(expect.objectContaining({ price: 'low' }))
+  })
+
+  it('horario: copia el lunes a los demás días, marca la superposición y guarda los turnos (también uno que cruza la medianoche)', async () => {
+    const { bodies } = fakeApi({
+      'GET /api/places/uuid-1': () => jsonResponse({ place: detail() }),
+      'PATCH /api/places/uuid-1 dry': () => jsonResponse({ plan: plan({ changed: ['hours'], steps: [{ id: 'hours', label: 'Horario manual (exacto); el texto del horario sale de los turnos', costUsd: 0 }] }) }),
+      'PATCH /api/places/uuid-1': () => jsonResponse({ place: detail(), warnings: [] }),
+    })
+    const props = renderDialog()
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('button', { name: 'Copiar lunes a los demás días' }))
+    const saturday = screen.getByRole('group', { name: 'Sábado' })
+    expect(within(saturday).getByLabelText('Sábado, turno 1: abre')).toHaveValue('12:00')
+
+    // Un segundo turno del sábado que se superpone con el primero.
+    await user.click(within(saturday).getByRole('button', { name: 'Sábado: agregar turno' }))
+    const opens = within(saturday).getByLabelText('Sábado, turno 2: abre')
+    const closes = within(saturday).getByLabelText('Sábado, turno 2: cierra')
+    await user.type(opens, '15:00')
+    await user.type(closes, '18:00')
+    expect(within(saturday).getByRole('alert')).toHaveTextContent('Hay turnos superpuestos.')
+    expect(screen.getByRole('button', { name: 'Guardar' })).toBeDisabled()
+
+    await user.clear(opens)
+    await user.type(opens, '20:00')
+    await user.clear(closes)
+    await user.type(closes, '02:00')
+    expect(within(saturday).getByText('(día siguiente)')).toBeTruthy()
+    await user.click(within(screen.getByRole('group', { name: 'Domingo' })).getByRole('checkbox', { name: 'Domingo: cerrado' }))
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Guardar' })).toBeEnabled())
+    await user.click(screen.getByRole('button', { name: 'Guardar' }))
+    await waitFor(() => expect(props.onClose).toHaveBeenCalled())
+    const [{ edit }] = bodies('PATCH /api/places/uuid-1')
+    expect(Object.keys(edit)).toEqual(['hours'])
+    expect(edit.hours.slots).toHaveLength(7)
+    expect(edit.hours.slots).toContainEqual({ day: 6, opens: '20:00', closes: '02:00' })
+    expect(edit.hours.slots.filter((slot: { day: number }) => slot.day === 0)).toEqual([])
+  })
+
+  it('los tags nuevos están en el selector', async () => {
+    fakeApi({ 'GET /api/places/uuid-1': () => jsonResponse({ place: detail({ tags: ['rooftop', 'wood_fired_oven', 'shared_afternoon_tea', 'all_you_can_eat'] }) }) })
+    renderDialog()
+    for (const name of ['Azotea', 'Horno a leña', 'Merienda para compartir', 'Tenedor libre']) {
+      expect(await screen.findByRole('button', { name: `Sacar ${name}` })).toBeTruthy()
+    }
   })
 
   it('un Instagram mal escrito no se puede guardar; "No tiene" lo deja en null', async () => {

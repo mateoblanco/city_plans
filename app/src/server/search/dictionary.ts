@@ -56,6 +56,24 @@ const GENERIC_DISHES = new Map<string, GenericDish>([['carne', MEAT('es')], ['ca
 // dieta. Va antes que "carne" (frase más larga) y que la negación suelta "sin".
 const MEATLESS_PHRASES = new Set(['sin carne', 'sin carnes'])
 
+// "pizza a la leña": el plato pizza y el horno a leña (la frase es sinónimo de wood_fired_oven, que sola perdería la pizza).
+const COMBINED_PHRASES = new Map<string, readonly string[]>(
+  ['pizza a la lena', 'pizzas a la lena'].map((phrase) => [phrase, ['pizza', 'horno a lena']]),
+)
+
+// Tenedor libre dicho con la comida: "sushi libre", "parrilla libre", "comer libre". "libre" suelto, "aire libre",
+// "barra libre" o "libre de gluten" no: lo que va antes de "libre" tiene que ser una comida, una cocina o comer.
+const EAT_WORDS = new Set(['comer', 'comida', 'comidas'])
+const FOOD_GROUPS = new Set(['foods', 'cuisines', 'categories'])
+function allYouCanEatFood(phrase: string): string | null {
+  if (!phrase.endsWith(' libre')) return null
+  const food = phrase.slice(0, -' libre'.length)
+  if (EAT_WORDS.has(food)) return food
+  const found = canonicalOf(food)
+  return found && (FOOD_GROUPS.has(found.group) || found.dish) ? food : null
+}
+export const ALL_YOU_CAN_EAT = 'all_you_can_eat'
+
 const MAX_PHRASE_WORDS = 5
 
 /** Idioma de un sinónimo: en si sólo aparece entre las formas en inglés del tag. */
@@ -117,6 +135,8 @@ export function interpretWithDictionary(normalized: string, { partial = false }:
       const workLunch = WORK_LUNCH_PHRASES.get(phrase)
       const verb = VERBS.get(phrase)
       const genericDish = GENERIC_DISHES.get(phrase)
+      const combined = COMBINED_PHRASES.get(phrase)
+      const freeFood = allYouCanEatFood(phrase)
       if (MEATLESS_PHRASES.has(phrase)) {
         target.exclude.tags.push(MEAT_TAG)
         votes.es++
@@ -148,6 +168,13 @@ export function interpretWithDictionary(normalized: string, { partial = false }:
       } else if (verb) {
         target.intent ??= verb[0]
         votes[verb[1]]++
+      } else if (combined) {
+        for (const part of combined) applyTerm(target, part)
+        votes.es++
+      } else if (freeFood) {
+        if (!EAT_WORDS.has(freeFood)) applyTerm(target, freeFood)
+        target.must.tags.push(ALL_YOU_CAN_EAT)
+        votes.es++
       } else if (genericDish) {
         target.dishes.push({ name: phrase, relatedTags: genericDish.relatedTags, relatedCategories: genericDish.relatedCategories })
         votes[genericDish.language]++
@@ -189,8 +216,8 @@ export function interpretWithDictionary(normalized: string, { partial = false }:
   return tidy(timed.interpretation)
 }
 
-// Lo que el diccionario reconoce seguro y se suma a lo del modelo: comidas del día (requisito, como las pide el
-// modelo) y vista al mar, momentos y lo del almuerzo de trabajo (preferencias).
+// Lo que el diccionario reconoce seguro y se suma a lo del modelo: comidas del día y tenedor libre (requisito, como
+// los pide el modelo) y vista al mar, momentos y lo del almuerzo de trabajo (preferencias).
 const MEAL_TAGS = new Set(['breakfast', 'brunch', 'lunch', 'afternoon_snack', 'dinner'])
 const PREFER_TAGS = new Set<string>(['sea_view', 'menu_of_the_day', ...OCCASION_TAGS])
 
@@ -224,7 +251,7 @@ export function applyDictionary(value: Interpretation, normalized: string): Inte
   const read = interpretWithDictionary(normalized, { partial: true })
   if (!read) return value
   const next: Interpretation = structuredClone(value)
-  next.must.tags.push(...read.must.tags.filter((id) => MEAL_TAGS.has(id)))
+  next.must.tags.push(...read.must.tags.filter((id) => MEAL_TAGS.has(id) || id === ALL_YOU_CAN_EAT))
   next.prefer.tags.push(...read.prefer.tags.filter((id) => PREFER_TAGS.has(id)))
   next.prefer.style ??= read.prefer.style
   next.intent ??= read.intent

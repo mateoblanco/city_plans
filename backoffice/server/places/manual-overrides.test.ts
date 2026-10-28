@@ -5,12 +5,25 @@ import { applyOverrides, changedEditFields, mergeEdit, type EditableValues } fro
 const current: EditableValues = {
   name: 'El Palenque', tags: ['seafood', 'terrace'], style: 'casual', iconCategory: 'grill', price: 'high',
   dietVegan: 'unknown', dietVegetarian: 'has_options', dietGlutenFree: 'no', instagram: '@ElPalenque', website: null, brandKey: null, chainBranch: false,
+  hours: { slots: [{ day: 1, opens: '12:00', closes: '16:00' }], status: 'exact', source: 'official' },
 }
 
 describe('applyOverrides', () => {
   it('pone los campos de un valor encima de lo automático, sólo en las claves que vienen', () => {
     const final = applyOverrides({ name: 'Palenque SA', price: 'low', igFollowers: 10 }, { name: 'El Palenque', price: 'high', style: 'cuidado', instagram: null })
     expect(final).toEqual({ name: 'El Palenque', price: 'high', igFollowers: 10 })
+  })
+
+  it('horario manual: pisa el de la re-extracción y late_night sale de sus turnos, salvo un tag fijado a mano', () => {
+    const extracted = { slots: [{ day: 5, opens: '20:00', closes: '03:00' }], status: 'exact' as const, source: 'official' as const }
+    const hours = { slots: [{ day: 5, opens: '20:00', closes: '23:00' }] }
+    const final = applyOverrides({ hours: extracted, tags: ['seafood', 'late_night'], signature: ['late_night'] }, { hours })
+    expect(final.hours).toMatchObject({ slots: hours.slots, status: 'exact', source: 'manual', raw: 'Viernes: 20:00–23:00' })
+    expect(final.tags).toEqual(['seafood'])
+    expect(applyOverrides({ hours: extracted, tags: ['seafood'] }, { hours: { slots: [{ day: 5, opens: '20:00', closes: '02:00' }] } }).tags).toEqual(['seafood', 'late_night'])
+    expect(applyOverrides({ hours: extracted, tags: ['seafood', 'late_night'] }, { hours, tags: { add: ['late_night'], remove: [] } }).tags).toEqual(['seafood', 'late_night'])
+    // Un camino que no escribe hours ni tags no los toca.
+    expect(applyOverrides({ igFollowers: 3 }, { hours })).toEqual({ igFollowers: 3 })
   })
 
   it('tags: los automáticos sin los sacados, más los agregados; signature sin los sacados', () => {

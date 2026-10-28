@@ -325,6 +325,7 @@ export type PlaceListItem = {
   tags: string[]
   status: string
   hoursStatus: string
+  price: PriceLevel
   updatedAt: string
   hasEmbedding: boolean
   prominence: number
@@ -347,6 +348,9 @@ export type PlaceListItem = {
 
 export const PLACE_LIST_CATEGORIES = ['restaurant', 'bar', 'cafe'] as const
 export const PLACE_LIST_SORTS = ['recent', 'prominence', 'name'] as const
+/** Datos que le pueden faltar a un lugar ("Le falta…"): precio unknown, horario none, sin logo o sin Instagram. */
+export const PLACE_LIST_MISSING = ['price', 'hours', 'logo', 'instagram'] as const
+export type PlaceListMissing = (typeof PLACE_LIST_MISSING)[number]
 
 /** Filtros, orden y página de GET /api/places. */
 export type PlaceListQuery = {
@@ -355,10 +359,8 @@ export type PlaceListQuery = {
   category?: (typeof PLACE_LIST_CATEGORIES)[number]
   status?: 'published' | 'review'
   edited?: boolean
-  /** Sin logo_key. */
-  noLogo?: boolean
-  /** Horario con status none ("Sin horario"). */
-  noHours?: boolean
+  /** Le falta alguno de estos datos (O entre ellos). Un "sin precio" o "No tiene Instagram" a mano también cuenta. */
+  missing?: PlaceListMissing[]
   sort: (typeof PLACE_LIST_SORTS)[number]
   page: number
   pageSize: number
@@ -399,6 +401,8 @@ export type PlaceDetail = {
   logoSource: PlaceLogo['source'] | null
   igFollowers: number | null
   prominence: number
+  /** Horario guardado (columna hours); con source manual, cargado en el modal. */
+  hours: Omit<PlaceEnrichmentDraft['hours'], 'source'> & { source: PlaceEnrichmentDraft['hours']['source'] | 'manual' }
   manualOverrides: ManualOverrides
   editedFields: EditField[]
   /** brand_key de todos los lugares guardados, para sugerir en el modal. */
@@ -416,7 +420,7 @@ export type PlaceEditPlan = {
   /** Campos que cambian respecto de lo guardado. */
   changed: (keyof PlaceEdit)[]
   /** Pasos del recálculo, en el orden en que corren, con su costo (0 = sin llamadas pagas). */
-  steps: { id: 'search_texts' | 'embedding' | 'instagram_profile' | 'logo_classification' | 'prominence' | 'brand_keys' | 'column_only'; label: string; costUsd: number }[]
+  steps: { id: 'hours' | 'late_night' | 'search_texts' | 'embedding' | 'instagram_profile' | 'logo_classification' | 'prominence' | 'brand_keys' | 'column_only'; label: string; costUsd: number }[]
   totalUsd: number
   /** Otros lugares con el Instagram nuevo: hay que confirmar (puede ser otra sucursal). */
   instagramOwners: InstagramOwner[]

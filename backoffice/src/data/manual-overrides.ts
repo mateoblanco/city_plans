@@ -3,6 +3,7 @@ import { STYLE_IDS, TAG_IDS } from './tags.ts'
 import { ICON_CATEGORY_KEYS } from './icon-categories.ts'
 import { REVIEW_REASON_IDS } from './review-reasons.ts'
 import { LOGO_KINDS } from './place-schema.ts'
+import { ManualHours } from './hours-edit.ts'
 
 // Campos que el backoffice edita a mano, guardados en places.manual_overrides (jsonb) con el nombre de la columna SQL.
 // Una clave presente bloquea el campo: ningún camino automático lo cambia (server/places/manual-overrides.ts).
@@ -47,6 +48,8 @@ export const ManualOverrides = z.object({
   // Sucursal de cadena puesta a mano: manda sobre la regla automática (y el ×0,85 de prominencia la sigue).
   chain_branch: z.boolean().optional(),
   logo: ManualLogo.optional(),
+  // Turnos cargados a mano; la columna hours guarda el horario entero (display y raw salen de los turnos).
+  hours: ManualHours.optional(),
 
   tags: z.object({ add: z.array(z.enum(TAG_IDS)), remove: z.array(z.enum(TAG_IDS)) }).optional(),
 })
@@ -58,7 +61,7 @@ export type OverrideField = keyof ManualOverrides
 /** Campos que cuentan como "editado a mano": Publicar y los motivos de revisión son decisiones de status, no edición. */
 export const EDIT_FIELDS = [
   'name', 'tags', 'style', 'icon_category', 'price', 'diet_vegan', 'diet_vegetarian', 'diet_gluten_free',
-  'instagram', 'website', 'brand_key', 'chain_branch', 'logo',
+  'instagram', 'website', 'brand_key', 'chain_branch', 'logo', 'hours',
 ] as const satisfies readonly OverrideField[]
 export type EditField = (typeof EDIT_FIELDS)[number]
 
@@ -101,6 +104,7 @@ export const PlaceEdit = z.object({
   brandKey: ManualOverrides.shape.brand_key,
   chainBranch: ManualOverrides.shape.chain_branch,
   logo: ManualLogo.optional(),
+  hours: ManualHours.optional(),
   featured: z.boolean().optional(),
 }).strict()
 

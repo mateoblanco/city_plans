@@ -5,12 +5,14 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import { HoursEditor } from '@/components/hours-editor'
 import { PlaceLogo } from '@/components/place-logo'
 import { TagPicker } from '@/components/tag-picker'
 import { ICON_CATEGORIES, type IconCategory } from '@/data/icon-categories'
 import { neighborhoodDisplayName } from '@/data/neighborhood-names'
 import { CUISINES, STYLES, TAG_GROUPS, groupOf, type StyleId, type TagId } from '@/data/tags'
 import { BRAND_KEY, DIET_LEVELS, PRICE_LEVELS, type EditField, type ManualLogo, type PlaceEdit } from '@/data/manual-overrides'
+import { hoursSlotIssues, sameSlots, type HoursIssue, type ManualSlot } from '@/data/hours-edit'
 import { googleMapsUrl } from '@/lib/google-maps-url'
 import { parseInstagramHandle } from '@/lib/instagram-handle'
 import { deleteSavedPlace, getPlaceDetail, PlacesApiError, planPlaceEdit, savePlaceEdit, uploadPlaceLogo } from '@/lib/places-api'
@@ -28,6 +30,8 @@ const TAG_PICKER_GROUPS = (Object.entries(TAG_GROUPS) as [keyof typeof TAG_GROUP
   .map(([group, tags]) => ({ heading: GROUP_HEADINGS[group], tags }))
 const CUISINE_GROUPS = [{ heading: 'Cocinas', tags: CUISINES }]
 const PLAN_DEBOUNCE_MS = 400
+const HOURS_STATUS_LABELS: Record<PlaceDetail['hours']['status'], string> = { exact: 'exacto', partial: 'parcial', vague: 'vago', none: 'sin horario' }
+const HOURS_SOURCE_LABELS: Record<string, string> = { official: 'fuente oficial', third_party: 'terceros', manual: 'cargado a mano' }
 
 /** Lo que se edita en el modal. instagramInput es el texto tal cual (handle o URL); noInstagram, "No tiene". */
 type Draft = {
@@ -47,6 +51,8 @@ type Draft = {
   chainBranch: boolean
   featured: boolean
   logo: { logo: ManualLogo; url: string | null; classificationUsd: number } | null
+  /** Turnos del editor; un turno sin cierre del pipeline aparece con el cierre vacío. */
+  hours: ManualSlot[]
 }
 
 const isCuisine = (id: string) => groupOf(id) === 'cuisines'
@@ -69,10 +75,11 @@ function draftOf(place: PlaceDetail): Draft {
     chainBranch: place.chainBranch,
     featured: place.featured,
     logo: null,
+    hours: place.hours.slots.map((slot) => ({ day: slot.day, opens: slot.opens, closes: slot.closes ?? '' })),
   }
 }
 
-type Validated = { edit: PlaceEdit; errors: Partial<Record<'name' | 'instagram' | 'website' | 'brandKey', string>> }
+type Validated = { edit: PlaceEdit; errors: Partial<Record<'name' | 'instagram' | 'website' | 'brandKey', string>>; hoursIssues: HoursIssue[] }
 
 const sameSet = (left: readonly string[], right: readonly string[]) => left.length === right.length && left.every((id) => right.includes(id))
 
@@ -107,7 +114,13 @@ function editOf(place: PlaceDetail, draft: Draft): Validated {
   if (draft.chainBranch !== place.chainBranch) edit.chainBranch = draft.chainBranch
   if (draft.featured !== place.featured) edit.featured = draft.featured
   if (draft.logo) edit.logo = draft.logo.logo
-  return { edit, errors }
+  // El horario sólo se valida y se manda si se tocó: uno del pipeline sin cierre no bloquea el resto de la edición.
+  let hoursIssues: HoursIssue[] = []
+  if (!sameSlots(place.hours.slots.map((slot) => ({ ...slot, closes: slot.closes ?? '' })), draft.hours)) {
+    hoursIssues = hoursSlotIssues(draft.hours)
+    if (hoursIssues.length === 0) edit.hours = { slots: draft.hours }
+  }
+  return { edit, errors, hoursIssues }
 }
 
 const usd = (value: number) => value === 0 ? 'sin costo' : `≈ US$ ${value < 0.001 ? value.toFixed(6) : value.toFixed(4)}`
@@ -195,8 +208,8 @@ function PlaceEditForm({ placeId, onClose, onSaved, onDeleted }: Omit<PlaceEditD
 
   const place = load.status === 'ready' ? load.place : null
   const validated = useMemo(() => place && draft ? editOf(place, draft) : null, [place, draft])
-  const hasErrors = Boolean(validated && Object.keys(validated.errors).length > 0)
-  const changed = Boolean(validated && Object.keys(validated.edit).length > 0)
+  const hasErrors = Boolean(validated && (Object.keys(validated.errors).length > 0 || validated.hoursIssues.length > 0))
+  const changed = Boolean(validated && (Object.keys(validated.edit).length > 0 || validated.hoursIssues.length > 0))
   const editKey = validated ? JSON.stringify(validated.edit) : ''
 
   // Qué se recalcula y cuánto cuesta, cada vez que cambia la edición (con una pausa para no pedirlo en cada tecla).
@@ -432,6 +445,14 @@ function PlaceEditForm({ placeId, onClose, onSaved, onDeleted }: Omit<PlaceEditD
             </label>
           </Field>
         </div>
+
+        <Field label="Horario" edited={edited('hours')}>
+          <p className="text-xs text-muted-foreground">
+            Guardado: {HOURS_STATUS_LABELS[place!.hours.status]}{place!.hours.source ? ` (${HOURS_SOURCE_LABELS[place!.hours.source] ?? place!.hours.source})` : ''}
+            {place!.hours.display ? ` · ${place!.hours.display.es}` : ''}. Un turno que cierra después de medianoche (20:00–02:00) va en el día en que abre.
+          </p>
+          <HoursEditor value={draft.hours} issues={validated?.hoursIssues ?? []} disabled={busy} onChange={(hours) => update({ hours })} />
+        </Field>
 
         <Field label="Logo" edited={edited('logo') || Boolean(draft.logo)}>
           <div className="flex flex-wrap items-center gap-3">

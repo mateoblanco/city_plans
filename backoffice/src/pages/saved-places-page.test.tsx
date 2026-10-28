@@ -10,7 +10,7 @@ function jsonResponse(body: unknown, status = 200) {
 
 const place = (overrides: Partial<PlaceListItem>): PlaceListItem => ({
   id: 'uuid-1', name: 'El Palenque', neighborhoodId: 'CIUDAD VIEJA', categories: ['restaurant'], tags: ['cash_only', 'kids_friendly'],
-  status: 'published', hoursStatus: 'exact', updatedAt: '2026-10-12T15:30:00.000Z', hasEmbedding: true,
+  status: 'published', hoursStatus: 'exact', price: 'moderate', updatedAt: '2026-10-12T15:30:00.000Z', hasEmbedding: true,
   prominence: 0.125, igFollowers: null, brandKey: null, instagram: null, featured: false,
   logoUrl: null, logoKind: null, logoBgColor: null, logoColor: null, iconCategory: 'grill', style: null, reviewReasons: [], editedFields: [], ...overrides,
 })
@@ -21,7 +21,7 @@ const fold = (value: string) => value.normalize('NFD').replace(/[̀-ͯ]/g, '').t
  * Servidor de mentira con los mismos filtros, orden y paginación que GET /api/places. Las escrituras (destacado,
  * publicar) cambian su estado; `fail` hace fallar las rutas que se le pasen.
  */
-function fakeServer(rows: PlaceListItem[], fail: { list?: number; featured?: boolean; publish?: boolean } = {}) {
+function fakeServer(rows: PlaceListItem[], fail: { list?: number; featured?: boolean; publish?: boolean; price?: boolean } = {}, hold?: Promise<void>) {
   const data = rows.map((row) => ({ ...row }))
   let listFailures = fail.list ?? 0
   const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
@@ -38,6 +38,15 @@ function fakeServer(rows: PlaceListItem[], fail: { list?: number; featured?: boo
       data.find((row) => row.id === id)!.status = 'published'
       return jsonResponse({ id, status: 'published' })
     }
+    const edit = url.pathname.match(/^\/api\/places\/([^/]+)$/)
+    if (edit && init?.method === 'PATCH') {
+      await hold
+      if (fail.price) return jsonResponse({ error: { code: 'UNKNOWN_ERROR', message: 'No se pudo guardar el precio.' } }, 500)
+      const row = data.find((item) => item.id === edit[1])!
+      row.price = JSON.parse(String(init.body)).edit.price
+      row.editedFields = [...new Set([...row.editedFields, 'price' as const])]
+      return jsonResponse({ place: { ...row, editedFields: row.editedFields }, warnings: [] })
+    }
     if (url.pathname !== '/api/places') throw new Error(`Ruta inesperada ${input}`)
     if (listFailures > 0) {
       listFailures -= 1
@@ -49,8 +58,9 @@ function fakeServer(rows: PlaceListItem[], fail: { list?: number; featured?: boo
       && (!params.get('neighborhood') || row.neighborhoodId === params.get('neighborhood'))
       && (!params.get('category') || row.categories.includes(params.get('category')!))
       && (!params.get('edited') || row.editedFields.length > 0)
-      && (!params.get('noLogo') || row.logoUrl === null)
-      && (!params.get('noHours') || row.hoursStatus === 'none'))
+      && (!params.get('missing') || params.get('missing')!.split(',').some((field) => ({
+        price: row.price === 'unknown', hours: row.hoursStatus === 'none', logo: row.logoUrl === null, instagram: row.instagram === null,
+      } as Record<string, boolean>)[field])))
     const withStatus = filtered.filter((row) => !params.get('status') || row.status === params.get('status'))
     const sort = params.get('sort') ?? 'recent'
     withStatus.sort((a, b) => sort === 'prominence' ? b.prominence - a.prominence : sort === 'name' ? a.name.localeCompare(b.name) : b.updatedAt.localeCompare(a.updatedAt))
@@ -189,21 +199,66 @@ describe('SavedPlacesPage', () => {
     expect(await screen.findByText('Ningún lugar coincide con los filtros')).toBeTruthy()
   })
 
-  it('filtra sin logo y sin horario', async () => {
+  it('"Le falta…": cualquiera de los elegidos, en el servidor y junto con barrio y estado', async () => {
+    const logo = { logoUrl: 'https://logos.example/logos/a-0a1b2c3d.webp', logoKind: 'logo' as const }
     const fetchMock = fakeServer([
-      place({ id: 'a', name: 'Completo', logoUrl: 'https://logos.example/logos/a-0a1b2c3d.webp', logoKind: 'logo' }),
-      place({ id: 'b', name: 'Sin Logo', updatedAt: '2026-10-11T15:30:00.000Z' }),
-      place({ id: 'c', name: 'Sin Nada', hoursStatus: 'none', updatedAt: '2026-10-10T15:30:00.000Z' }),
+      place({ id: 'a', name: 'Completo', instagram: 'completo', ...logo }),
+      place({ id: 'b', name: 'Sin Precio', price: 'unknown', instagram: 'sinprecio', ...logo, updatedAt: '2026-10-11T15:30:00.000Z' }),
+      place({ id: 'c', name: 'Sin IG', ...logo, updatedAt: '2026-10-10T15:30:00.000Z' }),
+      place({ id: 'd', name: 'Sin IG Centro', neighborhoodId: 'CENTRO', ...logo, updatedAt: '2026-10-09T15:30:00.000Z' }),
+      place({ id: 'e', name: 'Sin Horario', hoursStatus: 'none', instagram: 'sinhorario', status: 'review', ...logo, updatedAt: '2026-10-08T15:30:00.000Z' }),
     ])
     render(<SavedPlacesPage />)
-    await screen.findByText('3 lugares')
+    await screen.findByText('5 lugares')
     const user = userEvent.setup()
 
-    await user.click(screen.getByRole('checkbox', { name: 'Sin logo' }))
-    await waitFor(() => expect(names()).toEqual(['Sin Logo', 'Sin Nada']))
-    await user.click(screen.getByRole('checkbox', { name: 'Sin horario' }))
-    await waitFor(() => expect(names()).toEqual(['Sin Nada']))
-    expect(listCalls(fetchMock).at(-1)).toBe('/api/places?noLogo=1&noHours=1&pageSize=50')
+    await user.click(screen.getByRole('button', { name: 'Le falta…' }))
+    await user.click(await screen.findByRole('checkbox', { name: 'Precio' }))
+    await waitFor(() => expect(names()).toEqual(['Sin Precio']))
+    await user.click(screen.getByRole('checkbox', { name: 'Instagram' }))
+    await waitFor(() => expect(names()).toEqual(['Sin Precio', 'Sin IG', 'Sin IG Centro']))
+    expect(listCalls(fetchMock).at(-1)).toBe('/api/places?missing=price%2Cinstagram&pageSize=50')
+    expect(screen.getByRole('button', { name: 'Le falta… (2)' })).toBeTruthy()
+
+    await user.click(screen.getByRole('checkbox', { name: 'Horario' }))
+    await user.selectOptions(screen.getByLabelText('Barrio'), 'CIUDAD VIEJA')
+    await waitFor(() => expect(names()).toEqual(['Sin Precio', 'Sin IG', 'Sin Horario']))
+    await user.click(screen.getByRole('button', { name: /^A revisar/ }))
+    await waitFor(() => expect(names()).toEqual(['Sin Horario']))
+    expect(listCalls(fetchMock).at(-1)).toBe('/api/places?neighborhood=CIUDAD+VIEJA&status=review&missing=price%2Chours%2Cinstagram&pageSize=50')
+  })
+
+  it('cambia el precio desde la fila sin abrir el modal: guardando, guardado y editado a mano', async () => {
+    let release!: () => void
+    const hold = new Promise<void>((resolve) => { release = resolve })
+    const fetchMock = fakeServer([place({})], {}, hold)
+    render(<SavedPlacesPage />)
+    const user = userEvent.setup()
+
+    const select = await screen.findByLabelText('Precio de El Palenque')
+    expect(within(select).getAllByRole('option').map((option) => option.textContent)).toEqual(['$', '$$', '$$$', '$$$$', 'Sin precio'])
+    await user.selectOptions(select, 'very_high')
+    const status = screen.getByLabelText('Guardado del precio de El Palenque')
+    expect(status).toHaveTextContent('Guardando…')
+    expect(select).toBeDisabled()
+    release()
+    await waitFor(() => expect(status).toHaveTextContent('Guardado'))
+    expect(select).toHaveValue('very_high')
+    expect(within(screen.getAllByRole('row')[1]).getByLabelText('Editado a mano')).toBeTruthy()
+    expect(fetchMock).toHaveBeenCalledWith('/api/places/uuid-1', expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ edit: { price: 'very_high' } }) }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('si no se pudo guardar el precio, vuelve al anterior con el error en la celda', async () => {
+    fakeServer([place({ price: 'low' })], { price: true })
+    render(<SavedPlacesPage />)
+
+    const select = await screen.findByLabelText('Precio de El Palenque')
+    await userEvent.setup().selectOptions(select, 'unknown')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo guardar el precio.')
+    expect(select).toHaveValue('low')
+    expect(select).toBeEnabled()
   })
 
   it('muestra el Instagram con link al perfil, sin abrir el modal; sin Instagram, un guion', async () => {

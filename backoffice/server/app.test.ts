@@ -241,16 +241,16 @@ describe('exploración multi-fuente', () => {
     expect(response.status).toBe(200)
     expect(response.headers.get('Cache-Control')).toBe('no-store')
     expect(await response.json()).toEqual(page)
-    expect(list).toHaveBeenLastCalledWith({ sort: 'recent', page: 1, pageSize: 50, edited: false, noLogo: false, noHours: false })
+    expect(list).toHaveBeenLastCalledWith({ sort: 'recent', page: 1, pageSize: 50, edited: false })
 
     const filtered = await app.request(`/api/places?q=%20palenque%20&neighborhood=${encodeURIComponent(NEIGHBORHOOD_IDS[0])}&category=bar&status=review&edited=1&sort=name&page=3&pageSize=20`)
     expect(filtered.status).toBe(200)
-    expect(list).toHaveBeenLastCalledWith({ q: 'palenque', neighborhood: NEIGHBORHOOD_IDS[0], category: 'bar', status: 'review', edited: true, noLogo: false, noHours: false, sort: 'name', page: 3, pageSize: 20 })
+    expect(list).toHaveBeenLastCalledWith({ q: 'palenque', neighborhood: NEIGHBORHOOD_IDS[0], category: 'bar', status: 'review', edited: true, sort: 'name', page: 3, pageSize: 20 })
 
-    await app.request('/api/places?noLogo=1&noHours=true')
-    expect(list).toHaveBeenLastCalledWith({ sort: 'recent', page: 1, pageSize: 50, edited: false, noLogo: true, noHours: true })
+    await app.request('/api/places?missing=price,instagram,price&category=bar&status=review')
+    expect(list).toHaveBeenLastCalledWith({ sort: 'recent', page: 1, pageSize: 50, edited: false, missing: ['price', 'instagram'], category: 'bar', status: 'review' })
 
-    for (const query of ['category=bodegon', 'status=hidden', 'sort=rating', 'page=0', 'pageSize=500', 'neighborhood=Narnia', 'noLogo=x', 'noHours=0']) {
+    for (const query of ['category=bodegon', 'status=hidden', 'sort=rating', 'page=0', 'pageSize=500', 'neighborhood=Narnia', 'missing=web', 'missing=price,x', 'missing=,']) {
       const invalid = await app.request(`/api/places?${query}`)
       expect(invalid.status, query).toBe(400)
     }

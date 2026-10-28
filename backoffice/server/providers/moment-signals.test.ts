@@ -178,6 +178,54 @@ describe('postProcess: de barrio (neighborhood_spot)', () => {
   })
 })
 
+describe('postProcess: azotea, horno a leña y merienda para compartir', () => {
+  const has = (place: ReturnType<typeof run>, id: string) => place.tags.includes(id as never)
+
+  it('una fuente real con la frase los da aunque el modelo no los proponga', () => {
+    const place = run([], [], 'Pizzas en horno a leña. Tragos en la azotea. Los domingos, tabla de merienda.')
+    expect(has(place, 'wood_fired_oven')).toBe(true)
+    expect(has(place, 'rooftop')).toBe(true)
+    expect(has(place, 'shared_afternoon_tea')).toBe(true)
+    expect(place.tagEvidence?.find((item) => item.tag === 'rooftop')).toMatchObject({ mode: 'explicit', signals: ['azotea'] })
+  })
+
+  it('una azotea es una terraza, con el mismo respaldo', () => {
+    const place = run([], [], 'Tragos en la azotea.')
+    expect(has(place, 'terrace')).toBe(true)
+    const rooftop = place.tagEvidence?.find((item) => item.tag === 'rooftop')
+    expect(place.tagEvidence?.find((item) => item.tag === 'terrace')).toEqual({ tag: 'terrace', mode: 'inferred', signals: ['azotea (rooftop)'], factIds: rooftop?.factIds })
+  })
+
+  it('"a la leña" suelto no es horno: una parrilla o carne a la leña no lo da; "pizzas a la leña" sí', () => {
+    expect(has(run([], [], 'Carne a la leña. Parrilla a la leña.'), 'wood_fired_oven')).toBe(false)
+    expect(has(run([], [], 'Pizzas a la leña todos los días.'), 'wood_fired_oven')).toBe(true)
+  })
+
+  it('no se deducen: pizza, terraza o merienda sueltas no alcanzan', () => {
+    const place = run(['Pizzas caseras', 'Tiene terraza', 'Merienda con torta'], [], 'Pizzas caseras. Tiene terraza. Merienda con torta.')
+    expect(['wood_fired_oven', 'rooftop', 'shared_afternoon_tea'].filter((id) => has(place, id))).toEqual([])
+  })
+
+  it('propuesto por el modelo con un fact sin la frase, se descarta', () => {
+    const tags: PlaceExtraction['tags'] = [{ group: 'features', id: 'rooftop', facts: ['F1'] }]
+    expect(has(run(['Terraza en el último piso'], tags), 'rooftop')).toBe(false)
+    expect(has(run(['Terraza en la azotea con vista'], tags), 'rooftop')).toBe(true)
+  })
+
+  it('sólo en el resumen de Exa no alcanza', () => {
+    const exa: Source = { id: 'S2', kind: 'exa', trust: 'third_party', url: EXA_SUMMARY_URL, text: 'Pizza a la leña en la azotea' }
+    const place = postProcess(target, base, { sources: [web('Bar'), exa] })
+    expect(has(place, 'wood_fired_oven') || has(place, 'rooftop')).toBe(false)
+  })
+
+  it('en una cadena, azotea y horno a leña sólo de una fuente de esta sucursal', () => {
+    const other = postProcess(target, base, { sources: [web('Local de Pocitos con azotea y horno a leña')], knownChain: true })
+    expect(has(other, 'rooftop') || has(other, 'wood_fired_oven')).toBe(false)
+    const branch = postProcess(target, base, { sources: [web('Ituzaingó 1447: azotea y horno a leña')], knownChain: true })
+    expect(has(branch, 'rooftop') && has(branch, 'wood_fired_oven')).toBe(true)
+  })
+})
+
 describe('postProcess: style', () => {
   it('casual con una señal', () => {
     const place = run(['Pizza por porción en el mostrador'], [{ group: 'style', id: 'casual', facts: ['F1'] }])

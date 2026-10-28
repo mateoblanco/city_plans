@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, isNotNull, ne, or, sql, type SQL } from 'drizzle-orm'
 import type { NeonHttpDatabase } from 'drizzle-orm/neon-http'
 import type * as schema from '../db/schema.ts'
-import type { PlaceListItem, PlaceListPage, PlaceListQuery } from '../../src/types/places.ts'
+import type { PlaceListItem, PlaceListMissing, PlaceListPage, PlaceListQuery } from '../../src/types/places.ts'
 import { editedFields, parseManualOverrides } from '../../src/data/manual-overrides.ts'
 import { places } from '../db/schema.ts'
 import { logoUrl } from '../providers/logo-storage.ts'
@@ -33,9 +33,16 @@ function filtersOf(query: PlaceListQuery): SQL[] {
   if (query.category) conditions.push(sql`${places.categories} @> array[${query.category}]::text[]`)
   // Publicar y los motivos de revisión son decisiones de status, no edición (editedFields).
   if (query.edited) conditions.push(sql`(${places.manualOverrides} - 'status' - 'review_reasons') <> '{}'::jsonb`)
-  if (query.noLogo) conditions.push(sql`${places.logoKey} is null`)
-  // El mismo status que la tabla muestra como "Sin horario".
-  if (query.noHours) conditions.push(sql`${places.hours}->>'status' = 'none'`)
+  // Le falta alguno de los elegidos. El horario, con el mismo status que la tabla muestra como "Sin horario".
+  if (query.missing?.length) {
+    const missing: Record<PlaceListMissing, SQL> = {
+      price: sql`${places.price} = 'unknown'`,
+      hours: sql`${places.hours}->>'status' = 'none'`,
+      logo: sql`${places.logoKey} is null`,
+      instagram: sql`${places.instagram} is null`,
+    }
+    conditions.push(or(...query.missing.map((field) => missing[field]))!)
+  }
   return conditions
 }
 
@@ -59,6 +66,7 @@ export function drizzlePlacesReader(db: NeonHttpDatabase<typeof schema>): Places
             status: places.status,
             reviewReasons: places.reviewReasons,
             hoursStatus: sql<string>`${places.hours}->>'status'`,
+            price: places.price,
             updatedAt: places.updatedAt,
             hasEmbedding: sql<boolean>`${places.embedding} is not null`,
             prominence: places.prominence,

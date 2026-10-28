@@ -19,6 +19,7 @@ function row(overrides: Partial<EditRow> = {}): EditRow {
     instagram: 'elpalenque', website: null, brandKey: null, featured: false, logoKey: 'logos/place-1-0a1b2c3d.webp', logoKind: 'logo',
     logoBgColor: '#ffffff', logoColor: '#c0392b', logoSource: 'instagram', igFollowers: 999, chainBranch: false, prominence: 0.6,
     embeddingTextHash: null, manualOverrides: {},
+    hours: { raw: 'Lun a dom: 12:00–16:00', display: null, slots: [{ day: 1, opens: '12:00', closes: '16:00' }], status: 'exact', source: 'official', missingReason: null },
   }
   const merged = { ...base, ...overrides }
   // El hash guardado es el de los textos actuales: una edición que no toca la búsqueda no re-embebe.
@@ -129,6 +130,49 @@ describe('applyEdit', () => {
     await applyEdit('uuid-1', { price: 'low' }, d)
     expect(d.embed).not.toHaveBeenCalled()
     expect(updates[0].values).toEqual({ price: 'low', manualOverrides: { price: 'low' } })
+  })
+
+  it('el horario: override con los turnos, display y raw desde los turnos, sin tocar tags si late_night no cambia', async () => {
+    const { store, updates } = fakeStore([row()])
+    const d = deps(store)
+    const slots = [{ day: 2, opens: '19:00', closes: '23:30' }, { day: 1, opens: '12:00', closes: '15:00' }]
+    const { place } = await applyEdit('uuid-1', { hours: { slots } }, d)
+    expect(d.embed).not.toHaveBeenCalled()
+    expect(updates[0].values.hours).toEqual({
+      raw: 'Lunes: 12:00–15:00; Martes: 19:00–23:30', display: { es: 'Lunes: 12:00–15:00; Martes: 19:00–23:30', en: 'Monday: 12:00–15:00; Tuesday: 19:00–23:30' },
+      slots: [{ day: 1, opens: '12:00', closes: '15:00' }, { day: 2, opens: '19:00', closes: '23:30' }], status: 'exact', source: 'manual', missingReason: null,
+    })
+    expect(updates[0].values.manualOverrides).toEqual({ hours: { slots: [{ day: 1, opens: '12:00', closes: '15:00' }, { day: 2, opens: '19:00', closes: '23:30' }] } })
+    expect(updates[0].values).not.toHaveProperty('tags')
+    expect(place.editedFields).toEqual(['hours'])
+  })
+
+  it('el horario que cruza la medianoche hasta las 02:00 agrega late_night y regenera el texto de palabras clave (el embedding no lo lleva); uno que cierra antes lo saca', async () => {
+    const { store, updates } = fakeStore([row()])
+    const d = deps(store)
+    const plan = await planEdit(row(), { hours: { slots: [{ day: 5, opens: '20:00', closes: '02:00' }] } }, d)
+    expect(plan.steps.map((step) => step.id)).toEqual(['hours', 'late_night', 'search_texts'])
+    await applyEdit('uuid-1', { hours: { slots: [{ day: 5, opens: '20:00', closes: '02:00' }] } }, d)
+    expect(updates[0].values.tags).toEqual(['seafood', 'terrace', 'late_night'])
+    expect(updates[0].values.keywordText).toContain('Trasnoche')
+    expect(d.embed).not.toHaveBeenCalled()
+
+    const late = fakeStore([row({ tags: ['seafood', 'late_night'] })])
+    await applyEdit('uuid-1', { hours: { slots: [{ day: 5, opens: '20:00', closes: '23:00' }] } }, deps(late.store))
+    expect(late.updates[0].values.tags).toEqual(['seafood'])
+  })
+
+  it('un late_night fijado a mano no lo cambia el horario', async () => {
+    const { store, updates } = fakeStore([row({ tags: ['seafood', 'late_night'], manualOverrides: { tags: { add: ['late_night'], remove: [] } } })])
+    await applyEdit('uuid-1', { hours: { slots: [{ day: 5, opens: '20:00', closes: '23:00' }] } }, deps(store))
+    expect(updates[0].values).not.toHaveProperty('tags')
+  })
+
+  it('el mismo horario manual no es un cambio', async () => {
+    const slots = [{ day: 1, opens: '12:00', closes: '16:00' }]
+    const { store, updates } = fakeStore([row({ hours: { raw: null, display: null, slots, status: 'exact', source: 'manual', missingReason: null } })])
+    await applyEdit('uuid-1', { hours: { slots } }, deps(store))
+    expect(updates).toEqual([])
   })
 
   it('sólo el destacado no cambia updatedAt ni suma un override', async () => {
