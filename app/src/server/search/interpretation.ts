@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { CATEGORIES, DIETARY, TAG_IDS, isOccasionTag, isStyleId, normalize, type StyleId } from '@shared/tags.ts'
-import { resolveNeighborhood } from '@shared/neighborhood-aliases.ts'
+import { neighborhoodsIn, resolveNeighborhood } from '@shared/neighborhood-aliases.ts'
 import { isIntentId, type IntentId } from '@shared/intents.ts'
 import { isSectionId, type SectionId } from '@shared/sections.ts'
 import { canonicalOf } from './dishes'
@@ -24,6 +24,8 @@ export type Interpretation = {
     tags: string[]
     diet: Partial<Record<DietKey, boolean>>
     neighborhoods: string[]
+    /** Lugares que contienen locales (located_in: "Mercado del Puerto"), nombrados en el texto (venues.ts). */
+    venues: string[]
     price: Price[]
     openAt: OpenAt
   }
@@ -53,7 +55,7 @@ function impliedStyle(tags: string[]): StyleId | null {
 export function emptyInterpretation(language: Lang = 'es'): Interpretation {
   return {
     nameQuery: null,
-    must: { categories: [], tags: [], diet: {}, neighborhoods: [], price: [], openAt: null },
+    must: { categories: [], tags: [], diet: {}, neighborhoods: [], venues: [], price: [], openAt: null },
     prefer: { categories: [], tags: [], style: null },
     exclude: { categories: [], tags: [] },
     dishes: [],
@@ -147,12 +149,20 @@ function validOpenAt(raw: LlmInterpretation['must']['openAt']): OpenAt {
   return day === null && time === null ? null : { day, time }
 }
 
-/** toPrefer: momentos que el modelo puso como requisito y pasaron a preferencia (`tag:groups`). */
-export type Validation = { interpretation: Interpretation; discarded: string[]; toPrefer: string[] }
+/**
+ * discarded: lo que no está en los catálogos. notNamed: barrios del modelo que el texto no nombra. toPrefer: momentos
+ * que el modelo puso como requisito y pasaron a preferencia (`tag:groups`).
+ */
+export type Validation = { interpretation: Interpretation; discarded: string[]; notNamed: string[]; toPrefer: string[] }
 
-/** Se queda sólo con ids de tags.ts y barrios conocidos; lo demás se descarta (y se informa en debug). */
-export function validateInterpretation(raw: LlmInterpretation): Validation {
+/**
+ * Se queda sólo con ids de tags.ts y barrios conocidos; lo demás se descarta (y se informa en debug). Un barrio del
+ * modelo sólo vale si el texto lo nombra (normalized: la consulta): si no, es un lugar que no es barrio ("mercado del
+ * puerto" no es Mercado Modelo) y queda sin reconocer, para la búsqueda semántica.
+ */
+export function validateInterpretation(raw: LlmInterpretation, normalized: string): Validation {
   const discarded: string[] = []
+  const notNamed: string[] = []
   const toPrefer: string[] = []
   const result = emptyInterpretation(raw.language?.trim().toLowerCase().startsWith('en') ? 'en' : 'es')
 
@@ -182,9 +192,11 @@ export function validateInterpretation(raw: LlmInterpretation): Validation {
   }
   for (const key of DIET_KEYS) if (raw.must.diet[key]) result.must.diet[key] = true
 
+  const named = neighborhoodsIn(normalized)
   for (const value of raw.must.neighborhoods) {
     const id = resolveNeighborhood(value)
-    if (id) result.must.neighborhoods.push(id)
+    if (id && named.has(id)) result.must.neighborhoods.push(id)
+    else if (id) notNamed.push(value)
     else discarded.push(value)
   }
   for (const value of raw.must.price) {
@@ -203,7 +215,8 @@ export function validateInterpretation(raw: LlmInterpretation): Validation {
     result.dishes.push({ name, relatedTags: related.tags, relatedCategories: related.categories })
   }
   result.vibe = raw.vibe?.trim() || null
-  result.unrecognized = raw.unrecognized.map((part) => part.trim()).filter((part) => part && !onlyBest(part))
+  result.unrecognized = unique([...raw.unrecognized, ...notNamed, ...raw.must.neighborhoods.filter((value) => !resolveNeighborhood(value))].map((part) => part.trim()))
+    .filter((part) => part && !onlyBest(part))
   result.needsLocation = result.unrecognized.some(mentionsNearMe)
   result.wantsBest = raw.wantsBest === true
   // Una interpretación cacheada de antes del campo no lo trae.
@@ -217,7 +230,7 @@ export function validateInterpretation(raw: LlmInterpretation): Validation {
   }
   result.sections = unique(result.sections)
 
-  return { interpretation: tidy(result), discarded, toPrefer }
+  return { interpretation: tidy(result), discarded, notNamed, toPrefer }
 }
 
 /** Sin repetidos; lo excluido o exigido no aparece también como preferencia. */
@@ -228,6 +241,7 @@ export function tidy(value: Interpretation): Interpretation {
     categories: unique(value.must.categories).filter((id) => !exclude.categories.includes(id)),
     tags: unique(value.must.tags).filter((id) => !exclude.tags.includes(id)),
     neighborhoods: unique(value.must.neighborhoods),
+    venues: unique(value.must.venues),
     price: unique(value.must.price),
   }
   // Los momentos nunca son requisito; "elegante" también pide un lugar cuidado y "de barrio", uno casual.
@@ -252,7 +266,7 @@ export function tidy(value: Interpretation): Interpretation {
   return { ...value, must, prefer, exclude, dishes: [...dishes.values()] }
 }
 
-export const REMOVABLE_KINDS = ['name', 'category', 'tag', 'prefer', 'exclude', 'diet', 'neighborhood', 'price', 'openAt', 'dish', 'vibe', 'near', 'intent'] as const
+export const REMOVABLE_KINDS = ['name', 'category', 'tag', 'prefer', 'exclude', 'diet', 'neighborhood', 'venue', 'price', 'openAt', 'dish', 'vibe', 'near', 'intent'] as const
 export type ChipKind = (typeof REMOVABLE_KINDS)[number]
 
 /** Parsea `remove=tag:terrace,neighborhood:POCITOS`; ignora lo que no tenga forma kind:id. */
@@ -278,6 +292,7 @@ export function applyRemove(value: Interpretation, removals: { kind: ChipKind; i
     else if (kind === 'category') next.must.categories = next.must.categories.filter((item) => item !== id)
     else if (kind === 'tag') next.must.tags = next.must.tags.filter((item) => item !== id)
     else if (kind === 'neighborhood') next.must.neighborhoods = next.must.neighborhoods.filter((item) => item !== id)
+    else if (kind === 'venue') next.must.venues = next.must.venues.filter((item) => item !== id)
     else if (kind === 'price') next.must.price = next.must.price.filter((item) => item !== id)
     else if (kind === 'diet') delete next.must.diet[id as DietKey]
     else if (kind === 'dish') next.dishes = next.dishes.filter((item) => !sameDish(item.name, id))

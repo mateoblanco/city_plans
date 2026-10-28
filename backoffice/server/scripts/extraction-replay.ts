@@ -50,6 +50,7 @@ const applyTags = process.argv.includes('--apply-tags')
 const tagIds = (arg('--apply-tags') ?? arg('--tags'))?.split(',').map((id) => id.trim()).filter(Boolean) ?? null
 const tagsMode = tagIds !== null
 if ((applyTags || process.argv.includes('--tags')) && !tagIds?.every((id) => groupOf(id))) throw new Error('--tags y --apply-tags llevan ids de tags.ts separados por coma.')
+if (tagIds?.includes('sea_view')) throw new Error('sea_view sale de la distancia a la Rambla, no del modelo: yarn sea-view:recompute.')
 if ([styleMode, momentsMode, tagsMode, reviewMode || applyReview].filter(Boolean).length > 1) throw new Error('--style, --moments, --tags y --review van por separado.')
 if (reviewMode && applyReview) throw new Error('--review lista sin escribir; --apply-review escribe: uno u otro.')
 if (applyReview && !process.env.DATABASE_URL) throw new Error('Falta configurar DATABASE_URL en .env.local: --apply-review escribe status y review_reasons.')

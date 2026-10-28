@@ -76,8 +76,9 @@ function pickGroup(id: PersonalId, title: string, pool: Collapsed[], similarity:
 }
 
 /**
- * Bloques personales de una búsqueda ya rankeada (fused, en orden). grouped: la búsqueda se agrupa (grupos personales
- * primero: "Parecido a" y después "Basado en lo que te gusta" con lo que queda); si no, la fila "Para vos". Sólo
+ * Bloques personales de una búsqueda ya rankeada (fused, en orden). grouped: la búsqueda se agrupa y hay como mucho un grupo
+ * personal, "Parecido a" o, si no sale, "Basado en lo que te gusta" (en la página va después del primer grupo del
+ * catálogo); si no, la fila "Para vos". Sólo
  * eligen entre los resultados "has" (no los "maybe", que quizás no tienen lo pedido). Ningún lugar que te gustó (como
  * card o sucursal escondida) entra en un bloque y ningún lugar se repite entre bloques.
  */
@@ -118,7 +119,7 @@ export function personalize(fused: Collapsed[], data: LikeSimilarities, likeIds:
   }
 
   const groups: PersonalGroup[] = []
-  // "Parecido a" primero, con todo el pool; "Basado en lo que te gusta" toma lo que queda.
+  // "Parecido a" primero; "Basado en lo que te gusta" sólo si aquel no sale.
   // El like que más encaja en la búsqueda: el mejor ubicado de los que salieron (con "comer algo", la parrilla y no el café).
   const best = debug.likes.filter((place) => place.position !== null).sort((a, b) => a.position! - b.position!)[0]
   if (best) {
@@ -128,7 +129,10 @@ export function personalize(fused: Collapsed[], data: LikeSimilarities, likeIds:
     debug.similarTo = { id: best.id, name: best.name, position: best.position!, topCut, threshold }
     const title = similarTitle(best.name, context.lang)
     const similar = take(pickGroup('similar', title, pool, (item) => sims.get(item.row.id)?.byLike[best.id] ?? null, threshold, limits))
-    if (similar) groups.push(similar)
+    if (similar) {
+      debug.groups.push({ id: 'profile', title: TITLES.profile[context.lang], shown: false, reason: 'ya hay "Parecido a"', places: [] })
+      return { groups: [similar], forYou: null, debug }
+    }
   } else {
     debug.groups.push({ id: 'similar', title: similarTitle('…', context.lang), shown: false, reason: 'ningún like salió en esta búsqueda', places: [] })
   }

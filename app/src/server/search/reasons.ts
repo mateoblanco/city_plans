@@ -4,7 +4,7 @@ import type { DishMode } from './candidates'
 import { relatedLabel, type DishTarget } from './dishes'
 import { dietLevel, type Fused } from './fuse'
 import { DIET_KEYS, type Interpretation } from './interpretation'
-import { dietLevelLabel, distanceLabel, MOMENT_REASON, STYLE_REASON } from './labels'
+import { dietLevelLabel, DISPLAY_LANG, distanceLabel, MOMENT_REASON, STYLE_REASON } from './labels'
 
 export type ReasonContext = {
   interpretation: Interpretation
@@ -37,7 +37,7 @@ const INTENT_SIGNATURE: Record<IntentId, Set<string>> = {
 export function buildReasons(item: Fused, context: ReasonContext): string[] {
   const { row } = item
   const { interpretation } = context
-  const lang = interpretation.language
+  const lang = DISPLAY_LANG
   const es = lang === 'es'
   const reasons: string[] = []
   // Con una dieta pedida, su nivel va primero ("100 % vegetariano", "Opciones sin TACC").
@@ -67,6 +67,8 @@ export function buildReasons(item: Fused, context: ReasonContext): string[] {
   for (const id of row.signature) if (wanted.has(id) || domain.has(id)) reasons.push(label(id, lang))
 
   for (const id of row.tags) if (wantedTags.includes(id) && !isOccasionTag(id)) reasons.push(label(id, lang))
+  // Relleno de brunch: no tiene el tag, así que no dice "Brunch".
+  if (item.filledAs === 'breakfast_lunch') reasons.push('Desayuno y almuerzo')
   const style = row.style && isStyleId(row.style) ? STYLE_REASON[lang][row.style] : undefined
   if (style) reasons.push(style)
   for (const id of row.tags) if (wantedTags.includes(id) && isOccasionTag(id)) reasons.push(MOMENT_REASON[lang][id])

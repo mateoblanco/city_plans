@@ -1,10 +1,12 @@
 import { sql, type SQL } from 'drizzle-orm'
+import { withSubcuisines } from '@shared/tags.ts'
 import { SEARCH_CONFIG } from './config'
 import type { DishTarget } from './dishes'
 import { opensTodayFrom, type Hours, type Moment, type OpenFilter } from './hours'
 import type { DietKey, Price } from './interpretation'
 import type { IntentMatch } from '@shared/intents.ts'
 import type { IconCategory } from '@shared/icon-categories.ts'
+import type { Venue } from './venues'
 
 /** Filtros duros: lo que un lugar tiene que cumplir para ser candidato. */
 export type CandidateFilters = {
@@ -12,10 +14,14 @@ export type CandidateFilters = {
   tags: string[]
   diet: DietKey[]
   neighborhoods: string[]
+  /** Venues pedidos: sus locales y, sin located_in, los que están a menos de venue.radiusM de ellos. */
+  venues: Venue[]
   price: Price[]
   openAt: OpenFilter | null
   excludeCategories: string[]
   excludeTags: string[]
+  /** Íconos excluidos (dishes.ts excludedIcons): un lugar sin ícono no se excluye. */
+  excludeIcons: string[]
   dishes: DishTarget[]
   /**
    * dish: el plato en dishes o en el texto, o su tag/categoría propios.
@@ -63,6 +69,8 @@ export type CandidateRow = {
   style: string | null
   diet: Record<DietKey, string>
   price: string
+  /** unknown, no_reservations, accepts o recommended. */
+  reservations: string
   hours: Hours
   /** Señal de calidad del backoffice (0 a 1). Sólo reordena; nunca se muestra. */
   prominence: number
@@ -151,12 +159,28 @@ function groupSql(group: FilterGroup): SQL {
 
 const pointSql = ({ lat, lng }: { lat: number; lng: number }) => sql`ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)::geography`
 
+/**
+ * Dentro de un venue: located_in es uno de los pedidos o, sin located_in cargado, está a menos de venue.radiusM de uno
+ * de sus locales. Los que están en otro venue no entran por cercanía.
+ */
+function venueSql(venues: Venue[]): SQL {
+  const points = venues.flatMap((venue) => venue.points)
+  const near = points.length
+    ? sql`(located_in is null and (${sql.join(points.map((point) => sql`ST_DWithin(location, ${pointSql(point)}, ${SEARCH_CONFIG.venue.radiusM})`), sql` or `)}))`
+    : sql`false`
+  return sql`(located_in = any(${textArray(venues.map((venue) => venue.name))}) or ${near})`
+}
+
 export function filterConditions(filters: CandidateFilters): SQL[] {
   const conditions: SQL[] = []
   if (filters.categories.length) conditions.push(sql`categories && ${textArray(filters.categories)}`)
-  if (filters.tags.length) conditions.push(sql`tags @> ${textArray(filters.tags)}`)
+  // Una cocina paraguas ("asiática") se cumple con ella o con cualquiera de sus hijas; los demás tags, todos.
+  const plainTags = filters.tags.filter((id) => withSubcuisines(id).length === 1)
+  if (plainTags.length) conditions.push(sql`tags @> ${textArray(plainTags)}`)
+  for (const id of filters.tags.filter((tag) => withSubcuisines(tag).length > 1)) conditions.push(sql`tags && ${textArray(withSubcuisines(id))}`)
   for (const key of filters.diet) conditions.push(sql`${sql.identifier(DIET_COLUMN[key])} in ('has_options', 'fully')`)
   if (filters.neighborhoods.length) conditions.push(sql`neighborhood_id = any(${textArray(filters.neighborhoods)})`)
+  if (filters.venues.length) conditions.push(venueSql(filters.venues))
   // Precio desconocido no excluye: sólo afuera los que tienen otro precio conocido.
   if (filters.price.length) conditions.push(sql`(price = 'unknown' or price = any(${textArray(filters.price)}))`)
   if (filters.openAt) {
@@ -166,7 +190,8 @@ export function filterConditions(filters: CandidateFilters): SQL[] {
   if (filters.near) conditions.push(sql`ST_DWithin(location, ${pointSql(filters.near)}, ${filters.near.radiusM})`)
   for (const group of filters.groups) conditions.push(groupSql(group))
   if (filters.excludeCategories.length) conditions.push(sql`not (categories && ${textArray(filters.excludeCategories)})`)
-  if (filters.excludeTags.length) conditions.push(sql`not (tags && ${textArray(filters.excludeTags)})`)
+  if (filters.excludeTags.length) conditions.push(sql`not (tags && ${textArray(filters.excludeTags.flatMap(withSubcuisines))})`)
+  if (filters.excludeIcons.length) conditions.push(sql`(icon_category is null or not (icon_category = any(${textArray(filters.excludeIcons)})))`)
   if (filters.dishes.length && filters.dishMode === 'related') {
     const related = filters.dishes.flatMap((target) => [
       ...(target.related.tags.length ? [sql`tags && ${textArray(target.related.tags)}`] : []),
@@ -220,7 +245,7 @@ export function candidatesQuery(filters: CandidateFilters, scores: ScoreInputs):
   return sql`
     ${withVector}select id, slug, name, neighborhood_id as "neighborhoodId", categories, tags, signature, dishes,
       json_build_object('vegan', diet_vegan, 'vegetarian', diet_vegetarian, 'glutenFree', diet_gluten_free) as diet,
-      price, style, hours, prominence, featured, icon_category as "iconCategory",
+      price, reservations, style, hours, prominence, featured, icon_category as "iconCategory",
       logo_key as "logoKey", logo_bg_color as "logoBgColor", located_in as "locatedIn", brand_key as "brandKey",
       case when brand_key is null then 1
         else (select count(*)::int from places b where b.brand_key = places.brand_key and b.status = 'published') end as "brandCount",
@@ -290,6 +315,12 @@ export function likeSimilaritiesQuery(likeIds: string[], candidateIds: string[],
           'byLike', (select coalesce(json_object_agg(l.id, 1 - (c.embedding <=> l.embedding)), '{}'::json) from liked l)
         )), '[]'::json)
         from places c where c.embedding is not null and c.id::text = any(${textArray(candidateIds)})) as rows`
+}
+
+/** Cada located_in de los publicados con la ubicación de sus locales, para reconocer venues en el texto. */
+export function venuesQuery(): SQL {
+  return sql`select located_in as name, json_agg(json_build_object('lat', ST_Y(location::geometry), 'lng', ST_X(location::geometry))) as points
+    from places where status = 'published' and located_in is not null and btrim(located_in) <> '' group by located_in order by 1`
 }
 
 /** Barrios con al menos un lugar publicado, para el filtro de la barra. */

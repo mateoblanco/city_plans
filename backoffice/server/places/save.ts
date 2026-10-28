@@ -12,7 +12,8 @@ import { assignBrandKeys, brandSlug, instagramKey, sharedBrandKeys, type BrandRo
 import { computeProminence } from './prominence.ts'
 import { drizzleIgMedian } from './list.ts'
 import { parseManualOverrides, type ManualOverrides } from '../../src/data/manual-overrides.ts'
-import { applyOverrides, overridesAffectSearch, placeSearchTexts } from './manual-overrides.ts'
+import { applyOverrides, placeSearchTexts } from './manual-overrides.ts'
+import { isSeaView, ramblaGeography, SEA_VIEW_METERS, withSeaView } from './sea-view.ts'
 
 export { slugify }
 
@@ -50,6 +51,8 @@ export type PlacesStore = {
   setChainBranch(id: string, prominence: number): Promise<void>
   /** Mediana del término de Instagram de los publicados (`drizzleIgMedian`): la prominence de un lugar sin seguidores. */
   igMedian(): Promise<number>
+  /** De esos puntos (por googlePlaceId), los que están a menos de SEA_VIEW_METERS de la Rambla: tienen sea_view. */
+  nearRambla(points: { googlePlaceId: string; lng: number; lat: number }[]): Promise<Set<string>>
 }
 
 export type Embedder = (texts: string[]) => Promise<number[][]>
@@ -168,23 +171,28 @@ function candidateFrom(result: unknown): Candidate | SavePlaceResult | null {
 }
 
 /**
- * Fila final de un lugar del lote: toRow con los overrides manuales encima (applyOverrides). Un Instagram cargado a
- * mano en la revisión pasa a ser el override de instagram (pisa al anterior). Si un override cambia lo que entra en
- * la búsqueda, los textos se arman de nuevo con los valores finales: los del borrador son de los automáticos.
+ * Fila final de un lugar del lote: toRow con sea_view por ubicación (near: a menos de SEA_VIEW_METERS de la Rambla; el
+ * del modelo no cuenta) y los overrides manuales encima (applyOverrides). Un Instagram cargado a
+ * mano en la revisión pasa a ser el override de instagram (pisa al anterior). Los textos de búsqueda se arman siempre
+ * de nuevo con los valores finales y el catálogo actual: los del borrador son de los tags automáticos (sin sea_view por
+ * ubicación ni overrides) y del catálogo de cuando se extrajo, y llegan en el cuerpo del pedido.
  */
-function prepare(candidate: Candidate, current: ExistingPlace | undefined, igMedian: number): Prepared {
-  const { place, manualInstagram } = candidate
+function prepare(candidate: Candidate, current: ExistingPlace | undefined, igMedian: number, near: boolean): Prepared {
+  const { manualInstagram } = candidate
+  const place = {
+    ...candidate.place,
+    tags: withSeaView(candidate.place.tags, near),
+    signature: candidate.place.signature.filter((id) => near || !isSeaView(id)),
+  }
   const base = current?.manualOverrides ?? {}
   const overrides: ManualOverrides = manualInstagram ? { ...base, instagram: manualInstagram.handle } : base
-  let row = applyOverrides(toRow(place, igMedian), overrides)
-  if (overridesAffectSearch(overrides)) {
-    row = { ...row, ...placeSearchTexts({
-      name: row.name, neighborhoodId: row.neighborhoodId, descriptionEs: row.descriptionEs ?? null, descriptionEn: row.descriptionEn ?? null,
-      locatedIn: row.locatedIn ?? null, categories: row.categories ?? [], tags: row.tags ?? [], dietVegan: row.dietVegan ?? 'unknown',
-      dietVegetarian: row.dietVegetarian ?? 'unknown', dietGlutenFree: row.dietGlutenFree ?? 'unknown', highlights: row.highlights ?? [],
-      dishes: row.dishes ?? [], signature: row.signature ?? [], style: row.style ?? null,
-    }) }
-  }
+  const final = applyOverrides(toRow(place, igMedian), overrides)
+  const row = { ...final, ...placeSearchTexts({
+    name: final.name, neighborhoodId: final.neighborhoodId, descriptionEs: final.descriptionEs ?? null, descriptionEn: final.descriptionEn ?? null,
+    locatedIn: final.locatedIn ?? null, categories: final.categories ?? [], tags: final.tags ?? [], dietVegan: final.dietVegan ?? 'unknown',
+    dietVegetarian: final.dietVegetarian ?? 'unknown', dietGlutenFree: final.dietGlutenFree ?? 'unknown', highlights: final.highlights ?? [],
+    dishes: final.dishes ?? [], signature: final.signature ?? [], style: final.style ?? null,
+  }) }
   const overridesChanged = manualInstagram !== null && (!current || base.instagram !== manualInstagram.handle || !Object.hasOwn(base, 'instagram'))
   return { ...candidate, current, row, overrides, overridesChanged }
 }
@@ -212,10 +220,14 @@ export async function savePlaces(results: unknown[], deps: { store: PlacesStore;
     written.set(googlePlaceId, { googlePlaceId, id: existing.get(googlePlaceId)?.id ?? null, action: 'skipped', embedded: false, error: `No se pudo guardar: ${message(error)}` })
   // Lo que vale un lugar sin seguidores: una consulta por lote.
   const igMedian = candidates.length > 0 ? await store.igMedian() : 0
+  // sea_view sale de la distancia a la Rambla: una consulta por lote.
+  const near = candidates.length > 0
+    ? await store.nearRambla(candidates.map(({ googlePlaceId, place }) => ({ googlePlaceId, lng: place.coordinates.lng, lat: place.coordinates.lat })))
+    : new Set<string>()
   // Si toRow rechaza un lugar, falla sólo ese y no el lote.
   const prepared = candidates.flatMap((candidate) => {
     try {
-      return [prepare(candidate, existing.get(candidate.googlePlaceId), igMedian)]
+      return [prepare(candidate, existing.get(candidate.googlePlaceId), igMedian, near.has(candidate.googlePlaceId))]
     } catch (error) {
       failed(candidate.googlePlaceId, error)
       return []
@@ -339,6 +351,14 @@ export function drizzlePlacesStore(db: Database): PlacesStore {
       await db.update(places).set({ chainBranch: true, prominence, updatedAt: places.updatedAt }).where(eq(places.id, id))
     },
     igMedian: () => drizzleIgMedian(db),
+    async nearRambla(points) {
+      if (points.length === 0) return new Set()
+      const { rows } = await db.execute<{ id: string }>(sql`
+        select id from unnest(${sql.param(points.map((point) => point.googlePlaceId))}::text[], ${sql.param(points.map((point) => point.lng))}::float8[],
+          ${sql.param(points.map((point) => point.lat))}::float8[]) as point(id, lng, lat)
+        where ST_DWithin(ST_SetSRID(ST_MakePoint(lng, lat), 4326)::geography, ${ramblaGeography()}, ${SEA_VIEW_METERS})`)
+      return new Set(rows.map((row) => row.id))
+    },
   }
 }
 

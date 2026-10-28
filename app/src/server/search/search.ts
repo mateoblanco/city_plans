@@ -1,4 +1,4 @@
-import { findDef, isOccasionTag, isStyleId, label, normalize } from '@shared/tags.ts'
+import { findDef, isOccasionTag, isStyleId, label, normalize, withSubcuisines } from '@shared/tags.ts'
 import { neighborhoodDisplayName } from '@shared/neighborhood-names.ts'
 import { sectionDef } from '@shared/sections.ts'
 import { INTENT_VERB_WORDS } from '@shared/intents.ts'
@@ -9,11 +9,12 @@ import type { EmbeddingResult, SearchCache } from './cache'
 import type { CandidateFilters, CandidateRow, DishMode, FilterGroup, NameMatch, ScoreInputs } from './candidates'
 import { summarizeCost, type CostEntry, type SearchCost } from './cost'
 import { collapseBranches } from './branches'
+import { requestedCuisines } from './cuisines'
 import { buildChips, type Chip } from './chips'
-import { interpretWithDictionary } from './dictionary'
+import { applyDictionary, interpretWithDictionary, NEGATIONS } from './dictionary'
 import { applyWhen, TIME_WORDS } from './when'
 import { checkMust, intendedDiscards, reportMust, type Discard, type MustCheck } from './invariant'
-import { dishTargetFor, type DishTarget } from './dishes'
+import { dishTargetFor, excludedIcons, preferredDiets, type DishTarget } from './dishes'
 import { applyFilters, filterChipKeys, parseFilters, parseNear, type LatLng } from './filters'
 import { buildBar, intentGroups, parseIntent, resolveIntent, type IntentBar } from './intents'
 import { buildRankings, fuse, type Fused, type MatchLevel, type Rankings } from './fuse'
@@ -28,15 +29,17 @@ import {
   validateInterpretation,
   type Interpretation,
 } from './interpretation'
-import { openStateLabel, openStateText, type OpenStateText } from './labels'
+import { DISPLAY_LANG, openStateLabel, openStateText, type OpenStateText } from './labels'
 import { normalizeQuery, queryWords } from './normalize'
 import { buildReasons } from './reasons'
 import { logoUrl } from './logo'
 import { relevanceCut, type Relevance } from './relevance'
 import { buildSections, notBroadReason, requestedSections, type Section, type SectionsDebug } from './sections'
+import { momentsOf } from './moments'
 import { emptyPersonalDebug, personalize, type PersonalDebug } from './personal'
 import { canRelax, noMatchNotice, relax, RELAX_ORDER, relaxNotice, type NoticeKind, type RelaxStep, type SearchState } from './relax'
 import type { PlacesStore } from './store'
+import { applyVenues, type Venue } from './venues'
 
 export type SearchDeps = { store: PlacesStore; cache: SearchCache }
 /** filters: `f` de la URL (barra de filtros); near: `near=lat,lng` (cerca mío); intent / sub: intención y sub-filtros. */
@@ -60,7 +63,7 @@ export type SearchOptions = {
  * Invitación a ampliar: sacar este filtro suma count lugares. kind sub es un sub-filtro de la intención; el resto,
  * chips (fromText / fromFilter dicen cómo apagarlo).
  */
-export type WidenOption = { kind: 'neighborhood' | 'openAt' | 'diet' | 'sub'; id: string; label: string; fromText: boolean; fromFilter: boolean; count: number }
+export type WidenOption = { kind: 'neighborhood' | 'venue' | 'openAt' | 'diet' | 'sub'; id: string; label: string; fromText: boolean; fromFilter: boolean; count: number }
 
 export type SearchResult = {
   id: string
@@ -116,6 +119,7 @@ export type SearchDebug = {
     categories: string[]
     tags: string[]
     diet: CandidateRow['diet']
+    price: string
     rrf: number
     boosts: Fused['boosts']
     baseScore: number
@@ -143,6 +147,8 @@ export type SearchDebug = {
   sections: SectionsDebug
   /** Likes usados, el lugar de "Parecido a" y el parecido de cada lugar de los bloques personales. */
   personal: PersonalDebug
+  /** Relleno de brunch: los "has" con el tag y cuántos cafés de desayuno y almuerzo se agregaron; null si no aplicó. */
+  brunchFill: { has: number; added: number } | null
 }
 
 export type SearchResponse = {
@@ -174,7 +180,9 @@ export type SearchResponse = {
 
 const STOPWORDS = new Set([
   'en', 'de', 'del', 'el', 'la', 'los', 'las', 'un', 'una', 'uno', 'unos', 'unas', 'y', 'o', 'con', 'para', 'por', 'a', 'al', 'que', 'algo', 'lugar', 'no', 'sea', 'mejor', 'mejores', 'top',
-  'in', 'at', 'near', 'the', 'an', 'with', 'for', 'and', 'or', 'of', 'to', 'best', 'place', 'me',
+  // Palabras que no describen nada ("comida peruana", "un lugar para…"): ni keyword ni nombre (Panza Comida Casera).
+  'comida', 'comidas', 'lugares', 'sitio', 'sitios', 'local', 'locales', 'opcion', 'opciones',
+  'in', 'at', 'near', 'the', 'an', 'with', 'for', 'and', 'or', 'of', 'to', 'best', 'place', 'places', 'spot', 'food', 'something', 'somewhere', 'me',
 ])
 
 const CENTROIDS = centroids as Record<string, { lat: number; lng: number }>
@@ -196,6 +204,7 @@ export function removedWordsOf(removals: { kind: string; id: string }[]): Set<st
       if (kind === 'category' || kind === 'tag' || kind === 'prefer') return termWords(id)
       if (kind === 'dish') return queryWords(normalize(id))
       if (kind === 'neighborhood') return queryWords(normalize(neighborhoodDisplayName(id) ?? id))
+      if (kind === 'venue') return queryWords(normalize(id))
       return []
     }),
   )
@@ -209,15 +218,18 @@ export function keywordsFor(normalized: string, value: Interpretation, edits: Te
   // El verbo que eligió la intención ("tomar algo") ya hizo su trabajo: como keyword empata a casi todos. Las
   // palabras de horario ("tarde", "martes") ya están en openAt.
   const verb = (word: string) => value.intent !== null && INTENT_VERB_WORDS.has(word)
-  return [...new Set(words)].filter((word) => word.length > 1 && !STOPWORDS.has(word) && !excluded.has(word) && !verb(word) && !TIME_WORDS.has(word))
+  // Las negaciones ("sin carne") tampoco: "sin" empataba con todo lo "sin TACC" o "sin alcohol".
+  return [...new Set(words)].filter((word) => word.length > 1 && !STOPWORDS.has(word) && !NEGATIONS.has(word) && !excluded.has(word) && !verb(word) && !TIME_WORDS.has(word))
 }
 
 /**
- * Palabras para buscar por nombre: la consulta sin palabras vacías, sin los verbos de intención ("comer algo" → nada),
- * sin las de horario ("tarde", "martes") y sin las de los chips quitados. Sin ninguna, la búsqueda por nombre no corre.
+ * Palabras para buscar por nombre: la consulta sin palabras vacías, sin negaciones ("sin carne" no es Sin Berretines),
+ * sin los verbos de intención ("comer algo" → nada), sin las de horario ("tarde", "martes") y sin las de los chips
+ * quitados. Sin ninguna, la búsqueda por nombre no corre.
  */
 export function nameWordsFor(normalized: string, removedWords: Set<string>): string[] {
-  return [...new Set(queryWords(normalized))].filter((word) => !STOPWORDS.has(word) && !INTENT_VERB_WORDS.has(word) && !TIME_WORDS.has(word) && !removedWords.has(word))
+  return [...new Set(queryWords(normalized))].filter((word) =>
+    !STOPWORDS.has(word) && !NEGATIONS.has(word) && !INTENT_VERB_WORDS.has(word) && !TIME_WORDS.has(word) && !removedWords.has(word))
 }
 
 /**
@@ -240,6 +252,7 @@ export function semanticTextFor(normalized: string, value: Interpretation, edits
     ...[...value.must.tags, ...value.prefer.tags].map((id) => label(id)),
     ...(value.prefer.style ? [label(value.prefer.style)] : []),
     ...value.must.neighborhoods.map((id) => neighborhoodDisplayName(id) ?? id),
+    ...value.must.venues,
   ]
   return parts.length ? parts.join(', ') : null
 }
@@ -251,16 +264,19 @@ export function filtersFor(
   dishMode: DishMode = 'dish',
   near: CandidateFilters['near'] = null,
   groups: CandidateFilters['groups'] = [],
+  venues: Venue[] = [],
 ): CandidateFilters {
   return {
     categories: value.must.categories,
     tags: value.must.tags,
     diet: DIET_KEYS.filter((key) => value.must.diet[key]),
     neighborhoods: value.must.neighborhoods,
+    venues: venues.filter((venue) => value.must.venues.includes(venue.name)),
     price: value.must.price,
     openAt,
     excludeCategories: value.exclude.categories,
     excludeTags: value.exclude.tags,
+    excludeIcons: excludedIcons(value.exclude.tags),
     dishes,
     dishMode,
     near,
@@ -285,19 +301,19 @@ export function strongNameMatch(matches: NameMatch[], query: string, structured:
  */
 async function blockingConditions(store: SearchDeps['store'], filters: CandidateFilters) {
   const hasDiet = filters.diet.length > 0
-  const hasExclude = filters.excludeCategories.length + filters.excludeTags.length > 0
+  const hasExclude = filters.excludeCategories.length + filters.excludeTags.length + filters.excludeIcons.length > 0
   const hasIntent = filters.groups.length > 0
-  const none: CandidateFilters = { ...filters, diet: [], excludeCategories: [], excludeTags: [], dishes: [], dishMode: 'none', groups: [] }
+  const none: CandidateFilters = { ...filters, diet: [], excludeCategories: [], excludeTags: [], excludeIcons: [], dishes: [], dishMode: 'none', groups: [] }
   const [withDiet, withExclude, withIntent] = await Promise.all([
     hasDiet ? store.count({ ...none, diet: filters.diet }) : null,
-    hasExclude ? store.count({ ...none, excludeCategories: filters.excludeCategories, excludeTags: filters.excludeTags }) : null,
+    hasExclude ? store.count({ ...none, excludeCategories: filters.excludeCategories, excludeTags: filters.excludeTags, excludeIcons: filters.excludeIcons }) : null,
     hasIntent ? store.count({ ...none, groups: filters.groups }) : null,
   ])
   const blocks = { diet: withDiet === 0, exclude: withExclude === 0, intent: withIntent === 0 }
   if (blocks.diet || blocks.exclude || blocks.intent) return blocks
   if (hasDiet || hasExclude) return { diet: hasDiet, exclude: hasExclude, intent: hasIntent }
   // Nada bloquea por sí solo: ¿hay algún lugar publicado?
-  const published = await store.count({ ...none, categories: [], tags: [], neighborhoods: [], price: [], openAt: null, near: null })
+  const published = await store.count({ ...none, categories: [], tags: [], neighborhoods: [], venues: [], price: [], openAt: null, near: null })
   return { diet: false, exclude: false, intent: false, published }
 }
 
@@ -330,6 +346,8 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   // intención no cambia el texto.
   const removed = removals.some((removal) => removal.kind !== 'intent')
   const queryEmbedding = removed || textless ? null : deps.cache.embed(normalized).then((result) => priced('embed', result)).catch(() => null)
+  // Los venues (located_in) para reconocerlos en el texto; sin ellos, la búsqueda sigue igual.
+  const venuesPromise = textless ? Promise.resolve([] as Venue[]) : deps.store.venues().catch(() => [] as Venue[])
 
   // 1. Interpretación: diccionario, nombre fuerte o modelo. Sin texto, sólo los filtros.
   // El atajo del diccionario es sincrónico; la búsqueda por nombre, el modelo y el embedding de la consulta
@@ -369,12 +387,14 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   } else {
     const llm = await llmPromise!
     if (llm.ok) {
-      const validation = validateInterpretation(priced('interpret', llm.value).data)
+      const validation = validateInterpretation(priced('interpret', llm.value).data, normalized)
       source = 'llm'
-      // El horario escrito manda sobre el del modelo ("tomar algo tarde" es trasnoche, no 21:00).
-      original = applyWhen(validation.interpretation, normalized)
+      // El horario escrito manda sobre el del modelo ("tomar algo tarde" es trasnoche, no 21:00), y las frases del
+      // diccionario ("cerca de la rambla") se suman a lo que entendió.
+      original = applyDictionary(applyWhen(validation.interpretation, normalized), normalized)
       discarded = [
         ...validation.discarded.map((value) => ({ value, reason: 'no está en los catálogos' })),
+        ...validation.notNamed.map((value) => ({ value, reason: 'el texto no nombra el barrio: va como no reconocido' })),
         ...validation.toPrefer.map((value) => ({ value, reason: 'momento: va como preferencia, nunca como filtro' })),
       ]
       model = llm.value.model
@@ -387,6 +407,14 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       const partial = interpretWithDictionary(normalized, { partial: true }) ?? emptyInterpretation()
       original = { ...partial, needsLocation: partial.needsLocation || mentionsNearMe(normalized), wantsBest: partial.wantsBest || mentionsBest(normalized) }
     }
+  }
+  // Un venue nombrado ("en el Mercado del Puerto") filtra por sus locales y los de alrededor. El atajo nunca lo tiene
+  // (sus palabras no son del diccionario) y un nombre fijado no filtra.
+  const venues = await venuesPromise
+  if (source === 'llm' || source === 'fallback') {
+    const venued = applyVenues(original, normalized, venues)
+    original = venued.interpretation
+    discarded = [...discarded, ...venued.discarded]
   }
   timings.parallel = elapsed(parallelStart)
 
@@ -465,6 +493,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       value.dishMode,
       near && value.nearRadius !== null ? { ...near, radiusM: value.nearRadius } : null,
       [...intentGroups(value.intent, value.subs), ...sectionGroups],
+      venues,
     )
   const fetchCandidates = async () => {
     const attemptStart = performance.now()
@@ -475,6 +504,10 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   let rows = await fetchCandidates()
   for (const relaxStep of RELAX_ORDER) {
     if (rows.some((row) => row.matchesFilters) || !canRelax(state, relaxStep, dishes)) continue
+    // Sin el venue, la distancia a sus locales ordena; sin el barrio, la distancia a su centro.
+    if (relaxStep === 'venue' && !near) {
+      scores.origins = venues.filter((venue) => state.interpretation.must.venues.includes(venue.name)).flatMap((venue) => venue.points)
+    }
     if (relaxStep === 'neighborhood' && !near) {
       scores.origins = state.interpretation.must.neighborhoods.flatMap((id) => (CENTROIDS[id] ? [CENTROIDS[id]] : []))
     }
@@ -493,7 +526,8 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     const relatedTags = value.dishMode === 'related' ? dishes.flatMap((target) => target.related.tags) : dishes.flatMap((target) => (target.tag ? [target.tag] : []))
     const rankings = buildRankings(candidates, { withQuality: textless, wholeWords: nameQuery ? null : nameWords })
     const requestedCategories = [...wanted.must.categories, ...wanted.prefer.categories]
-    const requestedTags = [...wanted.must.tags, ...wanted.prefer.tags, ...relatedTags]
+    // Una cocina paraguas cuenta con sus hijas: un japonés con japanese en signature es asiático.
+    const requestedTags = [...new Set([...wanted.must.tags, ...wanted.prefer.tags, ...relatedTags].flatMap(withSubcuisines))]
     const dancing = ['night_club', 'dancing', 'dj']
     const wantsDancing = [...requestedCategories, ...requestedTags].some((id) => dancing.includes(id)) || intentGroups(value.intent, value.subs).slice(1).some((group) =>
       [...(group.categories ?? []), ...(group.tags ?? [])].some((id) => dancing.includes(id)))
@@ -503,8 +537,11 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       categories: requestedCategories,
       requestedTags,
       preferTags: wanted.prefer.tags,
+      moments: momentsOf(wanted.prefer.tags),
+      cuisines: requestedCuisines([...wanted.must.tags, ...wanted.prefer.tags]),
       preferStyle: wanted.prefer.style,
       diet: DIET_KEYS.filter((key) => wanted.must.diet[key]),
+      preferDiet: preferredDiets(wanted.exclude.tags).filter((key) => !wanted.must.diet[key]),
       price: wanted.must.price,
       openAt,
       wantsBest: wanted.wantsBest,
@@ -520,14 +557,46 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       hasDishes: dishes.length > 0,
       // La intención del verbo del texto (no la que sólo pide la URL).
       intent: wanted.intent !== null && wanted.intent === value.intent ? intentGroups(value.intent, [])[0] : null,
+      venue: wanted.must.venues.length > 0,
     })
     // Una card por marca: las otras sucursales no ocupan lugar en la lista, las secciones ni los avisos.
     const fused = collapseBranches(cut.kept, { neighborhoods: interpretation.must.neighborhoods, near: near !== null })
     return { openAt, rankings, cut, fused }
   }
   step = performance.now()
-  const { openAt, rankings, cut, fused } = rank(rows, state)
+  const { openAt, rankings, cut, fused: matched } = rank(rows, state)
   timings.fuse = elapsed(step)
+
+  // Brunch con pocos "has": el tag lo tienen pocos lugares (sólo con la palabra explícita). Se completa debajo, como
+  // maybe, con cafés de desayuno y almuerzo sin el tag, con los mismos demás filtros; el orden de arriba no cambia.
+  // Igual si brunch viene del texto (must.tags) o del sub-filtro de la barra (o del texto absorbido por él).
+  let fused = matched
+  let brunchFill: { has: number; added: number; cut: ReturnType<typeof rank>['cut'] } | null = null
+  const matchedHas = matched.filter((item) => item.matchLevel === 'has').length
+  const wantsBrunch = current.must.tags.includes('brunch') || state.subs.includes('brunch')
+  if (wantsBrunch && matchedHas < SEARCH_CONFIG.brunchFill.minHas) {
+    step = performance.now()
+    const { categories, tags } = SEARCH_CONFIG.brunchFill
+    const fillState: SearchState = {
+      ...state,
+      subs: state.subs.filter((id) => id !== 'brunch'),
+      interpretation: { ...current, must: { ...current.must, tags: [...new Set([...current.must.tags.filter((id) => id !== 'brunch'), ...tags])] } },
+    }
+    const fillFilters = filtersOf(fillState)
+    const fillRows = await deps.store.candidates(
+      { ...fillFilters, excludeTags: [...fillFilters.excludeTags, 'brunch'], groups: [...fillFilters.groups, { categories: [...categories] }] },
+      scores,
+    )
+    const filled = rank(fillRows, fillState)
+    // Ni un lugar ni una marca que ya salieron arriba.
+    const shown = new Set(matched.flatMap((item) => [item.row.id, ...item.branches.map((branch) => branch.row.id)]))
+    const brands = new Set(matched.flatMap((item) => (item.row.brandKey ? [item.row.brandKey] : [])))
+    const added = filled.fused.filter((item) => !shown.has(item.row.id) && !(item.row.brandKey && brands.has(item.row.brandKey)))
+    for (const item of added) Object.assign(item, { matchLevel: 'maybe', filledAs: 'breakfast_lunch' })
+    fused = [...matched, ...added]
+    brunchFill = { has: matchedHas, added: added.length, cut: filled.cut }
+    timings.brunchFill = elapsed(step)
+  }
 
   // 5. Respuesta.
   // "Abre hoy" se muestra como ahora: "Abierto · cierra 23:00" o "Abre 20:00".
@@ -555,8 +624,8 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       openStatus: {
         state: open.state,
         closesAt: open.state === 'open' ? open.closesAt : null,
-        label: openStateLabel(open, interpretation.language, moment, isNow, next),
-        ...openStateText(open, interpretation.language, moment, isNow, next),
+        label: openStateLabel(open, DISPLAY_LANG, moment, isNow, next),
+        ...openStateText(open, DISPLAY_LANG, moment, isNow, next),
       },
       matchLevel: item.matchLevel,
     }
@@ -571,7 +640,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   // Con una sola dieta pedida, el grupo "100 % …" (después de los personales).
   const diets = DIET_KEYS.filter((key) => interpretation.must.diet[key])
   const dietGroup = diets.length === 1 ? diets[0] : null
-  const catalogOnly = sectionChoice ? buildSections(fused, sectionChoice.requested, interpretation.language, [], dietGroup) : null
+  const catalogOnly = sectionChoice ? buildSections(fused, sectionChoice.requested, DISPLAY_LANG, [], dietGroup) : null
 
   // Perfil (likes del pedido): elige lugares de esta misma búsqueda para los bloques personales; no toca el ranking.
   // Se decide si la búsqueda se agrupa sin el perfil, como siempre.
@@ -590,10 +659,10 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   step = performance.now()
   const likeData = personalSkipped ? null : await deps.store.likeSimilarities(likes, fused.map((item) => item.row.id), 1 - SEARCH_CONFIG.personal.similar.topShare).catch(() => null)
   if (!personalSkipped) timings.personal = elapsed(step)
-  const personal = likeData ? personalize(fused, likeData, likes, { grouped: catalogOnly?.sections != null, lang: interpretation.language }) : null
+  const personal = likeData ? personalize(fused, likeData, likes, { grouped: catalogOnly?.sections != null, lang: DISPLAY_LANG }) : null
   const personalDebug = personal?.debug ?? emptyPersonalDebug(personalSkipped ?? 'falló la consulta de likes')
   const grouped = sectionChoice && catalogOnly?.sections && personal?.groups.length
-    ? buildSections(fused, sectionChoice.requested, interpretation.language, personal.groups, dietGroup)
+    ? buildSections(fused, sectionChoice.requested, DISPLAY_LANG, personal.groups, dietGroup)
     : catalogOnly
   const forYou: Section | null = personal?.forYou
     ? { id: 'for_you', title: personal.forYou.title, placeIds: personal.forYou.items.map((item) => item.row.id), total: null }
@@ -644,11 +713,11 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   const subKeys = new Set(resolved.subs.flatMap((sub) => sub.removeKeys))
   const shownPreference = (chip: Chip) => chip.kind === 'prefer' && (isOccasionTag(chip.id) || isStyleId(chip.id)) && !subKeys.has(`prefer:${chip.id}`)
   const extras = chips.filter(
-    (chip) => chip.fromText && (chip.kind === 'category' || chip.kind === 'tag' || shownPreference(chip) || (chip.kind === 'dish' && !resolved.absorbedDishes.includes(chip.id))),
+    (chip) => chip.fromText && (chip.kind === 'category' || chip.kind === 'tag' || chip.kind === 'venue' || shownPreference(chip) || (chip.kind === 'dish' && !resolved.absorbedDishes.includes(chip.id))),
   )
   // El "Ver todos" de un grupo se ve activo en la barra y se apaga sacándolo de f.
   if (filters.section) {
-    extras.push({ kind: 'section', id: filters.section, label: sectionDef(filters.section).title[interpretation.language], fromText: false, fromFilter: true })
+    extras.push({ kind: 'section', id: filters.section, label: sectionDef(filters.section).title[DISPLAY_LANG], fromText: false, fromFilter: true })
   }
   const bar = buildBar(resolved, extras)
 
@@ -664,6 +733,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       ...(value.must.neighborhoods.length
         ? chipOption(chips.find((chip) => chip.kind === 'neighborhood' && value.must.neighborhoods.includes(chip.id)), 'neighborhood', withMust({ neighborhoods: [] }))
         : []),
+      ...value.must.venues.flatMap((id) => chipOption(chips.find((chip) => chip.kind === 'venue' && chip.id === id), 'venue', withMust({ venues: value.must.venues.filter((other) => other !== id) }))),
       ...(value.must.openAt ? chipOption(chips.find((chip) => chip.kind === 'openAt'), 'openAt', withMust({ openAt: null })) : []),
       ...DIET_KEYS.filter((key) => value.must.diet[key]).flatMap((key) =>
         chipOption(chips.find((chip) => chip.kind === 'diet' && chip.id === key), 'diet', withMust({ diet: { ...value.must.diet, [key]: false } }))),
@@ -730,12 +800,13 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
         distance: rankings.distance.slice(0, depth),
         quality: rankings.quality.slice(0, depth),
       },
-      results: [...cut.kept, ...cut.cut].map((item) => ({
+      results: [...cut.kept, ...(brunchFill?.cut.kept ?? []), ...cut.cut].map((item) => ({
         id: item.row.id,
         name: item.row.name,
         categories: item.row.categories,
         tags: item.row.tags,
         diet: item.row.diet,
+        price: item.row.price,
         rrf: item.rrf,
         boosts: item.boosts,
         baseScore: item.baseScore,
@@ -747,7 +818,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
         matchLevel: item.matchLevel,
         pinned: item.pinned,
         similarity: item.row.semantic,
-        relevance: cut.relevance.get(item.row.id)!,
+        relevance: (cut.relevance.get(item.row.id) ?? brunchFill?.cut.relevance.get(item.row.id))!,
         brandKey: item.row.brandKey,
         collapsedInto: collapsedInto.get(item.row.id) ?? null,
       })),
@@ -756,6 +827,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       cost: summarizeCost(costs),
       sections: sectionsDebug,
       personal: personalDebug,
+      brunchFill: brunchFill && { has: brunchFill.has, added: brunchFill.added },
     }
   }
   return response

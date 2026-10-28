@@ -1,7 +1,7 @@
 import { label } from '@shared/tags.ts'
 import { neighborhoodDisplayName } from '@shared/neighborhood-names.ts'
 import { DIET_KEYS, type ChipKind, type Interpretation } from './interpretation'
-import { dietLabel, excludeLabel, momentLabel, PRICE_LABELS } from './labels'
+import { dietLabel, DISPLAY_LANG, excludeLabel, momentLabel, PRICE_LABELS } from './labels'
 
 /**
  * fromText / fromFilter: de dónde salió el chip (puede ser de los dos). Con eso la UI sabe cómo apagarlo:
@@ -12,7 +12,7 @@ export type Chip = { kind: ChipKind | 'section'; id: string; label: string; from
 
 /** Lo que se entendió de la consulta, en el orden en que conviene mostrarlo. El id es el que acepta `remove`. */
 export function buildChips(value: Interpretation, today: number, near = false): Chip[] {
-  const lang = value.language
+  const lang = DISPLAY_LANG
   const chips: Chip[] = []
   if (value.nameQuery) chips.push({ kind: 'name', id: value.nameQuery, label: `“${value.nameQuery}”` })
   for (const id of value.must.categories) chips.push({ kind: 'category', id, label: label(id, lang) })
@@ -20,6 +20,7 @@ export function buildChips(value: Interpretation, today: number, near = false): 
   for (const key of DIET_KEYS) if (value.must.diet[key]) chips.push({ kind: 'diet', id: key, label: dietLabel(key, lang) })
   for (const id of value.must.tags) chips.push({ kind: 'tag', id, label: label(id, lang) })
   for (const id of value.must.neighborhoods) chips.push({ kind: 'neighborhood', id, label: neighborhoodDisplayName(id) ?? id })
+  for (const id of value.must.venues) chips.push({ kind: 'venue', id, label: `${lang === 'es' ? 'En' : 'In'} ${id}` })
   if (near) chips.push({ kind: 'near', id: 'me', label: lang === 'es' ? 'Cerca mío' : 'Near me' })
   for (const price of value.must.price) chips.push({ kind: 'price', id: price, label: PRICE_LABELS[lang][price] })
   if (value.must.openAt) {

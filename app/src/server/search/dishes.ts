@@ -1,5 +1,5 @@
 import { findDef, groupOf, label, normalize, toCanonical, type Lang } from '@shared/tags.ts'
-import type { Dish } from './interpretation'
+import type { DietKey, Dish } from './interpretation'
 
 // Categorías que implican tener la comida del tag, para los lugares que no la tienen como tag.
 const CATEGORY_FOR_FOOD: Record<string, string> = {
@@ -27,6 +27,15 @@ const ICONS_FOR_FOOD: Record<string, string[]> = {
   desserts: ['cake', 'pie', 'cupcake'],
   pastries: ['croissant', 'bakery'],
 }
+
+/** Tag de la carne: excluirlo ("sin carne") también saca a los conocidos por ella y prefiere a los vegetarianos. */
+export const MEAT_TAG = 'grilled_meat'
+
+/** Íconos que se excluyen con los tags excluidos: sin carne, tampoco las parrillas ni los de carnes sin el tag. */
+export const excludedIcons = (tags: string[]): string[] => (tags.includes(MEAT_TAG) ? ICONS_FOR_FOOD[MEAT_TAG] : [])
+
+/** Dietas que suben sin filtrar: sin carne, los vegetarianos (100 % o con opciones). */
+export const preferredDiets = (tags: string[]): DietKey[] => (tags.includes(MEAT_TAG) ? ['vegetarian'] : [])
 
 // Platos típicos de una cocina sin tag propio, por su nombre en singular: "tacos" → taco.
 const ICONS_FOR_DISH: Record<string, string[]> = {

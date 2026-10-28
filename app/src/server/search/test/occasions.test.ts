@@ -3,7 +3,8 @@ import { findDef, OCCASION_TAGS } from '@shared/tags.ts'
 import { SEARCH_CONFIG } from '../config'
 import { interpretWithDictionary } from '../dictionary'
 import { dishTarget } from '../dishes'
-import { boostsFor, type Fused, type FuseContext } from '../fuse'
+import { boostsFor, matchLevelOf, type Fused, type FuseContext } from '../fuse'
+import { momentSignals, momentsOf } from '../moments'
 import { applyRemove, emptyInterpretation, validateInterpretation } from '../interpretation'
 import { normalizeQuery } from '../normalize'
 import { buildReasons } from '../reasons'
@@ -15,7 +16,7 @@ import { everyDay, fakeCache, fakeStore, llmOutput, row } from './fixtures'
 const now = new Date('2026-10-12T16:00:00Z')
 const dictionary = (query: string) => interpretWithDictionary(normalizeQuery(query))
 const context = (overrides: Partial<FuseContext> = {}): FuseContext => ({
-  pinnedId: null, dishes: [], categories: [], requestedTags: [], preferTags: [], preferStyle: null, price: [], openAt: null, wantsBest: false, wantsDancing: false, intent: null, section: null, diet: [], ...overrides,
+  pinnedId: null, dishes: [], categories: [], requestedTags: [], preferTags: [], moments: [], cuisines: [], preferStyle: null, price: [], openAt: null, wantsBest: false, wantsDancing: false, intent: null, section: null, diet: [], preferDiet: [], ...overrides,
 })
 
 describe('momentos y style en la interpretación', () => {
@@ -25,6 +26,14 @@ describe('momentos y style en la interpretación', () => {
     expect(dictionary('para una cita')?.prefer.tags).toEqual(['date'])
     expect(dictionary('festejar un cumpleaños')?.prefer.tags).toEqual(['celebration'])
     expect(dictionary('con los chicos')?.prefer.tags).toEqual(['kids_friendly'])
+  })
+
+  it('frente al mar y la rambla piden sea_view como preferencia, sin modelo', () => {
+    for (const query of ['frente al mar', 'vista al mar', 'sobre la rambla', 'en la rambla', 'la rambla', 'rambla', 'café frente al mar']) {
+      const value = dictionary(query)
+      expect(value?.prefer.tags, query).toEqual(['sea_view'])
+      expect(value?.must.tags, query).toEqual([])
+    }
   })
 
   it('"bar de barrio" es bar + de barrio (y casual), sin perder "de barrio" en las palabras vacías', () => {
@@ -81,7 +90,7 @@ describe('momentos y style en la interpretación', () => {
     const { interpretation, toPrefer } = validateInterpretation(llmOutput({
       must: { ...llmOutput().must, categories: ['bar'], tags: ['groups', 'terrace'] },
       prefer: { categories: [], tags: ['casual'] },
-    }))
+    }), '')
     expect(interpretation.must.tags).toEqual(['terrace'])
     expect(interpretation.prefer.tags).toEqual(['groups'])
     expect(interpretation.prefer.style).toBe('casual')
@@ -92,7 +101,7 @@ describe('momentos y style en la interpretación', () => {
     const { interpretation, discarded } = validateInterpretation(llmOutput({
       must: { ...llmOutput().must, tags: ['cuidado'] },
       exclude: { categories: [], tags: ['casual'] },
-    }))
+    }), '')
     expect(interpretation.prefer.style).toBe('cuidado')
     expect(discarded).toEqual(['casual'])
   })
@@ -104,6 +113,75 @@ describe('momentos y style en la interpretación', () => {
 
   it('todos los momentos son de goodFor y el diccionario los resuelve', () => {
     for (const id of OCCASION_TAGS) expect(dictionary(id.replace('_', ' '))?.prefer.tags ?? [id]).toContain(id)
+  })
+})
+
+describe('almuerzo de trabajo', () => {
+  it('es almorzar con menú del día y algo rápido como preferencia, nunca work', () => {
+    for (const query of ['almuerzo de trabajo', 'almuerzo ejecutivo', 'almorzar cerca del trabajo', 'almuerzo de trabajo rápido']) {
+      const value = dictionary(query)
+      expect(value?.must.tags, query).toEqual(['lunch'])
+      expect(value?.prefer.tags, query).toEqual(['menu_of_the_day', 'quick'])
+      expect([...value!.must.tags, ...value!.prefer.tags], query).not.toContain('work')
+    }
+    expect(dictionary('business lunch')?.language).toBe('en')
+  })
+})
+
+describe('el momento ordena como un plato', () => {
+  it('pedido como preferencia: con el tag es has, sin el tag maybe; con plato y momento, has pide los dos', () => {
+    const moments = momentsOf(['date', 'cozy'])
+    expect(moments).toEqual(['date'])
+    expect(matchLevelOf(row({ id: 'a', tags: ['date'] }), [], [], moments)).toBe('has')
+    expect(matchLevelOf(row({ id: 'a', tags: ['cozy'] }), [], [], moments)).toBe('maybe')
+    expect(matchLevelOf(row({ id: 'a', tags: ['quick'] }), [], [], momentsOf(['menu_of_the_day', 'quick']))).toBe('has')
+    const dish = [dishTarget('milanesa')]
+    expect(matchLevelOf(row({ id: 'a', tags: ['date'], dishHas: [true] }), dish, [], moments)).toBe('has')
+    expect(matchLevelOf(row({ id: 'a', dishHas: [true] }), dish, [], moments)).toBe('maybe')
+    expect(matchLevelOf(row({ id: 'a', tags: ['date'], dishHas: [false] }), dish, [], moments)).toBe('maybe')
+  })
+
+  it('"para una cita": el que tiene date va arriba aunque el otro se parezca más; los dos salen', async () => {
+    const places = [
+      row({ id: 'parecido', semantic: 0.9, prominence: 1 }),
+      row({ id: 'cita', tags: ['date'], semantic: 0.5 }),
+    ]
+    const response = await runSearch('para una cita', { store: fakeStore(places).store, cache: fakeCache().cache }, { now, debug: true })
+    expect(response.results.map((result) => result.id)).toEqual(['cita', 'parecido'])
+    expect(response.debug?.results.map((result) => result.matchLevel)).toEqual(['has', 'maybe'])
+  })
+
+  it('un momento exigido por el modelo pasa a preferencia y ordena igual', async () => {
+    const places = [row({ id: 'sin', prominence: 1 }), row({ id: 'grupos', tags: ['groups'] })]
+    const cache = fakeCache(llmOutput({ must: { ...llmOutput().must, tags: ['groups'] } })).cache
+    const response = await runSearch('algo para ir con la barra de amigos', { store: fakeStore(places).store, cache }, { now, debug: true })
+    expect(response.results.map((result) => result.id)).toEqual(['grupos', 'sin'])
+  })
+})
+
+describe('momentFit', () => {
+  it('más señales del momento, más empujón, hasta el tope; vino o cócteles cuenta una vez', () => {
+    const { momentFit, maxMomentSignals } = SEARCH_CONFIG.boosts
+    const date = context({ moments: ['date'] })
+    expect(boostsFor(row({ id: 'a', tags: ['date'] }), date, null).momentFit).toBe(momentFit)
+    expect(boostsFor(row({ id: 'a', tags: ['date', 'cozy', 'quiet'] }), date, null).momentFit).toBeCloseTo(3 * momentFit)
+    expect(momentSignals(['date'], row({ id: 'a', tags: ['wine', 'classic_cocktails', 'signature_cocktails'] }))).toBe(1)
+    expect(momentSignals(['date'], row({ id: 'a', tags: ['date', 'cozy', 'quiet', 'wine', 'dinner'], style: 'cuidado' }))).toBe(maxMomentSignals)
+    expect(momentSignals(['date'], row({ id: 'a', style: 'intermedio' }))).toBe(1)
+    expect(boostsFor(row({ id: 'a', tags: ['cozy'] }), context(), null).momentFit).toBeUndefined()
+  })
+
+  it('celebration cuenta las reservas; con varios momentos vale el que más encaja, sin sumar', () => {
+    expect(momentSignals(['celebration'], row({ id: 'a', reservations: 'recommended' }))).toBe(1)
+    expect(momentSignals(['celebration'], row({ id: 'a', reservations: 'no_reservations' }))).toBe(0)
+    const place = row({ id: 'a', tags: ['groups', 'picada', 'draft_beer', 'date'] })
+    expect(momentSignals(['groups'], place)).toBe(3)
+    expect(momentSignals(['date', 'groups'], place)).toBe(3)
+  })
+
+  it('almuerzo de trabajo: menú del día, algo rápido y almuerzo', () => {
+    expect(momentSignals(['menu_of_the_day', 'quick'], row({ id: 'a', tags: ['menu_of_the_day', 'quick', 'lunch'] }))).toBe(3)
+    expect(momentSignals(['menu_of_the_day', 'quick'], row({ id: 'a', tags: ['work'] }))).toBe(0)
   })
 })
 
@@ -122,10 +200,10 @@ describe('empujones', () => {
     expect(boostsFor(row({ id: 'a', style: 'cuidado' }), context({ preferStyle: 'casual' }), null).preferStyle).toBeUndefined()
   })
 
-  it('con precio pedido, el confirmado suma y el desconocido no', () => {
-    expect(boostsFor(row({ id: 'a', price: 'low' }), context({ price: ['low'] }), null).priceMatch).toBe(SEARCH_CONFIG.boosts.priceMatch)
-    expect(boostsFor(row({ id: 'a', price: 'unknown' }), context({ price: ['low'] }), null).priceMatch).toBeUndefined()
-    expect(boostsFor(row({ id: 'a', price: 'low' }), context(), null).priceMatch).toBeUndefined()
+  it('con precio pedido, el desconocido es maybe y el que coincide has; sin precio pedido, todos has', () => {
+    expect(matchLevelOf(row({ id: 'a', price: 'low' }), [], ['low'])).toBe('has')
+    expect(matchLevelOf(row({ id: 'a', price: 'unknown' }), [], ['low'])).toBe('maybe')
+    expect(matchLevelOf(row({ id: 'a', price: 'unknown' }), [])).toBe('has')
   })
 
   it('con "lo mejor", signature pesa más que un primer puesto y más del doble que un match común', () => {

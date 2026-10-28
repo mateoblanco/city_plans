@@ -41,8 +41,6 @@ export const SEARCH_CONFIG = {
     preferTag: 0.006,
     /** El style pedido ("descontracturado" → casual), como una preferencia más. */
     preferStyle: 0.006,
-    /** La consulta pide precio y el del lugar está confirmado y coincide: queda arriba de los de precio desconocido. */
-    priceMatch: 0.008,
     exactDish: 0.02,
     /**
      * Pide un plato y el lugar es conocido por él: su ícono es el del plato (pizza → pizza) o su categoría es la del
@@ -55,9 +53,15 @@ export const SEARCH_CONFIG = {
      */
     dietFully: 0.03,
     /**
+     * Dieta preferida sin filtrar ("sin carne" → vegetariano): entero si el lugar es 100 % apto, la mitad con opciones.
+     * Como dos preferencias: ordena, no cambia quién entra.
+     */
+    preferDiet: 0.012,
+    /**
      * Intención Bares y el lugar es conocido por la bebida (su ícono es de bebida: vino, cerveza, tragos, bar clásico).
      * Con Bares todos tienen categoría de bar, así que el ícono separa al bar de verdad del sushi o la tapería con barra.
-     * La mitad de knownFor, casi un primer puesto en un ranking.
+     * La mitad de knownFor, casi un primer puesto en un ranking. Con una bebida pedida (vino, cerveza, cócteles…), entero
+     * sólo para el bar de esa bebida (fuse.ts DRINK_FIT) y la mitad para los otros bares, con o sin la intención.
      */
     barFit: 0.015,
     /**
@@ -71,6 +75,12 @@ export const SEARCH_CONFIG = {
      */
     sectionFit: 0.004,
     maxSectionSignals: 3,
+    /**
+     * Por cada señal del momento pedido que tiene el lugar (moments.ts MOMENT_FIT: con una cita, cozy, quiet, vino…),
+     * hasta maxMomentSignals: como mucho 0.012, menos que un primer puesto en un ranking. Ordena entre los "has".
+     */
+    momentFit: 0.003,
+    maxMomentSignals: 4,
     confirmedOpen: 0.01,
     /**
      * Principalmente para bailar (boliche, tag dancing, o dj sin comida) y la consulta no pide bailar: baja un poco
@@ -107,9 +117,9 @@ export const SEARCH_CONFIG = {
 
   /**
    * Likes (cookie espejo de localStorage, sólo en el pedido): el perfil es el promedio de los embeddings de los lugares
-   * que te gustaron. Nunca reordena ni cambia quién entra: sólo elige qué lugares de la misma búsqueda van a
-   * "Parecido a <lugar>" (desde 1 like; va primero), "Basado en lo que te gusta" (desde minLikesProfile, con lo que queda)
-   * o, sin grupos, "Para vos"; siempre entre los resultados "has".
+   * que te gustaron. Nunca reordena ni cambia quién entra: sólo elige qué lugares de la misma búsqueda van a un solo
+   * grupo personal, "Parecido a <lugar>" (desde 1 like) o, si no sale, "Basado en lo que te gusta" (desde minLikesProfile),
+   * o, sin grupos, a "Para vos"; siempre entre los resultados "has".
    * profileThreshold es coseno contra el promedio de los likes. "Parecido a" no tiene umbral fijo: entran los lugares
    * que están en el top `similar.topShare` más parecido a ese lugar dentro de toda la base publicada, con piso
    * `similar.floor` (unos lugares tienen vecinos mucho más cercanos que otros).
@@ -126,8 +136,19 @@ export const SEARCH_CONFIG = {
     similar: { topShare: 0.1, floor: 0.65 },
   },
 
+  /**
+   * Brunch: el tag se asigna sólo con la palabra explícita y lo tienen pocos lugares. Con menos resultados "has" que
+   * minHas, se completa debajo (maybe) con cafés que tienen todos los tags de `tags` y no el de brunch.
+   */
+  brunchFill: { minHas: 12, categories: ['cafe'], tags: ['breakfast', 'lunch'] },
+
   /** Cerca mío: radio inicial y cómo se amplía (en metros) si no hay resultados. */
   near: { radii: [1500, 3000, 5000] },
+  /**
+   * Venue nombrado ("en el Mercado del Puerto"): además de sus locales, los que no tienen located_in a menos de esto de
+   * alguno. 100 m cubre un mercado o un shopping desde el local cargado sin llegar a la cuadra de enfrente.
+   */
+  venue: { radiusM: 100 },
 
   llm: {
     model: process.env.SEARCH_MODEL?.trim() || 'anthropic/claude-haiku-5.5',
@@ -148,9 +169,12 @@ export const SEARCH_CONFIG = {
   cacheSeconds: 60 * 60 * 24,
   /**
    * Va en la clave de la interpretación cacheada: subirla cuando cambia cómo se interpreta (prompt, schema,
-   * validación) para no usar lo guardado con el criterio viejo. 2: horario del texto ("tarde" con bares).
+   * validación) para no usar lo guardado con el criterio viejo. 2: horario del texto ("tarde" con bares). 3: almuerzo
+   * de trabajo (lunch + menú del día + algo rápido), no work. 4: un lugar que no es barrio (mercado, shopping) va a
+   * unrecognized, no a neighborhoods. 5: cocinas paraguas (asian, latin_american). 6: "sin carne" es exclude de grilled_meat,
+   * no vegetariano, y las cocinas del texto se suman a lo del modelo.
    */
-  interpretationCacheVersion: 2,
+  interpretationCacheVersion: 6,
 
   timeZone: 'America/Montevideo',
   /** Faltando esto o menos para el cierre o la apertura, la card dice "Cierra pronto" / "Abre pronto". */

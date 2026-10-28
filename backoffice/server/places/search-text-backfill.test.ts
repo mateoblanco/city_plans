@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { applySearchTextChanges, planMomentsChange, planStyleChange, planTagsChange, type SearchTextRow } from './search-text-backfill.ts'
+import { applySearchTextChanges, planMomentsChange, planStyleChange, planTagsChange, planTextRefresh, type SearchTextRow } from './search-text-backfill.ts'
+import { placeSearchTexts } from './manual-overrides.ts'
 
 const row = (overrides: Partial<SearchTextRow> = {}): SearchTextRow => ({
   id: 'uuid-1',
@@ -132,5 +133,52 @@ describe('planTagsChange', () => {
 
   it('sin cambios en los tags pedidos, null', () => {
     expect(planTagsChange(brickel, { tags: ['burgers', 'date'] }, dancing)).toBeNull()
+  })
+
+  it('un tag que sale también sale de signature, y los textos se arman sin él', () => {
+    const seaView = (id: string): id is 'sea_view' => id === 'sea_view'
+    const change = planTagsChange(row({ tags: ['pizza', 'sea_view'], signature: ['pizza', 'sea_view'] }), { tags: [] }, seaView)!
+    expect(change.values).toEqual({ tags: ['pizza'], signature: ['pizza'] })
+    expect(change.keywordText).not.toContain('Vista al mar')
+  })
+})
+
+describe('planTextRefresh', () => {
+  const saved = (overrides: Partial<SearchTextRow> = {}) => {
+    const base = row(overrides)
+    return { ...base, ...placeSearchTexts(base) }
+  }
+
+  it('sin cambios en el catálogo no hay nada que escribir', () => {
+    expect(planTextRefresh(saved())).toBeNull()
+  })
+
+  it('un sinónimo que salió del catálogo: sólo keyword_text, sin embedding ni costo', () => {
+    const vegetarian = saved({ tags: ['pizza'], dietVegetarian: 'fully' })
+    const stale = { ...vegetarian, keywordText: `${vegetarian.keywordText}. sin carne` }
+    const change = planTextRefresh(stale)!
+    expect(change.keywordText).toBe(vegetarian.keywordText)
+    expect(change.embeddingText).toBeNull()
+    expect(change.estimatedEmbeddingUsd).toBe(0)
+    expect(change.keyword).toEqual({ removed: ['sin carne'], added: [] })
+    expect(change.values).toEqual({})
+  })
+
+  it('si cambia el texto del embedding, se rearma y se estima su costo', () => {
+    const place = saved()
+    const change = planTextRefresh({ ...place, embeddingText: 'viejo' })!
+    expect(change.embeddingText).toBe(place.embeddingText)
+    expect(change.keywordText).toBeNull()
+    expect(change.estimatedEmbeddingUsd).toBeGreaterThan(0)
+    expect(change.embedding.removed).toEqual(['viejo'])
+  })
+
+  it('al aplicar sólo se escribe y se embebe lo que cambió', async () => {
+    const place = saved()
+    const write = vi.fn(async () => {})
+    const embed = vi.fn(async (texts: string[]) => texts.map(() => [0.1]))
+    await applySearchTextChanges([planTextRefresh({ ...place, keywordText: 'viejo' })!], { write, embed })
+    expect(embed).not.toHaveBeenCalled()
+    expect(write).toHaveBeenCalledWith(place.id, { keywordText: place.keywordText })
   })
 })

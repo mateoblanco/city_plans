@@ -4,7 +4,7 @@ import type { Fused } from './fuse'
 import { matchesGroup } from './intents'
 
 /** Por qué un resultado pasa el corte; `no-similarity`: el lugar no tiene embedding, no hay con qué compararlo. */
-export type KeptBy = 'pinned' | 'category' | 'tag' | 'dish' | 'keyword' | 'intent' | 'similar' | 'no-similarity'
+export type KeptBy = 'pinned' | 'category' | 'tag' | 'dish' | 'keyword' | 'venue' | 'intent' | 'similar' | 'no-similarity'
 export type Relevance = { kept: KeptBy } | { cut: true; reason: string }
 
 export type RelevanceContext = {
@@ -20,6 +20,11 @@ export type RelevanceContext = {
    * "bares". El verbo no va como keyword, así que sin esto los bares poco parecidos a "tomar algo" se cortarían.
    */
   intent?: FilterGroup | null
+  /**
+   * Se pidió un venue ("algo en Mercado Ferrando") y sigue filtrando: lo que pasa el filtro está ahí o al lado. El texto
+   * para el embedding es casi sólo el nombre del venue, así que sin esto se cortarían los vecinos sin located_in.
+   */
+  venue?: boolean
 }
 
 export type RelevanceCut = {
@@ -38,8 +43,9 @@ function explicitMatch(item: Fused, context: RelevanceContext): KeptBy | null {
   if (item.pinned) return 'pinned'
   if (row.categories.some((id) => context.categories.includes(id))) return 'category'
   if (row.tags.some((id) => context.tags.includes(id))) return 'tag'
-  if (context.hasDishes && (row.dishHas.some(Boolean) || row.dishExact.some(Boolean) || item.matchLevel === 'has')) return 'dish'
+  if (context.hasDishes && (row.dishHas.some(Boolean) || row.dishExact.some(Boolean) || item.dishLevel === 'has')) return 'dish'
   if (row.keyword > 0) return 'keyword'
+  if (context.venue && row.matchesFilters) return 'venue'
   if (context.intent && matchesGroup(context.intent, row)) return 'intent'
   return null
 }

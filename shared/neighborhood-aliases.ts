@@ -50,3 +50,19 @@ export function resolveNeighborhood(raw: string): string | null {
   if (raw in NEIGHBORHOOD_NAMES) return raw
   return LOOKUP.get(normalize(raw.replace(/[-–]/g, ' '))) ?? null
 }
+
+// Lo bastante largo para el nombre de barrio más largo ("colon centro y noroeste").
+const MAX_NEIGHBORHOOD_WORDS = 4
+
+/** Ids de los barrios que nombra un texto ya normalizado, con las mismas formas que acepta resolveNeighborhood. */
+export function neighborhoodsIn(normalized: string): Set<string> {
+  const words = normalized.split(' ').filter(Boolean)
+  const found = new Set<string>()
+  for (let index = 0; index < words.length; index++) {
+    for (let length = 1; length <= Math.min(MAX_NEIGHBORHOOD_WORDS, words.length - index); length++) {
+      const id = resolveNeighborhood(words.slice(index, index + length).join(' '))
+      if (id) found.add(id)
+    }
+  }
+  return found
+}

@@ -1,5 +1,8 @@
 // La card es flex en fila: el corazón va último, arriba a la derecha.
 .like {
+  // Arriba del link que cubre la card: el click acá no navega.
+  position: relative;
+  z-index: 1;
   margin-left: auto;
   align-self: flex-start;
   flex-shrink: 0;

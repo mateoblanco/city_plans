@@ -4,7 +4,7 @@ import type { Fused } from '../fuse'
 import { row } from './fixtures'
 
 const item = (overrides: Parameters<typeof row>[0]): Fused => ({
-  row: row(overrides), pinned: false, matchLevel: 'has', open: null, rrf: 0, boosts: {}, baseScore: 0, multiplier: 1, score: 0, positionWithoutQuality: 1,
+  row: row(overrides), pinned: false, matchLevel: 'has', dishLevel: 'has', open: null, rrf: 0, boosts: {}, baseScore: 0, multiplier: 1, score: 0, positionWithoutQuality: 1,
 })
 
 // En orden de ranking: la mejor sucursal de Costa Azul es la de Pocitos.

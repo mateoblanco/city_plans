@@ -5,6 +5,7 @@ import { SEARCH_CONFIG } from './config'
 import { embedQuery, type SearchCache } from './cache'
 import { interpretWithLlm } from './llm'
 import { neonPlacesStore } from './store'
+import type { Venue } from './venues'
 
 // La clave de cada entrada son los argumentos: la consulta normalizada (con la versión de la interpretación) o el
 // texto a embeber.
@@ -31,6 +32,14 @@ export async function publishedNeighborhoods(): Promise<string[]> {
   cacheLife('hours')
   cacheTag('search-neighborhoods')
   return neonPlacesStore(getDb()).neighborhoods()
+}
+
+/** Venues (located_in) de los publicados, para reconocerlos en el texto. Cambian sólo al publicar en el backoffice. */
+export async function publishedVenues(): Promise<Venue[]> {
+  'use cache'
+  cacheLife('hours')
+  cacheTag('search-venues')
+  return neonPlacesStore(getDb()).venues()
 }
 
 export const nextSearchCache: SearchCache = {

@@ -19,8 +19,8 @@ export type SearchTextRow = Pick<Place,
 
 export type StyleBasis = NonNullable<TagEvidence['basis']>
 
-/** Lo que se escribe del lugar además de los textos: el style o los tags. */
-export type SearchTextValues = Partial<Pick<Place, 'style' | 'tags'>>
+/** Lo que se escribe del lugar además de los textos: el style o los tags (y signature, si pierde un tag sacado). */
+export type SearchTextValues = Partial<Pick<Place, 'style' | 'tags' | 'signature'>>
 
 /** Cambio de un lugar guardado que regenera sus textos de búsqueda y el embedding. */
 export type SearchTextChange = {
@@ -84,13 +84,53 @@ export function planTagsChange<T extends string>(row: SearchTextRow, replayed: {
   const added = after.filter((id) => !before.includes(id))
   const removed = before.filter((id) => !after.includes(id))
   if (added.length === 0 && removed.length === 0) return null
-  const values = { tags: tags! }
+  // signature es un subconjunto de tags: un tag que sale, sale también de signature.
+  const signature = row.signature.filter((id) => tags!.includes(id))
+  const values = signature.length === row.signature.length ? { tags: tags! } : { tags: tags!, signature }
   return { id: row.id, googlePlaceId: row.googlePlaceId, name: row.name, before, after, added, removed, skipped: false, values, ...searchTexts(row, values, false) }
 }
 
 /** Cambio de los momentos (groups, date…) de un lugar guardado según el replay; los demás tags quedan como están. */
 export function planMomentsChange(row: SearchTextRow, replayed: { tags: string[] }): MomentsChange | null {
   return planTagsChange(row, replayed, isOccasionTag)
+}
+
+/** Cambio de los textos de búsqueda de un lugar con el catálogo actual (sinónimos o labels de tags.ts), sin tocar sus datos. */
+export type TextRefreshChange = SearchTextChange & {
+  before: { keywordText: string | null; embeddingText: string | null }
+  /** Frases (separadas por ". ") que salen y entran de cada texto. */
+  keyword: { removed: string[]; added: string[] }
+  embedding: { removed: string[]; added: string[] }
+}
+
+const fragments = (text: string | null) => (text ?? '').split('. ').filter(Boolean)
+const fragmentDiff = (before: string | null, after: string) => {
+  const [old, next] = [fragments(before), fragments(after)]
+  return { removed: old.filter((part) => !next.includes(part)), added: next.filter((part) => !old.includes(part)) }
+}
+
+/**
+ * Textos de búsqueda de un lugar guardado rearmados con lo guardado y el catálogo actual, o null si son los mismos. Un
+ * texto que no cambia va en null: no se escribe y, si es el del embedding, no se paga. search_tsv sale de keyword_text.
+ */
+export function planTextRefresh(row: SearchTextRow & { keywordText: string | null; embeddingText: string | null }): TextRefreshChange | null {
+  const { keywordText, embeddingText } = placeSearchTexts(row)
+  const keywordChanged = keywordText !== row.keywordText
+  const embeddingChanged = embeddingText !== row.embeddingText
+  if (!keywordChanged && !embeddingChanged) return null
+  return {
+    id: row.id,
+    googlePlaceId: row.googlePlaceId,
+    name: row.name,
+    skipped: false,
+    values: {},
+    keywordText: keywordChanged ? keywordText : null,
+    embeddingText: embeddingChanged ? embeddingText : null,
+    estimatedEmbeddingUsd: embeddingChanged ? estimatedEmbeddingUsd(embeddingText) : 0,
+    before: { keywordText: row.keywordText, embeddingText: row.embeddingText },
+    keyword: keywordChanged ? fragmentDiff(row.keywordText, keywordText) : { removed: [], added: [] },
+    embedding: embeddingChanged ? fragmentDiff(row.embeddingText, embeddingText) : { removed: [], added: [] },
+  }
 }
 
 export type SearchTextWrite = SearchTextValues & Partial<Pick<Place, 'keywordText' | 'embeddingText' | 'embedding' | 'embeddingModel' | 'embeddingTextHash' | 'embeddedAt'>>

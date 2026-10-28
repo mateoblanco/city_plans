@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { label } from "@shared/tags.ts";
 import type { SearchResult } from "@/server/search";
 import type { KeptBy } from "@/server/search/relevance";
@@ -17,6 +18,7 @@ const KEPT_LABELS: Record<KeptBy, string> = {
   tag: "por tag",
   dish: "por plato",
   keyword: "por keyword",
+  venue: "por venue",
   intent: "por intención",
   similar: "por similitud",
   "no-similarity": "sin similitud",
@@ -57,7 +59,10 @@ const PlaceCard = (props: Props) => {
 
       <div className={styles.body}>
 
-        <h3 className={styles.name}>{props.place.name}</h3>
+        {/* El ::after del link cubre la card; el corazón queda arriba (z-index) y no navega. */}
+        <h3 className={styles.name}>
+          <Link href={`/lugar/${props.place.slug}`} className={styles.link}>{props.place.name}</Link>
+        </h3>
 
         <p className={styles.meta}>
           {[

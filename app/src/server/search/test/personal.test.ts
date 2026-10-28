@@ -16,7 +16,7 @@ const OTHER = [0, 0.1, 1]
 type Place = { place: CandidateRow; vector: number[] }
 
 const coffee = (index: number, overrides: Partial<CandidateRow> = {}): Place => ({
-  place: row({ id: `c${index}`, categories: ['restaurant', 'cafe'], iconCategory: 'coffee', tags: ['terrace'], style: 'casual', prominence: 0.5, ...overrides }),
+  place: row({ id: `c${index}`, categories: ['restaurant', 'cafe'], iconCategory: 'coffee', tags: ['terrace', 'groups'], style: 'casual', prominence: 0.5, ...overrides }),
   vector: COFFEE,
 })
 const grill = (index: number, overrides: Partial<CandidateRow> = {}): Place => ({
@@ -24,7 +24,7 @@ const grill = (index: number, overrides: Partial<CandidateRow> = {}): Place => (
   vector: GRILL,
 })
 const other = (index: number, overrides: Partial<CandidateRow> = {}): Place => ({
-  place: row({ id: `o${index}`, categories: ['restaurant'], tags: ['japanese'], style: 'cuidado', prominence: 0.5, ...overrides }),
+  place: row({ id: `o${index}`, categories: ['restaurant'], tags: ['japanese', 'groups'], style: 'cuidado', prominence: 0.5, ...overrides }),
   vector: OTHER,
 })
 
@@ -41,26 +41,30 @@ function setup(places: Place[] = basePlaces(), names: Parameters<typeof fakeStor
   return { search }
 }
 
-const sectionIds = (response: Awaited<ReturnType<ReturnType<typeof setup>['search']>>) => response.sections?.map((section) => section.id) ?? []
-const personalIds = (response: Awaited<ReturnType<ReturnType<typeof setup>['search']>>) =>
+type Response = Awaited<ReturnType<ReturnType<typeof setup>['search']>>
+const sectionIds = (response: Response) => response.sections?.map((section) => section.id) ?? []
+const section = (response: Response, id: string) => response.sections?.find((entry) => entry.id === id)
+const personalIds = (response: Response) =>
   [...(response.sections ?? []).filter((section) => section.id === 'profile' || section.id === 'similar'), ...(response.forYou ? [response.forYou] : [])].flatMap(
     (section) => section.placeIds,
   )
 
 describe('con grupos', () => {
   it('con menos de 3 likes no hay "Basado en lo que te gusta"', async () => {
+    // Ningún like en la búsqueda: no hay "Parecido a" y se prueba "Basado", que pide 3 likes.
     const { search } = setup()
-    const response = await search('comer con amigos', { likes: ['c0', 'c1'] })
+    const response = await search('comer con amigos', { likes: ['zz0', 'zz1'] })
     expect(response.sections).not.toBeNull()
     expect(sectionIds(response)).not.toContain('profile')
-    expect(response.debug?.personal.groups.find((group) => group.id === 'profile')).toMatchObject({ shown: false, reason: '2 likes (mínimo 3)' })
+    expect(response.debug?.personal.groups.find((group) => group.id === 'profile')).toMatchObject({ shown: false, reason: '0 likes (mínimo 3)' })
   })
 
-  it('con 1 like puede haber "Parecido a", primero y sin "Ver todos"', async () => {
+  it('con 1 like puede haber "Parecido a", después del primer grupo del catálogo y sin "Ver todos"', async () => {
     const { search } = setup()
     const response = await search('comer con amigos', { likes: ['g0'] })
-    expect(response.sections?.[0]).toMatchObject({ id: 'similar', title: 'Parecido a g0', total: null })
-    expect([...response.sections![0].placeIds].sort()).toEqual(['g1', 'g2', 'g3', 'g4'])
+    expect(sectionIds(response).indexOf('similar')).toBe(1)
+    expect(section(response, 'similar')).toMatchObject({ title: 'Parecido a g0', total: null })
+    expect([...section(response, 'similar')!.placeIds].sort()).toEqual(['g1', 'g2', 'g3', 'g4'])
     expect(response.debug?.personal.similarTo).toMatchObject({ id: 'g0' })
     // El parecido de cada lugar del grupo, en debug.
     expect(response.debug?.personal.groups.find((group) => group.id === 'similar')?.places.every((place) => place.similarity > 0.68)).toBe(true)
@@ -78,16 +82,15 @@ describe('con grupos', () => {
     expect(eat.sections?.find((section) => section.id === 'similar')?.title).toBe('Parecido a g0')
   })
 
-  it('"Parecido a" va primero y "Basado en lo que te gusta" toma lo que queda; sin los lugares que te gustaron y sin repetir', async () => {
-    // 12 cafés: 3 likes, "Parecido a" se lleva 6 y "Basado" los 3 que quedan.
+  it('un solo grupo personal: "Parecido a" si sale; sin los lugares que te gustaron y sin repetir', async () => {
+    // 12 cafés y 3 likes: "Parecido a" se lleva 6 y "Basado en lo que te gusta" no sale aunque alcanzaría.
     const places = [...Array.from({ length: 12 }, (_, index) => coffee(index)), ...basePlaces().slice(7)]
     const { search } = setup(places)
     const response = await search('comer con amigos', { likes: ['c0', 'c1', 'c2'] })
-    expect(sectionIds(response).slice(0, 2)).toEqual(['similar', 'profile'])
-    expect(response.sections?.[0].placeIds).toHaveLength(6)
-    expect(response.sections?.[1]).toMatchObject({ id: 'profile', title: 'Basado en lo que te gusta', total: null })
-    expect(response.sections?.[1].placeIds).toHaveLength(3)
-    expect([...response.sections![0].placeIds, ...response.sections![1].placeIds].sort()).toEqual(['c10', 'c11', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8', 'c9'])
+    expect(sectionIds(response).indexOf('similar')).toBe(1)
+    expect(sectionIds(response)).not.toContain('profile')
+    expect(section(response, 'similar')?.placeIds).toHaveLength(6)
+    expect(response.debug?.personal.groups.find((group) => group.id === 'profile')).toMatchObject({ shown: false, reason: 'ya hay "Parecido a"' })
     // Los que te gustaron siguen en la búsqueda, pero no en los grupos personales.
     expect(response.results.map((result) => result.id)).toEqual(expect.arrayContaining(['c0', 'c1', 'c2']))
     expect(personalIds(response).some((id) => ['c0', 'c1', 'c2'].includes(id))).toBe(false)
@@ -96,12 +99,33 @@ describe('con grupos', () => {
     expect([...all].sort()).toEqual(response.results.map((result) => result.id).sort())
   })
 
-  it('si "Parecido a" se lleva todo lo parecido, "Basado" no llega a 3 y no sale', async () => {
+  it('sin "Parecido a" (ningún like salió en la búsqueda), sale "Basado en lo que te gusta" en su lugar', async () => {
+    // 3 cafés que te gustaron en Pocitos; la búsqueda es en Cordón.
+    const liked = ['l0', 'l1', 'l2'].map((id) => ({ place: row({ id, neighborhoodId: 'POCITOS', categories: ['restaurant', 'cafe'], tags: ['groups'] }), vector: COFFEE }))
+    const { search } = setup([...basePlaces(), ...liked])
+    const response = await search('comer con amigos en cordon', { likes: ['l0', 'l1', 'l2'] })
+    expect(response.debug?.personal.similarTo).toBeNull()
+    expect(sectionIds(response).indexOf('profile')).toBe(1)
+    expect(sectionIds(response)).not.toContain('similar')
+  })
+
+  it('con "Parecido a", "Basado en lo que te gusta" no sale', async () => {
     const { search } = setup()
     const response = await search('comer con amigos', { likes: ['c0', 'c1', 'c2'] })
-    expect([...response.sections![0].placeIds].sort()).toEqual(['c3', 'c4', 'c5', 'c6'])
+    expect([...section(response, 'similar')!.placeIds].sort()).toEqual(['c3', 'c4', 'c5', 'c6'])
     expect(sectionIds(response)).not.toContain('profile')
     expect(response.debug?.personal.groups.map((group) => [group.id, group.shown])).toEqual([['similar', true], ['profile', false]])
+  })
+
+  it('con precio pedido, los de precio desconocido son "maybe" y no entran en los personales', async () => {
+    const places = basePlaces().map(({ place, vector }) => ({ place: { ...place, price: place.id === 'c4' || place.id === 'c5' ? 'unknown' : 'low' }, vector }))
+    const { search } = setup(places)
+    const response = await search('comer con amigos barato', { likes: ['c0', 'c1', 'c2'] })
+    const levels = new Map(response.results.map((result) => [result.id, result.matchLevel]))
+    expect(levels.get('c4')).toBe('maybe')
+    expect(levels.get('c3')).toBe('has')
+    expect(personalIds(response)).not.toContain('c4')
+    expect(personalIds(response)).not.toContain('c5')
   })
 
   it('un like que es una sucursal escondida también saca a su card de los bloques personales', async () => {
@@ -116,7 +140,8 @@ describe('con grupos', () => {
 
   it('"Parecido a" toma el top 10 % más parecido de toda la base, con piso 0,65', async () => {
     // Cerca de L: 3 muy parecidos (0,98), 4 medianos (0,78, sobre el piso) y 12 lejos (0). El top 10 % empieza en 0,98.
-    const tags = (index: number) => (index % 3 === 0 ? ['picada', 'groups'] : index % 3 === 1 ? ['japanese'] : ['terrace'])
+    // Todos con groups: con "con amigos", los que no lo tienen son "maybe" y no entran en los personales.
+    const tags = (index: number) => (index % 3 === 0 ? ['picada', 'groups'] : index % 3 === 1 ? ['japanese', 'groups'] : ['terrace', 'groups'])
     const place = (id: string, vector: number[], index: number): Place => ({ place: row({ id, tags: tags(index), prominence: 0.5 }), vector })
     const places = [
       place('L', [1, 0, 0], 0),
@@ -127,7 +152,7 @@ describe('con grupos', () => {
     const { search } = setup(places)
     const response = await search('comer con amigos', { likes: ['L'] })
     expect(response.debug?.personal.similarTo).toMatchObject({ id: 'L', topCut: expect.closeTo(0.98, 2), threshold: expect.closeTo(0.98, 2) })
-    expect([...response.sections![0].placeIds].sort()).toEqual(['n1', 'n2', 'n3'])
+    expect([...section(response, 'similar')!.placeIds].sort()).toEqual(['n1', 'n2', 'n3'])
 
     // Con vecinos más lejanos, el top 10 % queda debajo de 0,65 y manda el piso: 0,78 entra, 0,6 no.
     const spread = [
@@ -138,7 +163,7 @@ describe('con grupos', () => {
     ]
     const wide = await setup(spread).search('comer con amigos', { likes: ['L'] })
     expect(wide.debug?.personal.similarTo?.threshold).toBe(0.65)
-    expect([...wide.sections![0].placeIds].sort()).toEqual(['m1', 'm2', 'm3'])
+    expect([...section(wide, 'similar')!.placeIds].sort()).toEqual(['m1', 'm2', 'm3'])
   })
 
   it('sin al menos 3 por encima del umbral, no hay grupo', async () => {
@@ -222,7 +247,7 @@ describe('el perfil no cambia la búsqueda', () => {
 
 describe('tope de grupos', () => {
   const fused = (overrides: Partial<CandidateRow> & { id: string }, score: number): Fused => ({
-    row: row(overrides), pinned: false, matchLevel: 'has', open: null, rrf: score, boosts: {}, baseScore: score, multiplier: 1, score, positionWithoutQuality: 1,
+    row: row(overrides), pinned: false, matchLevel: 'has', dishLevel: 'has', open: null, rrf: score, boosts: {}, baseScore: score, multiplier: 1, score, positionWithoutQuality: 1,
   })
 
   it('un grupo personal desplaza al del catálogo de menor puntaje promedio, y ningún lugar se repite', () => {
@@ -239,9 +264,10 @@ describe('tope de grupos', () => {
 
     const personal = [{ id: 'profile' as const, title: 'Basado en lo que te gusta', items: [items[0], items[1], items[2]] }]
     const result = buildSections(items, [...requested], 'es', personal)
-    expect(result.sections?.map((section) => section.id)).toEqual(['profile', 'live_music', 'share', 'outdoor', 'world', 'more'])
+    // El primer grupo del catálogo va antes que el personal.
+    expect(result.sections?.map((section) => section.id)).toEqual(['live_music', 'profile', 'share', 'outdoor', 'world', 'more'])
     expect(result.displaced).toEqual(['classics'])
-    expect(result.sections?.[0]).toEqual({ id: 'profile', title: 'Basado en lo que te gusta', placeIds: ['p0', 'p1', 'p2'], total: null })
+    expect(result.sections?.[1]).toEqual({ id: 'profile', title: 'Basado en lo que te gusta', placeIds: ['p0', 'p1', 'p2'], total: null })
     const all = result.sections!.flatMap((section) => section.placeIds)
     expect(new Set(all).size).toBe(all.length)
     expect(all).toHaveLength(20)
@@ -260,17 +286,27 @@ describe('tope de grupos', () => {
       fused({ id: `p${index}`, tags: tags[index] ?? [], categories: categories[index] ?? ['restaurant'], prominence: 0.8, ...(fully.includes(index) ? { diet: level } : {}) }, 1 - index / 100))
     const requested = ['live_music', 'share', 'outdoor', 'world', 'classics'] as const
 
-    it('va después de los personales, no cuenta para el tope y ningún lugar se repite', () => {
+    it('va primero, antes del catálogo y los personales, no cuenta para el tope y ningún lugar se repite', () => {
       const items = build([1, 19, 20, 21])
       const personal = [{ id: 'profile' as const, title: 'Basado en lo que te gusta', items: [items[0], items[1], items[2]] }]
       const result = buildSections(items, [...requested], 'es', personal, 'glutenFree')
-      expect(result.sections?.map((section) => section.id)).toEqual(['profile', 'diet', 'live_music', 'share', 'outdoor', 'world', 'more'])
+      expect(result.sections?.map((section) => section.id)).toEqual(['diet', 'live_music', 'profile', 'share', 'outdoor', 'world', 'more'])
       // p1 ya está en el personal.
-      expect(result.sections?.[1]).toEqual({ id: 'diet', title: '100 % sin TACC', placeIds: ['p19', 'p20', 'p21'], total: null })
+      expect(result.sections?.[0]).toEqual({ id: 'diet', title: '100 % sin TACC', placeIds: ['p19', 'p20', 'p21'], total: null })
       expect(result.diet).toEqual({ key: 'glutenFree', count: 3, shown: true, placedIn: null })
       const all = result.sections!.flatMap((section) => section.placeIds)
       expect(new Set(all).size).toBe(all.length)
       expect(all).toHaveLength(24)
+    })
+
+    it('orden completo: dieta, primer grupo del catálogo, "Parecido a", "Basado en…", el resto y "Más opciones"', () => {
+      const items = build([19, 20, 21])
+      const personal = [
+        { id: 'similar' as const, title: 'Parecido a Lugar', items: [items[0], items[1], items[2]] },
+        { id: 'profile' as const, title: 'Basado en lo que te gusta', items: [items[22], items[23], items[18]] },
+      ]
+      const result = buildSections(items, [...requested], 'es', personal, 'glutenFree')
+      expect(result.sections?.map((section) => section.id)).toEqual(['diet', 'live_music', 'similar', 'profile', 'share', 'outdoor', 'more'])
     })
 
     it('sin personales: primero el grupo de dieta y los cinco del catálogo', () => {
@@ -301,8 +337,8 @@ describe('tope de grupos', () => {
       const items = build([19])
       const personal = [{ id: 'profile' as const, title: 'Basado en lo que te gusta', items: [items[0], items[1], items[2]] }]
       const result = buildSections(items, [...requested], 'es', personal, 'glutenFree')
-      expect(result.sections?.[0].id).toBe('profile')
-      expect(result.sections?.[1].placeIds[0]).toBe('p19')
+      expect(result.sections?.map((section) => section.id).slice(0, 2)).toEqual(['live_music', 'profile'])
+      expect(result.sections?.[0].placeIds[0]).toBe('p19')
     })
 
     it('vegano fully entra en el grupo vegetariano', () => {

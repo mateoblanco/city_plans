@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { editedFields, parseManualOverrides } from '../../src/data/manual-overrides.ts'
-import { applyOverrides, changedEditFields, mergeEdit, overridesAffectSearch, type EditableValues } from './manual-overrides.ts'
+import { applyOverrides, changedEditFields, mergeEdit, type EditableValues } from './manual-overrides.ts'
 
 const current: EditableValues = {
   name: 'El Palenque', tags: ['seafood', 'terrace'], style: 'casual', iconCategory: 'grill', price: 'high',
@@ -35,11 +35,6 @@ describe('applyOverrides', () => {
 
   it('sin overrides devuelve lo mismo', () => {
     expect(applyOverrides({ tags: ['a'], name: 'X' }, {})).toEqual({ tags: ['a'], name: 'X' })
-  })
-
-  it('sabe qué overrides cambian los textos de búsqueda', () => {
-    expect(overridesAffectSearch({ price: 'low', website: null, instagram: 'x' })).toBe(false)
-    expect(overridesAffectSearch({ diet_vegan: 'fully' })).toBe(true)
   })
 })
 

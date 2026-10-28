@@ -1,3 +1,5 @@
+// Los sinónimos y labels entran en los textos de búsqueda guardados (buildKeywordText, buildEmbeddingText). Después de
+// cambiarlos, `yarn search-text:recompute` en el backoffice (primero sin --write) rearma los de los lugares guardados.
 export type Lang = 'es' | 'en'
 
 export type TagDef = {
@@ -76,14 +78,29 @@ export const CUISINES = {
     ['crêpe', 'ratatouille', 'croque monsieur', 'boeuf bourguignon', 'confit de pato', 'crème brûlée'], ['crepe', 'ratatouille', 'croque monsieur', 'beef bourguignon', 'duck confit', 'creme brulee']),
   brazilian: cuisine('Brasileña', 'Brazilian', ['brasileño', 'brasilero', 'brasilera', 'comida brasileña', 'comida brasilera', 'cocina brasileña'], ['brazilian food', 'brazilian cuisine'],
     ['feijoada', 'pão de queijo', 'coxinha', 'moqueca', 'brigadeiro', 'farofa'], ['feijoada', 'pao de queijo', 'coxinha', 'moqueca', 'brigadeiro', 'farofa']),
-  asian: cuisine('Asiática', 'Asian', ['asiático', 'comida asiática', 'cocina asiática', 'fusión asiática', 'panasiática', 'tailandesa', 'thai', 'vietnamita'], ['asian food', 'asian fusion', 'pan-asian', 'thai food', 'vietnamese'],
+  asian: cuisine('Asiática', 'Asian', ['asiático', 'asiática', 'asiáticos', 'oriental', 'comida oriental', 'comida asiática', 'cocina asiática', 'fusión asiática', 'panasiática', 'tailandesa', 'thai', 'vietnamita'], ['asian food', 'asian fusion', 'pan-asian', 'thai food', 'vietnamese'],
     ['pad thai', 'pho', 'bao', 'banh mi', 'laksa', 'nasi goreng'], ['pad thai', 'pho', 'bao', 'banh mi', 'laksa', 'nasi goreng']),
   mediterranean: cuisine('Mediterránea', 'Mediterranean', ['mediterráneo', 'comida mediterránea', 'cocina mediterránea'], ['mediterranean', 'mediterranean food'],
     ['musaka', 'souvlaki', 'tzatziki', 'spanakopita'], ['moussaka', 'souvlaki', 'tzatziki', 'spanakopita']),
   russian: cuisine('Rusa', 'Russian', ['comida rusa', 'cocina rusa', 'ruso', 'rusa'], ['russian food', 'russian cuisine'],
     ['pelmeni', 'vareniki', 'varénikes', 'borscht', 'borsch', 'pirozhki', 'blini', 'ensalada olivier'], ['pelmeni', 'vareniki', 'borscht', 'pirozhki', 'blini', 'olivier salad']),
+  latin_american: cuisine('Latinoamericana', 'Latin American', ['latinoamericano', 'latinoamericana', 'comida latinoamericana', 'cocina latinoamericana', 'comida latina'], ['latin american food', 'latin food']),
   fusion: cuisine('Fusión', 'Fusion', ['fusión', 'cocina de autor'], ['fusion', 'chef-driven']),
 } satisfies TagGroup
+
+/**
+ * Cocinas paraguas: pedir la madre ("algo asiático") incluye a los lugares de sus hijas aunque no tengan el tag de la
+ * madre. India y Medio Oriente no son asiáticas.
+ */
+export const CUISINE_FAMILIES: Partial<Record<keyof typeof CUISINES, readonly (keyof typeof CUISINES)[]>> = {
+  asian: ['japanese', 'chinese', 'korean', 'nikkei'],
+  latin_american: ['mexican', 'venezuelan', 'peruvian', 'brazilian'],
+}
+
+/** La cocina y sus hijas ([id] si no es paraguas, o si no es una cocina). */
+export function withSubcuisines(id: string): string[] {
+  return [id, ...(CUISINE_FAMILIES[id as keyof typeof CUISINES] ?? [])]
+}
 
 export const FOODS = {
   grilled_meat: tag('Carnes y parrilla', 'Grilled meat', ['asado', 'parrilla', 'achuras', 'vacío', 'entraña', 'cordero', 'cerdo', 'chorizo', 'morcilla', 'chinchulines', 'molleja', 'bife', 'bife de chorizo', 'ojo de bife', 'entrecot', 'churrasco'], ['steak', 'grilled meat', 'asado', 'barbecue', 'lamb', 'pork', 'sausage', 'sausages', 'sweetbreads']),
@@ -133,7 +150,7 @@ export const FEATURES = {
   sidewalk: tag('Mesas en la vereda', 'Sidewalk tables', ['mesas en la vereda', 'vereda'], ['sidewalk', 'outside tables', 'street-side tables']),
   outdoor: tag('Al aire libre', 'Outdoor seating', ['mesas afuera', 'al aire libre', 'exterior', 'a la sombra'], ['outdoor seating']),
   patio: tag('Patio', 'Patio', ['patio', 'jardín', 'patio interno'], ['patio', 'garden', 'courtyard']),
-  sea_view: tag('Vista al mar', 'Sea view', ['vista al mar', 'frente a la rambla', 'sobre la rambla', 'vista al río'], ['sea view', 'ocean view', 'waterfront', 'rambla']),
+  sea_view: tag('Vista al mar', 'Sea view', ['vista al mar', 'frente al mar', 'frente a la rambla', 'sobre la rambla', 'vista al río'], ['sea view', 'ocean view', 'waterfront', 'rambla']),
   live_music: tag('Música en vivo', 'Live music', ['música en vivo', 'bandas', 'bandas en vivo', 'shows', 'toques', 'jazz en vivo', 'tributos musicales'], ['live music', 'live band', 'gigs', 'live jazz']),
   dj: tag('DJ', 'DJ', ['dj', 'djs', 'dj set', 'con dj'], ['dj', 'djs', 'dj set']),
   vinyl: tag('Vinilos', 'Vinyl', ['vinilos', 'discos', 'listening bar'], ['vinyl', 'records', 'listening bar', 'hi-fi bar']),
@@ -187,7 +204,7 @@ export const OFFERS = {
 
 export const DIETARY = {
   vegan: tag('Vegano', 'Vegan', ['vegano', 'vegana', 'plant based', 'sin productos animales'], ['vegan', 'plant based']),
-  vegetarian: tag('Vegetariano', 'Vegetarian', ['vegetariano', 'vegetariana', 'veggie', 'sin carne'], ['vegetarian', 'veggie', 'meat free']),
+  vegetarian: tag('Vegetariano', 'Vegetarian', ['vegetariano', 'vegetariana', 'veggie'], ['vegetarian', 'veggie', 'meat free']),
   gluten_free: tag('Sin TACC', 'Gluten free', ['sin tacc', 'sin gluten', 'celíaco', 'celíacos', 'apto celíacos'], ['gluten free', 'celiac', 'celiac friendly', 'no gluten']),
 } satisfies TagGroup
 
@@ -198,6 +215,12 @@ export const DIETARY = {
 export const OCCASION_TAGS = ['groups', 'date', 'kids_friendly', 'celebration', 'quick'] as const satisfies readonly (keyof typeof GOOD_FOR)[]
 export type OccasionTag = (typeof OCCASION_TAGS)[number]
 export const isOccasionTag = (id: string): id is OccasionTag => (OCCASION_TAGS as readonly string[]).includes(id)
+
+/**
+ * Tags que, pedidos como preferencia, ordenan como un plato: los lugares que tienen alguno van primero ("has") y los
+ * demás debajo ("maybe"). Todos los goodFor y el menú del día (el almuerzo de trabajo).
+ */
+export const MOMENT_ORDER_TAGS: readonly string[] = [...Object.keys(GOOD_FOR), 'menu_of_the_day']
 
 /** Estilo del lugar: de la marca, igual en todas las sucursales. Es un campo propio (style), no un tag. */
 export const STYLES = {

@@ -7,13 +7,21 @@ import { computeProminence } from './prominence.ts'
 const MEDIAN = 0.8
 import { EMBEDDING_MODEL, pipelineStatus, savePlaces, slugify, type ExistingPlace, type PlacesStore } from './save.ts'
 import { draft } from './test-fixtures.ts'
+import { placeSearchTexts } from './manual-overrides.ts'
 import type { BrandRow } from './brand-key.ts'
 import type { ManualOverrides } from '../../src/data/manual-overrides.ts'
 
 const ok = (overrides: Parameters<typeof draft>[0] = {}) => ({ source: 'llm', status: 'ok', place: draft(overrides) })
 const hash = (text: string) => createHash('sha256').update(text).digest('hex')
+// Los textos que savePlaces arma con la fila final (sin overrides ni sea_view), no los del borrador.
+const built = (place = draft()) => placeSearchTexts({
+  name: place.name, neighborhoodId: place.neighborhoodId!, descriptionEs: place.description.es, descriptionEn: place.description.en,
+  locatedIn: place.locatedIn ?? null, categories: place.categories, tags: place.tags, dietVegan: place.dietary.vegan,
+  dietVegetarian: place.dietary.vegetarian, dietGlutenFree: place.dietary.glutenFree, highlights: place.highlights, dishes: place.dishes,
+  signature: place.signature, style: place.style ?? null,
+})
 
-function fakeStore(existing: ExistingPlace[] = [], slugs: string[] = [], saved: BrandRow[] = []) {
+function fakeStore(existing: ExistingPlace[] = [], slugs: string[] = [], saved: BrandRow[] = [], near: string[] = []) {
   const inserted: NewPlace[] = []
   const updated: { id: string; values: Partial<NewPlace> }[] = []
   const brandUpdates: { id: string; brandKey: string | null }[] = []
@@ -31,6 +39,7 @@ function fakeStore(existing: ExistingPlace[] = [], slugs: string[] = [], saved: 
     setBrandKey: async (id, brandKey) => { brandUpdates.push({ id, brandKey }) },
     setChainBranch: async (id, prominence) => { chainUpdates.push({ id, prominence }) },
     igMedian: async () => MEDIAN,
+    nearRambla: async (points) => new Set(points.filter((point) => near.includes(point.googlePlaceId)).map((point) => point.googlePlaceId)),
   }
   return { store, inserted, updated, brandUpdates, chainUpdates }
 }
@@ -74,7 +83,7 @@ describe('savePlaces', () => {
 
   it('al actualizar cambia el status según los motivos, salvo hidden o un status puesto a mano', async () => {
     const existing = (googlePlaceId: string, status: ExistingPlace['status'], manualOverrides: ManualOverrides = {}) =>
-      ({ id: `uuid-${googlePlaceId}`, googlePlaceId, embeddingTextHash: hash(draft().embeddingText), manualOverrides, status })
+      ({ id: `uuid-${googlePlaceId}`, googlePlaceId, embeddingTextHash: hash(built().embeddingText), manualOverrides, status })
     const { store, updated } = fakeStore([
       existing('a', 'published'), existing('b', 'review'), existing('c', 'hidden'), existing('d', 'published', { status: 'published' }),
     ])
@@ -114,10 +123,10 @@ describe('savePlaces', () => {
     const results = await savePlaces([ok()], { store, embed })
 
     expect(results).toEqual([{ googlePlaceId: 'place-1', id: 'id-1', action: 'created', embedded: true }])
-    expect(embed).toHaveBeenCalledWith([draft().embeddingText])
+    expect(embed).toHaveBeenCalledWith([built().embeddingText])
     expect(inserted[0]).toMatchObject({
       googlePlaceId: 'place-1', slug: 'el-palenque', status: 'published', locatedIn: 'Mercado del Puerto',
-      embedding: [0, 0.5], embeddingModel: EMBEDDING_MODEL, embeddingTextHash: hash(draft().embeddingText),
+      embedding: [0, 0.5], embeddingModel: EMBEDDING_MODEL, embeddingTextHash: hash(built().embeddingText),
     })
     expect(inserted[0].embeddedAt).toBeInstanceOf(Date)
     expect(inserted[0]).not.toHaveProperty('placeFacts')
@@ -132,7 +141,7 @@ describe('savePlaces', () => {
   })
 
   it('actualiza un existente sin pisar manualOverrides ni la identidad, y no re-embebe si el texto no cambió', async () => {
-    const existing = { id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(draft().embeddingText), manualOverrides: { instagram: 'palenque.uy', price: 'moderate' as const }, status: 'published' as const }
+    const existing = { id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(built().embeddingText), manualOverrides: { instagram: 'palenque.uy', price: 'moderate' as const }, status: 'published' as const }
     const { store, inserted, updated } = fakeStore([existing])
     const embed = vi.fn(vectors)
 
@@ -155,7 +164,7 @@ describe('savePlaces', () => {
     await savePlaces([manual('palenque.uy')], { store: fresh.store, embed: vectors })
     expect(fresh.inserted[0]).toMatchObject({ instagram: 'palenque.uy', manualOverrides: { instagram: 'palenque.uy' } })
 
-    const existing = (manualOverrides: ManualOverrides) => ({ id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(draft().embeddingText), manualOverrides, status: 'published' as const })
+    const existing = (manualOverrides: ManualOverrides) => ({ id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(built().embeddingText), manualOverrides, status: 'published' as const })
     const unlocked = fakeStore([existing({ diet_vegan: 'no' })])
     await savePlaces([manual(null)], { store: unlocked.store, embed: vectors })
     expect(unlocked.updated[0].values).toMatchObject({ instagram: null, manualOverrides: { diet_vegan: 'no', instagram: null } })
@@ -182,7 +191,7 @@ describe('savePlaces', () => {
 
   describe('campos editados a mano', () => {
     const existing = (manualOverrides: ManualOverrides) =>
-      ({ id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(draft().embeddingText), manualOverrides, status: 'published' as const })
+      ({ id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(built().embeddingText), manualOverrides, status: 'published' as const })
     const manualLogo = { key: 'logos/place-1-ffffffff.webp', kind: 'logo' as const, bgColor: '#000000', color: '#ffffff', source: 'manual' as const, fetchedAt: '2026-10-20T12:00:00.000Z' }
 
     it('una re-extracción no pisa el nombre, el style, el ícono ni el logo subido a mano', async () => {
@@ -205,6 +214,29 @@ describe('savePlaces', () => {
       expect(updated[0].values.signature).toEqual(['classic_cocktails'])
     })
 
+    it('sea_view sale de la ubicación: el del modelo no cuenta, cerca de la Rambla entra y los textos se arman de nuevo', async () => {
+      const far = fakeStore([existing({})])
+      await savePlaces([ok({ tags: ['sea_view', 'seafood'], signature: ['sea_view'] })], { store: far.store, embed: vectors })
+      expect(far.updated[0].values.tags).toEqual(['seafood'])
+      expect(far.updated[0].values.signature).toEqual([])
+      expect(far.updated[0].values.keywordText).not.toContain('Vista al mar')
+
+      const close = fakeStore([existing({})], [], [], ['place-1'])
+      await savePlaces([ok({ tags: ['seafood'] })], { store: close.store, embed: vectors })
+      expect(close.updated[0].values.tags).toEqual(['seafood', 'sea_view'])
+      expect(close.updated[0].values.keywordText).toContain('Vista al mar')
+    })
+
+    it('sea_view respeta los overrides: sacado a mano no vuelve aunque esté cerca, agregado a mano se queda aunque esté lejos', async () => {
+      const removed = fakeStore([existing({ tags: { add: [], remove: ['sea_view'] } })], [], [], ['place-1'])
+      await savePlaces([ok({ tags: ['seafood'] })], { store: removed.store, embed: vectors })
+      expect(removed.updated[0].values.tags).toEqual(['seafood'])
+
+      const added = fakeStore([existing({ tags: { add: ['sea_view'], remove: [] } })])
+      await savePlaces([ok({ tags: ['seafood'] })], { store: added.store, embed: vectors })
+      expect(added.updated[0].values.tags).toEqual(['seafood', 'sea_view'])
+    })
+
     it('con un override que entra en la búsqueda, arma los textos con los valores finales y re-embebe', async () => {
       const { store, updated } = fakeStore([existing({ name: 'Palenque Bodegón', tags: { add: [], remove: ['seafood'] } })])
       const embed = vi.fn(vectors)
@@ -219,10 +251,11 @@ describe('savePlaces', () => {
       expect(result).toMatchObject({ action: 'updated', embedded: true })
     })
 
-    it('sin overrides de búsqueda usa los textos del borrador', async () => {
+    it('sin overrides de búsqueda, los textos salen igual de la fila final y no del borrador', async () => {
       const { store, updated } = fakeStore([existing({ price: 'low', website: null })])
-      await savePlaces([ok()], { store, embed: vectors })
-      expect(updated[0].values).toMatchObject({ embeddingText: draft().embeddingText, price: 'low', website: null })
+      // Un borrador con textos de otro catálogo (de cuando se extrajo) no los deja guardados.
+      await savePlaces([ok({ keywordText: 'El Palenque. de barrio', embeddingText: 'viejo' })], { store, embed: vectors })
+      expect(updated[0].values).toMatchObject({ ...built(), price: 'low', website: null })
     })
 
     it('un brand_key editado a mano no lo cambia el agrupado', async () => {
@@ -236,7 +269,7 @@ describe('savePlaces', () => {
   })
 
   it('actualiza los seguidores y prominence, y nunca escribe featured', async () => {
-    const { store, inserted, updated } = fakeStore([{ id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(draft().embeddingText), manualOverrides: {}, status: 'published' as const }])
+    const { store, inserted, updated } = fakeStore([{ id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(built().embeddingText), manualOverrides: {}, status: 'published' as const }])
 
     // Otro Instagram: con el mismo, los dos serían sucursales de una cadena.
     await savePlaces([ok(), ok({ googlePlaceId: 'place-2', contact: { ...draft().contact, instagram: 'otro' } })], { store, embed: vectors })
@@ -248,7 +281,7 @@ describe('savePlaces', () => {
   })
 
   it('una sucursal de cadena (sin seguidores) pasa a la prominence de la mediana, sin ×0,85, al actualizar', async () => {
-    const existing = { id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(draft().embeddingText), manualOverrides: {}, status: 'published' as const }
+    const existing = { id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(built().embeddingText), manualOverrides: {}, status: 'published' as const }
     const { store, updated } = fakeStore([existing])
 
     await savePlaces([ok({ signals: { igFollowers: null, chainBranch: false } })], { store, embed: vectors })
@@ -257,7 +290,7 @@ describe('savePlaces', () => {
   })
 
   it('guarda la categoría de ícono al insertar y la actualiza al reprocesar; sin ella, null', async () => {
-    const existing = { id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(draft().embeddingText), manualOverrides: {}, status: 'published' as const }
+    const existing = { id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(built().embeddingText), manualOverrides: {}, status: 'published' as const }
     const { store, inserted, updated } = fakeStore([existing])
     const { iconCategory: _icon, ...legacy } = draft({ googlePlaceId: 'place-3' })
 
@@ -297,7 +330,7 @@ describe('savePlaces', () => {
     const results = await savePlaces([ok()], { store, embed: vectors })
 
     expect(results[0]).toMatchObject({ action: 'updated', embedded: true })
-    expect(updated[0].values).toMatchObject({ embedding: [0, 0.5], embeddingTextHash: hash(draft().embeddingText) })
+    expect(updated[0].values).toMatchObject({ embedding: [0, 0.5], embeddingTextHash: hash(built().embeddingText) })
   })
 
   it('si los embeddings fallan, guarda igual sin embedding y devuelve el error', async () => {
@@ -399,7 +432,7 @@ describe('savePlaces', () => {
     })
 
     it('un chain_branch puesto a mano gana sobre la brand_key compartida, y la prominencia lo sigue', async () => {
-      const existing = { id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(draft().embeddingText), manualOverrides: { chain_branch: false }, status: 'published' as const }
+      const existing = { id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: hash(built().embeddingText), manualOverrides: { chain_branch: false }, status: 'published' as const }
       const { store, updated, chainUpdates } = fakeStore([existing], [], [
         savedRow({ id: 'uuid-a', igFollowers: 5_000 }),
         savedRow({ id: 'uuid-b', instagram: 'otro', brandKey: 'cordon-beer', chainLocked: true }),

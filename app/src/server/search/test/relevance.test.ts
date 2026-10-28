@@ -9,6 +9,7 @@ const item = (overrides: Parameters<typeof row>[0], pinned = false): Fused => ({
   pinned,
   // Con platos pedidos, 'has' ya es una coincidencia: por defecto, ninguna.
   matchLevel: 'maybe',
+  dishLevel: 'maybe',
   open: null,
   rrf: 0,
   boosts: {},

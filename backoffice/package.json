@@ -16,6 +16,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "prominence:recompute": "tsx server/scripts/prominence-recompute.ts",
+    "sea-view:recompute": "tsx server/scripts/sea-view-recompute.ts",
+    "search-text:recompute": "tsx server/scripts/search-text-recompute.ts",
     "signals:refresh": "tsx server/scripts/signals-refresh.ts",
     "logos:cleanup": "tsx server/scripts/logos-cleanup.ts",
     "extraction:replay": "tsx server/scripts/extraction-replay.ts",

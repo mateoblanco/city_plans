@@ -1,7 +1,7 @@
 import 'server-only'
 import { cache } from 'react'
 import { getDb } from '../db'
-import { nextSearchCache } from './next-cache'
+import { nextSearchCache, publishedVenues } from './next-cache'
 export { publishedNeighborhoods } from './next-cache'
 import { runSearch, type SearchOptions, type SearchResponse } from './search'
 import { neonPlacesStore } from './store'
@@ -11,7 +11,8 @@ export type { Chip } from './chips'
 export type { LatLng } from './filters'
 export type { IntentBar } from './intents'
 
-const deps = () => ({ store: neonPlacesStore(getDb()), cache: nextSearchCache })
+// Los venues cambian sólo al publicar: van cacheados como los barrios de la barra.
+const deps = () => ({ store: { ...neonPlacesStore(getDb()), venues: publishedVenues }, cache: nextSearchCache })
 
 // cache de React compara los argumentos por identidad: van como primitivos para que la barra de filtros y los
 // resultados compartan una sola búsqueda por request. Dura sólo el request; los likes y el perfil van en la clave.

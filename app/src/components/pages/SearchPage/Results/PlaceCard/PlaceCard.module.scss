@@ -1,4 +1,5 @@
 .card {
+  position: relative;
   border: 1px solid #E7E7E7;
   outline: 2px solid transparent;
   display: flex;
@@ -26,6 +27,27 @@
 .name {
   font-size: 18px;
   font-weight: 600;
+}
+
+// Toda la card es el link: el ::after la cubre entera.
+.link {
+  color: inherit;
+  text-decoration: none;
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 16px;
+  }
+
+  &:focus-visible {
+    outline: none;
+
+    &::after {
+      outline: 2px solid #000000;
+    }
+  }
 }
 
 .meta {

@@ -4,8 +4,10 @@ import type { IntentId } from '@shared/intents.ts'
 import type { SectionId } from '@shared/sections.ts'
 import { SEARCH_CONFIG } from './config'
 import type { CandidateRow } from './candidates'
+import { isMainCuisine } from './cuisines'
 import { singularForms, type DishTarget } from './dishes'
 import type { DietKey, Price } from './interpretation'
+import { momentSignals } from './moments'
 import { sectionSignals } from './sections'
 import { hoursConfirmed, openStatus, type OpenFilter, type OpenState } from './hours'
 
@@ -23,10 +25,16 @@ export type FuseContext = {
   /** Tags pedidos (must + prefer + tags de los platos), para comparar con signature. */
   requestedTags: string[]
   preferTags: string[]
+  /** Momentos pedidos como preferencia (moments.ts momentsOf): ordenan como un plato y suman momentFit. */
+  moments: string[]
+  /** Cocinas pedidas (must + prefer, cuisines.ts requestedCuisines): los que no la tienen como principal son maybe. */
+  cuisines: string[]
   /** Estilo pedido como preferencia; null si no se pidió. */
   preferStyle: string | null
   /** Dietas pedidas (must.diet): los lugares 100 % aptos suman dietFully. */
   diet: DietKey[]
+  /** Dietas preferidas sin filtrar (sin carne → vegetariano): suman preferDiet, entero si es 100 % y la mitad con opciones. */
+  preferDiet: DietKey[]
   /** Precios pedidos (must.price); vacío si la consulta no habla de precio. */
   price: Price[]
   /** Momento pedido con openAt (today: "Abre hoy"); null si la consulta no habla de horario. */
@@ -35,7 +43,10 @@ export type FuseContext = {
   wantsBest: boolean
   /** La consulta pide bailar (boliche, dancing, dj o el sub-filtro Para bailar): los boliches no bajan. */
   wantsDancing: boolean
-  /** Intención de la búsqueda (URL o texto): con Bares, los bares de verdad suman barFit; con Comer, eatFit. */
+  /**
+   * Intención de la búsqueda (URL o texto): con Bares, los bares de verdad suman barFit; con Comer, eatFit. Una bebida
+   * pedida (requestedTags) también da barFit, aunque no haya intención.
+   */
   intent: IntentId | null
   /** "Ver todos" de una sección (`f=section:<id>`): sus señales suman sectionFit. */
   section: SectionId | null
@@ -44,7 +55,15 @@ export type FuseContext = {
 export type Fused = {
   row: CandidateRow
   pinned: boolean
+  /**
+   * has: tiene lo pedido; maybe: puede que no (el plato sólo por el tag, no tiene el momento pedido, o la consulta pide
+   * precio y el suyo es desconocido).
+   */
   matchLevel: MatchLevel
+  /** Relleno de brunch (search.ts): café con desayuno y almuerzo, sin el tag brunch. Siempre maybe. */
+  filledAs?: 'breakfast_lunch'
+  /** El nivel sólo por el plato, para el corte por relevancia. */
+  dishLevel: MatchLevel
   /** Estado en el momento pedido (openAt), si lo hay. */
   open: OpenState | null
   rrf: number
@@ -101,8 +120,23 @@ export function reciprocalRankFusion(rankings: Rankings): Map<string, number> {
   return scores
 }
 
-/** has: el plato está en dishes o en el texto (o es genérico y tiene el tag); maybe: sólo el tag relacionado. */
-export function matchLevelOf(row: CandidateRow, dishes: DishTarget[]): MatchLevel {
+/**
+ * has: el plato está en dishes o en el texto (o es genérico y tiene el tag); maybe: sólo el tag relacionado. Con precio
+ * pedido, un precio desconocido es maybe: sigue saliendo, pero debajo de los que coinciden (el filtro ya sacó los demás).
+ * Con un momento pedido (cita, con amigos…), los que no tienen ninguno de sus tags son maybe, como un plato; con plato y
+ * momento, has pide los dos. Con una cocina pedida, igual: has si es su cocina principal (signature o ícono, cuisines.ts);
+ * con el tag solo (un par de platos peruanos en un bar de tapas), maybe.
+ */
+export function matchLevelOf(
+  row: Pick<CandidateRow, 'dishHas' | 'tags' | 'categories' | 'price' | 'signature' | 'iconCategory'>,
+  dishes: DishTarget[],
+  price: readonly string[] = [],
+  moments: readonly string[] = [],
+  cuisines: readonly string[] = [],
+): MatchLevel {
+  if (price.length > 0 && row.price === 'unknown') return 'maybe'
+  if (moments.length > 0 && !moments.some((id) => row.tags.includes(id))) return 'maybe'
+  if (cuisines.length > 0 && !cuisines.some((id) => isMainCuisine(row, id))) return 'maybe'
   if (dishes.length === 0) return 'has'
   const has = dishes.some(
     (target, index) =>
@@ -123,6 +157,29 @@ const count = (values: string[], wanted: string[]) => values.filter((value) => w
 
 /** Íconos de bebida: el lugar es conocido por lo que se toma. */
 export const DRINK_ICONS = new Set<IconCategory>(['wine', 'beer', 'beer_pub', 'cocktails', 'tropical_drinks', 'classic_bar'])
+
+// Bebida pedida → ícono o categoría del bar conocido por ella: ése suma barFit entero y los otros bares, la mitad.
+type DrinkFit = { icons: IconCategory[]; categories: string[] }
+const WINE: DrinkFit = { icons: ['wine'], categories: ['wine_bar'] }
+const BEER: DrinkFit = { icons: ['beer', 'beer_pub'], categories: ['brewery'] }
+const COCKTAILS: DrinkFit = { icons: ['cocktails'], categories: [] }
+const CLASSIC: DrinkFit = { icons: ['classic_bar'], categories: [] }
+export const DRINK_FIT: Record<string, DrinkFit> = {
+  wine: WINE, medio_y_medio: WINE,
+  craft_beer: BEER, draft_beer: BEER,
+  signature_cocktails: COCKTAILS, classic_cocktails: COCKTAILS, gin: COCKTAILS,
+  vermouth: CLASSIC, whisky: CLASSIC,
+}
+
+/** barFit del lugar: con una bebida pedida, entero para su bar y la mitad para los otros; sin bebida, sólo con Bares. */
+function barFitOf(row: CandidateRow, context: FuseContext): number {
+  const full = SEARCH_CONFIG.boosts.barFit
+  const fits = context.requestedTags.flatMap((id) => DRINK_FIT[id] ?? [])
+  const drinkIcon = row.iconCategory !== null && DRINK_ICONS.has(row.iconCategory)
+  if (fits.length === 0) return context.intent === 'bars' && drinkIcon ? full : 0
+  const matches = fits.some((fit) => (row.iconCategory !== null && fit.icons.includes(row.iconCategory)) || row.categories.some((id) => fit.categories.includes(id)))
+  return matches ? full : drinkIcon ? full / 2 : 0
+}
 
 /**
  * Íconos de comida de plato: el lugar es para comer. Sin café, pastelería, dulces, desayuno ni bebida, que no
@@ -155,18 +212,21 @@ export function boostsFor(row: CandidateRow, context: FuseContext, open: OpenSta
   const prefer = count(row.tags, context.preferTags)
   if (prefer > 0) result.preferTag = prefer * boosts.preferTag
   if (context.preferStyle && row.style === context.preferStyle) result.preferStyle = boosts.preferStyle
-  // price = 'unknown' pasa el filtro pero no suma: lo confirmado va primero.
-  if (context.price.length > 0 && (context.price as string[]).includes(row.price)) result.priceMatch = boosts.priceMatch
   if (row.dishExact.some(Boolean)) result.exactDish = boosts.exactDish
   const knownFor = context.dishes.some((target) =>
     (row.iconCategory !== null && target.icons.includes(row.iconCategory)) || (target.category !== null && row.categories.includes(target.category)))
   if (knownFor) result.knownFor = boosts.knownFor
   const fully = context.diet.filter((key) => isDietFully(row, key)).length
   if (fully > 0) result.dietFully = fully * boosts.dietFully
-  if (context.intent === 'bars' && row.iconCategory !== null && DRINK_ICONS.has(row.iconCategory)) result.barFit = boosts.barFit
+  const preferDiet = context.preferDiet.reduce((sum, key) => sum + (isDietFully(row, key) ? 1 : dietLevel(row, key) === 'has_options' ? 0.5 : 0), 0)
+  if (preferDiet > 0) result.preferDiet = preferDiet * boosts.preferDiet
+  const barFit = barFitOf(row, context)
+  if (barFit > 0) result.barFit = barFit
   if (context.intent === 'eat' && row.iconCategory !== null && EAT_ICONS.has(row.iconCategory)) result.eatFit = boosts.eatFit
   const signals = context.section ? sectionSignals(context.section, row) : 0
   if (signals > 0) result.sectionFit = signals * boosts.sectionFit
+  const moment = momentSignals(context.moments, row)
+  if (moment > 0) result.momentFit = moment * boosts.momentFit
   // "Abre hoy" no empuja a los abiertos: ordena la relevancia y la card dice si abre más tarde.
   if (!context.openAt?.today && open?.state === 'open' && hoursConfirmed(row.hours)) result.confirmedOpen = boosts.confirmedOpen
   if (!context.wantsDancing && isDanceOnly(row)) result.danceOnly = boosts.danceOnly
@@ -201,7 +261,8 @@ export function fuse(rows: CandidateRow[], rankings: Rankings, context: FuseCont
       return {
         row,
         pinned: row.id === context.pinnedId,
-        matchLevel: matchLevelOf(row, context.dishes),
+        matchLevel: matchLevelOf(row, context.dishes, context.price, context.moments, context.cuisines),
+        dishLevel: matchLevelOf(row, context.dishes),
         open,
         rrf: base,
         boosts,

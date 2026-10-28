@@ -221,7 +221,7 @@ describe('SQL de candidatos', () => {
   it('la regla de una sección puede pedir íconos', () => {
     const query = dialect.sqlToQuery(
       candidatesQuery(
-        { categories: [], tags: [], diet: [], neighborhoods: [], price: [], openAt: null, excludeCategories: [], excludeTags: [], dishes: [], dishMode: 'dish', near: null, groups: [{ categories: ['grill'], icons: ['grill', 'meat'] }] },
+        { categories: [], tags: [], diet: [], neighborhoods: [], venues: [], price: [], openAt: null, excludeCategories: [], excludeTags: [], excludeIcons: [], dishes: [], dishMode: 'dish', near: null, groups: [{ categories: ['grill'], icons: ['grill', 'meat'] }] },
         { embedding: null, keywords: [], name: null, origins: [], pinnedId: null },
       ),
     )
@@ -232,7 +232,7 @@ describe('SQL de candidatos', () => {
   it('aplica sólo los filtros pedidos y pasa los arrays como parámetros', () => {
     const query = dialect.sqlToQuery(
       candidatesQuery(
-        { categories: ['cafe'], tags: ['terrace'], diet: ['vegan'], neighborhoods: [], price: [], openAt: null, excludeCategories: [], excludeTags: ['pizza'], dishes: [dishTarget('milanesa napolitana')], dishMode: 'dish', near: null, groups: [] },
+        { categories: ['cafe'], tags: ['terrace'], diet: ['vegan'], neighborhoods: [], venues: [], price: [], openAt: null, excludeCategories: [], excludeTags: ['pizza'], excludeIcons: [], dishes: [dishTarget('milanesa napolitana')], dishMode: 'dish', near: null, groups: [] },
         { embedding: [0.1, 0.2], keywords: ['milanesa', 'napolitana'], name: 'cafe', origins: [], pinnedId: 'abc' },
       ),
     )
@@ -252,7 +252,7 @@ describe('SQL de candidatos', () => {
   it('manda el embedding una sola vez y redondeado a 5 decimales', () => {
     const query = dialect.sqlToQuery(
       candidatesQuery(
-        { categories: [], tags: [], diet: [], neighborhoods: [], price: [], openAt: null, excludeCategories: [], excludeTags: [], dishes: [], dishMode: 'dish', near: null, groups: [] },
+        { categories: [], tags: [], diet: [], neighborhoods: [], venues: [], price: [], openAt: null, excludeCategories: [], excludeTags: [], excludeIcons: [], dishes: [], dishMode: 'dish', near: null, groups: [] },
         { embedding: [0.0123456789, -0.98765432, 1e-7], keywords: [], name: null, origins: [], pinnedId: null },
       ),
     )
@@ -265,7 +265,7 @@ describe('SQL de candidatos', () => {
     const point = { lat: -34.905, lng: -56.185 }
     const query = dialect.sqlToQuery(
       candidatesQuery(
-        { categories: [], tags: [], diet: [], neighborhoods: [], price: [], openAt: null, excludeCategories: [], excludeTags: [], dishes: [], dishMode: 'dish', near: { ...point, radiusM: 1500 }, groups: [] },
+        { categories: [], tags: [], diet: [], neighborhoods: [], venues: [], price: [], openAt: null, excludeCategories: [], excludeTags: [], excludeIcons: [], dishes: [], dishMode: 'dish', near: { ...point, radiusM: 1500 }, groups: [] },
         { embedding: null, keywords: [], name: null, origins: [point], pinnedId: null },
       ),
     )

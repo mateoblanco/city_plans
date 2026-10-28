@@ -23,9 +23,6 @@ const SCALAR_COLUMNS = {
 
 const LOGO_COLUMNS = ['logoKey', 'logoKind', 'logoBgColor', 'logoColor', 'logoSource', 'logoFetchedAt'] as const
 
-// Lo que entra en los textos de búsqueda: si alguno tiene override, los textos del borrador no sirven.
-const SEARCH_OVERRIDES = ['name', 'tags', 'style', 'diet_vegan', 'diet_vegetarian', 'diet_gluten_free'] as const
-
 /** Tags finales: los automáticos sin los sacados a mano, más los agregados. */
 export function applyTagDiff(auto: readonly string[], diff: ManualOverrides['tags']): string[] {
   if (!diff) return [...auto]
@@ -61,10 +58,6 @@ export function applyOverrides<T extends Partial<NewPlace>>(auto: T, overrides: 
   return result as T
 }
 
-/** Si algún override cambia lo que entra en los textos de búsqueda (nombre, tags, style o dietas). */
-export function overridesAffectSearch(overrides: ManualOverrides) {
-  return SEARCH_OVERRIDES.some((field) => Object.hasOwn(overrides, field))
-}
 
 /** Lo que hace falta de un lugar para armar sus textos de búsqueda. */
 export type SearchTextValues = Pick<Place,

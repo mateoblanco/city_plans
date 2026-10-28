@@ -83,7 +83,7 @@ for (const query of queries.length ? queries : checkOnly ? Object.keys(CHECKS) :
     const scored = scoredById.get(result.id)!;
     const boosts = Object.entries(scored.boosts).map(([name, value]) => `${name}+${value}`).join(" ");
     console.log(
-      `  ${index + 1}. ${result.name}${scored.pinned ? " 📌" : ""}${scored.featured ? " ⭐" : ""} [${result.matchLevel}] ${scored.score.toFixed(4)}${boosts ? ` (${boosts})` : ""} ×${scored.multiplier.toFixed(2)} (sin calidad: #${scored.positionWithoutQuality})`,
+      `  ${index + 1}. ${result.name}${scored.pinned ? " 📌" : ""}${scored.featured ? " ⭐" : ""} [${result.matchLevel}] $${scored.price} ${scored.score.toFixed(4)}${boosts ? ` (${boosts})` : ""} ×${scored.multiplier.toFixed(2)} (sin calidad: #${scored.positionWithoutQuality})`,
     );
     console.log(`     ${result.openStatus.label}${result.reasons.length ? ` · ${result.reasons.join(" · ")}` : ""}`);
   });
@@ -94,6 +94,10 @@ for (const query of queries.length ? queries : checkOnly ? Object.keys(CHECKS) :
   }
   if (response.results.length === 0) console.log("  (sin resultados)");
   else console.log(`  total: ${response.results.length}`);
+  if (info.brunchFill) {
+    const maybe = response.results.filter((result) => result.matchLevel === "maybe").length;
+    console.log(`  brunch: ${info.brunchFill.has} has con el tag · +${info.brunchFill.added} cafés de desayuno y almuerzo · ${maybe} maybe en total`);
+  }
   const sections = info.sections;
   const dropped = sections.dropped.length ? ` · descartados: ${sections.dropped.map((group) => `${group.id} (${group.count})`).join(", ")}` : "";
   const requested = sections.source ? ` · ${sections.source === "llm" ? "modelo" : "reglas"}: ${sections.requested.join(", ")}` : "";

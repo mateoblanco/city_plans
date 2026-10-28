@@ -14,7 +14,7 @@ import { everyDay, fakeCache, fakeStore, llmOutput, row } from './fixtures'
 // Lunes 12/10/2026 13:00 en Montevideo.
 const now = new Date('2026-10-12T16:00:00Z')
 const context = (overrides: Partial<FuseContext> = {}): FuseContext => ({
-  pinnedId: null, dishes: [], categories: [], requestedTags: [], preferTags: [], preferStyle: null, price: [], openAt: null, wantsBest: false, wantsDancing: false, intent: null, section: null, diet: [], ...overrides,
+  pinnedId: null, dishes: [], categories: [], requestedTags: [], preferTags: [], moments: [], cuisines: [], preferStyle: null, price: [], openAt: null, wantsBest: false, wantsDancing: false, intent: null, section: null, diet: [], preferDiet: [], ...overrides,
 })
 
 describe('fusión', () => {
@@ -170,13 +170,13 @@ describe('runSearch', () => {
     expect(response.results.find((result) => result.id === 'cafe-cordon')?.reasons).not.toContain('Recomendado')
   })
 
-  it('"best" en inglés: "Recommended"', async () => {
+  it('"best" en inglés: "Recomendado" (lo que se muestra, siempre en español)', async () => {
     const withFeatured = places.map((place) => (place.id === 'cafe-rodo' ? { ...place, featured: true } : place))
     const { store } = fakeStore(withFeatured)
     const response = await runSearch('best cafe in pocitos', { store, cache: fakeCache().cache }, { now, debug: true })
     expect(response.debug?.source).toBe('shortcut')
     expect(response.debug?.interpretation.wantsBest).toBe(true)
-    expect(response.results.find((result) => result.id === 'cafe-rodo')?.reasons[0]).toBe('Recommended')
+    expect(response.results.find((result) => result.id === 'cafe-rodo')?.reasons[0]).toBe('Recomendado')
   })
 
   it('debug suma lo que cobró el Gateway; lo que vino de la cache cuenta 0', async () => {
@@ -333,14 +333,14 @@ describe('runSearch', () => {
     expect(response.results.map((result) => result.id)).toEqual(['cafe-rodo'])
   })
 
-  it('los avisos en inglés: plato con relacionados y barrio', async () => {
+  it('los avisos de una consulta en inglés, en español: plato con relacionados y barrio', async () => {
     const withPeruvian = [...places, row({ id: 'peruano', categories: ['restaurant'], tags: ['peruvian'] })]
     const { store } = fakeStore(withPeruvian)
     const { cache } = fakeCache(llmOutput({ language: 'en', dishes: [{ name: 'ceviche', related: ['peruvian'] }] }))
     const response = await runSearch('ceviche please', { store, cache }, { now })
-    expect(response.relaxed.map((step) => step.message)).toEqual(['No ceviche, but these have Peruvian cuisine.'])
+    expect(response.relaxed.map((step) => step.message)).toEqual(['No hay ceviche, pero estos tienen cocina peruana.'])
     const nearby = await runSearch('cafe in pocitos', { store: fakeStore(places).store, cache: fakeCache().cache }, { now })
-    expect(nearby.relaxed.map((step) => step.message)).toEqual(['Nothing in Pocitos; these are nearby.'])
+    expect(nearby.relaxed.map((step) => step.message)).toEqual(['No encontramos en Pocitos; estos están cerca.'])
   })
 
   it('un tag que pasa a preferencia no genera aviso', async () => {
@@ -469,11 +469,11 @@ describe('runSearch', () => {
     expect(response.debug!.results.find((result) => result.id === 'lejos-tranquilo')!.relevance).toEqual({ kept: 'tag' })
   })
 
-  it('responde en inglés y pide ubicación con "near me"', async () => {
+  it('"near me" pide ubicación y responde en español', async () => {
     const { store } = fakeStore(places)
     const response = await runSearch('vegan near me', { store, cache: fakeCache().cache }, { now })
     expect(response.needsLocation).toBe(true)
-    expect(response.results[0].reasons).toEqual(['Vegan options'])
+    expect(response.results[0].reasons).toEqual(['Opciones veganas'])
   })
 
   it('cada resultado trae sus coordenadas para el mapa', async () => {
@@ -511,7 +511,8 @@ describe('exclusiones', () => {
       'Excepto bares',
       'Excepto pizza',
     ])
-    expect(buildChips({ ...value, language: 'en' }, 1).find((chip) => chip.kind === 'exclude')?.label).toBe('Except restaurants')
+    // El idioma detectado sólo interpreta: lo que se muestra sale siempre en español.
+    expect(buildChips({ ...value, language: 'en' }, 1).find((chip) => chip.kind === 'exclude')?.label).toBe('Excepto restaurantes')
   })
 
   it('el aviso de cero resultados nombra lo excluido y sugiere sacar la dieta de la barra', () => {
@@ -521,8 +522,78 @@ describe('exclusiones', () => {
     expect(noMatchNotice(value, { diet: false, exclude: true }).message).toBe('No encontramos lugares que no sean restaurantes, bares ni pizza.')
     expect(noMatchNotice(value, { diet: true, exclude: false }).message).toBe('No encontramos lugares con opciones veganas confirmadas. Probá sacar Vegano de los filtros.')
     expect(noMatchNotice({ ...value, language: 'en' }, { diet: true, exclude: false }).message).toBe(
-      "We couldn't find places with confirmed vegan options. Try removing Vegan from the filters.",
+      'No encontramos lugares con opciones veganas confirmadas. Probá sacar Vegano de los filtros.',
     )
+  })
+})
+
+describe('brunch con pocos resultados', () => {
+  const cafe = (id: string, tags: string[]) => row({ id, categories: ['cafe'], tags })
+  const places = [
+    cafe('b1', ['brunch']),
+    cafe('b2', ['brunch', 'breakfast', 'lunch']),
+    cafe('dl1', ['breakfast', 'lunch']),
+    cafe('dl2', ['breakfast', 'lunch', 'terrace']),
+    cafe('d', ['breakfast']),
+    row({ id: 'resto', categories: ['restaurant'], tags: ['breakfast', 'lunch'] }),
+  ]
+
+  it('completa debajo, como maybe, con cafés de desayuno y almuerzo sin el tag', async () => {
+    const { store } = fakeStore(places)
+    const response = await runSearch('brunch', { store, cache: fakeCache().cache }, { now, debug: true })
+    const byId = new Map(response.results.map((result) => [result.id, result]))
+    expect(response.results.map((result) => result.id).slice(0, 2).sort()).toEqual(['b1', 'b2'])
+    expect(response.results.map((result) => result.id).slice(2).sort()).toEqual(['dl1', 'dl2'])
+    expect(response.results.slice(0, 2).every((result) => result.matchLevel === 'has')).toBe(true)
+    for (const id of ['dl1', 'dl2']) {
+      expect(byId.get(id)).toMatchObject({ matchLevel: 'maybe' })
+      expect(byId.get(id)!.reasons).toContain('Desayuno y almuerzo')
+      expect(byId.get(id)!.reasons).not.toContain('Brunch')
+    }
+    expect(response.debug?.brunchFill).toEqual({ has: 2, added: 2 })
+  })
+
+  it('igual con el sub-filtro de la barra que con el texto', async () => {
+    const levels = (response: Awaited<ReturnType<typeof runSearch>>) =>
+      Object.fromEntries(['has', 'maybe'].map((level) => [level, response.results.filter((result) => result.matchLevel === level).map((result) => result.id).sort()]))
+    const fromText = await runSearch('brunch', { store: fakeStore(places).store, cache: fakeCache().cache }, { now, debug: true })
+    const fromSub = await runSearch('', { store: fakeStore(places).store, cache: fakeCache().cache }, { now, debug: true, intent: 'cafes', sub: 'brunch' })
+    const absorbed = await runSearch('brunch', { store: fakeStore(places).store, cache: fakeCache().cache }, { now, debug: true, intent: 'cafes' })
+    expect(levels(fromText)).toEqual({ has: ['b1', 'b2'], maybe: ['dl1', 'dl2'] })
+    expect(levels(fromSub)).toEqual(levels(fromText))
+    expect(levels(absorbed)).toEqual(levels(fromText))
+    for (const response of [fromSub, absorbed]) {
+      expect(response.debug?.brunchFill).toEqual({ has: 2, added: 2 })
+      expect(response.results.find((result) => result.id === 'dl1')!.reasons).toContain('Desayuno y almuerzo')
+    }
+  })
+
+  it('no repite una marca que ya salió arriba', async () => {
+    const { store } = fakeStore([
+      row({ id: 'm1', categories: ['cafe'], tags: ['brunch'], brandKey: 'marca' }),
+      row({ id: 'm2', categories: ['cafe'], tags: ['breakfast', 'lunch'], brandKey: 'marca' }),
+      cafe('dl', ['breakfast', 'lunch']),
+    ])
+    const response = await runSearch('brunch', { store, cache: fakeCache().cache }, { now, debug: true })
+    expect(response.results.map((result) => result.id)).toEqual(['m1', 'dl'])
+  })
+
+  it('con 12 o más "has" no completa', async () => {
+    const many = Array.from({ length: 12 }, (_, index) => cafe(`b${index}`, ['brunch']))
+    const { store } = fakeStore([...many, cafe('dl', ['breakfast', 'lunch'])])
+    const response = await runSearch('brunch', { store, cache: fakeCache().cache }, { now, debug: true })
+    expect(response.results.map((result) => result.id)).not.toContain('dl')
+    expect(response.debug?.brunchFill).toBeNull()
+  })
+})
+
+describe('idioma', () => {
+  it('una consulta en inglés se muestra en español', async () => {
+    const { store } = fakeStore([row({ id: 'gf', categories: ['cafe'], diet: { ...row({ id: 'x' }).diet, glutenFree: 'fully' } })])
+    const response = await runSearch('gluten free', { store, cache: fakeCache().cache }, { now, debug: true })
+    expect(response.debug?.interpretation.language).toBe('en')
+    expect(response.results[0].reasons).toContain('Todo sin TACC')
+    expect(response.results[0].openStatus.label).not.toMatch(/Open|Closed/)
   })
 })
 

@@ -1,9 +1,10 @@
-import { findDef, isStyleId, normalize, type StyleId } from '@shared/tags.ts'
+import { CUISINES, findDef, isStyleId, normalize, OCCASION_TAGS, type StyleId } from '@shared/tags.ts'
 import { resolveNeighborhood } from '@shared/neighborhood-aliases.ts'
 import { INTENT_VERBS, type IntentId } from '@shared/intents.ts'
-import { canonicalOf, singularForms } from './dishes'
+import { canonicalOf, MEAT_TAG, singularForms } from './dishes'
 import { readWhen, WHEN_PHRASES } from './when'
 import { BEST_WORDS, emptyInterpretation, tidy, type Interpretation, type Price } from './interpretation'
+import { normalizeQuery } from './normalize'
 
 const STOPWORDS_ES = new Set(['en', 'de', 'del', 'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'y', 'o', 'con', 'para', 'por', 'a', 'al', 'zona', 'barrio'])
 const STOPWORDS_EN = new Set(['in', 'at', 'near', 'the', 'a', 'an', 'with', 'for', 'and', 'or', 'of', 'to', 'around', 'area'])
@@ -28,15 +29,32 @@ const DATE_STYLES = new Map<string, { style: StyleId; also?: string; language?: 
   ['anniversary', { style: 'cuidado', language: 'en' }],
 ])
 
+// Almuerzo de trabajo: almorzar (el sub Almuerzo de Comer) y, como preferencia, menú del día y algo rápido. No es work,
+// que es trabajar con la compu; menu_of_the_day sola sería requisito.
+const WORK_LUNCH_PHRASES = new Map<string, 'es' | 'en'>([
+  ...['almuerzo de trabajo', 'almuerzos de trabajo', 'almuerzo ejecutivo', 'almorzar cerca del trabajo'].map((phrase) => [phrase, 'es'] as const),
+  ['work lunch', 'en'], ['business lunch', 'en'],
+])
+
+// Frente al mar: sea_view como preferencia (lo calcula el backoffice por la distancia a la Rambla). Sin esto, el
+// sinónimo "rambla" de FEATURES lo volvería obligatorio.
+const SEA_VIEW_PHRASES = new Set([
+  'frente al mar', 'vista al mar', 'cerca del mar', 'sobre la costa', 'sobre la rambla', 'en la rambla', 'cerca de la rambla', 'la rambla', 'rambla',
+])
+
 // Verbos que piden una intención sin nombrar un tag ("comer", "tomar algo"). Se miran antes que el catálogo, así
 // "tomar algo" es sólo Bares y no exige el tag drinks; una frase más larga del catálogo ("comer de noche") gana igual.
 const VERBS = new Map<string, [IntentId, 'es' | 'en']>(INTENT_VERBS.map(([phrase, id, lang]) => [normalize(phrase), [id, lang]]))
 
 // Platos genéricos sin tag propio en el catálogo: van como plato con su respaldo, sin pasar por el modelo.
-// pescado, mariscos y pollo no hacen falta: son sinónimos de seafood y chicken. "sin carne" es vegetarian (frase más larga).
+// pescado, mariscos y pollo no hacen falta: son sinónimos de seafood y chicken.
 type GenericDish = { relatedTags: string[]; relatedCategories: string[]; language: 'es' | 'en' }
 const MEAT = (language: 'es' | 'en'): GenericDish => ({ relatedTags: ['grilled_meat'], relatedCategories: ['grill'], language })
 const GENERIC_DISHES = new Map<string, GenericDish>([['carne', MEAT('es')], ['carnes', MEAT('es')], ['meat', MEAT('en')]])
+
+// "sin carne": exclude de la carne (y de las parrillas por ícono, search.ts), con los vegetarianos arriba; no filtra por
+// dieta. Va antes que "carne" (frase más larga) y que la negación suelta "sin".
+const MEATLESS_PHRASES = new Set(['sin carne', 'sin carnes'])
 
 const MAX_PHRASE_WORDS = 5
 
@@ -65,7 +83,7 @@ function applyTerm(target: Interpretation, phrase: string): 'es' | 'en' | null |
 }
 
 // Lo que viene después de una negación suelta ("algo que no sea pizza") no se toma como pedido en el modo parcial.
-const NEGATIONS = new Set(['no', 'ni', 'sin', 'excepto', 'salvo', 'menos', 'not', 'except', 'without'])
+export const NEGATIONS = new Set(['no', 'ni', 'sin', 'excepto', 'salvo', 'menos', 'not', 'except', 'without'])
 
 /**
  * Atajo sin LLM: si toda la consulta se cubre con barrios, tags, horario (when.ts) y palabras vacías,
@@ -96,9 +114,16 @@ export function interpretWithDictionary(normalized: string, { partial = false }:
       const nearMe = NEAR_ME.get(phrase as never)
       const price = PRICE_WORDS.get(phrase)
       const dateStyle = DATE_STYLES.get(phrase)
+      const workLunch = WORK_LUNCH_PHRASES.get(phrase)
       const verb = VERBS.get(phrase)
       const genericDish = GENERIC_DISHES.get(phrase)
-      if (neighborhood) {
+      if (MEATLESS_PHRASES.has(phrase)) {
+        target.exclude.tags.push(MEAT_TAG)
+        votes.es++
+      } else if (SEA_VIEW_PHRASES.has(phrase)) {
+        target.prefer.tags.push('sea_view')
+        votes.es++
+      } else if (neighborhood) {
         target.must.neighborhoods.push(neighborhood)
       } else if (when) {
         // "tarde" suelta sólo se entiende con bares ("tomar algo tarde"); si no, que la lea el modelo.
@@ -116,6 +141,10 @@ export function interpretWithDictionary(normalized: string, { partial = false }:
         target.prefer.style ??= dateStyle.style
         if (dateStyle.also) applyTerm(target, dateStyle.also)
         votes[dateStyle.language ?? 'es']++
+      } else if (workLunch) {
+        target.must.tags.push('lunch')
+        target.prefer.tags.push('menu_of_the_day', 'quick')
+        votes[workLunch]++
       } else if (verb) {
         target.intent ??= verb[0]
         votes[verb[1]]++
@@ -158,4 +187,60 @@ export function interpretWithDictionary(normalized: string, { partial = false }:
   // "tarde" o "salir" que el horario no usó (sin bares ni noche) quedan sin reconocer: que la lea el modelo.
   if (!partial && ((lateWord && !timed.late) || (outWord && !timed.out))) return null
   return tidy(timed.interpretation)
+}
+
+// Lo que el diccionario reconoce seguro y se suma a lo del modelo: comidas del día (requisito, como las pide el
+// modelo) y vista al mar, momentos y lo del almuerzo de trabajo (preferencias).
+const MEAL_TAGS = new Set(['breakfast', 'brunch', 'lunch', 'afternoon_snack', 'dinner'])
+const PREFER_TAGS = new Set<string>(['sea_view', 'menu_of_the_day', ...OCCASION_TAGS])
+
+/** Suma una interpretación a otra: listas unidas; lo que es uno solo (horario, estilo, intención) sólo si faltaba. */
+function merge(into: Interpretation, from: Interpretation) {
+  into.must.categories.push(...from.must.categories)
+  into.must.tags.push(...from.must.tags)
+  into.must.neighborhoods.push(...from.must.neighborhoods)
+  into.must.price.push(...from.must.price)
+  Object.assign(into.must.diet, from.must.diet)
+  into.must.openAt ??= from.must.openAt
+  into.prefer.categories.push(...from.prefer.categories)
+  into.prefer.tags.push(...from.prefer.tags)
+  into.prefer.style ??= from.prefer.style
+  into.exclude.categories.push(...from.exclude.categories)
+  into.exclude.tags.push(...from.exclude.tags)
+  into.dishes.push(...from.dishes)
+  into.intent ??= from.intent
+  into.wantsBest ||= from.wantsBest
+}
+
+/**
+ * Las frases del diccionario también sobre lo que devolvió el modelo, como applyWhen con el horario: vista al mar,
+ * comidas del día, momentos, estilo e intención se suman (lo negado no: modo parcial). Una cocina del texto ("algo
+ * asiático") que el modelo no puso en ningún lado va como requisito, y "sin carne" es exclude de la carne aunque el
+ * modelo la haya hecho dieta vegetariana. Una parte que el modelo dejó sin
+ * reconocer y el diccionario entiende entera ("cerca de la rambla") se aplica completa y deja de estar sin reconocer;
+ * "cerca mío" sigue ahí, porque pide la ubicación.
+ */
+export function applyDictionary(value: Interpretation, normalized: string): Interpretation {
+  const read = interpretWithDictionary(normalized, { partial: true })
+  if (!read) return value
+  const next: Interpretation = structuredClone(value)
+  next.must.tags.push(...read.must.tags.filter((id) => MEAL_TAGS.has(id)))
+  next.prefer.tags.push(...read.prefer.tags.filter((id) => PREFER_TAGS.has(id)))
+  next.prefer.style ??= read.prefer.style
+  next.intent ??= read.intent
+  const mentioned = new Set([...value.must.tags, ...value.prefer.tags, ...value.exclude.tags, ...value.dishes.flatMap((dish) => dish.relatedTags)])
+  next.must.tags.push(...read.must.tags.filter((id) => Object.hasOwn(CUISINES, id) && !mentioned.has(id)))
+  if (read.exclude.tags.includes(MEAT_TAG)) {
+    next.exclude.tags.push(MEAT_TAG)
+    if (!read.must.diet.vegetarian) delete next.must.diet.vegetarian
+  }
+  // Vista al mar es preferencia aunque el modelo la haya exigido (sinónimo "rambla").
+  if (read.prefer.tags.includes('sea_view')) next.must.tags = next.must.tags.filter((id) => id !== 'sea_view')
+  next.unrecognized = value.unrecognized.filter((part) => {
+    const whole = interpretWithDictionary(normalizeQuery(part))
+    if (!whole || whole.needsLocation) return true
+    merge(next, whole)
+    return false
+  })
+  return tidy(next)
 }

@@ -42,7 +42,7 @@ Campos:
   - categories: ids del grupo categories (ej. "cafés" → cafe, "boliche" → night_club).
   - tags: ids de los demás grupos que sean requisitos concretos (terraza, música en vivo, brunch, cerveza tirada).
   - diet: vegan / vegetarian / glutenFree en true sólo si se pide ("sin TACC" → glutenFree).
-  - neighborhoods: nombres de barrio de la lista ("near Ciudad Vieja" → "Ciudad Vieja", "el prado" → "Prado Nueva Savona").
+  - neighborhoods: nombres de barrio de la lista ("near Ciudad Vieja" → "Ciudad Vieja", "el prado" → "Prado Nueva Savona"). Sólo un barrio que la consulta nombra: un lugar que no está en la lista (un mercado, un shopping, un hotel: "Mercado del Puerto") no es un barrio parecido; va tal cual en unrecognized.
   - price: low, moderate, high o very_high ("barato" o "económico" → ["low"], "no muy caro" → ["low","moderate"], "caro" → ["high","very_high"], "de lujo" → ["very_high"]).
   - openAt: {today:true, tonight:false} para "hoy", "ahora", "abierto ahora" o "today" (abierto ahora o abre más tarde hoy); {today:true, tonight:true} para "esta noche" o "tonight"; {today:false, tonight:false, day, time} para otro día y/o una hora concreta (0 = domingo … 6 = sábado; null = hoy; hora "HH:MM", null = cualquier momento de ese día): "el sábado" → day 6, "mañana a la noche" → mañana con time "21:00", "hoy a las 22" → day null, time "22:00"; "a la tarde" → time "17:00", "a la noche" → time "21:00"; "tarde" con bares ("tomar algo tarde", "salir tarde") es trasnoche: time "23:30" y late_night en prefer.tags; null si no habla de horario.
 - prefer: lo subjetivo o deseable (tranquilo, acogedor, lindo, para trabajar), en categories/tags.
@@ -50,7 +50,8 @@ Campos:
   - Estilo del lugar, también en prefer.tags y nunca en must: "descontracturado" o "informal" → casual; "especial", "elegante" o "de autor" → cuidado.
   - "de barrio", "bolichito", "boliche de barrio", "clásico del barrio" o "bodegón de barrio" → neighborhood_spot en prefer.tags (no es lo mismo que barato: no agregues precio). "boliche" solo sigue siendo night_club.
   - Una cita puede traer el estilo: "primera cita", "algo tranqui para una cita" o "cita descontracturada" → date + casual; "aniversario", "anniversary" o "cita especial" → date + cuidado; "cena romántica" → date + cuidado y además dinner, igual que "cena"; "cita" sola → sólo date.
-- exclude: lo que la persona NO quiere ("algo que no sea pizza" → exclude tags ["pizza"] y categories ["pizzeria"]).
+  - "almuerzo de trabajo", "almuerzo ejecutivo" o "almorzar cerca del trabajo" → lunch en must y menu_of_the_day + quick en prefer.tags. No es work (eso es trabajar con la compu).
+- exclude: lo que la persona NO quiere ("algo que no sea pizza" → exclude tags ["pizza"] y categories ["pizzeria"]). "sin carne" → exclude tags ["grilled_meat"], sin vegetarian en diet (eso es sólo si dice "vegetariano").
 - dishes: platos o comidas concretas, en español, minúscula y forma estándar ("milanga" → "milanesa", "best steak" → "bife", "chivito", "milanesa napolitana"). Una comida genérica que ya es un tag del grupo foods también va acá ("pizza", "sushi", "picada"), no en tags.
   Cada plato va como {name, related}: en related, 1 a 3 ids de tags o categorías del catálogo que lo representen, para buscar por ahí si ningún lugar tiene el plato (ceviche → ["peruvian", "seafood"]; milanesa napolitana → ["milanesa"]; ramen → ["japanese"]). Un plato típico de una cocina (los "platos:" del catálogo) va siempre en dishes con esa cocina en related, nunca como tag de cocina en must: "tacos" → dishes [{name: "tacos", related: ["mexican"]}].
 - vibe: frase corta en español que describa el ambiente o la ocasión para una búsqueda semántica ("lugar tranquilo para trabajar"); null si la consulta es sólo requisitos concretos.
@@ -63,6 +64,7 @@ Campos:
 Reglas:
 - "mejor", "best", "top" sólo marcan wantsBest: no van en must, prefer, unrecognized ni vibe. "rico" y "bueno" no son requisitos: ignoralos.
 - Las bebidas coloquiales van como tags: "birra" → draft_beer, "vino" → wine. Pero "tomar algo", "unas cervezas" o "unos tragos" sólo dicen la intención (intent bars), no piden un tag.
+- Cocinas paraguas: "asiático", "oriental" o "comida asiática" → asian (ya incluye japonesa, china, coreana y nikkei: no las agregues); "latinoamericana" o "comida latina" → latin_american. La india y la árabe no son asian.
 - No inventes ids: si algo no está en el catálogo, va a unrecognized.
 - Las listas vacías van como [].
 

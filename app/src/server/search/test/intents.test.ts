@@ -132,7 +132,7 @@ describe('SQL de la intención', () => {
     const groups = intentGroups('bars', ['cocktails', 'dancing'])
     const query = new PgDialect().sqlToQuery(
       candidatesQuery(
-        { categories: [], tags: [], diet: [], neighborhoods: [], price: [], openAt: null, excludeCategories: [], excludeTags: [], dishes: [], dishMode: 'dish', near: null, groups },
+        { categories: [], tags: [], diet: [], neighborhoods: [], venues: [], price: [], openAt: null, excludeCategories: [], excludeTags: [], excludeIcons: [], dishes: [], dishMode: 'dish', near: null, groups },
         { embedding: null, keywords: [], name: null, origins: [], pinnedId: null },
       ),
     )
@@ -144,7 +144,7 @@ describe('SQL de la intención', () => {
   it('un grupo con featured filtra por featured', () => {
     const query = new PgDialect().sqlToQuery(
       candidatesQuery(
-        { categories: [], tags: [], diet: [], neighborhoods: [], price: [], openAt: null, excludeCategories: [], excludeTags: [], dishes: [], dishMode: 'dish', near: null, groups: [{ featured: true }] },
+        { categories: [], tags: [], diet: [], neighborhoods: [], venues: [], price: [], openAt: null, excludeCategories: [], excludeTags: [], excludeIcons: [], dishes: [], dishMode: 'dish', near: null, groups: [{ featured: true }] },
         { embedding: null, keywords: [], name: null, origins: [], pinnedId: null },
       ),
     )
@@ -281,8 +281,8 @@ describe('verbos que piden una intención', () => {
   })
 
   it('el modelo también puede traer la intención; una inválida se descarta', () => {
-    expect(validateInterpretation(llmOutput({ intent: 'eat' })).interpretation.intent).toBe('eat')
-    const invalid = validateInterpretation(llmOutput({ intent: 'dance' }))
+    expect(validateInterpretation(llmOutput({ intent: 'eat' }), '').interpretation.intent).toBe('eat')
+    const invalid = validateInterpretation(llmOutput({ intent: 'dance' }), '')
     expect(invalid.interpretation.intent).toBeNull()
     expect(invalid.discarded).toContain('intent:dance')
   })
@@ -311,7 +311,7 @@ describe('Comer incluye bares con comida', () => {
   it('el SQL pide "categoría y tag" para el par', () => {
     const query = new PgDialect().sqlToQuery(
       candidatesQuery(
-        { categories: [], tags: [], diet: [], neighborhoods: [], price: [], openAt: null, excludeCategories: [], excludeTags: [], dishes: [], dishMode: 'dish', near: null, groups: intentGroups('eat', []) },
+        { categories: [], tags: [], diet: [], neighborhoods: [], venues: [], price: [], openAt: null, excludeCategories: [], excludeTags: [], excludeIcons: [], dishes: [], dishMode: 'dish', near: null, groups: intentGroups('eat', []) },
         { embedding: null, keywords: [], name: null, origins: [], pinnedId: null },
       ),
     )

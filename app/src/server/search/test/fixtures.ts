@@ -1,9 +1,12 @@
+import { withSubcuisines } from '@shared/tags.ts'
 import type { CandidateFilters, CandidateRow, NameMatch, ScoreInputs } from '../candidates'
 import { openStatus, opensToday, type OpenFilter } from '../hours'
 import { matchesGroup } from '../intents'
 import type { LlmInterpretation } from '../interpretation'
 import type { SearchCache } from '../cache'
 import type { PlacesStore } from '../store'
+import type { Venue } from '../venues'
+import { SEARCH_CONFIG } from '../config'
 
 export function row(overrides: Partial<CandidateRow> & { id: string }): CandidateRow {
   return {
@@ -17,6 +20,7 @@ export function row(overrides: Partial<CandidateRow> & { id: string }): Candidat
     style: null,
     diet: { vegan: 'unknown', vegetarian: 'unknown', glutenFree: 'unknown' },
     price: 'unknown',
+    reservations: 'unknown',
     hours: { slots: [], status: 'none' },
     prominence: 0,
     featured: false,
@@ -44,6 +48,13 @@ export const everyDay = (opens: string, closes: string | null) => ({
   status: 'exact' as const,
 })
 
+/** Distancia en metros entre dos puntos (haversine), como ST_DWithin sobre geography. */
+export function meters(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+  const radians = (value: number) => (value * Math.PI) / 180
+  const h = Math.sin(radians(b.lat - a.lat) / 2) ** 2 + Math.cos(radians(a.lat)) * Math.cos(radians(b.lat)) * Math.sin(radians(b.lng - a.lng) / 2) ** 2
+  return 2 * 6371008.8 * Math.asin(Math.sqrt(h))
+}
+
 const cosine = (a: number[], b: number[]) => {
   const dot = a.reduce((sum, value, index) => sum + value * b[index], 0)
   const norm = (vector: number[]) => Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0))
@@ -59,17 +70,23 @@ export function fakeStore(places: CandidateRow[], names: NameMatch[] = [], vecto
   // Misma regla que openAtSql / opensTodaySql.
   const matchesOpenAt = (place: CandidateRow, { moment, today, night }: OpenFilter) =>
     today && moment.time ? opensToday(place.hours, { day: moment.day, time: moment.time }, night) !== 'no' : openStatus(place.hours, moment).state !== 'closed'
+  // Misma regla que venueSql: located_in pedido, o sin located_in y cerca de uno de sus locales.
+  const inVenue = (place: CandidateRow, venues: Venue[]) =>
+    venues.some((venue) => place.locatedIn === venue.name) ||
+    (place.locatedIn === null && venues.some((venue) => venue.points.some((point) => meters(point, place) <= SEARCH_CONFIG.venue.radiusM)))
   const matches = (place: CandidateRow, filters: CandidateFilters) => {
     const has = (place: CandidateRow, dish: string) => place.dishes.some((item) => item.includes(dish))
     return (
       (!filters.categories.length || filters.categories.some((id) => place.categories.includes(id))) &&
-      filters.tags.every((id) => place.tags.includes(id)) &&
+      filters.tags.every((id) => withSubcuisines(id).some((tag) => place.tags.includes(tag))) &&
       filters.diet.every((key) => ['has_options', 'fully'].includes(place.diet[key])) &&
       (!filters.neighborhoods.length || filters.neighborhoods.includes(place.neighborhoodId)) &&
+      (!filters.venues.length || inVenue(place, filters.venues)) &&
       (!filters.price.length || place.price === 'unknown' || (filters.price as string[]).includes(place.price)) &&
       (!filters.openAt || matchesOpenAt(place, filters.openAt)) &&
       !filters.excludeCategories.some((id) => place.categories.includes(id)) &&
-      !filters.excludeTags.some((id) => place.tags.includes(id)) &&
+      !filters.excludeTags.flatMap(withSubcuisines).some((id) => place.tags.includes(id)) &&
+      !(place.iconCategory !== null && filters.excludeIcons.includes(place.iconCategory)) &&
       filters.groups.every((group) => matchesGroup(group, place)) &&
       (!filters.near || (place.distance ?? Infinity) <= filters.near.radiusM) &&
       (!filters.dishes.length || filters.dishMode === 'none' ||
@@ -101,6 +118,16 @@ export function fakeStore(places: CandidateRow[], names: NameMatch[] = [], vecto
     },
     async neighborhoods() {
       return [...new Set(places.map((place) => place.neighborhoodId))].sort()
+    },
+    async venues() {
+      const venues = new Map<string, Venue>()
+      for (const place of places) {
+        if (!place.locatedIn) continue
+        const venue = venues.get(place.locatedIn) ?? { name: place.locatedIn, points: [] }
+        venue.points.push({ lat: place.lat, lng: place.lng })
+        venues.set(place.locatedIn, venue)
+      }
+      return [...venues.values()]
     },
     // Misma regla que likeSimilaritiesQuery: likes publicados con embedding, su promedio, el coseno con cada uno y,
     // por like, el percentil de su parecido con el resto de la base (percentile_cont: interpolación lineal).

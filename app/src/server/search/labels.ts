@@ -3,6 +3,9 @@ import type { DietKey, Lang, Price } from './interpretation'
 import { SEARCH_CONFIG } from './config'
 import type { Moment, NextOpening, OpenState } from './hours'
 
+/** Idioma de todo lo que se muestra. El detectado (interpretation.language) sólo sirve para interpretar la consulta. */
+export const DISPLAY_LANG: Lang = 'es'
+
 export const DAY_NAMES: Record<Lang, string[]> = {
   es: ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'],
   en: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],

@@ -92,8 +92,9 @@ describe('atajo con diccionario', () => {
     expect(carne?.must.tags).toEqual([])
     expect(interpretWithDictionary('carnes en pocitos')?.dishes).toEqual([{ name: 'carnes', relatedTags: ['grilled_meat'], relatedCategories: ['grill'] }])
     expect(interpretWithDictionary('meat')?.language).toBe('en')
-    // "sin carne" sigue siendo vegetariano (la frase más larga gana).
-    expect(interpretWithDictionary('sin carne')?.must.diet).toEqual({ vegetarian: true })
+    // "sin carne" es exclude de la carne, no filtro vegetariano (la frase más larga gana sobre "carne" y la negación).
+    expect(interpretWithDictionary('sin carne')?.must.diet).toEqual({})
+    expect(interpretWithDictionary('sin carne')?.exclude.tags).toEqual(['grilled_meat'])
     expect(interpretWithDictionary('sin carne')?.dishes).toEqual([])
     // pescado, mariscos y pollo ya estaban: son sinónimos de seafood y chicken.
     expect(interpretWithDictionary('comer pescado')?.dishes).toEqual([{ name: 'pescado', relatedTags: ['seafood'], relatedCategories: [] }])
@@ -196,6 +197,7 @@ describe('validateInterpretation', () => {
         exclude: { categories: [], tags: ['terrace'] },
         language: 'en',
       }),
+      'gluten free cafe in pocitos',
     )
     expect(interpretation.must.categories).toEqual(['cafe'])
     expect(interpretation.must.tags).toEqual([]) // terrace quedó excluido
@@ -211,16 +213,17 @@ describe('validateInterpretation', () => {
   it('valida los tags relacionados de cada plato', () => {
     const { interpretation, discarded } = validateInterpretation(
       llmOutput({ dishes: [{ name: ' Ceviche ', related: ['peruvian', 'Pescados y mariscos', 'vegan', 'nada'] }, { name: 'ceviche', related: ['restaurant'] }] }),
+      '',
     )
     expect(interpretation.dishes).toEqual([{ name: 'ceviche', relatedTags: ['peruvian', 'seafood'], relatedCategories: ['restaurant'] }])
     expect(discarded).toEqual(['vegan', 'nada'])
   })
 
   it('marca needsLocation cuando el modelo deja "cerca mío" sin reconocer', () => {
-    expect(validateInterpretation(llmOutput({ unrecognized: ['cerca mío'] })).interpretation.needsLocation).toBe(true)
-    expect(validateInterpretation(llmOutput({ unrecognized: ['near me'] })).interpretation.needsLocation).toBe(true)
-    expect(validateInterpretation(llmOutput({ unrecognized: ['para 15 personas'] })).interpretation.needsLocation).toBe(false)
-    const best = validateInterpretation(llmOutput({ wantsBest: true, unrecognized: ['el mejor', 'the best', 'cerca mío'] })).interpretation
+    expect(validateInterpretation(llmOutput({ unrecognized: ['cerca mío'] }), '').interpretation.needsLocation).toBe(true)
+    expect(validateInterpretation(llmOutput({ unrecognized: ['near me'] }), '').interpretation.needsLocation).toBe(true)
+    expect(validateInterpretation(llmOutput({ unrecognized: ['para 15 personas'] }), '').interpretation.needsLocation).toBe(false)
+    const best = validateInterpretation(llmOutput({ wantsBest: true, unrecognized: ['el mejor', 'the best', 'cerca mío'] }), '').interpretation
     expect(best.wantsBest).toBe(true)
     expect(best.unrecognized).toEqual(['cerca mío'])
   })

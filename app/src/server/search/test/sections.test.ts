@@ -11,7 +11,7 @@ import { everyDay, fakeCache, fakeStore, llmOutput, row } from './fixtures'
 const now = new Date('2026-10-12T16:00:00Z')
 
 const fused = (overrides: Partial<CandidateRow> & { id: string }, score: number): Fused => ({
-  row: row(overrides), pinned: false, matchLevel: 'has', open: null, rrf: score, boosts: {}, baseScore: score, multiplier: 1, score, positionWithoutQuality: 1,
+  row: row(overrides), pinned: false, matchLevel: 'has', dishLevel: 'has', open: null, rrf: score, boosts: {}, baseScore: score, multiplier: 1, score, positionWithoutQuality: 1,
 })
 
 /** n lugares con puntaje decreciente; tags[i] le da tags al i-ésimo. */
@@ -91,7 +91,7 @@ describe('qué grupos se piden', () => {
   })
 
   it('valida los ids del modelo', () => {
-    const { interpretation: value, discarded } = validateInterpretation(llmOutput({ sections: ['outdoor', 'rooftops', 'outdoor', ' share '] }))
+    const { interpretation: value, discarded } = validateInterpretation(llmOutput({ sections: ['outdoor', 'rooftops', 'outdoor', ' share '] }), '')
     expect(value.sections).toEqual(['outdoor', 'share'])
     expect(discarded).toContain('section:rooftops')
   })
@@ -99,7 +99,7 @@ describe('qué grupos se piden', () => {
   it('una interpretación cacheada sin el campo queda sin grupos', () => {
     const old: Partial<LlmInterpretation> = llmOutput()
     delete old.sections
-    expect(validateInterpretation(old as LlmInterpretation).interpretation.sections).toEqual([])
+    expect(validateInterpretation(old as LlmInterpretation, '').interpretation.sections).toEqual([])
   })
 })
 
@@ -176,6 +176,16 @@ describe('cómo se arman', () => {
     // Descubrí no tiene regla fija: no tiene "Ver todos".
     expect(sections?.[0]).toEqual({ id: 'discover', title: 'Discover', placeIds: ['p6', 'p7', 'p8', 'p9', 'p10'], total: null })
     expect(sections?.[1].title).toBe('More options')
+  })
+
+  it('Descubrí nunca va primero: el primero es el grupo de mejor puntaje sin contarlo, antes de los personales', () => {
+    const extra: Record<number, Partial<CandidateRow>> = {}
+    for (let index = 0; index < 14; index++) extra[index] = index < 6 ? { prominence: 0.6, semantic: 0.6 } : { prominence: 0.9, semantic: 0.5 }
+    const tags = Object.fromEntries(Array.from({ length: 6 }, (_, index) => [index + 6, ['terrace']]))
+    const items = ranked(14, tags, extra)
+    const personal = [{ id: 'similar' as const, title: 'Parecido a X', items: items.slice(12) }]
+    const { sections } = buildSections(items, ['outdoor', 'discover'], 'es', personal)
+    expect(sections?.map((section) => section.id)).toEqual(['outdoor', 'similar', 'discover'])
   })
 })
 
@@ -331,5 +341,13 @@ describe('orden dentro de una sección', () => {
     const { sections } = buildSections(items, ['share', 'outdoor'], 'es')
     const share = sections!.find((section) => section.id === 'share')!
     expect(share.placeIds).toEqual(['p3', 'p0', 'p1', 'p2'])
+  })
+
+  it('los "maybe" (precio desconocido con precio pedido) van después de los "has", aunque tengan más señales', () => {
+    const tags = [['tapas'], ['tapas'], ['tapas', 'picada', 'groups'], ['terrace'], ['terrace'], ['terrace'], []]
+    const items = tags.map((list, index) => fused({ id: `p${index}`, tags: list, prominence: 0.8 }, 0.03 - index / 1000))
+    items[2] = { ...items[2], matchLevel: 'maybe' }
+    const { sections } = buildSections(items, ['share', 'outdoor'], 'es')
+    expect(sections!.find((section) => section.id === 'share')!.placeIds).toEqual(['p0', 'p1', 'p2'])
   })
 })

@@ -5,12 +5,14 @@ import {
   likeSimilaritiesQuery,
   nameMatchQuery,
   neighborhoodsQuery,
+  venuesQuery,
   type CandidateFilters,
   type CandidateRow,
   type LikeSimilarities,
   type NameMatch,
   type ScoreInputs,
 } from './candidates'
+import type { Venue } from './venues'
 
 export type PlacesStore = {
   candidates(filters: CandidateFilters, scores: ScoreInputs): Promise<CandidateRow[]>
@@ -18,6 +20,8 @@ export type PlacesStore = {
   count(filters: CandidateFilters): Promise<number>
   /** Ids de barrio con al menos un lugar publicado. */
   neighborhoods(): Promise<string[]>
+  /** Cada located_in de los publicados con la ubicación de sus locales. */
+  venues(): Promise<Venue[]>
   /** Likes válidos y el parecido de cada candidato con el perfil y con cada like. */
   likeSimilarities(likeIds: string[], candidateIds: string[], percentile: number): Promise<LikeSimilarities>
 }
@@ -39,6 +43,10 @@ export function neonPlacesStore(db: Pick<NeonHttpDatabase<Record<string, unknown
     async neighborhoods() {
       const { rows } = await db.execute(neighborhoodsQuery())
       return (rows as { id: string }[]).map((row) => row.id)
+    },
+    async venues() {
+      const { rows } = await db.execute(venuesQuery())
+      return rows as Venue[]
     },
     async likeSimilarities(likeIds, candidateIds, percentile) {
       const { rows } = await db.execute(likeSimilaritiesQuery(likeIds, candidateIds, percentile))
