@@ -21,7 +21,8 @@ const origin = ({ fromText, fromFilter }: Chip) => (fromText && fromFilter ? "te
 const sectionsSummary = (sections: SearchDebug["sections"]) => {
   const dropped =
     (sections.dropped.length ? ` · descartados: ${sections.dropped.map((group) => `${group.id} (${group.count})`).join(", ")}` : "") +
-    (sections.displaced.length ? ` · desplazados por los personales: ${sections.displaced.join(", ")}` : "");
+    (sections.displaced.length ? ` · desplazados por los personales: ${sections.displaced.join(", ")}` : "") +
+    (sections.diet ? ` · 100 % ${sections.diet.key}: ${sections.diet.count}${sections.diet.placedIn ? ` (primero en ${sections.diet.placedIn})` : sections.diet.shown ? "" : " (sin grupo)"}` : "");
   if (sections.notGrouped) return `sin agrupar: ${sections.notGrouped}${sections.source ? ` · ${sections.source === "llm" ? "modelo" : "reglas"}: ${join(sections.requested)}` : ""}${dropped}`;
   const chosen = sections.chosen.map((group) => `${group.id} (${group.count}, ${group.avgScore.toFixed(4)})`).join(", ");
   return `${sections.source === "llm" ? "modelo" : "reglas"}: ${join(sections.requested)} · elegidos: ${chosen}${dropped}`;

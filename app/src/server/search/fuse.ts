@@ -5,7 +5,7 @@ import type { SectionId } from '@shared/sections.ts'
 import { SEARCH_CONFIG } from './config'
 import type { CandidateRow } from './candidates'
 import { singularForms, type DishTarget } from './dishes'
-import type { Price } from './interpretation'
+import type { DietKey, Price } from './interpretation'
 import { sectionSignals } from './sections'
 import { hoursConfirmed, openStatus, type OpenFilter, type OpenState } from './hours'
 
@@ -25,6 +25,8 @@ export type FuseContext = {
   preferTags: string[]
   /** Estilo pedido como preferencia; null si no se pidió. */
   preferStyle: string | null
+  /** Dietas pedidas (must.diet): los lugares 100 % aptos suman dietFully. */
+  diet: DietKey[]
   /** Precios pedidos (must.price); vacío si la consulta no habla de precio. */
   price: Price[]
   /** Momento pedido con openAt (today: "Abre hoy"); null si la consulta no habla de horario. */
@@ -110,6 +112,13 @@ export function matchLevelOf(row: CandidateRow, dishes: DishTarget[]): MatchLeve
   return has ? 'has' : 'maybe'
 }
 
+/** Nivel de dieta del lugar; un vegano fully es vegetariano fully. */
+export function dietLevel(row: Pick<CandidateRow, 'diet'>, key: DietKey): string {
+  return key === 'vegetarian' && row.diet.vegan === 'fully' ? 'fully' : row.diet[key]
+}
+
+export const isDietFully = (row: Pick<CandidateRow, 'diet'>, key: DietKey) => dietLevel(row, key) === 'fully'
+
 const count = (values: string[], wanted: string[]) => values.filter((value) => wanted.includes(value)).length
 
 /** Íconos de bebida: el lugar es conocido por lo que se toma. */
@@ -152,6 +161,8 @@ export function boostsFor(row: CandidateRow, context: FuseContext, open: OpenSta
   const knownFor = context.dishes.some((target) =>
     (row.iconCategory !== null && target.icons.includes(row.iconCategory)) || (target.category !== null && row.categories.includes(target.category)))
   if (knownFor) result.knownFor = boosts.knownFor
+  const fully = context.diet.filter((key) => isDietFully(row, key)).length
+  if (fully > 0) result.dietFully = fully * boosts.dietFully
   if (context.intent === 'bars' && row.iconCategory !== null && DRINK_ICONS.has(row.iconCategory)) result.barFit = boosts.barFit
   if (context.intent === 'eat' && row.iconCategory !== null && EAT_ICONS.has(row.iconCategory)) result.eatFit = boosts.eatFit
   const signals = context.section ? sectionSignals(context.section, row) : 0

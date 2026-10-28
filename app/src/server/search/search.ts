@@ -501,6 +501,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       requestedTags,
       preferTags: wanted.prefer.tags,
       preferStyle: wanted.prefer.style,
+      diet: DIET_KEYS.filter((key) => wanted.must.diet[key]),
       price: wanted.must.price,
       openAt,
       wantsBest: wanted.wantsBest,
@@ -564,7 +565,10 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     (fused.length < minResults ? `menos de ${minResults} resultados` : null)
   const sectionSubs = state.subs.map((id) => ({ id, fromText: resolved.subs.some((sub) => sub.id === id && sub.fromText) }))
   const sectionChoice = notGrouped ? null : requestedSections(interpretation, { fromLlm: source === 'llm', intent: state.intent, subs: sectionSubs })
-  const catalogOnly = sectionChoice ? buildSections(fused, sectionChoice.requested, interpretation.language) : null
+  // Con una sola dieta pedida, el grupo "100 % …" (después de los personales).
+  const diets = DIET_KEYS.filter((key) => interpretation.must.diet[key])
+  const dietGroup = diets.length === 1 ? diets[0] : null
+  const catalogOnly = sectionChoice ? buildSections(fused, sectionChoice.requested, interpretation.language, [], dietGroup) : null
 
   // Perfil (likes del pedido): elige lugares de esta misma búsqueda para los bloques personales; no toca el ranking.
   // Se decide si la búsqueda se agrupa sin el perfil, como siempre.
@@ -582,7 +586,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   const personal = likeData ? personalize(fused, likeData, likes, { grouped: catalogOnly?.sections != null, lang: interpretation.language }) : null
   const personalDebug = personal?.debug ?? emptyPersonalDebug(personalSkipped ?? 'falló la consulta de likes')
   const grouped = sectionChoice && catalogOnly?.sections && personal?.groups.length
-    ? buildSections(fused, sectionChoice.requested, interpretation.language, personal.groups)
+    ? buildSections(fused, sectionChoice.requested, interpretation.language, personal.groups, dietGroup)
     : catalogOnly
   const forYou: Section | null = personal?.forYou
     ? { id: 'for_you', title: personal.forYou.title, placeIds: personal.forYou.items.map((item) => item.row.id), total: null }
@@ -594,6 +598,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     requested: sectionChoice?.requested ?? [],
     chosen: grouped?.chosen ?? [],
     dropped: grouped?.dropped ?? [],
+    diet: grouped?.diet ?? null,
     displaced: grouped?.displaced ?? [],
   }
 

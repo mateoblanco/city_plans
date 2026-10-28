@@ -3,9 +3,10 @@ import { findDef, OCCASION_TAGS } from '@shared/tags.ts'
 import { SEARCH_CONFIG } from '../config'
 import { interpretWithDictionary } from '../dictionary'
 import { dishTarget } from '../dishes'
-import { boostsFor, type FuseContext } from '../fuse'
-import { applyRemove, validateInterpretation } from '../interpretation'
+import { boostsFor, type Fused, type FuseContext } from '../fuse'
+import { applyRemove, emptyInterpretation, validateInterpretation } from '../interpretation'
 import { normalizeQuery } from '../normalize'
+import { buildReasons } from '../reasons'
 import { runSearch } from '../search'
 import { removeChipHref } from '../../../components/pages/SearchPage/utils/search-href'
 import { everyDay, fakeCache, fakeStore, llmOutput, row } from './fixtures'
@@ -14,7 +15,7 @@ import { everyDay, fakeCache, fakeStore, llmOutput, row } from './fixtures'
 const now = new Date('2026-10-12T16:00:00Z')
 const dictionary = (query: string) => interpretWithDictionary(normalizeQuery(query))
 const context = (overrides: Partial<FuseContext> = {}): FuseContext => ({
-  pinnedId: null, dishes: [], categories: [], requestedTags: [], preferTags: [], preferStyle: null, price: [], openAt: null, wantsBest: false, wantsDancing: false, intent: null, section: null, ...overrides,
+  pinnedId: null, dishes: [], categories: [], requestedTags: [], preferTags: [], preferStyle: null, price: [], openAt: null, wantsBest: false, wantsDancing: false, intent: null, section: null, diet: [], ...overrides,
 })
 
 describe('momentos y style en la interpretación', () => {
@@ -305,5 +306,51 @@ describe('conocido por el plato', () => {
     expect(boostsFor(burger, context({ dishes: [dishTarget('hamburguesa')] }), null).knownFor).toBe(SEARCH_CONFIG.boosts.knownFor)
     expect(boostsFor(row({ id: 'taqueria', iconCategory: 'taco' }), context({ dishes: [dishTarget('tacos')] }), null).knownFor).toBe(SEARCH_CONFIG.boosts.knownFor)
     expect(boostsFor(burger, context(), null).knownFor).toBeUndefined()
+  })
+})
+
+describe('nivel de dieta', () => {
+  const diet = (vegan: string, vegetarian: string, glutenFree: string) => ({ vegan, vegetarian, glutenFree })
+
+  it('el 100 % apto suma dietFully; con opciones o sin dieta pedida, no', () => {
+    const fully = row({ id: 'fully', diet: diet('unknown', 'unknown', 'fully') })
+    const options = row({ id: 'options', diet: diet('unknown', 'unknown', 'has_options') })
+    expect(boostsFor(fully, context({ diet: ['glutenFree'] }), null).dietFully).toBe(SEARCH_CONFIG.boosts.dietFully)
+    expect(boostsFor(options, context({ diet: ['glutenFree'] }), null).dietFully).toBeUndefined()
+    expect(boostsFor(fully, context(), null).dietFully).toBeUndefined()
+    expect(SEARCH_CONFIG.boosts.dietFully).toBe(SEARCH_CONFIG.boosts.knownFor)
+  })
+
+  it('vegano fully cuenta como vegetariano fully; suma por cada dieta pedida', () => {
+    const vegan = row({ id: 'vegan', diet: diet('fully', 'has_options', 'fully') })
+    expect(boostsFor(vegan, context({ diet: ['vegetarian'] }), null).dietFully).toBe(SEARCH_CONFIG.boosts.dietFully)
+    expect(boostsFor(vegan, context({ diet: ['vegan', 'glutenFree'] }), null).dietFully).toBe(2 * SEARCH_CONFIG.boosts.dietFully)
+  })
+
+  it('el motivo de un vegano fully en una búsqueda vegetariana es "100 % vegetariano"', () => {
+    const interpretation = emptyInterpretation()
+    interpretation.must.diet.vegetarian = true
+    const item = { row: row({ id: 'vegan', diet: diet('fully', 'has_options', 'unknown') }) } as Fused
+    expect(buildReasons(item, { interpretation, dishes: [], dishMode: 'none', intent: null, near: false })).toContain('100 % vegetariano')
+  })
+
+  it('con una dieta pedida, su motivo va primero, antes que los platos y Recomendado', () => {
+    const interpretation = emptyInterpretation()
+    interpretation.must.diet.glutenFree = true
+    const item = { row: row({ id: 'resto', featured: true, signature: ['pasta'], diet: diet('unknown', 'unknown', 'has_options') }) } as Fused
+    const reasons = buildReasons(item, { interpretation, dishes: [], dishMode: 'none', intent: 'eat', near: false })
+    expect(reasons[0]).toBe('Opciones sin TACC')
+    expect(reasons).toContain('Recomendado')
+  })
+
+  it('en la búsqueda: los 100 % van arriba y entran los mismos', async () => {
+    const places = [
+      row({ id: 'opciones-1', categories: ['restaurant'], tags: ['gluten_free'], diet: diet('unknown', 'unknown', 'has_options'), semantic: 0.7, prominence: 1 }),
+      row({ id: 'opciones-2', categories: ['restaurant'], tags: ['gluten_free'], diet: diet('unknown', 'unknown', 'has_options'), semantic: 0.65, prominence: 1 }),
+      row({ id: 'todo', categories: ['restaurant'], tags: ['gluten_free'], diet: diet('unknown', 'unknown', 'fully'), semantic: 0.66, prominence: 0 }),
+      row({ id: 'sin-dieta', categories: ['restaurant'], semantic: 0.7 }),
+    ]
+    const response = await runSearch('sin gluten', { store: fakeStore(places).store, cache: fakeCache().cache }, { now, debug: true })
+    expect(response.results.map((result) => result.id)).toEqual(['todo', 'opciones-1', 'opciones-2'])
   })
 })

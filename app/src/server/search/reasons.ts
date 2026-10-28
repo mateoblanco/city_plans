@@ -2,7 +2,7 @@ import { CUISINES, DRINKS, FOODS, isOccasionTag, isStyleId, label } from '@share
 import type { IntentId } from '@shared/intents.ts'
 import type { DishMode } from './candidates'
 import { relatedLabel, type DishTarget } from './dishes'
-import type { Fused } from './fuse'
+import { dietLevel, type Fused } from './fuse'
 import { DIET_KEYS, type Interpretation } from './interpretation'
 import { dietLevelLabel, distanceLabel, MOMENT_REASON, STYLE_REASON } from './labels'
 
@@ -30,8 +30,8 @@ const INTENT_SIGNATURE: Record<IntentId, Set<string>> = {
 }
 
 /**
- * Motivos de un resultado, del más específico al más general y hasta MAX_REASONS: platos pedidos, lo que define
- * al lugar y coincide con la búsqueda (signature), dieta, otros tags pedidos, el estilo y el momento. El horario,
+ * Motivos de un resultado, del más específico al más general y hasta MAX_REASONS: la dieta pedida, platos pedidos, lo
+ * que define al lugar y coincide con la búsqueda (signature), otros tags pedidos, el estilo y el momento. El horario,
  * el barrio y las categorías no van: la card ya los muestra.
  */
 export function buildReasons(item: Fused, context: ReasonContext): string[] {
@@ -40,6 +40,13 @@ export function buildReasons(item: Fused, context: ReasonContext): string[] {
   const lang = interpretation.language
   const es = lang === 'es'
   const reasons: string[] = []
+  // Con una dieta pedida, su nivel va primero ("100 % vegetariano", "Opciones sin TACC").
+  for (const key of DIET_KEYS) {
+    if (!interpretation.must.diet[key]) continue
+    const text = dietLevelLabel(key, dietLevel(row, key), lang)
+    if (text) reasons.push(text)
+  }
+
   if (row.featured) reasons.push(es ? 'Recomendado' : 'Recommended')
 
   context.dishes.forEach((target, index) => {
@@ -58,12 +65,6 @@ export function buildReasons(item: Fused, context: ReasonContext): string[] {
   const wanted = new Set([...interpretation.must.categories, ...interpretation.prefer.categories, ...wantedTags])
   const domain = context.intent ? INTENT_SIGNATURE[context.intent] : new Set<string>()
   for (const id of row.signature) if (wanted.has(id) || domain.has(id)) reasons.push(label(id, lang))
-
-  for (const key of DIET_KEYS) {
-    if (!interpretation.must.diet[key]) continue
-    const text = dietLevelLabel(key, row.diet[key], lang)
-    if (text) reasons.push(text)
-  }
 
   for (const id of row.tags) if (wantedTags.includes(id) && !isOccasionTag(id)) reasons.push(label(id, lang))
   const style = row.style && isStyleId(row.style) ? STYLE_REASON[lang][row.style] : undefined

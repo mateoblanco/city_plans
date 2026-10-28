@@ -50,6 +50,11 @@ export const SEARCH_CONFIG = {
      */
     knownFor: 0.03,
     /**
+     * Por cada dieta pedida en la que el lugar es 100 % (vegano fully cuenta como vegetariano fully). Lo mismo que
+     * knownFor: el apto entero va arriba del que tiene una opción. has_options no suma.
+     */
+    dietFully: 0.03,
+    /**
      * Intención Bares y el lugar es conocido por la bebida (su ícono es de bebida: vino, cerveza, tragos, bar clásico).
      * Con Bares todos tienen categoría de bar, así que el ícono separa al bar de verdad del sushi o la tapería con barra.
      * La mitad de knownFor, casi un primer puesto en un ranking.
@@ -95,9 +100,10 @@ export const SEARCH_CONFIG = {
   /**
    * Secciones de las búsquedas amplias: desde cuántos resultados (después de los filtros) se agrupa, cuántos lugares necesita un grupo y
    * cuántos entran como mucho (el resto va a "Más opciones"), hasta cuántos grupos se muestran y cuántos ids válidos
-   * tiene que dar el modelo para no usar las reglas.
+   * tiene que dar el modelo para no usar las reglas. El grupo "100 % …" de la dieta sale desde dietMinPlaces; con un
+   * solo apto, ese lugar va primero en el primer grupo.
    */
-  sections: { minResults: 12, minPlaces: 3, maxPlaces: 6, maxGroups: 5, minRequested: 2 },
+  sections: { minResults: 12, minPlaces: 3, maxPlaces: 6, maxGroups: 5, minRequested: 2, dietMinPlaces: 2 },
 
   /**
    * Likes (cookie espejo de localStorage, sólo en el pedido): el perfil es el promedio de los embeddings de los lugares

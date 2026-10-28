@@ -238,4 +238,74 @@ describe('tope de grupos', () => {
     expect(new Set(all).size).toBe(all.length)
     expect(all).toHaveLength(20)
   })
+
+  describe('grupo 100 % de la dieta', () => {
+    const glutenFree = { vegan: 'unknown', vegetarian: 'unknown', glutenFree: 'fully' }
+    const vegan = { vegan: 'fully', vegetarian: 'has_options', glutenFree: 'unknown' }
+    const tags: Record<number, string[]> = {}
+    for (const index of [3, 4, 5]) tags[index] = ['live_music']
+    for (const index of [6, 7, 8]) tags[index] = ['picada']
+    for (const index of [9, 10, 11]) tags[index] = ['terrace']
+    for (const index of [12, 13, 14]) tags[index] = ['japanese']
+    const categories: Record<number, string[]> = { 15: ['grill'], 16: ['bodegon'], 17: ['chiviteria'] }
+    const build = (fully: number[], level = glutenFree) => Array.from({ length: 24 }, (_, index) =>
+      fused({ id: `p${index}`, tags: tags[index] ?? [], categories: categories[index] ?? ['restaurant'], prominence: 0.8, ...(fully.includes(index) ? { diet: level } : {}) }, 1 - index / 100))
+    const requested = ['live_music', 'share', 'outdoor', 'world', 'classics'] as const
+
+    it('va después de los personales, no cuenta para el tope y ningún lugar se repite', () => {
+      const items = build([1, 19, 20, 21])
+      const personal = [{ id: 'profile' as const, title: 'Basado en lo que te gusta', items: [items[0], items[1], items[2]] }]
+      const result = buildSections(items, [...requested], 'es', personal, 'glutenFree')
+      expect(result.sections?.map((section) => section.id)).toEqual(['profile', 'diet', 'live_music', 'share', 'outdoor', 'world', 'more'])
+      // p1 ya está en el personal.
+      expect(result.sections?.[1]).toEqual({ id: 'diet', title: '100 % sin TACC', placeIds: ['p19', 'p20', 'p21'], total: null })
+      expect(result.diet).toEqual({ key: 'glutenFree', count: 3, shown: true, placedIn: null })
+      const all = result.sections!.flatMap((section) => section.placeIds)
+      expect(new Set(all).size).toBe(all.length)
+      expect(all).toHaveLength(24)
+    })
+
+    it('sin personales: primero el grupo de dieta y los cinco del catálogo', () => {
+      const result = buildSections(build([19, 20, 21]), [...requested], 'es', [], 'glutenFree')
+      expect(result.sections?.map((section) => section.id)).toEqual(['diet', 'live_music', 'share', 'outdoor', 'world', 'classics', 'more'])
+    })
+
+    it('con 2 ya sale', () => {
+      const result = buildSections(build([19, 20]), [...requested], 'es', [], 'glutenFree')
+      expect(result.sections?.[0]).toEqual({ id: 'diet', title: '100 % sin TACC', placeIds: ['p19', 'p20'], total: null })
+    })
+
+    it('con uno solo, va primero en el primer grupo del catálogo y nunca en "Más opciones"', () => {
+      // p19 no entra en ningún grupo del catálogo: sin la dieta iría a "Más opciones".
+      expect(buildSections(build([]), [...requested], 'es').sections?.find((section) => section.id === 'more')?.placeIds).toContain('p19')
+      const result = buildSections(build([19]), [...requested], 'es', [], 'glutenFree')
+      expect(result.sections?.some((section) => section.id === 'diet')).toBe(false)
+      const first = result.sections![0]
+      expect(first.placeIds[0]).toBe('p19')
+      expect(first.placeIds.length).toBeLessThanOrEqual(6)
+      expect(result.diet).toEqual({ key: 'glutenFree', count: 1, shown: false, placedIn: first.id })
+      const all = result.sections!.flatMap((section) => section.placeIds)
+      expect(new Set(all).size).toBe(all.length)
+      expect(all).toHaveLength(24)
+    })
+
+    it('con uno solo y un personal, va en el primer grupo del catálogo', () => {
+      const items = build([19])
+      const personal = [{ id: 'profile' as const, title: 'Basado en lo que te gusta', items: [items[0], items[1], items[2]] }]
+      const result = buildSections(items, [...requested], 'es', personal, 'glutenFree')
+      expect(result.sections?.[0].id).toBe('profile')
+      expect(result.sections?.[1].placeIds[0]).toBe('p19')
+    })
+
+    it('vegano fully entra en el grupo vegetariano', () => {
+      const result = buildSections(build([19, 20, 21], vegan), [...requested], 'es', [], 'vegetarian')
+      expect(result.sections?.[0]).toMatchObject({ id: 'diet', title: '100 % vegetariano', placeIds: ['p19', 'p20', 'p21'] })
+    })
+
+    it('sin dieta (o con más de una) no hay grupo', () => {
+      const result = buildSections(build([19, 20, 21]), [...requested], 'es')
+      expect(result.sections?.some((section) => section.id === 'diet')).toBe(false)
+      expect(result.diet).toBeNull()
+    })
+  })
 })
