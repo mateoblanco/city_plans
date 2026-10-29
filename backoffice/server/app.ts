@@ -26,6 +26,7 @@ import type { PlacesSaver } from './places/save.ts'
 import type { PlaceIdsReader, PlacesReader } from './places/list.ts'
 import { EditError, type PlaceEditor } from './places/edit.ts'
 import { PlaceEdit } from '../src/data/manual-overrides.ts'
+import { REVIEW_REASON_IDS } from '../src/data/review-reasons.ts'
 import { PLACE_LIST_CATEGORIES, PLACE_LIST_MISSING, PLACE_LIST_SORTS, type GoogleRating, type GoogleRatingsResponse } from '../src/types/places.ts'
 import {
   buildExtractionReport,
@@ -133,6 +134,7 @@ const listQuerySchema = z.object({
   missing: z.string().optional()
     .transform((value) => value ? [...new Set(value.split(',').map((item) => item.trim()).filter(Boolean))] : undefined)
     .pipe(z.array(z.enum(PLACE_LIST_MISSING)).min(1).optional()),
+  reason: z.enum(REVIEW_REASON_IDS).optional(),
   sort: z.enum(PLACE_LIST_SORTS).default('recent'),
   page: z.coerce.number().int().min(1).max(10_000).default(1),
   pageSize: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(50),

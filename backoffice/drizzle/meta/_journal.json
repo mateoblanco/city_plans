@@ -120,6 +120,13 @@
       "when": 1793014321657,
       "tag": "0016_drop_contact_address",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1793295035548,
+      "tag": "0017_low_rating_reason",
+      "breakpoints": true
     }
   ]
 }

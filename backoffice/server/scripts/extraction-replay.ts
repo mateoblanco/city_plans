@@ -28,7 +28,7 @@ import { readSnapshots, replaySnapshot } from '../providers/extraction-snapshots
 import { GooglePlacesProvider } from '../providers/google-places-provider.ts'
 import { reviewExtraction } from '../providers/place-extraction-service.ts'
 import { instagramKey, sharedBrandKeys } from '../places/brand-key.ts'
-import { instagramOperating, reviewReasonsFor } from '../providers/review-reasons.ts'
+import { googleRatingOf, instagramOperating, reviewReasonsFor } from '../providers/review-reasons.ts'
 import { gatewayEmbedder } from '../places/save.ts'
 import {
   applySearchTextChanges, planMomentsChange, planStyleChange, planTagsChange, type SearchTextRow, type StyleChange, type TagsChange,
@@ -165,7 +165,9 @@ if (reviewMode) {
     const details = { getDetails: async () => ({ anchor: { name: llm.name || row.name, address: llm.address || '', latitude: 0, longitude: 0 } }) }
     const replayed = await replaySnapshot(snapshot, details as never, { knownChain: chains.has(snapshot.googlePlaceId) })
     const operating = instagramOperating(snapshot.instagramActivity, new Date(snapshot.savedAt))
-    const reasons = reviewReasonsFor(replayed, reviewExtraction(replayed, snapshot.llmOutput), { instagramOperating: operating, chainBranch: replayed.signals.chainBranch })
+    const recomputed = reviewReasonsFor(replayed, reviewExtraction(replayed, snapshot.llmOutput), { instagramOperating: operating, chainBranch: replayed.signals.chainBranch })
+    // Sin Place Details no hay puntaje de Google: low_rating queda como está guardado.
+    const reasons = row.reviewReasons?.includes('low_rating') ? [...recomputed, 'low_rating' as const] : recomputed
     const manualOverrides = parseManualOverrides(row.manualOverrides)
     const status = pipelineStatus({ status: row.status, manualOverrides }, reasons) ?? row.status
     const locked = Object.hasOwn(manualOverrides, 'status') ? ' (status fijado a mano)' : ''
@@ -191,11 +193,18 @@ const google = new GooglePlacesProvider(key)
 const occasions = new Set<string>(OCCASION_TAGS)
 const places = []
 for (const snapshot of snapshots) {
-  const replayed = await replaySnapshot(snapshot, google, { knownChain: chains.has(snapshot.googlePlaceId) })
+  // El puntaje del mismo Place Details decide low_rating; no se muestra ni se guarda.
+  let googleRating = null as ReturnType<typeof googleRatingOf> | null
+  const details = { getDetails: async (placeId: string) => {
+    const response = await google.getDetails(placeId)
+    googleRating = googleRatingOf(response)
+    return response
+  } }
+  const replayed = await replaySnapshot(snapshot, details, { knownChain: chains.has(snapshot.googlePlaceId) })
   // El logo no interviene en los motivos: reviewExtraction corre con sus valores por defecto. La actividad del
   // Instagram se mide a la fecha del snapshot (los de antes no la tienen: cuenta como sin Instagram activo).
   const operating = instagramOperating(snapshot.instagramActivity, new Date(snapshot.savedAt))
-  const place = { ...replayed, reviewReasons: reviewReasonsFor(replayed, reviewExtraction(replayed, snapshot.llmOutput), { instagramOperating: operating, chainBranch: replayed.signals.chainBranch }) }
+  const place = { ...replayed, reviewReasons: reviewReasonsFor(replayed, reviewExtraction(replayed, snapshot.llmOutput), { instagramOperating: operating, chainBranch: replayed.signals.chainBranch, googleRating }) }
   places.push(place)
   const facts = new Map(place.placeFacts.map((fact) => [fact.id, fact]))
   console.log(`\n${place.name || snapshot.googlePlaceId} · style: ${place.style ?? '—'} · momentos: ${place.tags.filter((tag) => occasions.has(tag)).join(', ') || '—'} · cozy: ${place.tags.includes('cozy') ? 'sí' : 'no'}`)

@@ -28,6 +28,12 @@ export const SWEEP_TYPES: readonly SweepTypeConfig[] = [
 // cualquier otro → review (unknown_type:<tipo>). El primaryType manda: los types secundarios no cuentan.
 export const MIN_REVIEWS_TO_ACCEPT = 10
 
+// Motivo de revisión low_rating en /api/extract (Place Details): puntaje menor a LOW_RATING_BELOW con al menos
+// LOW_RATING_MIN_REVIEWS reseñas. Es el mismo corte que few_reviews, así no queda hueco: con menos reseñas va por
+// few_reviews en el barrido. Sólo se guarda el código del motivo.
+export const LOW_RATING_BELOW = 3.9
+export const LOW_RATING_MIN_REVIEWS = MIN_REVIEWS_TO_ACCEPT
+
 export const CLOSED_BUSINESS_STATUSES: readonly string[] = ['CLOSED_PERMANENTLY', 'CLOSED_TEMPORARILY']
 
 export const ACCEPT_PRIMARY_TYPES: readonly string[] = [

@@ -31,6 +31,7 @@ import type {
   ExaPlaceResponse,
   ExaPlaceResult,
   GooglePlaceDetailsResponse,
+  GoogleRating,
   InstagramAuditCandidate,
   InstagramCandidateOrigin,
   InstagramChoice,
@@ -77,7 +78,7 @@ import { isMomentId, MOMENT_IDS, MOMENT_SIGNALS, NOT_FOR_DEDUCTION, signalsIn, S
 import type { ExtractionSnapshotStore } from './extraction-snapshots.ts'
 import { classifyLogo, classifyProfilePicture, fetchPlaceLogo, logoModel, profilePictureStatus, type LogoClassifier, type LogoOutcome, type PictureClassification, type ProfilePictureStatus } from './place-logo.ts'
 import { brandKey, InstagramCandidateRegistry, type InstagramOwners, type ManualInstagramLookup, type SharedInstagram } from './instagram-candidate-registry.ts'
-import { instagramActivity, instagramOperating, reviewReasonsFor, type InstagramActivity } from './review-reasons.ts'
+import { googleRatingOf, instagramActivity, instagramOperating, reviewReasonsFor, type InstagramActivity } from './review-reasons.ts'
 
 const DEFAULT_EXTRACTION_MODEL = 'anthropic/claude-sonnet-5.5'
 const MAX_CHARS_PER_SOURCE = 6_000
@@ -2555,6 +2556,8 @@ export type CollectedSources = {
   websiteRejected?: RejectedWebsite
   /** Paso del logo, desde la foto de perfil del Instagram validado. */
   logo?: LogoOutcome
+  /** Puntaje de Google del Place Details: sólo decide low_rating. No se guarda ni va al snapshot. */
+  googleRating?: GoogleRating
   /** 429 de esta etapa; extractFrom sigue sumando los suyos. Falta si las fuentes vienen de un JSON. */
   rateLimits?: RateLimitLog
   costUsage: ExtractionCostUsage
@@ -3018,6 +3021,7 @@ export class PlaceExtractionService implements PlaceExtractor {
         ...(websiteSource && websiteRejected ? { websiteRejected: { url: websiteSource.url, ...websiteRejected } } : {}),
         prominenceSignals,
         logo,
+        googleRating: googleRatingOf(details),
         rateLimits,
         costUsage,
         timings,
@@ -3202,7 +3206,7 @@ export class PlaceExtractionService implements PlaceExtractor {
       }).catch((error: unknown) => console.warn(JSON.stringify({ event: 'extraction_snapshot_failed', placeId: target.googlePlaceId, error: String(error) })))
       const review = reviewExtraction(place, data, hoursRetry, placeLogo.review, rateLimits.summary(), collected.instagramManual, collected.instagramTieBreak, collected.sharedInstagram)
       const activity = modelRejectedInstagram ? null : collected.instagramActivity
-      place = { ...place, reviewReasons: reviewReasonsFor(place, review, { instagramOperating: instagramOperating(activity, new Date()), chainBranch: place.signals.chainBranch }) }
+      place = { ...place, reviewReasons: reviewReasonsFor(place, review, { instagramOperating: instagramOperating(activity, new Date()), chainBranch: place.signals.chainBranch, googleRating: collected.googleRating }) }
       return {
         source: 'llm', status: 'ok', model: config.model,
         // La salida del modelo con la que se armó el place (con el horario recuperado, si lo hubo): con las mismas

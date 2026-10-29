@@ -1,5 +1,6 @@
 import type { ReviewReason } from '../../src/data/review-reasons.ts'
-import type { PlaceEnrichmentDraft, PlaceReview, PlaceReviewAnomalyType } from '../../src/types/places.ts'
+import type { GooglePlaceDetailsResponse, GoogleRating, PlaceEnrichmentDraft, PlaceReview, PlaceReviewAnomalyType } from '../../src/types/places.ts'
+import { LOW_RATING_BELOW, LOW_RATING_MIN_REVIEWS } from './neighborhood-sweep-config.ts'
 
 // Frases de un local que todavía no abrió. "apertura" suelta no: "horario de apertura" o
 // "desde su apertura en 2015" son de locales abiertos. Se comparan sin acentos y en minúscula.
@@ -81,15 +82,31 @@ export function instagramOperating(activity: InstagramActivity | null | undefine
 }
 
 /**
+ * Puntaje de Google del Place Details (field mask '*', ya lo trae). Sólo decide low_rating: no se guarda ni sale de
+ * /api/extract (términos de Google). null si Google no trae el dato.
+ */
+export function googleRatingOf(details: Pick<GooglePlaceDetailsResponse, 'data'> | null | undefined): GoogleRating {
+  const data = details?.data && typeof details.data === 'object' && !Array.isArray(details.data) ? details.data : {}
+  const number = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : null
+  return { rating: number(data.rating), userRatingCount: number(data.userRatingCount) }
+}
+
+/** Puntaje bajo con reseñas suficientes para creerle. Sin puntaje, o con pocas reseñas, no cuenta. */
+export function isLowRating(rating: GoogleRating | null | undefined) {
+  if (!rating || rating.rating === null || rating.userRatingCount === null) return false
+  return rating.rating < LOW_RATING_BELOW && rating.userRatingCount >= LOW_RATING_MIN_REVIEWS
+}
+
+/**
  * Motivos para guardar el lugar con status review en vez de published: no abrió todavía (facts o dudas
  * del modelo, salvo que el Instagram oficial lo muestre funcionando), ningún fact del local (todas las fuentes eran
- * de otros lugares) o una anomalía grave. En una cadena (chainBranch), una duda de local que sólo dice que las fuentes
- * no distinguen sucursal no cuenta.
+ * de otros lugares), una anomalía grave o un puntaje bajo en Google. En una cadena (chainBranch), una duda de local
+ * que sólo dice que las fuentes no distinguen sucursal no cuenta.
  */
 export function reviewReasonsFor(
   place: Pick<PlaceEnrichmentDraft, 'placeFacts'>,
   review: Pick<PlaceReview, 'doubts' | 'anomalies'>,
-  signals: { instagramOperating?: boolean; chainBranch?: boolean } = {},
+  signals: { instagramOperating?: boolean; chainBranch?: boolean; googleRating?: GoogleRating | null } = {},
 ): ReviewReason[] {
   const reasons: ReviewReason[] = []
   const saysNotOpen = [...place.placeFacts.map((fact) => fact.text), ...review.doubts].some(soundsNotOpenYet)
@@ -102,5 +119,6 @@ export function reviewReasonsFor(
   }
   const anomalies = new Set(review.anomalies.map((anomaly) => anomaly.type))
   for (const type of BLOCKING_ANOMALIES) if (anomalies.has(type)) reasons.push(type)
+  if (isLowRating(signals.googleRating)) reasons.push('low_rating')
   return reasons
 }

@@ -45,6 +45,7 @@ function filtersOf(query: Omit<PlaceListQuery, 'page' | 'pageSize'>): SQL[] {
     }
     conditions.push(or(...query.missing.map((field) => missing[field]))!)
   }
+  if (query.reason) conditions.push(sql`${places.reviewReasons} @> array[${query.reason}]::text[]`)
   return conditions
 }
 
@@ -131,12 +132,13 @@ export function drizzlePlacesReader(db: NeonHttpDatabase<typeof schema>): Places
       return updated.length > 0
     },
     async publish(id) {
-      // Decisión manual: status va a manual_overrides para que otra extracción no lo vuelva a mandar a revisión.
-      // Como el destacado, no cambia updatedAt.
+      // Decisión manual: status va a manual_overrides para que otra extracción no lo vuelva a mandar a revisión, y los
+      // motivos quedan vacíos (y bloqueados) porque ya se revisaron. Como el destacado, no cambia updatedAt.
       const updated = await db.update(places)
         .set({
           status: 'published',
-          manualOverrides: sql`${places.manualOverrides} || '{"status":"published"}'::jsonb`,
+          reviewReasons: [],
+          manualOverrides: sql`${places.manualOverrides} || '{"status":"published","review_reasons":[]}'::jsonb`,
           updatedAt: places.updatedAt,
         })
         .where(and(eq(places.id, id), eq(places.status, 'review')))

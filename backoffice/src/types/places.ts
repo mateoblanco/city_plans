@@ -363,6 +363,8 @@ export type PlaceListQuery = {
   edited?: boolean
   /** Le falta alguno de estos datos (O entre ellos). Un "sin precio" o "No tiene Instagram" a mano también cuenta. */
   missing?: PlaceListMissing[]
+  /** Con este motivo de revisión (el filtro de la pestaña "A revisar"). */
+  reason?: ReviewReason
   /** Sólo estos lugares (hasta 100), en este orden: la página del orden por puntaje de Google, que se arma en el cliente. */
   ids?: string[]
   sort: (typeof PLACE_LIST_SORTS)[number]

@@ -6,6 +6,7 @@ export const REVIEW_REASONS = {
   unconfirmed_place: 'Local no confirmado: las fuentes pueden ser de otro local o sucursal',
   restaurant_without_food: 'Restaurante sin comidas',
   bar_without_drinks: 'Bar sin bebidas',
+  low_rating: 'Puntaje bajo en Google',
 } as const
 
 export type ReviewReason = keyof typeof REVIEW_REASONS

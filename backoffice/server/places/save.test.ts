@@ -73,11 +73,12 @@ describe('savePlaces', () => {
   it('guarda en review los lugares con motivos, con los motivos, y publica los demás', async () => {
     const { store, inserted } = fakeStore()
 
-    await savePlaces([ok({ reviewReasons: ['not_open_yet'] }), ok({ googlePlaceId: 'place-2' })], { store, embed: vectors })
+    await savePlaces([ok({ reviewReasons: ['not_open_yet'] }), ok({ googlePlaceId: 'place-2' }), ok({ googlePlaceId: 'place-3', reviewReasons: ['low_rating'] })], { store, embed: vectors })
 
     expect(inserted.map((row) => [row.googlePlaceId, row.status, row.reviewReasons])).toEqual([
       ['place-1', 'review', ['not_open_yet']],
       ['place-2', 'published', []],
+      ['place-3', 'review', ['low_rating']],
     ])
   })
 
@@ -86,6 +87,7 @@ describe('savePlaces', () => {
       ({ id: `uuid-${googlePlaceId}`, googlePlaceId, embeddingTextHash: hash(built().embeddingText), manualOverrides, status })
     const { store, updated } = fakeStore([
       existing('a', 'published'), existing('b', 'review'), existing('c', 'hidden'), existing('d', 'published', { status: 'published' }),
+      existing('e', 'published', { status: 'published', review_reasons: [] }),
     ])
 
     await savePlaces([
@@ -93,6 +95,7 @@ describe('savePlaces', () => {
       ok({ googlePlaceId: 'b' }),
       ok({ googlePlaceId: 'c', reviewReasons: ['not_open_yet'] }),
       ok({ googlePlaceId: 'd', reviewReasons: ['not_open_yet'] }),
+      ok({ googlePlaceId: 'e', reviewReasons: ['low_rating'] }),
     ], { store, embed: vectors })
 
     const statusOf = (id: string) => updated.find((entry) => entry.id === `uuid-${id}`)?.values.status
@@ -101,6 +104,9 @@ describe('savePlaces', () => {
     expect(statusOf('c')).toBeUndefined()
     expect(statusOf('d')).toBeUndefined()
     expect(updated.find((entry) => entry.id === 'uuid-d')?.values.reviewReasons).toEqual(['not_open_yet'])
+    // Publicado desde "A revisar": los motivos quedan vacíos aunque la re-extracción encuentre otros.
+    expect(statusOf('e')).toBeUndefined()
+    expect(updated.find((entry) => entry.id === 'uuid-e')?.values.reviewReasons).toEqual([])
   })
 
   it('un motivo que no está en el catálogo invalida sólo ese lugar', async () => {

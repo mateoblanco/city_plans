@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PlaceReview } from '../../src/types/places.ts'
-import { instagramActivity, instagramOperating, reviewReasonsFor, soundsNotOpenYet } from './review-reasons.ts'
+import { googleRatingOf, instagramActivity, instagramOperating, reviewReasonsFor, soundsNotOpenYet } from './review-reasons.ts'
 
 const fact = (text: string) => ({ id: 'F1', text, kind: 'other' as const, sourceId: 'S1', sourceUrl: 'https://lugar.example/', trust: 'official' as const, supports: [] })
 const review = (overrides: Partial<Pick<PlaceReview, 'doubts' | 'anomalies'>> = {}) => ({ doubts: [], anomalies: [], ...overrides })
@@ -77,6 +77,28 @@ describe('reviewReasonsFor', () => {
     ]
     expect(reviewReasonsFor({ placeFacts: OPEN }, review({ anomalies }))).toEqual(['restaurant_without_food', 'bar_without_drinks'])
     expect(reviewReasonsFor({ placeFacts: OPEN }, review({ anomalies: anomalies.slice(2) }))).toEqual([])
+  })
+
+  it('low_rating: puntaje menor a 3,9 con al menos 10 reseñas (el corte de few_reviews); con menos reseñas o sin dato no cuenta', () => {
+    const reasons = (rating: number | null, userRatingCount: number | null) => reviewReasonsFor({ placeFacts: OPEN }, review(), { googleRating: { rating, userRatingCount } })
+    expect(reasons(3.7, 50)).toEqual(['low_rating'])
+    expect(reasons(3.7, 10)).toEqual(['low_rating'])
+    expect(reasons(3.7, 9)).toEqual([])
+    expect(reasons(4.2, 50)).toEqual([])
+    expect(reasons(3.9, 10)).toEqual([])
+    expect(reasons(3.89, 10)).toEqual(['low_rating'])
+    expect(reasons(null, 50)).toEqual([])
+    expect(reasons(3.7, null)).toEqual([])
+    expect(reviewReasonsFor({ placeFacts: OPEN }, review())).toEqual([])
+    // Va después de los demás motivos.
+    expect(reviewReasonsFor({ placeFacts: [] }, review(), { googleRating: { rating: 2.5, userRatingCount: 200 } })).toEqual(['no_place_facts', 'low_rating'])
+  })
+
+  it('googleRatingOf lee rating y userRatingCount del Place Details y descarta lo que no es número', () => {
+    expect(googleRatingOf({ data: { rating: 3.7, userRatingCount: 50, displayName: { text: 'X' } } })).toEqual({ rating: 3.7, userRatingCount: 50 })
+    expect(googleRatingOf({ data: { rating: '3.7', userRatingCount: null } })).toEqual({ rating: null, userRatingCount: null })
+    expect(googleRatingOf({ data: [] })).toEqual({ rating: null, userRatingCount: null })
+    expect(googleRatingOf(null)).toEqual({ rating: null, userRatingCount: null })
   })
 })
 

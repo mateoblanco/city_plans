@@ -44,6 +44,7 @@ import {
   type Source,
 } from './place-extraction-service.ts'
 import { groupOf } from '../../src/data/tags.ts'
+import type { GooglePlaceDetailsResponse } from '../../src/types/places.ts'
 import { EXA_SUMMARY_URL } from './source-hosts.ts'
 import { RateLimitError, TransientProviderError } from './rate-limit.ts'
 import { DiscoveryExpired, ExaProviderFailure, InstagramNotFound, InstagramProviderFailure, PlacesProviderError } from './places-provider.ts'
@@ -398,6 +399,34 @@ describe('PlaceExtractionService', () => {
       validated: 'cafebrasilero', modelRejected: true, saved: null,
       candidates: [{ handle: 'cafebrasilero', decision: 'selected', rule: 'handle_exact', origins: ['exa_contact_info'] }],
     })
+  })
+
+  it('puntaje bajo en Google (3,7 con 50 reseñas): a revisión con low_rating, sin guardar el puntaje', async () => {
+    const saved: ExtractionSnapshot[] = []
+    const extractWith = (data: GooglePlaceDetailsResponse['data']) => new PlaceExtractionService({
+      apiKey: 'test-key',
+      details: { getDetails: async () => ({ ...googleDetails, data }) },
+      exa: { configured: true, searchPlace: async () => exaResponse('@cafebrasilero') },
+      instagram: { configured: true, scrapeMany: async () => [{ url: 'https://www.instagram.com/cafebrasilero/', name: target.name, bio: 'Montevideo, Uruguay', links: [] }] },
+      generate: async () => extraction,
+      snapshots: { save: async (snapshot) => { saved.push(snapshot) } },
+    }).extract('place-1', { seedCategories: ['cafe'] })
+
+    const low = await extractWith({ rating: 3.7, userRatingCount: 50 })
+    if (low.status !== 'ok') throw new Error('se esperaba ok')
+    expect(low.place.reviewReasons).toContain('low_rating')
+    expect(JSON.stringify(low)).not.toMatch(/userRatingCount|"rating"/)
+    expect(JSON.stringify(saved)).not.toMatch(/userRatingCount|"rating"/)
+
+    // Desde 10 reseñas, el mismo corte que few_reviews.
+    const edge = await extractWith({ rating: 3.7, userRatingCount: 10 })
+    if (edge.status !== 'ok') throw new Error('se esperaba ok')
+    expect(edge.place.reviewReasons).toContain('low_rating')
+    for (const data of [{ rating: 3.7, userRatingCount: 9 }, { rating: 4.2, userRatingCount: 50 }]) {
+      const result = await extractWith(data)
+      if (result.status !== 'ok') throw new Error('se esperaba ok')
+      expect(result.place.reviewReasons, JSON.stringify(data)).not.toContain('low_rating')
+    }
   })
 
   it('El Sótano: marca + sufijo no alcanza si el perfil es de otro rubro o publica otra dirección', () => {

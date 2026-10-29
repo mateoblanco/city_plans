@@ -26,7 +26,7 @@ import {
 } from '@/components/ui/table'
 import { CATEGORIES } from '@/data/tags'
 import { neighborhoodDisplayName } from '@/data/neighborhood-names'
-import { reviewReasonLabel } from '@/data/review-reasons'
+import { REVIEW_REASON_IDS, reviewReasonLabel, type ReviewReason } from '@/data/review-reasons'
 import { PRICE_LEVELS } from '@/data/manual-overrides'
 import { googleMapsUrl } from '@/lib/google-maps-url'
 import { GOOGLE_RATINGS_BATCH, getGoogleRatings, listSavedNeighborhoods, listSavedPlaceIds, listSavedPlaces, publishPlace, savePlaceEdit, setPlaceFeatured } from '@/lib/places-api'
@@ -322,7 +322,7 @@ export function SavedPlacesPage() {
   const tab = tabOf(query.status)
   const reviewTab = tab === 'review'
   const pages = page ? Math.max(1, Math.ceil(page.total / query.pageSize)) : 1
-  const filtered = Boolean(query.q || query.neighborhood || query.category || query.edited || query.missing?.length)
+  const filtered = Boolean(query.q || query.neighborhood || query.category || query.edited || query.missing?.length || query.reason)
   const missing = query.missing ?? []
   const hasRatings = Object.keys(ratings).length > 0
   const showRatings = hasRatings || Object.keys(ratingErrors).length > 0
@@ -369,6 +369,15 @@ export function SavedPlacesPage() {
               ))}
             </select>
           </label>
+          {reviewTab && (
+            <label className="grid gap-1 text-xs text-muted-foreground">
+              Motivo
+              <select className={selectClass} value={query.reason ?? ''} onChange={(event) => filter({ reason: (event.target.value || undefined) as ReviewReason | undefined })}>
+                <option value="">Todos</option>
+                {REVIEW_REASON_IDS.map((id) => <option key={id} value={id}>{reviewReasonLabel(id)}</option>)}
+              </select>
+            </label>
+          )}
           <label className="flex h-9 items-center gap-2 text-sm">
             <input type="checkbox" className="size-4 accent-primary" checked={Boolean(query.edited)} onChange={(event) => filter({ edited: event.target.checked || undefined })} />
             Editado a mano
@@ -437,7 +446,7 @@ export function SavedPlacesPage() {
                   <button
                     key={id}
                     type="button"
-                    onClick={() => filter({ status: id === 'all' ? undefined : id })}
+                    onClick={() => filter({ status: id === 'all' ? undefined : id, ...(id === 'review' ? {} : { reason: undefined }) })}
                     aria-pressed={tab === id}
                     className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
                       tab === id ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'

@@ -78,6 +78,7 @@ function fakeServer(rows: PlaceListItem[], fail: { list?: number; featured?: boo
       && (!params.get('neighborhood') || row.neighborhoodId === params.get('neighborhood'))
       && (!params.get('category') || row.categories.includes(params.get('category')!))
       && (!params.get('edited') || row.editedFields.length > 0)
+      && (!params.get('reason') || row.reviewReasons.includes(params.get('reason') as never))
       && (!params.get('missing') || params.get('missing')!.split(',').some((field) => ({
         price: row.price === 'unknown', hours: row.hoursStatus === 'none', logo: row.logoUrl === null, instagram: row.instagram === null,
       } as Record<string, boolean>)[field])))
@@ -483,8 +484,31 @@ describe('SavedPlacesPage', () => {
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('2 lugares'))
     expect(listCalls(fetchMock).at(-1)).toBe('/api/places?status=review&pageSize=50')
     expect(screen.queryByText('El Palenque')).toBeNull()
-    expect(screen.getByText('Todavía no abrió')).toBeInTheDocument()
+    expect(within(screen.getByRole('table')).getByText('Todavía no abrió')).toBeInTheDocument()
     expect(screen.getByText('Sin datos del local: las fuentes eran de otros lugares · Restaurante sin comidas')).toBeInTheDocument()
+  })
+
+  it('A revisar filtra por motivo en el servidor, con Puntaje bajo en Google; al salir de la pestaña se limpia', async () => {
+    const fetchMock = fakeServer([
+      place({}),
+      place({ id: 'uuid-2', name: 'VÜS Café', status: 'review', reviewReasons: ['not_open_yet'] }),
+      place({ id: 'uuid-3', name: 'Bar Flojo', status: 'review', reviewReasons: ['low_rating'] }),
+    ])
+    render(<SavedPlacesPage />)
+    const user = userEvent.setup()
+
+    await screen.findByRole('button', { name: 'Todos (3)' })
+    expect(screen.queryByLabelText('Motivo')).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'A revisar (2)' }))
+    await user.selectOptions(await screen.findByLabelText('Motivo'), 'Puntaje bajo en Google')
+
+    await waitFor(() => expect(listCalls(fetchMock).at(-1)).toBe('/api/places?status=review&reason=low_rating&pageSize=50'))
+    expect(await screen.findByText('Bar Flojo')).toBeInTheDocument()
+    expect(screen.queryByText('VÜS Café')).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: /^Todos/ }))
+    await waitFor(() => expect(listCalls(fetchMock).at(-1)).toBe('/api/places?pageSize=50'))
+    expect(screen.queryByLabelText('Motivo')).toBeNull()
   })
 
   it('A revisar vacío', async () => {

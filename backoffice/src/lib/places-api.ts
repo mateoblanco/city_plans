@@ -212,6 +212,7 @@ export function placeListSearch(query: PlaceListQuery): string {
   if (query.status) params.set('status', query.status)
   if (query.edited) params.set('edited', '1')
   if (query.missing?.length) params.set('missing', query.missing.join(','))
+  if (query.reason) params.set('reason', query.reason)
   if (query.ids?.length) params.set('ids', query.ids.join(','))
   if (query.sort !== 'recent') params.set('sort', query.sort)
   if (query.page !== 1) params.set('page', String(query.page))

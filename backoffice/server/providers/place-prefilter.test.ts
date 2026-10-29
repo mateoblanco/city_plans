@@ -62,6 +62,10 @@ describe('classifyPlace', () => {
     expect(classifyPlace({ primaryType: 'cafe' })).toEqual({ group: 'review', reason: 'few_reviews' })
     expect(classifyPlace({ primaryType: 'supermarket', userRatingCount: 2 })).toEqual({ group: 'rejected', reason: 'excluded_type:supermarket' })
     expect(classifyPlace({ primaryType: 'bar', userRatingCount: 10, rating: 1 } as never)).toEqual({ group: 'accepted', reason: null })
+    // El puntaje bajo no clasifica acá (low_rating es de /api/extract, desde 10 reseñas): 3,7 con 9 reseñas es
+    // few_reviews; con 10, aceptado (y en la extracción, low_rating). Sin hueco entre los dos motivos.
+    expect(classifyPlace({ primaryType: 'bar', userRatingCount: 9, rating: 3.7 } as never)).toEqual({ group: 'review', reason: 'few_reviews' })
+    expect(classifyPlace({ primaryType: 'bar', userRatingCount: 10, rating: 3.7 } as never)).toEqual({ group: 'accepted', reason: null })
   })
 
   it('bakery vuelve a ser un tipo del barrido con sus consultas', () => {
