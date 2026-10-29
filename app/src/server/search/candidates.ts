@@ -283,35 +283,72 @@ export function nameMatchQuery(name: string, limit = 3): SQL {
 }
 
 /**
- * Lugar que te gustó, publicado y con embedding (los demás ids se ignoran). topCut: el parecido a partir del cual otro
- * lugar publicado está en su top (1 − percentile) más parecido; null si no hay otros.
+ * Lugar que te gustó, publicado y con embedding (los demás ids se ignoran), con sus datos concretos para armar los
+ * perfiles por tipo. topCut: el parecido a partir del cual otro lugar publicado está en su top (1 − percentile) más
+ * parecido; null si no hay otros.
  */
-export type LikedPlace = { id: string; name: string; topCut: number | null }
+export type LikedPlace = {
+  id: string
+  name: string
+  topCut: number | null
+  iconCategory: IconCategory | null
+  categories: string[]
+  tags: string[]
+  style: string | null
+  price: string
+  neighborhoodId: string
+}
 
-/** Parecido de un candidato con el perfil (promedio de los likes; null sin likes válidos) y con cada like. */
-export type LikeSimilarity = { id: string; profile: number | null; byLike: Record<string, number> }
-
-export type LikeSimilarities = { liked: LikedPlace[]; rows: LikeSimilarity[] }
+/** Parecido (coseno) de un candidato con cada like. */
+export type LikeSimilarity = { id: string; byLike: Record<string, number> }
 
 /**
- * Likes: cuáles son lugares publicados con embedding y el coseno de cada candidato con el promedio de sus embeddings
- * y con cada uno. Sólo lectura, sin llamadas pagas; no se guarda nada.
+ * pairs: el coseno entre cada par de likes (con el promedio de un grupo de likes sale el parecido exacto con su perfil).
+ * df: entre los publicados, cuántos tienen cada rasgo de los likes (tag, `style:x`, `price:x`, `barrio:x`); total:
+ * cuántos publicados hay.
+ */
+export type LikeSimilarities = {
+  liked: LikedPlace[]
+  pairs: Record<string, Record<string, number>>
+  df: Record<string, number>
+  total: number
+  rows: LikeSimilarity[]
+}
+
+/**
+ * Likes: cuáles son lugares publicados con embedding, sus datos, el coseno entre ellos y el de cada candidato con cada
+ * uno, y cuántos publicados tienen cada rasgo de los likes. Sólo lectura, sin llamadas pagas; no se guarda nada.
  */
 export function likeSimilaritiesQuery(likeIds: string[], candidateIds: string[], percentile: number): SQL {
   return sql`
     with liked as (
-      select id::text as id, name, embedding from places
+      select id::text as id, name, embedding, icon_category, categories, tags, style, price, neighborhood_id from places
       where status = 'published' and embedding is not null and id::text = any(${textArray(likeIds)})
     ),
-    profile as (select avg(embedding) as v from liked)
+    features as (
+      select distinct f from liked l, lateral (
+        select unnest(l.tags) as f
+        union all select 'style:' || l.style where l.style is not null
+        union all select 'price:' || l.price
+        union all select 'barrio:' || l.neighborhood_id
+      ) x
+    ),
+    df as (
+      select f.f, count(*)::int as n from features f
+      join places p on p.status = 'published' and (f.f = any(p.tags) or f.f = 'style:' || p.style or f.f = 'price:' || p.price or f.f = 'barrio:' || p.neighborhood_id)
+      group by f.f
+    )
     select
-      (select coalesce(json_agg(json_build_object('id', l.id, 'name', l.name, 'topCut', (
+      (select coalesce(json_agg(json_build_object('id', l.id, 'name', l.name, 'iconCategory', l.icon_category, 'categories', l.categories,
+          'tags', l.tags, 'style', l.style, 'price', l.price, 'neighborhoodId', l.neighborhood_id, 'topCut', (
           select percentile_cont(${percentile}::float) within group (order by 1 - (o.embedding <=> l.embedding))
           from places o where o.status = 'published' and o.embedding is not null and o.id::text <> l.id
         ))), '[]'::json) from liked l) as liked,
+      (select coalesce(json_object_agg(a.id, (select json_object_agg(b.id, 1 - (a.embedding <=> b.embedding)) from liked b)), '{}'::json) from liked a) as pairs,
+      (select coalesce(json_object_agg(f, n), '{}'::json) from df) as df,
+      (select count(*)::int from places where status = 'published') as total,
       (select coalesce(json_agg(json_build_object(
           'id', c.id::text,
-          'profile', 1 - (c.embedding <=> (select v from profile)),
           'byLike', (select coalesce(json_object_agg(l.id, 1 - (c.embedding <=> l.embedding)), '{}'::json) from liked l)
         )), '[]'::json)
         from places c where c.embedding is not null and c.id::text = any(${textArray(candidateIds)})) as rows`

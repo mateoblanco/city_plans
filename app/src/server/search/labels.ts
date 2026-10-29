@@ -1,7 +1,9 @@
-import { label, type OccasionTag, type StyleId } from '@shared/tags.ts'
+import { neighborhoodDisplayName } from '@shared/neighborhood-names.ts'
+import { ATMOSPHERE, CUISINES, DRINKS, FEATURES, FOODS, label, OFFERS, type OccasionTag, type StyleId } from '@shared/tags.ts'
 import type { DietKey, Lang, Price } from './interpretation'
 import { SEARCH_CONFIG } from './config'
 import type { Moment, NextOpening, OpenState } from './hours'
+import type { PlaceKind } from './personal'
 
 /** Idioma de todo lo que se muestra. El detectado (interpretation.language) sólo sirve para interpretar la consulta. */
 export const DISPLAY_LANG: Lang = 'es'
@@ -150,4 +152,93 @@ export function openStateText(state: OpenState, lang: Lang, moment: Moment, isNo
 export function openStateLabel(state: OpenState, lang: Lang, moment: Moment, isNow: boolean, next: NextOpening | null = null): string {
   const text = openStateText(state, lang, moment, isNow, next)
   return text.prefix + (text.detail ? `${text.status} · ${text.detail}` : text.status)
+}
+
+/** Tipo de lugar de un perfil, en plural: "Porque te gustan los bares…". */
+const KIND_NOUNS: Record<Lang, Record<PlaceKind, string>> = {
+  es: { cafes: 'cafés', bars: 'bares', eat: 'restaurantes', desserts: 'lugares de postres' },
+  en: { cafes: 'cafés', bars: 'bars', eat: 'restaurants', desserts: 'dessert places' },
+}
+
+/** Dónde va un rasgo en el motivo: "los bares {adj} {de} {con} {para} {en}". */
+type TraitSlot = 'adj' | 'de' | 'con' | 'para' | 'en'
+export type TraitPhrase = { slot: TraitSlot; text: string }
+
+/** Los rasgos que no se dicen como "con {etiqueta}" (o que no son un tag), en masculino plural. */
+const TRAIT_PHRASES: Record<string, TraitPhrase> = {
+  'style:casual': { slot: 'adj', text: 'descontracturados' },
+  'style:cuidado': { slot: 'con', text: 'ambiente cuidado' },
+  'price:low': { slot: 'adj', text: 'baratos' },
+  'price:moderate': { slot: 'de', text: 'de precio medio' },
+  'price:high': { slot: 'adj', text: 'caros' },
+  'price:very_high': { slot: 'adj', text: 'muy caros' },
+  breakfast: { slot: 'para', text: 'para desayunar' },
+  brunch: { slot: 'para', text: 'para el brunch' },
+  lunch: { slot: 'para', text: 'para almorzar' },
+  afternoon_snack: { slot: 'para', text: 'para merendar' },
+  dinner: { slot: 'para', text: 'para cenar' },
+  drinks: { slot: 'para', text: 'para tomar algo' },
+  late_night: { slot: 'para', text: 'para el trasnoche' },
+  date: { slot: 'para', text: 'para una cita' },
+  work: { slot: 'para', text: 'para trabajar' },
+  lgbtq_friendly: { slot: 'adj', text: 'LGBTQ+ friendly' },
+  after_office: { slot: 'para', text: 'para el after office' },
+  groups: { slot: 'para', text: 'para ir en grupo' },
+  kids_friendly: { slot: 'para', text: 'para ir con niños' },
+  solo: { slot: 'para', text: 'para ir solo' },
+  celebration: { slot: 'para', text: 'para festejar' },
+  quick: { slot: 'para', text: 'para algo rápido' },
+  outdoor: { slot: 'adj', text: 'al aire libre' },
+  dancing: { slot: 'para', text: 'para bailar' },
+  pet_friendly: { slot: 'adj', text: 'pet friendly' },
+  accessible: { slot: 'adj', text: 'accesibles' },
+  cash_only: { slot: 'adj', text: 'de solo efectivo' },
+  takeaway: { slot: 'para', text: 'para llevar' },
+  bar_seating: { slot: 'para', text: 'para comer en la barra' },
+  accepts_meal_vouchers: { slot: 'con', text: 'tickets alimentación' },
+  non_alcoholic: { slot: 'con', text: 'tragos sin alcohol' },
+  vegan: { slot: 'adj', text: 'veganos' },
+  vegetarian: { slot: 'adj', text: 'vegetarianos' },
+  gluten_free: { slot: 'adj', text: 'sin TACC' },
+}
+
+/** "Tranquilo" → "tranquilos", "Acogedor" → "acogedores"; "De barrio" queda igual. */
+const pluralAdjective = (text: string) => {
+  const lower = text.toLowerCase()
+  if (lower.includes(' ')) return lower
+  return /[aeiou]$/.test(lower) ? `${lower}s` : `${lower}es`
+}
+
+/** "Música en vivo" → "música en vivo"; las siglas ("DJ") quedan igual. */
+const lowerFirst = (text: string) => (/^[A-Z]{2}/.test(text) ? text : text.charAt(0).toLowerCase() + text.slice(1))
+
+/** Cómo se dice un rasgo del perfil (tag, `style:x`, `price:x` o `barrio:x`) en el motivo; null si no se dice. */
+export function traitPhrase(key: string): TraitPhrase | null {
+  if (Object.hasOwn(TRAIT_PHRASES, key)) return TRAIT_PHRASES[key]
+  if (key.startsWith('barrio:')) return { slot: 'en', text: `en ${neighborhoodDisplayName(key.slice('barrio:'.length))}` }
+  if (key.includes(':')) return null
+  if (Object.hasOwn(ATMOSPHERE, key)) return { slot: 'adj', text: pluralAdjective(label(key, 'es')) }
+  if (Object.hasOwn(CUISINES, key)) return { slot: 'de', text: `de cocina ${label(key, 'es').toLowerCase()}` }
+  if ([FOODS, DRINKS, FEATURES, OFFERS].some((group) => Object.hasOwn(group, key))) return { slot: 'con', text: lowerFirst(label(key, 'es')) }
+  return null
+}
+
+const SLOT_ORDER: TraitSlot[] = ['adj', 'de', 'con', 'para', 'en']
+
+/**
+ * Título del grupo del perfil, sin modelo: "Porque te gustan los bares de barrio con vermut". traits: los rasgos del
+ * motivo, de mayor a menor peso; los del mismo lugar de la frase se unen con "y". Sin rasgos que se digan, "Porque te
+ * gustan estos cafés".
+ */
+export function profileReasonTitle(kind: PlaceKind, traits: string[], lang: Lang): string {
+  const noun = KIND_NOUNS[lang][kind]
+  if (lang === 'en') return `Based on the ${noun} you like`
+  const phrases = traits.flatMap((key) => traitPhrase(key) ?? [])
+  if (!phrases.length) return `Porque te gustan estos ${noun}`
+  const parts = SLOT_ORDER.flatMap((slot) => {
+    const texts = phrases.filter((phrase) => phrase.slot === slot).map((phrase) => phrase.text)
+    if (!texts.length) return []
+    return slot === 'con' ? [`con ${texts.join(' y ')}`] : [texts.join(' y ')]
+  })
+  return `Porque te gustan los ${noun} ${parts.join(' ')}`
 }

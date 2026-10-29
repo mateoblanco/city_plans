@@ -187,6 +187,50 @@ describe('cómo se arman', () => {
     const { sections } = buildSections(items, ['outdoor', 'discover'], 'es', personal)
     expect(sections?.map((section) => section.id)).toEqual(['outdoor', 'similar', 'discover'])
   })
+
+  // Candidatos de Descubrí: menos conocidos (0,6 < mediana) y más parecidos (0,6 > mediana); el resto, 0,9 y 0,5.
+  const candidate = { prominence: 0.6, semantic: 0.6 }
+  const known = { prominence: 0.9, semantic: 0.5 }
+
+  it('Descubrí se arma después de los temáticos, con lo que quedó y por similitud con la consulta', () => {
+    // p0–p2 terraza; p3–p4 candidatos con terraza (los toma Al aire libre); p5–p8 candidatos sin grupo; p9–p13 sin grupo.
+    const tags = Object.fromEntries([0, 1, 2, 3, 4].map((index) => [index, ['terrace']]))
+    const semantic: Record<number, number> = { 3: 0.6, 4: 0.6, 5: 0.6, 6: 0.7, 7: 0.65, 8: 0.62 }
+    const extra = Object.fromEntries(Array.from({ length: 14 }, (_, index) => [index, semantic[index] ? { prominence: 0.6, semantic: semantic[index] } : known]))
+    const { sections } = buildSections(ranked(14, tags, extra), ['outdoor', 'discover'], 'es')
+    expect(sections?.map((section) => [section.id, section.placeIds])).toEqual([
+      ['outdoor', ['p0', 'p1', 'p2', 'p3', 'p4']],
+      ['discover', ['p6', 'p7', 'p8', 'p5']],
+      ['more', ['p9', 'p10', 'p11', 'p12', 'p13']],
+    ])
+  })
+
+  it('con menos de 3 candidatos entre los que quedaron, Descubrí no sale y no le saca lugares a otro grupo', () => {
+    const tags = Object.fromEntries([0, 1, 2, 3, 4].map((index) => [index, ['terrace']]))
+    const extra = Object.fromEntries(Array.from({ length: 14 }, (_, index) => [index, index >= 3 && index <= 6 ? candidate : known]))
+    const result = buildSections(ranked(14, tags, extra), ['outdoor', 'discover'], 'es')
+    expect(result.dropped).toContainEqual({ id: 'discover', count: 2 })
+    expect(result.sections?.map((section) => [section.id, section.placeIds.slice(0, 5)])).toEqual([
+      ['outdoor', ['p0', 'p1', 'p2', 'p3', 'p4']],
+      ['more', ['p5', 'p6', 'p7', 'p8', 'p9']],
+    ])
+  })
+
+  it('si los temáticos llenan el tope de grupos, Descubrí no entra', () => {
+    const tags: Record<number, string[]> = {}
+    for (const index of [0, 1, 2]) tags[index] = ['live_music']
+    for (const index of [3, 4, 5]) tags[index] = ['picada']
+    for (const index of [6, 7, 8]) tags[index] = ['terrace']
+    for (const index of [9, 10, 11]) tags[index] = ['japanese']
+    const extra = Object.fromEntries(Array.from({ length: 21 }, (_, index) => [
+      index,
+      index >= 12 && index <= 14 ? { ...known, categories: ['grill'] } : index >= 15 ? candidate : known,
+    ]))
+    const result = buildSections(ranked(21, tags, extra), ['live_music', 'share', 'outdoor', 'world', 'classics', 'discover'], 'es')
+    expect(result.displaced).toEqual(['discover'])
+    expect(result.sections?.some((section) => section.id === 'discover')).toBe(false)
+    expect(result.sections?.find((section) => section.id === 'more')?.placeIds).toEqual(['p15', 'p16', 'p17', 'p18', 'p19', 'p20'])
+  })
 })
 
 describe('en la búsqueda', () => {

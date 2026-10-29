@@ -56,6 +56,40 @@ export type IconCategory = keyof typeof ICON_CATEGORIES
 /** Las claves en orden; tupla no vacía para z.enum. */
 export const ICON_CATEGORY_KEYS = Object.keys(ICON_CATEGORIES) as [IconCategory, ...IconCategory[]]
 
+/**
+ * Familias de íconos: qué íconos son "lo mismo" para "Parecido a" (una pizzería y una casa de pastas sí; un sushi y
+ * una parrilla no). Cada ícono está en exactamente una. Tapas y curry van solas (curry no es "asiático").
+ */
+export const ICON_FAMILIES = {
+  wine_cocktails: ['wine', 'cocktails', 'tropical_drinks', 'classic_bar'],
+  beer: ['beer', 'beer_pub'],
+  coffee: ['coffee', 'tea', 'bookstore'],
+  bakery: ['croissant', 'bread', 'bakery'],
+  breakfast: ['pancakes', 'breakfast'],
+  sweets: ['cake', 'cupcake', 'pie', 'birthday_cake', 'donut', 'cookie', 'chocolate', 'ice_cream'],
+  meat: ['grill', 'meat'],
+  italian: ['pasta', 'pizza'],
+  quick: ['burger', 'fries', 'sandwich', 'hot_dog'],
+  latin: ['taco', 'burrito', 'tamale'],
+  sea: ['seafood', 'fish', 'octopus'],
+  spanish: ['tapas'],
+  asian: ['sushi', 'ramen', 'wok', 'dumplings'],
+  indian: ['curry'],
+  middle_east: ['falafel', 'kebab'],
+  healthy: ['salad'],
+} as const satisfies Record<string, readonly IconCategory[]>
+
+export type IconFamily = keyof typeof ICON_FAMILIES
+
+const FAMILY_BY_ICON = new Map<string, IconFamily>(
+  (Object.entries(ICON_FAMILIES) as [IconFamily, readonly IconCategory[]][]).flatMap(([family, icons]) => icons.map((icon) => [icon, family] as const)),
+)
+
+/** Familia del ícono; null sin ícono o con una clave desconocida. */
+export function iconFamily(key: string | null | undefined): IconFamily | null {
+  return (key && FAMILY_BY_ICON.get(key)) || null
+}
+
 /** Sólo para la UI (sin categoría o clave desconocida); nunca es una opción del modelo. */
 export const FALLBACK_ICON_EMOJI = '\u{1F37D}\uFE0F'
 

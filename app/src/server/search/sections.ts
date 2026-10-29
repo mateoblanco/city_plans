@@ -26,7 +26,10 @@ export type SectionsDebug = {
    * uno solo va primero en placedIn (el primer grupo del catálogo).
    */
   diet: { key: DietKey; count: number; shown: boolean; placedIn: SectionId | null } | null
-  /** Grupos del catálogo que desplazaron los grupos personales (los de menor puntaje promedio, por el tope de grupos). */
+  /**
+   * Grupos del catálogo que no entraron por el tope de grupos: los que desplazaron los personales (los de menor puntaje
+   * promedio) y Descubrí si los temáticos ya llenaban el tope.
+   */
   displaced: SectionId[]
 }
 
@@ -188,7 +191,9 @@ function dietGroup(available: Fused[], diet: DietKey | null) {
  * Cada lugar va una sola vez: en orden de ranking, al grupo en el que entra que tenga menos lugares hasta ahí (a igual
  * cantidad, el de más prioridad), para que ninguno se quede con todo; un grupo lleno (maxPlaces) no recibe más, y si
  * todos los que le sirven están llenos, el lugar va a "Más opciones". Los grupos chicos se descartan (los que ni solos
- * llegan, o el más chico) y sus lugares se reparten de nuevo. Sin ningún grupo que llegue, null: la lista de siempre.
+ * llegan, o el más chico) y sus lugares se reparten de nuevo. "Descubrí" se arma después, con su propio criterio entre
+ * los que no tomó ningún grupo: los candidatos ("has" primero) por similitud con la consulta, hasta maxPlaces; con menos
+ * de minPlaces no sale y nunca le saca lugares a otro grupo. Sin ningún grupo que llegue, null: la lista de siempre.
  * Con una sola dieta pedida, el grupo "100 % …" va primero y no cuenta para el tope de grupos; con un solo apto, ese
  * lugar va primero en el primer grupo del catálogo (nunca en "Más opciones"). Orden: la dieta, el primer grupo del
  * catálogo, los personales, el resto del catálogo y "Más opciones". "Descubrí" nunca es el primero del catálogo: el
@@ -205,7 +210,13 @@ export function buildSections(items: Fused[], requested: SectionId[], lang: Lang
   const taken = new Set([...personalIds, ...ids(fully?.shown ? fully.items : lone ? [lone] : [])])
   const available = items.filter((item) => !taken.has(item.row.id))
 
-  let active = [...requested]
+  const average = (group: Fused[]) => group.reduce((sum, item) => sum + item.score, 0) / group.length
+  // Quién entra sale del orden de siempre; adentro de cada grupo, los "has" primero (un precio desconocido no sube por
+  // las señales) y después los que tienen más señales de la sección.
+  const level = (item: Fused) => (item.matchLevel === 'has' ? 0 : 1)
+  const limit = Math.max(0, config.maxGroups - personal.length)
+  // Primero los grupos temáticos; Descubrí después, con lo que quedó.
+  let active: SectionId[] = requested.filter((id) => id !== 'discover')
   const dropped: SectionsDebug['dropped'] = []
   let members = new Map<SectionId, Fused[]>()
   for (;;) {
@@ -227,18 +238,32 @@ export function buildSections(items: Fused[], requested: SectionId[], lang: Lang
       active = active.slice(0, config.maxGroups)
     } else break
   }
-
-  const average = (group: Fused[]) => group.reduce((sum, item) => sum + item.score, 0) / group.length
-  // Quién entra sale del orden de siempre; adentro de cada grupo, los "has" primero (un precio desconocido no sube por
-  // las señales) y después los que tienen más señales de la sección.
-  const level = (item: Fused) => (item.matchLevel === 'has' ? 0 : 1)
+  // Descubrí (el de menor prioridad, si queda lugar en el tope): sus candidatos entre los que no tomó ningún grupo, los
+  // "has" primero y por similitud con la consulta, hasta maxPlaces; con menos de minPlaces no sale. No le saca lugares a
+  // nadie.
+  const overflow: SectionId[] = []
+  if (requested.includes('discover')) {
+    const used = new Set([...members.values()].flat())
+    const picks = available
+      .filter((item) => !used.has(item) && fits('discover', item))
+      .sort((a, b) => level(a) - level(b) || (b.row.semantic ?? 0) - (a.row.semantic ?? 0))
+      .slice(0, config.maxPlaces)
+    if (picks.length < config.minPlaces) dropped.push({ id: 'discover', count: picks.length })
+    else if (active.length >= config.maxGroups) overflow.push('discover')
+    else {
+      active.push('discover')
+      members.set('discover', picks)
+    }
+  }
+  const order = (id: SectionId, group: Fused[]) =>
+    id === 'discover' ? group : [...group].sort((a, b) => level(a) - level(b) || scoreIn(id, b) - scoreIn(id, a))
   const sorted = active
-    .map((id) => ({ id, items: [...members.get(id)!].sort((a, b) => level(a) - level(b) || scoreIn(id, b) - scoreIn(id, a)), avgScore: average(members.get(id)!) }))
+    .map((id) => ({ id, items: order(id, members.get(id)!), avgScore: average(members.get(id)!) }))
     .sort((a, b) => b.avgScore - a.avgScore)
   // Con el tope de grupos, los personales desplazan a los del catálogo de menor puntaje promedio (sus lugares van a
   // "Más opciones").
-  const chosen = sorted.slice(0, Math.max(0, config.maxGroups - personal.length))
-  const displaced = sorted.slice(chosen.length).map((group) => group.id)
+  const chosen = sorted.slice(0, limit)
+  const displaced = [...sorted.slice(limit).map((group) => group.id), ...overflow]
   const lead = chosen.find((group) => group.id !== 'discover') ?? null
   // Un solo apto: primero en el primer grupo del catálogo (si está lleno, su último va a "Más opciones"). Sin grupos del
   // catálogo (o sólo Descubrí), sale solo en el de la dieta.
@@ -257,7 +282,7 @@ export function buildSections(items: Fused[], requested: SectionId[], lang: Lang
   const total = (id: SectionId) => (id === 'discover' ? null : items.filter((item) => fits(id, item)).length)
   const section = (group: (typeof chosen)[number]) => ({ id: group.id, title: SECTIONS[group.id].title[lang], placeIds: ids(group.items), total: total(group.id) })
   // Primero lo pedido y lo que mejor matchea: la dieta y el grupo del catálogo de mejor puntaje (sin Descubrí); después
-  // los personales ("Parecido a", "Basado en…") y el resto del catálogo.
+  // los personales ("Parecido a", "Porque te gustan…") y el resto del catálogo.
   const sections: Section[] = [
     // Sin "Ver todos": total null.
     ...(fully && dietItems.length ? [{ id: 'diet' as const, title: dietGroupTitle(fully.key, lang), placeIds: ids(dietItems), total: null }] : []),

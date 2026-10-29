@@ -116,24 +116,45 @@ export const SEARCH_CONFIG = {
   sections: { minResults: 12, minPlaces: 3, maxPlaces: 6, maxGroups: 5, minRequested: 2, dietMinPlaces: 2 },
 
   /**
-   * Likes (cookie espejo de localStorage, sólo en el pedido): el perfil es el promedio de los embeddings de los lugares
-   * que te gustaron. Nunca reordena ni cambia quién entra: sólo elige qué lugares de la misma búsqueda van a un solo
-   * grupo personal, "Parecido a <lugar>" (desde 1 like) o, si no sale, "Basado en lo que te gusta" (desde minLikesProfile),
-   * o, sin grupos, a "Para vos"; siempre entre los resultados "has".
-   * profileThreshold es coseno contra el promedio de los likes. "Parecido a" no tiene umbral fijo: entran los lugares
-   * que están en el top `similar.topShare` más parecido a ese lugar dentro de toda la base publicada, con piso
-   * `similar.floor` (unos lugares tienen vecinos mucho más cercanos que otros).
+   * Likes (cookie espejo de localStorage, sólo en el pedido). Los likes se agrupan por tipo (cafés, bares, comer,
+   * postres: personal.ts placeKind) y cada tipo con minLikesProfile likes es un perfil: el promedio de sus embeddings más
+   * los rasgos que se repiten. Nunca reordena ni cambia quién entra: sólo elige qué lugares de la misma búsqueda van a un
+   * solo grupo personal, "Parecido a <lugar>" (desde 1 like) o, si no sale, "Porque te gustan…" (el perfil del tipo de la
+   * búsqueda), o, sin grupos, a "Para vos"; siempre entre los resultados "has" del mismo tipo que el perfil.
+   * El tipo de la búsqueda es el de la intención o, sin intención, el que tiene al menos `dominant.share` de los primeros
+   * `dominant.top` resultados "has"; sin tipo o sin perfil de ese tipo no hay "Porque te gustan…" ni "Para vos".
+   * Puntaje: sim (coseno contra el promedio del perfil) + affinity.beta × afinidad (0 a 1, la parte del peso de los rasgos
+   * del perfil que tiene el lugar); entra con sim ≥ affinity.simFloor y puntaje ≥ profileThreshold. El peso de un rasgo:
+   * la parte del perfil que lo tiene (si lo tienen al menos 2 y la mitad) × su idf en la base (ln(N/df)/ln(N); por
+   * debajo de affinity.minIdf no cuenta: cena o almuerzo los tienen casi todos) × affinity.weights de su clase.
+   * "Porque te gustan…" sólo elige entre los primeros profileMaxPosition de la búsqueda. Variedad: como mucho
+   * maxPerFamily de la misma familia de ícono; si todos son de una familia, como mucho maxPerNeighborhood por barrio y
+   * una sucursal por marca (con menos de min, se completa con los salteados). Las cadenas (chainMinBranches sucursales
+   * publicadas o más) no entran en los grupos personales.
+   * "Parecido a" es del like del tipo de la búsqueda mejor ubicado entre los primeros
+   * `similar.maxPosition` de la búsqueda (más abajo no encaja en lo pedido). Entran los que pasan los datos concretos
+   * (misma familia de ícono o una cocina en común, mismo style y precio a `similar.priceDistance` niveles como mucho; lo
+   * desconocido pasa) y, entre ellos, los que están en el top `similar.topShare` más parecido a ese lugar dentro de toda
+   * la base publicada, con piso `similar.floor` (unos lugares tienen vecinos mucho más cercanos que otros).
    */
   personal: {
     maxLikes: 100,
-    minLikesProfile: 3,
+    minLikesProfile: 2,
     minPlaces: 3,
     maxPlaces: 6,
     forYou: { min: 3, max: 4 },
     /** Con menos resultados "has" que esto no hay bloques personales: con pocos, la fila se lleva casi todo. */
     minHas: 12,
     profileThreshold: 0.72,
-    similar: { topShare: 0.1, floor: 0.65 },
+    profileMaxPosition: 50,
+    dominant: { top: 30, share: 0.5 },
+    affinity: { beta: 0.08, simFloor: 0.68, minIdf: 0.2, minLikes: 2, minShare: 0.5, weights: { tag: 1, style: 0.6, price: 0.6, barrio: 0.5 } },
+    /** Rasgos del motivo: como mucho maxTraits, que tengan al menos traitShare de los lugares del grupo. */
+    reason: { maxTraits: 2, traitShare: 0.5 },
+    maxPerFamily: 2,
+    maxPerNeighborhood: 3,
+    chainMinBranches: 4,
+    similar: { maxPosition: 30, topShare: 0.2, floor: 0.6, priceDistance: 1 },
   },
 
   /**

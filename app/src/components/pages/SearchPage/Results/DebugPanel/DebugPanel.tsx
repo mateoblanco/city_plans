@@ -123,34 +123,66 @@ type ProfileProps = {
   personal: SearchDebug["personal"];
 };
 
-/** Perfil: qué likes se usaron, el lugar de "Parecido a" y el parecido de cada lugar de los bloques personales. */
+/**
+ * Perfil: los perfiles por tipo y sus rasgos, cuál se usó y por qué, el lugar de "Parecido a" y, por bloque, el puntaje
+ * de cada lugar y los que no entraron.
+ */
 const Profile = (props: ProfileProps) => {
-  const { skipped, likes, ignored, similarTo, thresholds, groups } = props.personal;
+  const { skipped, likes, ignored, profiles, active, similarTo, thresholds, groups } = props.personal;
   return (
     <div>
       <p>
-        Perfil: {skipped ? `no se usó (${skipped})` : `${likes.length} likes`} · umbrales: perfil {decimal(thresholds.profile)}; parecido a un lugar,
-        su top {Math.round(thresholds.similarTopShare * 100)} % de la base con piso {decimal(thresholds.similarFloor)}
+        Perfil: {skipped ? `no se usó (${skipped})` : `${likes.length} likes`} · umbrales: perfil sim + {decimal(thresholds.beta)}·afinidad ≥ {decimal(thresholds.profile)} (sim ≥{" "}
+        {decimal(thresholds.simFloor)}) entre los primeros {thresholds.profileMaxPosition}; parecido a un lugar, entre los primeros {thresholds.similarMaxPosition}, misma
+        familia, style y precio y su top {Math.round(thresholds.similarTopShare * 100)} % de la base con piso {decimal(thresholds.similarFloor)}
       </p>
       <ClearLikes />
       {likes.length > 0 && (
-        <p>Likes usados: {likes.map((like) => `${like.name} (${like.position === null ? "no salió" : `#${like.position}`})`).join(", ")}</p>
+        <p>
+          Likes usados: {likes.map((like) => `${like.name} [${like.kind ?? "sin tipo"}] (${like.position === null ? "no salió" : `#${like.position}`})`).join(", ")}
+        </p>
       )}
       {ignored.length > 0 && <p>Ignorados (no publicados o sin embedding): {ignored.join(", ")}</p>}
+      {profiles.length > 0 && (
+        <ul>
+          {profiles.map((profile) => (
+            <li key={profile.kind}>
+              Perfil {profile.kind}: {profile.likes.join(", ")}
+              {profile.enough ? "" : " (no alcanza)"}
+              {profile.traits.length > 0 &&
+                ` · rasgos: ${profile.traits.map((trait) => `${trait.key} ${decimal(trait.weight)} (${decimal(trait.share)}·${decimal(trait.idf)}·${decimal(trait.k)})`).join(", ")}`}
+            </li>
+          ))}
+        </ul>
+      )}
+      {!skipped && <p>Tipo de la búsqueda: {active.kind ?? "ninguno"} ({active.reason})</p>}
       {!skipped && (
         <p>
           Parecido a:{" "}
           {similarTo
-            ? `${similarTo.name} (#${similarTo.position}, el mejor ubicado de los likes que salieron) · top ${Math.round(thresholds.similarTopShare * 100)} % desde ${decimal(similarTo.topCut)} → umbral ${decimal(similarTo.threshold)}`
-            : "ningún like salió en esta búsqueda"}
+            ? `${similarTo.name} (#${similarTo.position}, el mejor ubicado de los likes del tipo entre los primeros ${thresholds.similarMaxPosition}) · top ${Math.round(thresholds.similarTopShare * 100)} % desde ${decimal(similarTo.topCut)} → umbral ${decimal(similarTo.threshold)}`
+            : `ningún like del tipo entre los primeros ${thresholds.similarMaxPosition}`}
         </p>
+      )}
+      {similarTo && similarTo.filtered.length > 0 && (
+        <p>Sobre el umbral pero no parecidos: {similarTo.filtered.map((place) => `${place.name} ${decimal(place.similarity)} (${place.reason})`).join(", ")}</p>
       )}
       {groups.length > 0 && (
         <ul>
           {groups.map((group) => (
             <li key={group.id}>
               {group.title}: {group.shown ? "sí" : `no (${group.reason})`}
-              {group.places.length > 0 && ` · ${group.places.map((place) => `${place.name} ${decimal(place.similarity)}`).join(", ")}`}
+              {group.rule && ` · variedad por ${group.rule}`}
+              {group.titleTraits.length > 0 && ` · motivo: ${group.titleTraits.join(", ")}`}
+              {group.places.length > 0 &&
+                ` · ${group.places
+                  .map((place) =>
+                    place.score === null
+                      ? `${place.name} ${decimal(place.similarity)}`
+                      : `${place.name} ${decimal(place.score)} (sim ${decimal(place.similarity)}, afinidad ${decimal(place.affinity)}${place.traits.length ? `: ${place.traits.join(", ")}` : ""})`,
+                  )
+                  .join(", ")}`}
+              {group.skipped.length > 0 && ` · no entraron: ${group.skipped.map((place) => `${place.name} (${place.reason})`).join(", ")}`}
             </li>
           ))}
         </ul>

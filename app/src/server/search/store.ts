@@ -51,7 +51,7 @@ export function neonPlacesStore(db: Pick<NeonHttpDatabase<Record<string, unknown
     async likeSimilarities(likeIds, candidateIds, percentile) {
       const { rows } = await db.execute(likeSimilaritiesQuery(likeIds, candidateIds, percentile))
       const result = rows[0] as LikeSimilarities | undefined
-      return { liked: result?.liked ?? [], rows: result?.rows ?? [] }
+      return { liked: result?.liked ?? [], pairs: result?.pairs ?? {}, df: result?.df ?? {}, total: result?.total ?? 0, rows: result?.rows ?? [] }
     },
   }
 }

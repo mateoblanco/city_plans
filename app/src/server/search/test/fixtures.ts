@@ -129,8 +129,9 @@ export function fakeStore(places: CandidateRow[], names: NameMatch[] = [], vecto
       }
       return [...venues.values()]
     },
-    // Misma regla que likeSimilaritiesQuery: likes publicados con embedding, su promedio, el coseno con cada uno y,
-    // por like, el percentil de su parecido con el resto de la base (percentile_cont: interpolación lineal).
+    // Misma regla que likeSimilaritiesQuery: likes publicados con embedding y sus datos, el coseno entre ellos y con cada
+    // candidato, por like el percentil de su parecido con el resto de la base (percentile_cont: interpolación lineal) y
+    // cuántos lugares tienen cada rasgo de los likes.
     async likeSimilarities(likeIds, candidateIds, percentile) {
       const liked = places.filter((place) => likeIds.includes(place.id) && vectors[place.id])
       const topCut = (id: string) => {
@@ -140,17 +141,27 @@ export function fakeStore(places: CandidateRow[], names: NameMatch[] = [], vecto
         const lower = Math.floor(position)
         return values[lower] + (position - lower) * ((values[lower + 1] ?? values[lower]) - values[lower])
       }
-      const profile = liked.length ? vectors[liked[0].id].map((_, index) => liked.reduce((sum, place) => sum + vectors[place.id][index], 0) / liked.length) : null
+      const traits = (place: CandidateRow) => [...place.tags, ...(place.style ? [`style:${place.style}`] : []), `price:${place.price}`, `barrio:${place.neighborhoodId}`]
+      const features = new Set(liked.flatMap(traits))
       return {
-        liked: liked.map((place) => ({ id: place.id, name: place.name, topCut: topCut(place.id) })),
+        liked: liked.map((place) => ({
+          id: place.id,
+          name: place.name,
+          topCut: topCut(place.id),
+          iconCategory: place.iconCategory,
+          categories: place.categories,
+          tags: place.tags,
+          style: place.style,
+          price: place.price,
+          neighborhoodId: place.neighborhoodId,
+        })),
+        pairs: Object.fromEntries(liked.map((a) => [a.id, Object.fromEntries(liked.map((b) => [b.id, cosine(vectors[a.id], vectors[b.id])]))])),
+        df: Object.fromEntries([...features].map((key) => [key, places.filter((place) => traits(place).includes(key)).length])),
+        total: places.length,
         rows: candidateIds.flatMap((id) => {
           const vector = vectors[id]
           if (!vector) return []
-          return [{
-            id,
-            profile: profile ? cosine(vector, profile) : null,
-            byLike: Object.fromEntries(liked.map((place) => [place.id, cosine(vector, vectors[place.id])])),
-          }]
+          return [{ id, byLike: Object.fromEntries(liked.map((place) => [place.id, cosine(vector, vectors[place.id])])) }]
         }),
       }
     },

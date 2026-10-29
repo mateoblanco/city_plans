@@ -107,18 +107,30 @@ for (const query of queries.length ? queries : checkOnly ? Object.keys(CHECKS) :
     const names = new Map(response.results.map((result) => [result.id, result.name]));
     for (const section of response.sections) console.log(`    ${section.title}: ${section.placeIds.map((id) => names.get(id)).join(", ")}`);
   }
-  // Perfil: likes usados, el lugar de "Parecido a" y cada bloque personal con el parecido de sus lugares.
+  // Perfil: likes usados con su tipo, los perfiles y sus rasgos, el tipo de la búsqueda, el lugar de "Parecido a" y cada
+  // bloque personal con el puntaje de sus lugares y los que no entraron.
   const personal = info.personal;
   if (personal.skipped) console.log(`  perfil: no (${personal.skipped})`);
   else {
-    console.log(`  perfil: ${personal.likes.map((like) => `${like.name} ${like.position === null ? "(no salió)" : `#${like.position}`}`).join(", ")}${personal.ignored.length ? ` · ignorados: ${personal.ignored.length}` : ""}`);
+    console.log(`  perfil: ${personal.likes.map((like) => `${like.name} [${like.kind ?? "sin tipo"}] ${like.position === null ? "(no salió)" : `#${like.position}`}`).join(", ")}${personal.ignored.length ? ` · ignorados: ${personal.ignored.length}` : ""}`);
+    for (const profile of personal.profiles) {
+      const traits = profile.traits.map((trait) => `${trait.key} ${trait.weight.toFixed(2)}`).join(", ");
+      console.log(`    perfil ${profile.kind}${profile.enough ? "" : " (no alcanza)"}: ${profile.likes.join(", ")}${traits ? ` · rasgos: ${traits}` : ""}`);
+    }
+    console.log(`  tipo de la búsqueda: ${personal.active.kind ?? "ninguno"} (${personal.active.reason})`);
     if (personal.similarTo) {
-      const { name, position, topCut, threshold } = personal.similarTo;
-      console.log(`  parecido a: ${name} (#${position}) · top ${Math.round(personal.thresholds.similarTopShare * 100)} % desde ${topCut?.toFixed(3) ?? "—"} → umbral ${threshold.toFixed(3)}`);
+      const { name, position, topCut, threshold, filtered } = personal.similarTo;
+      console.log(`  parecido a: ${name} (#${position}, de los primeros ${personal.thresholds.similarMaxPosition}) · top ${Math.round(personal.thresholds.similarTopShare * 100)} % desde ${topCut?.toFixed(3) ?? "—"} → umbral ${threshold.toFixed(3)}`);
+      if (filtered.length) console.log(`    sobre el umbral pero no parecidos: ${filtered.map((place) => `${place.name} ${place.similarity.toFixed(3)} (${place.reason})`).join(", ")}`);
     }
     for (const group of personal.groups) {
-      const places = group.places.map((place) => `${place.name} ${place.similarity.toFixed(3)}`).join(", ");
-      console.log(`    ${group.shown ? "✓" : "✗"} ${group.title}${group.reason ? ` (${group.reason})` : ""}${places ? `: ${places}` : ""}`);
+      const places = group.places
+        .map((place) => place.score === null ? `${place.name} ${place.similarity.toFixed(3)}` : `${place.name} ${place.score.toFixed(3)} (sim ${place.similarity.toFixed(3)}, af ${place.affinity!.toFixed(2)}${place.traits.length ? `: ${place.traits.join(" ")}` : ""})`)
+        .join(", ");
+      const extra = [group.rule && `variedad por ${group.rule}`, group.titleTraits.length && `motivo: ${group.titleTraits.join(", ")}`].filter(Boolean).join(" · ");
+      console.log(`    ${group.shown ? "✓" : "✗"} ${group.title}${group.reason ? ` (${group.reason})` : ""}${extra ? ` [${extra}]` : ""}${places ? `: ${places}` : ""}`);
+      const skipped = group.skipped.slice(0, 8).map((place) => `${place.name} (${place.reason})`);
+      if (group.skipped.length) console.log(`      no entraron: ${skipped.join(", ")}${group.skipped.length > 8 ? ` y ${group.skipped.length - 8} más` : ""}`);
     }
   }
   if (response.forYou) {

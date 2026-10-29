@@ -659,7 +659,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   step = performance.now()
   const likeData = personalSkipped ? null : await deps.store.likeSimilarities(likes, fused.map((item) => item.row.id), 1 - SEARCH_CONFIG.personal.similar.topShare).catch(() => null)
   if (!personalSkipped) timings.personal = elapsed(step)
-  const personal = likeData ? personalize(fused, likeData, likes, { grouped: catalogOnly?.sections != null, lang: DISPLAY_LANG }) : null
+  const personal = likeData ? personalize(fused, likeData, likes, { grouped: catalogOnly?.sections != null, lang: DISPLAY_LANG, intent: state.intent }) : null
   const personalDebug = personal?.debug ?? emptyPersonalDebug(personalSkipped ?? 'falló la consulta de likes')
   const grouped = sectionChoice && catalogOnly?.sections && personal?.groups.length
     ? buildSections(fused, sectionChoice.requested, DISPLAY_LANG, personal.groups, dietGroup)
