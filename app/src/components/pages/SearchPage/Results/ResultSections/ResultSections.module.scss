@@ -15,8 +15,9 @@
 .header {
   position: sticky;
   top: var(--header-offset);
-  background-color: #ffffff;
+  background-color: #fbfbfb;
   padding: 16px 0;
+  z-index: 2;
   margin: -8px 0;
   display: flex;
   align-items: center;

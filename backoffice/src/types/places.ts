@@ -319,6 +319,8 @@ export type SavePlaceResult = {
 /** Fila del listado de lugares guardados (GET /api/places). */
 export type PlaceListItem = {
   id: string
+  /** Sólo para el link a la ficha de Google Maps. */
+  googlePlaceId: string | null
   name: string
   neighborhoodId: string
   categories: string[]
@@ -361,9 +363,34 @@ export type PlaceListQuery = {
   edited?: boolean
   /** Le falta alguno de estos datos (O entre ellos). Un "sin precio" o "No tiene Instagram" a mano también cuenta. */
   missing?: PlaceListMissing[]
+  /** Sólo estos lugares (hasta 100), en este orden: la página del orden por puntaje de Google, que se arma en el cliente. */
+  ids?: string[]
   sort: (typeof PLACE_LIST_SORTS)[number]
   page: number
   pageSize: number
+}
+
+/** GET /api/places/neighborhoods: barrios con lugares guardados y cuántos tiene cada uno. */
+export type PlaceNeighborhoodCount = { id: string; count: number }
+
+/** GET /api/places/ids: todos los lugares con los filtros, en el orden de sort, sin paginar. */
+export type PlaceListIds = {
+  ids: string[]
+  /** Los que no tienen googlePlaceId: no se les puede pedir el puntaje. */
+  withoutGoogleId: string[]
+}
+
+/** Puntaje de Google (Place Details, rating y userRatingCount). Sólo se muestra en la sesión: no se guarda. */
+export type GoogleRating = {
+  rating: number | null
+  userRatingCount: number | null
+}
+
+/** POST /api/places/google-ratings: los puntajes por id, los que fallaron y cuántos no tenían googlePlaceId. */
+export type GoogleRatingsResponse = {
+  ratings: Record<string, GoogleRating>
+  failed: { id: string; message: string }[]
+  skipped: number
 }
 
 /** Una página del listado. total: con todos los filtros; counts: con los filtros salvo el status (para las pestañas). */

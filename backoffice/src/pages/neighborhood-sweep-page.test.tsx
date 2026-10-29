@@ -769,6 +769,52 @@ describe('Buscar por barrio', () => {
     expect(screen.getByText('Irá a revisión: Todavía no abrió · Sin datos del local: las fuentes eran de otros lugares')).toBeInTheDocument()
   })
 
+  it('muestra puntaje y reseñas, ordena por ellos (sin dato al final) y filtra los de menos de 4', async () => {
+    const items = [
+      { ...place, placeId: 'a', name: 'Alto', rating: 4.7, userRatingCount: 50 },
+      { ...place, placeId: 'b', name: 'Sin dato', rating: null, userRatingCount: null },
+      { ...place, placeId: 'c', name: 'Bajo', rating: 3.2, userRatingCount: 900 },
+      { ...place, placeId: 'd', name: 'Justo', rating: 4, userRatingCount: 10 },
+    ]
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/sweep')) {
+        return ndjson([
+          { type: 'places', items },
+          { type: 'done', summary: summary({ totalPlaces: 4, byGroup: { accepted: 4, review: 0, rejected: 0 } }) },
+        ])
+      }
+      return Promise.resolve(new Response(JSON.stringify({ ids: [] }), { status: 200 }))
+    }))
+    render(<App />)
+    const user = await startSweep()
+    await screen.findByLabelText('Recorrido completo')
+    const table = () => screen.getAllByRole('table')[0]
+    const header = within(table()).getAllByRole('columnheader').map((cell) => cell.textContent)
+    const column = (name: string) => within(table()).getAllByRole('row').slice(1).map((row) => within(row).getAllByRole('cell')[header.indexOf(name)].textContent)
+
+    expect(column('Puntaje')).toEqual(['4,7', '—', '3,2', '4,0'])
+    expect(column('Reseñas')).toEqual(['50', '—', '900', '10'])
+
+    const sort = screen.getByRole('combobox', { name: 'Orden' })
+    await user.selectOptions(sort, 'rating_desc')
+    expect(column('Puntaje')).toEqual(['4,7', '4,0', '3,2', '—'])
+    await user.selectOptions(sort, 'rating_asc')
+    expect(column('Puntaje')).toEqual(['3,2', '4,0', '4,7', '—'])
+    await user.selectOptions(sort, 'reviews_desc')
+    expect(column('Reseñas')).toEqual(['900', '50', '10', '—'])
+
+    // Seleccionados antes del filtro: los que quedan afuera se deseleccionan.
+    await user.click(screen.getByRole('checkbox', { name: 'Seleccionar todos' }))
+    await user.click(screen.getByRole('checkbox', { name: 'Puntaje menor a 4' }))
+    expect(column('Puntaje')).toEqual(['3,2'])
+    expect(screen.getByRole('button', { name: 'Aceptados (1)' })).toBeTruthy()
+    await user.click(screen.getByRole('checkbox', { name: 'Puntaje menor a 4' }))
+    expect(column('Puntaje')).toHaveLength(4)
+    const selected = within(table()).getAllByRole('row').slice(1).filter((row) => (within(row).getAllByRole('checkbox')[0] as HTMLInputElement).checked)
+    expect(selected).toHaveLength(1)
+  })
+
   it('A revisar agrupa por motivo, el más frecuente primero, con el motivo después del nombre y spinner en la tab mientras procesa', async () => {
     const review = (id: string, reason: string) => ({ ...place, placeId: id, name: `Lugar ${id}`, group: 'review' as const, reason })
     const items = [review('t1', 'primary_type_missing'), review('f1', 'few_reviews'), review('t2', 'unknown_type:kiosk'), review('f2', 'few_reviews')]
@@ -793,7 +839,7 @@ describe('Buscar por barrio', () => {
     await user.click(screen.getByRole('button', { name: 'A revisar (4)' }))
 
     const table = screen.getAllByRole('table')[0]
-    expect(within(table).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual(['', 'Nombre', 'Motivo', 'Categorías', 'Encontrado por'])
+    expect(within(table).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual(['', 'Nombre', 'Motivo', 'Categorías', 'Encontrado por', 'Puntaje', 'Reseñas'])
     const rows = within(table).getAllByRole('row').slice(1).map((row) => row.textContent ?? '')
     expect(rows[0]).toBe('few_reviews · 2')
     expect(rows[1]).toContain('Lugar f1')

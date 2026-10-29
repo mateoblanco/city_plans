@@ -3,6 +3,7 @@ import type {
   ExaPlaceResponse,
   ExtractionReportRequest,
   GooglePlaceDetailsResponse,
+  GoogleRatingsResponse,
   InstagramChoice,
   InstagramDiscovery,
   MatchSource,
@@ -16,7 +17,9 @@ import type {
   PlaceEditPlan,
   PlaceEditResult,
   PlaceEnrichmentResponse,
+  PlaceListIds,
   PlaceListPage,
+  PlaceNeighborhoodCount,
   PlaceListQuery,
   PlaceMatchResponse,
   PlaceSummary,
@@ -209,10 +212,40 @@ export function placeListSearch(query: PlaceListQuery): string {
   if (query.status) params.set('status', query.status)
   if (query.edited) params.set('edited', '1')
   if (query.missing?.length) params.set('missing', query.missing.join(','))
+  if (query.ids?.length) params.set('ids', query.ids.join(','))
   if (query.sort !== 'recent') params.set('sort', query.sort)
   if (query.page !== 1) params.set('page', String(query.page))
   params.set('pageSize', String(query.pageSize))
   return params.toString()
+}
+
+/** Todos los ids con los filtros del listado (sin paginar), en el orden de sort. */
+export async function listSavedPlaceIds(query: PlaceListQuery, signal?: AbortSignal): Promise<PlaceListIds> {
+  const params = new URLSearchParams(placeListSearch({ ...query, ids: undefined, page: 1 }))
+  params.delete('pageSize')
+  const response = await fetch(`/api/places/ids?${params}`, { signal })
+  return parseApiResponse<PlaceListIds>(response)
+}
+
+/** Barrios con lugares guardados y cuántos tiene cada uno. */
+export async function listSavedNeighborhoods(signal?: AbortSignal): Promise<PlaceNeighborhoodCount[]> {
+  const response = await fetch('/api/places/neighborhoods', { signal })
+  const { neighborhoods } = await parseApiResponse<{ neighborhoods?: PlaceNeighborhoodCount[] }>(response)
+  return Array.isArray(neighborhoods) ? neighborhoods : []
+}
+
+/** Lote máximo de POST /api/places/google-ratings. */
+export const GOOGLE_RATINGS_BATCH = 500
+
+/** Puntaje de Google (Place Details pago) de estos lugares guardados. No se guarda en ningún lado. */
+export async function getGoogleRatings(ids: string[], signal?: AbortSignal): Promise<GoogleRatingsResponse> {
+  const response = await fetch('/api/places/google-ratings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+    signal,
+  })
+  return parseApiResponse<GoogleRatingsResponse>(response)
 }
 
 /** Una página de los lugares guardados, con filtros y orden en el servidor. */

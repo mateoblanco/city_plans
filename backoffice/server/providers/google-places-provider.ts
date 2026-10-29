@@ -1,6 +1,7 @@
 import { getFoodPlaceTypeLabel, seedCategoryForFoodPlaceType } from '../../src/data/food-place-types.ts'
 import type {
   GooglePlaceDetailsResponse,
+  GoogleRating,
   JsonValue,
 } from '../../src/types/places.ts'
 import type {
@@ -183,6 +184,25 @@ export class GooglePlacesProvider implements PlacesProvider {
     if (!response.ok) await throwGoogleError(response)
     const payload = (await response.json()) as Pick<GooglePlaceDetails, 'primaryTypeDisplayName'>
     return payload.primaryTypeDisplayName?.text?.trim() || null
+  }
+
+  /**
+   * Sólo rating y userRatingCount (Place Details Enterprise), para mostrarlos en Lugares. No se guardan. null si Google
+   * no tiene el dato.
+   */
+  async getRating(placeId: string): Promise<GoogleRating> {
+    let response: Response
+    try {
+      const url = new URL(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`)
+      response = await this.fetcher(url, {
+        headers: { 'X-Goog-Api-Key': this.apiKey, 'X-Goog-FieldMask': 'rating,userRatingCount' },
+      })
+    } catch (error) {
+      throw new PlacesProviderError('upstream', 'No se pudo conectar con Google Places.', { cause: error })
+    }
+    if (!response.ok) await throwGoogleError(response)
+    const payload = (await response.json()) as { rating?: number; userRatingCount?: number }
+    return { rating: payload.rating ?? null, userRatingCount: payload.userRatingCount ?? null }
   }
 
   private async fetchDetails(placeId: string): Promise<GooglePlaceDetailsResponse> {

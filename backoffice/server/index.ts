@@ -50,7 +50,7 @@ const logoStorage = new R2LogoStorage()
 // Neon es opcional: sin DATABASE_URL el server arranca igual y /api/places responde 503.
 const database = process.env.DATABASE_URL?.trim()
   ? await (async () => {
-      const [{ db }, { drizzlePlacesStore, gatewayEmbedder, placesSaver }, { drizzleBrandSiblings, drizzleInstagramOwners, drizzleManualInstagram, drizzlePlacesReader }, { drizzleEditStore, placeEditor }] = await Promise.all([
+      const [{ db }, { drizzlePlacesStore, gatewayEmbedder, placesSaver }, { drizzleBrandSiblings, drizzleInstagramOwners, drizzleManualInstagram, drizzlePlaceIds, drizzlePlacesReader }, { drizzleEditStore, placeEditor }] = await Promise.all([
         import('./db/index.ts'),
         import('./places/save.ts'),
         import('./places/list.ts'),
@@ -72,6 +72,7 @@ const database = process.env.DATABASE_URL?.trim()
           forget: (googlePlaceId) => extractor?.forget(googlePlaceId),
         }),
         placesReader: drizzlePlacesReader(db),
+        placeIds: drizzlePlaceIds(db),
         instagramOwners: drizzleInstagramOwners(db),
         manualInstagram: drizzleManualInstagram(db),
         brandSiblings: drizzleBrandSiblings(db),
@@ -110,6 +111,7 @@ serve(
       reportWriter: fileReportWriter(),
       placesSaver: database?.placesSaver,
       placesReader: database?.placesReader,
+      placeIds: database?.placeIds,
       placeEditor: database?.placeEditor,
     }).fetch,
     hostname: '127.0.0.1',

@@ -1,7 +1,7 @@
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { PlaceListItem } from '@/types/places'
+import type { GoogleRating, PlaceListItem } from '@/types/places'
 import { SavedPlacesPage } from './saved-places-page'
 
 function jsonResponse(body: unknown, status = 200) {
@@ -9,7 +9,7 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 const place = (overrides: Partial<PlaceListItem>): PlaceListItem => ({
-  id: 'uuid-1', name: 'El Palenque', neighborhoodId: 'CIUDAD VIEJA', categories: ['restaurant'], tags: ['cash_only', 'kids_friendly'],
+  id: 'uuid-1', googlePlaceId: 'ChIJpalenque', name: 'El Palenque', neighborhoodId: 'CIUDAD VIEJA', categories: ['restaurant'], tags: ['cash_only', 'kids_friendly'],
   status: 'published', hoursStatus: 'exact', price: 'moderate', updatedAt: '2026-10-12T15:30:00.000Z', hasEmbedding: true,
   prominence: 0.125, igFollowers: null, brandKey: null, instagram: null, featured: false,
   logoUrl: null, logoKind: null, logoBgColor: null, logoColor: null, iconCategory: 'grill', style: null, reviewReasons: [], editedFields: [], ...overrides,
@@ -21,7 +21,9 @@ const fold = (value: string) => value.normalize('NFD').replace(/[̀-ͯ]/g, '').t
  * Servidor de mentira con los mismos filtros, orden y paginación que GET /api/places. Las escrituras (destacado,
  * publicar) cambian su estado; `fail` hace fallar las rutas que se le pasen.
  */
-function fakeServer(rows: PlaceListItem[], fail: { list?: number; featured?: boolean; publish?: boolean; price?: boolean } = {}, hold?: Promise<void>) {
+type FakeRatings = Record<string, GoogleRating | 'fail'>
+
+function fakeServer(rows: PlaceListItem[], fail: { list?: number; featured?: boolean; publish?: boolean; price?: boolean; ratings?: boolean; neighborhoods?: boolean } = {}, hold?: Promise<void>, ratings: FakeRatings = {}) {
   const data = rows.map((row) => ({ ...row }))
   let listFailures = fail.list ?? 0
   const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
@@ -47,7 +49,25 @@ function fakeServer(rows: PlaceListItem[], fail: { list?: number; featured?: boo
       row.editedFields = [...new Set([...row.editedFields, 'price' as const])]
       return jsonResponse({ place: { ...row, editedFields: row.editedFields }, warnings: [] })
     }
-    if (url.pathname !== '/api/places') throw new Error(`Ruta inesperada ${input}`)
+    if (url.pathname === '/api/places/neighborhoods') {
+      if (fail.neighborhoods) return jsonResponse({ error: { code: 'UNKNOWN_ERROR', message: 'No se pudieron cargar los barrios.' } }, 500)
+      const counts = new Map<string, number>()
+      for (const row of data) counts.set(row.neighborhoodId, (counts.get(row.neighborhoodId) ?? 0) + 1)
+      return jsonResponse({ neighborhoods: [...counts].map(([id, count]) => ({ id, count })) })
+    }
+    if (url.pathname === '/api/places/google-ratings') {
+      await hold
+      if (fail.ratings) return jsonResponse({ error: { code: 'QUOTA_ERROR', message: 'Se agotó la cuota de Google Places.' } }, 429)
+      const ids: string[] = JSON.parse(String(init?.body)).ids
+      const result = { ratings: {} as Record<string, GoogleRating>, failed: [] as { id: string; message: string }[], skipped: 0 }
+      for (const id of ids) {
+        const rating = ratings[id]
+        if (rating === 'fail') result.failed.push({ id, message: 'Google Places no respondió.' })
+        else result.ratings[id] = rating ?? { rating: null, userRatingCount: null }
+      }
+      return jsonResponse(result)
+    }
+    if (url.pathname !== '/api/places' && url.pathname !== '/api/places/ids') throw new Error(`Ruta inesperada ${input}`)
     if (listFailures > 0) {
       listFailures -= 1
       return jsonResponse({ error: { code: 'CONFIGURATION_ERROR', message: 'Falta configurar DATABASE_URL en .env.local.' } }, 503)
@@ -64,11 +84,14 @@ function fakeServer(rows: PlaceListItem[], fail: { list?: number; featured?: boo
     const withStatus = filtered.filter((row) => !params.get('status') || row.status === params.get('status'))
     const sort = params.get('sort') ?? 'recent'
     withStatus.sort((a, b) => sort === 'prominence' ? b.prominence - a.prominence : sort === 'name' ? a.name.localeCompare(b.name) : b.updatedAt.localeCompare(a.updatedAt))
+    if (url.pathname === '/api/places/ids') return jsonResponse({ ids: withStatus.map((row) => row.id), withoutGoogleId: [] })
+    const ids = params.get('ids')?.split(',')
+    const listed = ids ? ids.flatMap((id) => withStatus.filter((row) => row.id === id)) : withStatus
     const page = Number(params.get('page') ?? 1)
     const size = Number(params.get('pageSize'))
     return jsonResponse({
-      places: withStatus.slice((page - 1) * size, page * size),
-      total: withStatus.length,
+      places: listed.slice((page - 1) * size, page * size),
+      total: listed.length,
       counts: { all: filtered.length, published: filtered.filter((row) => row.status === 'published').length, review: filtered.filter((row) => row.status === 'review').length },
     })
   })
@@ -199,6 +222,24 @@ describe('SavedPlacesPage', () => {
     expect(await screen.findByText('Ningún lugar coincide con los filtros')).toBeTruthy()
   })
 
+  it('el filtro de barrio sólo ofrece los barrios con lugares guardados, con la cantidad', async () => {
+    fakeServer([
+      place({ id: 'a', neighborhoodId: 'POCITOS' }),
+      place({ id: 'b', neighborhoodId: 'POCITOS', updatedAt: '2026-10-11T15:30:00.000Z' }),
+      place({ id: 'c', neighborhoodId: 'CIUDAD VIEJA', updatedAt: '2026-10-10T15:30:00.000Z' }),
+    ])
+    render(<SavedPlacesPage />)
+    const select = screen.getByLabelText('Barrio')
+    await waitFor(() => expect(within(select).getAllByRole('option').map((option) => option.textContent)).toEqual(['Todos', 'Ciudad Vieja (1)', 'Pocitos (2)']))
+  })
+
+  it('si no se pudieron cargar los barrios, el filtro sólo ofrece "Todos" y la lista carga igual', async () => {
+    fakeServer([place({})], { neighborhoods: true })
+    render(<SavedPlacesPage />)
+    await screen.findByText('1 lugar')
+    expect(within(screen.getByLabelText('Barrio')).getAllByRole('option').map((option) => option.textContent)).toEqual(['Todos'])
+  })
+
   it('"Le falta…": cualquiera de los elegidos, en el servidor y junto con barrio y estado', async () => {
     const logo = { logoUrl: 'https://logos.example/logos/a-0a1b2c3d.webp', logoKind: 'logo' as const }
     const fetchMock = fakeServer([
@@ -272,6 +313,112 @@ describe('SavedPlacesPage', () => {
     expect(link).toHaveAttribute('href', 'https://www.instagram.com/elpalenque.mvd/')
     expect(link).toHaveAttribute('target', '_blank')
     expect(within(without).getAllByRole('cell')[header.indexOf('Instagram')].textContent).toBe('—')
+    await userEvent.setup().click(link)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(fetchMock.mock.calls.some(([url]) => url === '/api/places/a')).toBe(false)
+  })
+
+  it('las columnas empiezan por nombre, categorías, Instagram y precio', async () => {
+    fakeServer([place({})])
+    render(<SavedPlacesPage />)
+    await screen.findByText('1 lugar')
+    expect(screen.getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
+      'Nombre', 'Google Maps', 'Categorías', 'Instagram', 'Precio', 'Logo', 'Barrio', 'Tags', 'Status', 'Horario', 'Embedding', 'Prominencia', 'Seguidores', 'Marca',
+      'Destacado', 'Última actualización',
+    ])
+  })
+
+  it('"Ver puntaje de Google": confirma pedidos y costo de los filtrados, muestra el puntaje sin guardarlo y reintenta sólo los que fallaron', async () => {
+    let release: () => void = () => {}
+    const hold = new Promise<void>((resolve) => { release = resolve })
+    const fetchMock = fakeServer([
+      place({ id: 'a', name: 'Pocitos Uno', neighborhoodId: 'POCITOS' }),
+      place({ id: 'b', name: 'Pocitos Dos', neighborhoodId: 'POCITOS', updatedAt: '2026-10-11T15:30:00.000Z' }),
+      place({ id: 'c', name: 'Pocitos Tres', neighborhoodId: 'POCITOS', updatedAt: '2026-10-10T15:30:00.000Z' }),
+      place({ id: 'd', name: 'Centro', neighborhoodId: 'CENTRO', updatedAt: '2026-10-09T15:30:00.000Z' }),
+    ], {}, hold, { a: { rating: 4.62, userRatingCount: 1234 }, b: 'fail', c: { rating: null, userRatingCount: null } })
+    render(<SavedPlacesPage />)
+    await screen.findByText('4 lugares')
+    const user = userEvent.setup()
+    await user.selectOptions(screen.getByLabelText('Barrio'), 'POCITOS')
+    await waitFor(() => expect(names()).toHaveLength(3))
+
+    await user.click(screen.getByRole('button', { name: 'Ver puntaje de Google' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveTextContent('Son 3 pedidos')
+    expect(dialog).toHaveTextContent('US$ 0,06')
+    expect(dialog).toHaveTextContent('no se guarda')
+    expect(fetchMock.mock.calls.some(([url]) => url === '/api/places/google-ratings')).toBe(false)
+    await user.click(within(dialog).getByRole('button', { name: 'Consultar' }))
+    expect(await screen.findByRole('button', { name: 'Consultando 3…' })).toBeDisabled()
+    release()
+
+    expect(await screen.findByText(/1 no se pudo consultar/)).toBeTruthy()
+    const header = screen.getAllByRole('columnheader').map((cell) => cell.textContent)
+    expect(header.indexOf('Puntaje de Google')).toBe(header.indexOf('Precio') + 1)
+    const cell = (name: string) => within(screen.getByRole('row', { name: new RegExp(name) })).getAllByRole('cell')[header.indexOf('Puntaje de Google')].textContent
+    expect(cell('Pocitos Uno')).toBe('4,6 (1.234)')
+    expect(cell('Pocitos Dos')).toBe('Error')
+    expect(cell('Pocitos Tres')).toBe('Sin puntaje')
+    const ratingCall = fetchMock.mock.calls.find(([url]) => url === '/api/places/google-ratings')!
+    expect(JSON.parse(String(ratingCall[1]?.body))).toEqual({ ids: ['a', 'b', 'c'] })
+
+    await user.click(screen.getByRole('button', { name: 'Ver puntaje de Google' }))
+    expect(await screen.findByRole('dialog')).toHaveTextContent('Es 1 pedido')
+    await user.click(screen.getByRole('button', { name: 'Volver' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  })
+
+  it('ordena por puntaje de Google entre todas las páginas, con los que no tienen puntaje al final', async () => {
+    const many = Array.from({ length: 60 }, (_, index) => place({ id: `p${index}`, name: `Lugar ${String(index).padStart(2, '0')}`, updatedAt: `2026-10-12T15:${String(59 - index).padStart(2, '0')}:00.000Z` }))
+    const ratings: FakeRatings = Object.fromEntries(many.map((row, index) => [row.id, { rating: index === 0 ? null : index / 20, userRatingCount: index }]))
+    const fetchMock = fakeServer(many, {}, undefined, ratings)
+    render(<SavedPlacesPage />)
+    await screen.findByText('60 lugares')
+    const user = userEvent.setup()
+    expect(within(screen.getByLabelText('Orden')).getByRole('option', { name: 'Puntaje de Google (mayor primero)' })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: 'Ver puntaje de Google' }))
+    expect(await screen.findByRole('dialog')).toHaveTextContent('US$ 1,20')
+    await user.click(screen.getByRole('button', { name: 'Consultar' }))
+    await screen.findByText(/Puntaje de Google de 60 lugares/)
+
+    await user.selectOptions(screen.getByLabelText('Orden'), 'rating_desc')
+    // El mayor puntaje es el último del servidor (página 2): el orden es de todos los filtrados, no de la página.
+    await waitFor(() => expect(names()[0]).toBe('Lugar 59'))
+    expect(screen.getByRole('columnheader', { name: 'Puntaje de Google' })).toHaveAttribute('aria-sort', 'descending')
+    expect(listCalls(fetchMock).at(-1)).toMatch(/^\/api\/places\?ids=p59%2Cp58%2C/)
+    await user.selectOptions(screen.getByLabelText('Orden'), 'rating_asc')
+    await waitFor(() => expect(names()[0]).toBe('Lugar 01'))
+    await user.click(screen.getByRole('button', { name: /Siguiente/ }))
+    await screen.findByText('Página 2 de 2')
+    await waitFor(() => expect(names().at(-1)).toBe('Lugar 00'))
+  })
+
+  it('si Google falla en todos, muestra el error y marca las filas con error', async () => {
+    fakeServer([place({})], { ratings: true })
+    render(<SavedPlacesPage />)
+    await screen.findByText('1 lugar')
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Ver puntaje de Google' }))
+    await user.click(await screen.findByRole('button', { name: 'Consultar' }))
+    expect(await screen.findByText('No se pudo consultar el puntaje de Google')).toBeTruthy()
+    expect(screen.getByText('Se agotó la cuota de Google Places.')).toBeTruthy()
+    const header = screen.getAllByRole('columnheader').map((cell) => cell.textContent)
+    expect(within(screen.getAllByRole('row')[1]).getAllByRole('cell')[header.indexOf('Puntaje de Google')].textContent).toBe('Error')
+  })
+
+  it('link a la ficha de Google Maps en la segunda columna, sin abrir el modal; sin googlePlaceId, un guion', async () => {
+    const fetchMock = fakeServer([place({ id: 'a' }), place({ id: 'b', name: 'Sin Google', googlePlaceId: null, updatedAt: '2026-10-01T15:30:00.000Z' })])
+    render(<SavedPlacesPage />)
+    await screen.findByText('2 lugares')
+    const [, withId, without] = screen.getAllByRole('row')
+
+    const link = within(withId).getByRole('link', { name: 'Ver El Palenque en Google Maps' })
+    expect(link).toHaveAttribute('href', 'https://www.google.com/maps/search/?api=1&query=El+Palenque&query_place_id=ChIJpalenque')
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(within(withId).getAllByRole('cell')[1]).toContainElement(link)
+    expect(within(without).getAllByRole('cell')[1].textContent).toBe('—')
     await userEvent.setup().click(link)
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(fetchMock.mock.calls.some(([url]) => url === '/api/places/a')).toBe(false)

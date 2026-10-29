@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, Database, LoaderCircle, PencilLine, RotateCcw, Search, Send } from 'lucide-react'
+import { AlertCircle, ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, Database, LoaderCircle, PencilLine, RotateCcw, Search, Send, Star } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { PlaceEditDialog } from '@/components/place-edit-dialog'
 import { PlaceIcon } from '@/components/place-icon'
@@ -17,11 +25,12 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { CATEGORIES } from '@/data/tags'
-import { NEIGHBORHOOD_NAMES, neighborhoodDisplayName } from '@/data/neighborhood-names'
+import { neighborhoodDisplayName } from '@/data/neighborhood-names'
 import { reviewReasonLabel } from '@/data/review-reasons'
 import { PRICE_LEVELS } from '@/data/manual-overrides'
-import { listSavedPlaces, publishPlace, savePlaceEdit, setPlaceFeatured } from '@/lib/places-api'
-import { PLACE_LIST_CATEGORIES, PLACE_LIST_MISSING, type PlaceListItem, type PlaceListMissing, type PlaceListPage, type PlaceListQuery, type PriceLevel } from '@/types/places'
+import { googleMapsUrl } from '@/lib/google-maps-url'
+import { GOOGLE_RATINGS_BATCH, getGoogleRatings, listSavedNeighborhoods, listSavedPlaceIds, listSavedPlaces, publishPlace, savePlaceEdit, setPlaceFeatured } from '@/lib/places-api'
+import { PLACE_LIST_CATEGORIES, PLACE_LIST_MISSING, type GoogleRating, type PlaceListItem, type PlaceNeighborhoodCount, type PlaceListMissing, type PlaceListPage, type PlaceListQuery, type PriceLevel } from '@/types/places'
 
 type LoadState =
   | { status: 'loading' }
@@ -30,21 +39,40 @@ type LoadState =
 
 type Tab = 'all' | 'published' | 'review'
 
+/** Orden por puntaje de Google: se arma en el cliente, porque el puntaje no está en la base. */
+type RatingSort = 'rating_desc' | 'rating_asc'
+
+type RatingRun =
+  | { status: 'idle' }
+  | { status: 'counting' }
+  | { status: 'confirm'; ids: string[]; withoutGoogleId: number }
+  | { status: 'loading'; total: number }
+  | { status: 'done'; loaded: number; failed: number; withoutGoogleId: number }
+  | { status: 'error'; message: string }
+
 export const PAGE_SIZE = 50
 const SEARCH_DEBOUNCE_MS = 300
 const STATUS_LABELS: Record<string, string> = { draft: 'Borrador', published: 'Publicado', review: 'A revisar', hidden: 'Oculto' }
 const HOURS_LABELS: Record<string, string> = { exact: 'Exacto', partial: 'Parcial', vague: 'Vago', none: 'Sin horario' }
 const SORT_LABELS: Record<PlaceListQuery['sort'], string> = { recent: 'Más reciente', prominence: 'Prominencia', name: 'Nombre' }
+const RATING_SORT_LABELS: Record<RatingSort, string> = { rating_desc: 'Puntaje de Google (mayor primero)', rating_asc: 'Puntaje de Google (menor primero)' }
+// Place Details Enterprise (rating y userRatingCount), primer tramo; los primeros 1.000 del mes son gratis.
+const PLACE_DETAILS_USD = 0.02
 const MISSING_LABELS: Record<PlaceListMissing, string> = { price: 'Precio', hours: 'Horario', logo: 'Logo', instagram: 'Instagram' }
 const PRICE_LABELS: Record<PriceLevel, string> = { low: '$', moderate: '$$', high: '$$$', very_high: '$$$$', unknown: 'Sin precio' }
 // Sin precio al final, como en la lista de opciones.
 const PRICE_OPTIONS: PriceLevel[] = [...PRICE_LEVELS.filter((id) => id !== 'unknown'), 'unknown']
 // Cuánto queda "Guardado" en la celda.
 const SAVED_FEEDBACK_MS = 2500
-// Los ids del shapefile con su nombre (sin cargar barrios.json, que es el GeoJSON entero).
-const NEIGHBORHOOD_OPTIONS = Object.entries(NEIGHBORHOOD_NAMES)
-  .map(([id, name]) => ({ id, name }))
-  .sort((a, b) => a.name.localeCompare(b.name, 'es'))
+
+/** Opciones del filtro de barrio: los que tienen lugares, con la cantidad. El elegido queda aunque ya no tenga (0). */
+function neighborhoodOptions(counts: PlaceNeighborhoodCount[], selected: string | undefined) {
+  const all = selected && !counts.some((item) => item.id === selected) ? [...counts, { id: selected, count: 0 }] : counts
+  return all
+    .map((item) => ({ id: item.id, name: neighborhoodDisplayName(item.id) ?? item.id, count: item.count }))
+    .map((item) => ({ ...item, label: `${item.name} (${item.count})` }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'es'))
+}
 const selectClass = 'h-9 rounded-lg border bg-background px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring'
 
 function categoryLabel(id: string) {
@@ -56,6 +84,39 @@ function formatUpdatedAt(value: string) {
 }
 
 const tabOf = (status: PlaceListQuery['status']): Tab => status ?? 'all'
+
+const formatUsd = (value: number) => `US$ ${value.toLocaleString('es-UY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+
+function formatRating({ rating, userRatingCount }: GoogleRating) {
+  if (rating === null) return 'Sin puntaje'
+  const value = rating.toLocaleString('es-UY', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+  return userRatingCount === null ? value : `${value} (${userRatingCount.toLocaleString('es-UY')})`
+}
+
+/**
+ * Ids ordenados por puntaje; a igual puntaje, más reseñas primero. Los que no tienen puntaje (o todavía no se pidió) van
+ * al final, en el orden del servidor.
+ */
+function sortByRating(ids: string[], ratings: Record<string, GoogleRating>, sort: RatingSort) {
+  const sign = sort === 'rating_desc' ? -1 : 1
+  return ids
+    .map((id, index) => ({ id, index, rating: ratings[id]?.rating ?? null, count: ratings[id]?.userRatingCount ?? 0 }))
+    .sort((a, b) => {
+      if (a.rating === null || b.rating === null) return a.rating === b.rating ? a.index - b.index : a.rating === null ? 1 : -1
+      return sign * (a.rating - b.rating) || b.count - a.count || a.index - b.index
+    })
+    .map((item) => item.id)
+}
+
+/** La página: con el orden por puntaje, todos los ids filtrados, ordenados acá, y la página pedida por ids. */
+async function loadPage(query: PlaceListQuery, ratingSort: RatingSort | null, ratings: Record<string, GoogleRating> | null, signal: AbortSignal): Promise<PlaceListPage> {
+  if (!ratingSort || !ratings) return listSavedPlaces(query, signal)
+  const { ids } = await listSavedPlaceIds(query, signal)
+  const ordered = sortByRating(ids, ratings, ratingSort)
+  const pageIds = ordered.slice((query.page - 1) * query.pageSize, query.page * query.pageSize)
+  const page = await listSavedPlaces(pageIds.length ? { ...query, ids: pageIds, page: 1 } : query, signal)
+  return { ...page, places: pageIds.length ? page.places : [], total: ordered.length }
+}
 
 /**
  * Lugares guardados en la base, con búsqueda, filtros, orden y paginación en el servidor. El destacado y Publicar se
@@ -76,6 +137,20 @@ export function SavedPlacesPage() {
   const priceTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
   const [editing, setEditing] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  // Puntaje de Google por id: sólo en memoria de esta sesión (términos de Google), nunca en la base ni en localStorage.
+  const [ratings, setRatings] = useState<Record<string, GoogleRating>>({})
+  const [ratingErrors, setRatingErrors] = useState<Record<string, string>>({})
+  const [ratingRun, setRatingRun] = useState<RatingRun>({ status: 'idle' })
+  const [ratingSort, setRatingSort] = useState<RatingSort | null>(null)
+  // Barrios con lugares guardados. Si falla, el filtro sólo ofrece "Todos": no bloquea la lista.
+  const [neighborhoods, setNeighborhoods] = useState<PlaceNeighborhoodCount[]>([])
+
+  // Al entrar y con cada recarga (después de guardar o borrar, un barrio puede aparecer o quedar vacío).
+  useEffect(() => {
+    const controller = new AbortController()
+    listSavedNeighborhoods(controller.signal).then(setNeighborhoods).catch(() => {})
+    return () => controller.abort()
+  }, [attempt])
 
   // La búsqueda por nombre espera a que se deje de escribir; cambiarla vuelve a la primera página.
   useEffect(() => {
@@ -85,16 +160,75 @@ export function SavedPlacesPage() {
     return () => clearTimeout(timer)
   }, [search])
 
+  // Sin el orden por puntaje, cargar puntajes no vuelve a pedir la página.
+  const sortRatings = ratingSort ? ratings : null
   useEffect(() => {
     const controller = new AbortController()
-    listSavedPlaces(query, controller.signal)
+    loadPage(query, ratingSort, sortRatings, controller.signal)
       .then((page) => setState({ status: 'success', page }))
       .catch((error: unknown) => {
         if (controller.signal.aborted) return
         setState({ status: 'error', message: error instanceof Error ? error.message : 'No se pudieron cargar los lugares.' })
       })
     return () => controller.abort()
-  }, [query, attempt])
+  }, [query, attempt, ratingSort, sortRatings])
+
+  function changeSort(value: string) {
+    if (value === 'rating_desc' || value === 'rating_asc') {
+      setRatingSort(value)
+      filter({})
+      return
+    }
+    setRatingSort(null)
+    filter({ sort: value as PlaceListQuery['sort'] })
+  }
+
+  /** Cuenta los filtrados (todas las páginas) sin puntaje todavía y pide confirmar el costo. */
+  async function prepareRatings() {
+    setRatingRun({ status: 'counting' })
+    try {
+      const { ids, withoutGoogleId } = await listSavedPlaceIds(query)
+      const without = new Set(withoutGoogleId)
+      const pending = ids.filter((id) => !without.has(id) && !ratings[id])
+      setRatingRun(pending.length
+        ? { status: 'confirm', ids: pending, withoutGoogleId: without.size }
+        : { status: 'done', loaded: 0, failed: 0, withoutGoogleId: without.size })
+    } catch (error) {
+      setRatingRun({ status: 'error', message: error instanceof Error ? error.message : 'No se pudieron contar los lugares.' })
+    }
+  }
+
+  // En lotes de GOOGLE_RATINGS_BATCH. Un lote que falla entero no corta los demás; lo que falló se vuelve a pedir con el botón.
+  async function runRatings(ids: string[]) {
+    setRatingRun({ status: 'loading', total: ids.length })
+    const loaded: Record<string, GoogleRating> = {}
+    const failed: Record<string, string> = {}
+    let withoutGoogleId = 0
+    let fatal: string | null = null
+    for (let start = 0; start < ids.length; start += GOOGLE_RATINGS_BATCH) {
+      const batch = ids.slice(start, start + GOOGLE_RATINGS_BATCH)
+      try {
+        const result = await getGoogleRatings(batch)
+        Object.assign(loaded, result.ratings)
+        for (const item of result.failed) failed[item.id] = item.message
+        withoutGoogleId += result.skipped
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'No se pudo consultar Google Places.'
+        fatal ??= message
+        for (const id of batch) failed[id] = message
+      }
+    }
+    setRatings((current) => ({ ...current, ...loaded }))
+    setRatingErrors((current) => {
+      const next = { ...current, ...failed }
+      for (const id of Object.keys(loaded)) delete next[id]
+      return next
+    })
+    const loadedCount = Object.keys(loaded).length
+    setRatingRun(loadedCount === 0 && fatal
+      ? { status: 'error', message: fatal }
+      : { status: 'done', loaded: loadedCount, failed: Object.keys(failed).length, withoutGoogleId })
+  }
 
   /** Cambia un filtro u orden: vuelve a la primera página. */
   function filter(patch: Partial<PlaceListQuery>) {
@@ -190,6 +324,9 @@ export function SavedPlacesPage() {
   const pages = page ? Math.max(1, Math.ceil(page.total / query.pageSize)) : 1
   const filtered = Boolean(query.q || query.neighborhood || query.category || query.edited || query.missing?.length)
   const missing = query.missing ?? []
+  const hasRatings = Object.keys(ratings).length > 0
+  const showRatings = hasRatings || Object.keys(ratingErrors).length > 0
+  const ratingBusy = ratingRun.status === 'counting' || ratingRun.status === 'loading'
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6 lg:px-8 lg:py-14">
@@ -213,7 +350,7 @@ export function SavedPlacesPage() {
             Barrio
             <select className={selectClass} value={query.neighborhood ?? ''} onChange={(event) => filter({ neighborhood: event.target.value || undefined })}>
               <option value="">Todos</option>
-              {NEIGHBORHOOD_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
+              {neighborhoodOptions(neighborhoods, query.neighborhood).map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
             </select>
           </label>
           <label className="grid gap-1 text-xs text-muted-foreground">
@@ -225,8 +362,11 @@ export function SavedPlacesPage() {
           </label>
           <label className="grid gap-1 text-xs text-muted-foreground">
             Orden
-            <select className={selectClass} value={query.sort} onChange={(event) => filter({ sort: event.target.value as PlaceListQuery['sort'] })}>
+            <select className={selectClass} value={ratingSort ?? query.sort} onChange={(event) => changeSort(event.target.value)}>
               {(Object.keys(SORT_LABELS) as PlaceListQuery['sort'][]).map((id) => <option key={id} value={id}>{SORT_LABELS[id]}</option>)}
+              {(Object.keys(RATING_SORT_LABELS) as RatingSort[]).map((id) => (
+                <option key={id} value={id} disabled={!hasRatings}>{RATING_SORT_LABELS[id]}</option>
+              ))}
             </select>
           </label>
           <label className="flex h-9 items-center gap-2 text-sm">
@@ -258,7 +398,13 @@ export function SavedPlacesPage() {
               </fieldset>
             </PopoverContent>
           </Popover>
+          <Button type="button" variant="outline" className="h-9" disabled={ratingBusy} onClick={() => void prepareRatings()}>
+            {ratingBusy ? <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" /> : <Star className="size-3.5" aria-hidden="true" />}
+            {ratingRun.status === 'loading' ? `Consultando ${ratingRun.total}…` : 'Ver puntaje de Google'}
+          </Button>
         </div>
+
+        <RatingRunStatus run={ratingRun} />
 
         {notice && (
           <Alert className="mb-4 rounded-xl bg-background">
@@ -328,23 +474,29 @@ export function SavedPlacesPage() {
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/40 hover:bg-muted/40">
-                      <TableHead className="px-4 sm:px-5" aria-sort={query.sort === 'name' ? 'ascending' : 'none'}>Nombre</TableHead>
+                      <TableHead className="px-4 sm:px-5" aria-sort={!ratingSort && query.sort === 'name' ? 'ascending' : 'none'}>Nombre</TableHead>
+                      <TableHead className="px-4 whitespace-nowrap sm:px-5">Google Maps</TableHead>
+                      <TableHead className="px-4 sm:px-5">Categorías</TableHead>
+                      <TableHead className="px-4 sm:px-5">Instagram</TableHead>
+                      <TableHead className="px-4 sm:px-5">Precio</TableHead>
+                      {showRatings && (
+                        <TableHead className="px-4 whitespace-nowrap sm:px-5" aria-sort={ratingSort === 'rating_desc' ? 'descending' : ratingSort === 'rating_asc' ? 'ascending' : 'none'}>
+                          Puntaje de Google
+                        </TableHead>
+                      )}
                       <TableHead className="px-4 sm:px-5">Logo</TableHead>
                       <TableHead className="px-4 sm:px-5">Barrio</TableHead>
-                      <TableHead className="px-4 sm:px-5">Categorías</TableHead>
                       <TableHead className="px-4 text-right sm:px-5">Tags</TableHead>
                       <TableHead className="px-4 sm:px-5">Status</TableHead>
                       {reviewTab && <TableHead className="px-4 sm:px-5">Motivos</TableHead>}
                       {reviewTab && <TableHead className="px-4 sm:px-5">Acciones</TableHead>}
                       <TableHead className="px-4 sm:px-5">Horario</TableHead>
-                      <TableHead className="px-4 sm:px-5">Precio</TableHead>
                       <TableHead className="px-4 text-center sm:px-5">Embedding</TableHead>
-                      <TableHead className="px-4 text-right sm:px-5" aria-sort={query.sort === 'prominence' ? 'descending' : 'none'}>Prominencia</TableHead>
+                      <TableHead className="px-4 text-right sm:px-5" aria-sort={!ratingSort && query.sort === 'prominence' ? 'descending' : 'none'}>Prominencia</TableHead>
                       <TableHead className="px-4 text-right sm:px-5">Seguidores</TableHead>
                       <TableHead className="px-4 sm:px-5">Marca</TableHead>
-                      <TableHead className="px-4 sm:px-5">Instagram</TableHead>
                       <TableHead className="px-4 text-center sm:px-5">Destacado</TableHead>
-                      <TableHead className="px-4 sm:px-5" aria-sort={query.sort === 'recent' ? 'descending' : 'none'}>Última actualización</TableHead>
+                      <TableHead className="px-4 sm:px-5" aria-sort={!ratingSort && query.sort === 'recent' ? 'descending' : 'none'}>Última actualización</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -363,6 +515,54 @@ export function SavedPlacesPage() {
                             )}
                           </button>
                         </TableCell>
+                        <TableCell className="px-4 py-3 whitespace-nowrap sm:px-5">
+                          <GoogleMapsLink place={place} />
+                        </TableCell>
+                        <TableCell className="px-4 py-3 text-muted-foreground sm:px-5">
+                          {place.categories.length > 0 ? place.categories.map(categoryLabel).join(', ') : '—'}
+                        </TableCell>
+                        <TableCell className="px-4 py-3 whitespace-nowrap sm:px-5">
+                          {place.instagram ? (
+                            <a
+                              href={`https://www.instagram.com/${place.instagram}/`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-primary hover:underline"
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              @{place.instagram}
+                            </a>
+                          ) : <span className="text-muted-foreground">—</span>}
+                        </TableCell>
+                        <TableCell className="px-4 py-3 sm:px-5" onClick={(event) => event.stopPropagation()}>
+                          <select
+                            className="h-8 rounded-lg border bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-60"
+                            value={place.price}
+                            disabled={priceStates[place.id]?.status === 'saving'}
+                            onChange={(event) => void changePrice(place, event.target.value as PriceLevel)}
+                            aria-label={`Precio de ${place.name}`}
+                          >
+                            {PRICE_OPTIONS.map((id) => <option key={id} value={id}>{PRICE_LABELS[id]}</option>)}
+                          </select>
+                          <p className="mt-1 min-h-4 text-xs whitespace-nowrap" aria-live="polite" aria-label={`Guardado del precio de ${place.name}`}>
+                            {priceStates[place.id]?.status === 'saving' && <span className="text-muted-foreground">Guardando…</span>}
+                            {priceStates[place.id]?.status === 'saved' && <span className="text-emerald-700">Guardado</span>}
+                          </p>
+                          {priceStates[place.id]?.status === 'error' && (
+                            <p className="mt-1 max-w-48 text-xs text-destructive" role="alert">
+                              {(priceStates[place.id] as { message: string }).message}
+                            </p>
+                          )}
+                        </TableCell>
+                        {showRatings && (
+                          <TableCell className="px-4 py-3 whitespace-nowrap tabular-nums sm:px-5">
+                            {ratings[place.id]
+                              ? <span className={ratings[place.id].rating === null ? 'text-muted-foreground' : undefined}>{formatRating(ratings[place.id])}</span>
+                              : ratingErrors[place.id]
+                                ? <span className="text-destructive" title={ratingErrors[place.id]}>Error</span>
+                                : <span className="text-muted-foreground">—</span>}
+                          </TableCell>
+                        )}
                         <TableCell className="px-4 py-3 sm:px-5">
                           <span className="flex items-center gap-2.5">
                             <PlaceIcon category={place.iconCategory} />
@@ -370,9 +570,6 @@ export function SavedPlacesPage() {
                           </span>
                         </TableCell>
                         <TableCell className="px-4 py-3 text-muted-foreground sm:px-5">{neighborhoodDisplayName(place.neighborhoodId)}</TableCell>
-                        <TableCell className="px-4 py-3 text-muted-foreground sm:px-5">
-                          {place.categories.length > 0 ? place.categories.map(categoryLabel).join(', ') : '—'}
-                        </TableCell>
                         <TableCell className="px-4 py-3 text-right tabular-nums sm:px-5">{place.tags.length}</TableCell>
                         <TableCell className="px-4 py-3 sm:px-5">
                           {STATUS_LABELS[place.status] ?? place.status}
@@ -405,26 +602,6 @@ export function SavedPlacesPage() {
                         <TableCell className="px-4 py-3 text-muted-foreground sm:px-5">
                           {HOURS_LABELS[place.hoursStatus] ?? place.hoursStatus ?? '—'}
                         </TableCell>
-                        <TableCell className="px-4 py-3 sm:px-5" onClick={(event) => event.stopPropagation()}>
-                          <select
-                            className="h-8 rounded-lg border bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-60"
-                            value={place.price}
-                            disabled={priceStates[place.id]?.status === 'saving'}
-                            onChange={(event) => void changePrice(place, event.target.value as PriceLevel)}
-                            aria-label={`Precio de ${place.name}`}
-                          >
-                            {PRICE_OPTIONS.map((id) => <option key={id} value={id}>{PRICE_LABELS[id]}</option>)}
-                          </select>
-                          <p className="mt-1 min-h-4 text-xs whitespace-nowrap" aria-live="polite" aria-label={`Guardado del precio de ${place.name}`}>
-                            {priceStates[place.id]?.status === 'saving' && <span className="text-muted-foreground">Guardando…</span>}
-                            {priceStates[place.id]?.status === 'saved' && <span className="text-emerald-700">Guardado</span>}
-                          </p>
-                          {priceStates[place.id]?.status === 'error' && (
-                            <p className="mt-1 max-w-48 text-xs text-destructive" role="alert">
-                              {(priceStates[place.id] as { message: string }).message}
-                            </p>
-                          )}
-                        </TableCell>
                         <TableCell className="px-4 py-3 text-center sm:px-5">
                           {place.hasEmbedding
                             ? <span className="font-medium text-emerald-700" aria-label="Con embedding">✓</span>
@@ -435,19 +612,6 @@ export function SavedPlacesPage() {
                           {place.igFollowers === null ? '—' : place.igFollowers.toLocaleString('es-UY')}
                         </TableCell>
                         <TableCell className="px-4 py-3 text-muted-foreground sm:px-5">{place.brandKey ?? '—'}</TableCell>
-                        <TableCell className="px-4 py-3 whitespace-nowrap sm:px-5">
-                          {place.instagram ? (
-                            <a
-                              href={`https://www.instagram.com/${place.instagram}/`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-primary hover:underline"
-                              onClick={(event) => event.stopPropagation()}
-                            >
-                              @{place.instagram}
-                            </a>
-                          ) : <span className="text-muted-foreground">—</span>}
-                        </TableCell>
                         <TableCell className="px-4 py-3 text-center sm:px-5" onClick={(event) => event.stopPropagation()}>
                           <input
                             type="checkbox"
@@ -488,6 +652,29 @@ export function SavedPlacesPage() {
         )}
       </section>
 
+      <Dialog open={ratingRun.status === 'confirm'} onOpenChange={(open) => { if (!open) setRatingRun({ status: 'idle' }) }}>
+        <DialogContent className="sm:max-w-md">
+          {ratingRun.status === 'confirm' && (
+            <>
+              <DialogHeader>
+                <DialogTitle>¿Ver el puntaje de Google de {ratingRun.ids.length === 1 ? '1 lugar' : `${ratingRun.ids.length} lugares`}?</DialogTitle>
+                <DialogDescription>
+                  {ratingRun.ids.length === 1 ? 'Es 1 pedido' : `Son ${ratingRun.ids.length} pedidos`} a Google Place Details Enterprise (sólo rating y cantidad de reseñas),
+                  de {formatUsd(PLACE_DETAILS_USD)} cada uno: ≈ {formatUsd(ratingRun.ids.length * PLACE_DETAILS_USD)}. Los primeros 1.000 del mes son gratis.
+                  {' '}Son los lugares de los filtros actuales (todas las páginas) que todavía no tienen puntaje en esta sesión.
+                  {ratingRun.withoutGoogleId > 0 && ` ${ratingRun.withoutGoogleId} sin Google Place ID quedan afuera.`}
+                </DialogDescription>
+              </DialogHeader>
+              <p className="rounded-lg bg-muted p-3 text-sm">El puntaje sólo se muestra en esta sesión: no se guarda en la base.</p>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setRatingRun({ status: 'idle' })}>Volver</Button>
+                <Button type="button" onClick={() => void runRatings(ratingRun.ids)}>Consultar</Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <PlaceEditDialog
         placeId={editing}
         onClose={() => setEditing(null)}
@@ -502,6 +689,53 @@ export function SavedPlacesPage() {
           refresh()
         }}
       />
+    </div>
+  )
+}
+
+/** Link a la ficha exacta en Google Maps, sin abrir el modal; sin googlePlaceId, un guion. */
+function GoogleMapsLink({ place }: { place: PlaceListItem }) {
+  const href = googleMapsUrl(place)
+  if (!href) return <span className="text-muted-foreground">—</span>
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center gap-1 text-primary hover:underline"
+      onClick={(event) => event.stopPropagation()}
+      aria-label={`Ver ${place.name} en Google Maps`}
+    >
+      Ver en Maps
+      <ArrowUpRight className="size-3.5" aria-hidden="true" />
+    </a>
+  )
+}
+
+/** Resultado de la última consulta del puntaje de Google, debajo de los filtros. */
+function RatingRunStatus({ run }: { run: RatingRun }) {
+  if (run.status === 'error') {
+    return (
+      <Alert variant="destructive" className="mb-4 rounded-xl bg-background">
+        <AlertCircle aria-hidden="true" />
+        <AlertTitle>No se pudo consultar el puntaje de Google</AlertTitle>
+        <AlertDescription>{run.message}</AlertDescription>
+      </Alert>
+    )
+  }
+  if (run.status !== 'done') return null
+  const parts = [
+    run.loaded === 0 && run.failed === 0 ? 'Todos los lugares filtrados ya tienen el puntaje de Google.' : `Puntaje de Google de ${run.loaded} ${run.loaded === 1 ? 'lugar' : 'lugares'}.`,
+    run.withoutGoogleId > 0 ? `${run.withoutGoogleId} sin Google Place ID.` : '',
+  ].filter(Boolean)
+  return (
+    <div className="mb-4 text-sm" role="status">
+      <span className="text-muted-foreground">{parts.join(' ')}</span>
+      {run.failed > 0 && (
+        <span className="ml-1 text-destructive">
+          {run.failed === 1 ? '1 no se pudo consultar' : `${run.failed} no se pudieron consultar`}: volvé a tocar «Ver puntaje de Google» para reintentar sólo esos.
+        </span>
+      )}
     </div>
   )
 }

@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, isNotNull, ne, or, sql, type SQL } from 'drizzle-orm'
 import type { NeonHttpDatabase } from 'drizzle-orm/neon-http'
 import type * as schema from '../db/schema.ts'
-import type { PlaceListItem, PlaceListMissing, PlaceListPage, PlaceListQuery } from '../../src/types/places.ts'
+import type { PlaceListItem, PlaceListMissing, PlaceListPage, PlaceListQuery, PlaceNeighborhoodCount } from '../../src/types/places.ts'
 import { editedFields, parseManualOverrides } from '../../src/data/manual-overrides.ts'
 import { places } from '../db/schema.ts'
 import { logoUrl } from '../providers/logo-storage.ts'
@@ -15,6 +15,8 @@ export type { PlaceListItem }
 export type PlacesReader = {
   /** Una página del listado, con los filtros y el orden en la base. */
   list(query: PlaceListQuery): Promise<PlaceListPage>
+  /** Barrios con algún lugar guardado, con la cantidad (para el filtro de barrio). */
+  neighborhoods(): Promise<PlaceNeighborhoodCount[]>
   /** Cambia sólo featured (curaduría manual). false si el lugar no existe. */
   setFeatured(id: string, featured: boolean): Promise<boolean>
   /** Publica a mano un lugar en review. not_found si no existe; not_in_review si su status es otro. */
@@ -25,7 +27,7 @@ export type PlacesReader = {
 const likeLiteral = (value: string) => value.replace(/[\\%_]/g, (char) => `\\${char}`)
 
 /** Filtros del listado salvo el status, que va aparte para contar las pestañas. */
-function filtersOf(query: PlaceListQuery): SQL[] {
+function filtersOf(query: Omit<PlaceListQuery, 'page' | 'pageSize'>): SQL[] {
   const conditions: SQL[] = []
   // Contra f_unaccent(lower(name)): así Postgres usa places_name_trgm_idx.
   if (query.q) conditions.push(sql`f_unaccent(lower(${places.name})) like '%' || f_unaccent(lower(${likeLiteral(query.q)})) || '%'`)
@@ -46,20 +48,30 @@ function filtersOf(query: PlaceListQuery): SQL[] {
   return conditions
 }
 
+function orderOf(sort: PlaceListQuery['sort']): SQL[] {
+  if (sort === 'prominence') return [desc(places.prominence), desc(places.updatedAt)]
+  if (sort === 'name') return [asc(sql`f_unaccent(lower(${places.name}))`), asc(places.id)]
+  return [desc(places.updatedAt), asc(places.id)]
+}
+
+const idArray = (ids: string[]) => sql`array[${sql.join(ids.map((id) => sql`${id}`), sql`, `)}]::uuid[]`
+
 /** Listado liviano para el backoffice: no trae embedding (1536 números) ni los textos de búsqueda. */
 export function drizzlePlacesReader(db: NeonHttpDatabase<typeof schema>): PlacesReader {
   return {
     async list(query) {
       const filters = filtersOf(query)
-      const where = and(...filters, ...(query.status ? [eq(places.status, query.status)] : []))
-      const order = query.sort === 'prominence'
-        ? [desc(places.prominence), desc(places.updatedAt)]
-        : query.sort === 'name' ? [asc(sql`f_unaccent(lower(${places.name}))`), asc(places.id)] : [desc(places.updatedAt), asc(places.id)]
+      // ids va aparte de los filtros: los conteos de las pestañas son del conjunto filtrado, no de la página.
+      const where = and(...filters, ...(query.status ? [eq(places.status, query.status)] : []), ...(query.ids ? [inArray(places.id, query.ids)] : []))
+      const order = query.ids
+        ? [asc(sql`array_position(${idArray(query.ids)}, ${places.id})`)]
+        : orderOf(query.sort)
       const [rows, [counts]] = await Promise.all([
         db
           .select({
             id: places.id,
             name: places.name,
+            googlePlaceId: places.googlePlaceId,
             neighborhoodId: places.neighborhoodId,
             categories: places.categories,
             tags: places.tags,
@@ -110,6 +122,9 @@ export function drizzlePlacesReader(db: NeonHttpDatabase<typeof schema>): Places
         counts,
       }
     },
+    async neighborhoods() {
+      return db.select({ id: places.neighborhoodId, count: sql<number>`count(*)::int` }).from(places).groupBy(places.neighborhoodId)
+    },
     async setFeatured(id, featured) {
       // Curaduría, no contenido: updatedAt no cambia y el lugar no sube en "más reciente".
       const updated = await db.update(places).set({ featured, updatedAt: places.updatedAt }).where(eq(places.id, id)).returning({ id: places.id })
@@ -129,6 +144,29 @@ export function drizzlePlacesReader(db: NeonHttpDatabase<typeof schema>): Places
       if (updated.length > 0) return 'published'
       const found = await db.select({ id: places.id }).from(places).where(eq(places.id, id))
       return found.length > 0 ? 'not_in_review' : 'not_found'
+    },
+  }
+}
+
+export type PlaceIdsReader = {
+  /** Todos los ids con los filtros y el status del listado, en el orden de sort, sin paginar. */
+  filtered(query: Omit<PlaceListQuery, 'page' | 'pageSize' | 'ids'>): Promise<{ id: string; googlePlaceId: string | null }[]>
+  /** El googlePlaceId de cada id guardado; los que no existen no vienen. */
+  googleIds(ids: string[]): Promise<{ id: string; googlePlaceId: string | null }[]>
+}
+
+/** Ids para pedir el puntaje de Google y ordenar por él en el cliente. Una consulta cada uno. */
+export function drizzlePlaceIds(db: NeonHttpDatabase<typeof schema>): PlaceIdsReader {
+  return {
+    async filtered(query) {
+      return db.select({ id: places.id, googlePlaceId: places.googlePlaceId })
+        .from(places)
+        .where(and(...filtersOf(query), ...(query.status ? [eq(places.status, query.status)] : [])))
+        .orderBy(...orderOf(query.sort))
+    },
+    async googleIds(ids) {
+      if (ids.length === 0) return []
+      return db.select({ id: places.id, googlePlaceId: places.googlePlaceId }).from(places).where(inArray(places.id, ids))
     },
   }
 }

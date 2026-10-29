@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import pLimit from 'p-limit'
 import { stream } from 'hono/streaming'
 import { z } from 'zod'
 import { isFoodPlaceType } from '../src/data/food-place-types.ts'
@@ -22,10 +23,10 @@ import type { ExaPlaceProvider } from './providers/exa-place-provider.ts'
 import type { PlaceExtractor } from './providers/place-extraction-service.ts'
 import type { NeighborhoodSweeper } from './providers/neighborhood-sweep.ts'
 import type { PlacesSaver } from './places/save.ts'
-import type { PlacesReader } from './places/list.ts'
+import type { PlaceIdsReader, PlacesReader } from './places/list.ts'
 import { EditError, type PlaceEditor } from './places/edit.ts'
 import { PlaceEdit } from '../src/data/manual-overrides.ts'
-import { PLACE_LIST_CATEGORIES, PLACE_LIST_MISSING, PLACE_LIST_SORTS } from '../src/types/places.ts'
+import { PLACE_LIST_CATEGORIES, PLACE_LIST_MISSING, PLACE_LIST_SORTS, type GoogleRating, type GoogleRatingsResponse } from '../src/types/places.ts'
 import {
   buildExtractionReport,
   extractionReportRequestSchema,
@@ -93,6 +94,7 @@ const matchSources = new Set<MatchSource>([
 
 type GoogleProvider = PlacesProvider & {
   getDetails?(placeId: string): Promise<GooglePlaceDetailsResponse>
+  getRating?(placeId: string): Promise<GoogleRating>
 }
 
 type AppDependencies = {
@@ -105,6 +107,7 @@ type AppDependencies = {
   reportWriter?: ExtractionReportWriter
   placesSaver?: PlacesSaver
   placesReader?: PlacesReader
+  placeIds?: PlaceIdsReader
   placeEditor?: PlaceEditor
 }
 
@@ -133,7 +136,18 @@ const listQuerySchema = z.object({
   sort: z.enum(PLACE_LIST_SORTS).default('recent'),
   page: z.coerce.number().int().min(1).max(10_000).default(1),
   pageSize: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(50),
+  // La página del orden por puntaje de Google (se ordena en el cliente): esos ids, en ese orden.
+  ids: z.string().optional()
+    .transform((value) => value ? [...new Set(value.split(',').map((item) => item.trim()).filter(Boolean))] : undefined)
+    .pipe(z.array(z.uuid()).min(1).max(MAX_PAGE_SIZE).optional()),
 })
+// Todos los filtrados, sin página: para el puntaje de Google.
+const idsQuerySchema = listQuerySchema.omit({ page: true, pageSize: true, ids: true })
+// Cada id es un Place Details pago: el frontend confirma el costo antes y parte los lotes más grandes.
+const MAX_RATING_IDS = 500
+const RATING_CONCURRENCY = 5
+const ratingsRequestSchema = z.object({ ids: z.array(z.uuid()).min(1).max(MAX_RATING_IDS) })
+const MISSING_GOOGLE_KEY = 'Falta configurar GOOGLE_PLACES_API_KEY en .env.local.'
 const editRequestSchema = z.object({
   edit: PlaceEdit,
   dryRun: z.boolean().optional(),
@@ -191,7 +205,7 @@ function editError(error: EditError) {
   }
 }
 
-export function createApp({ provider, exaProvider, matchProviders = {}, instagramConfigured = false, extractor, sweeper, reportWriter, placesSaver, placesReader, placeEditor }: AppDependencies = {}) {
+export function createApp({ provider, exaProvider, matchProviders = {}, instagramConfigured = false, extractor, sweeper, reportWriter, placesSaver, placesReader, placeIds, placeEditor }: AppDependencies = {}) {
   const app = new Hono()
 
   app.get('/api/health', (context) =>
@@ -458,6 +472,69 @@ export function createApp({ provider, exaProvider, matchProviders = {}, instagra
       console.error(JSON.stringify({ event: 'places_list_error', message: error instanceof Error ? error.message : String(error) }))
       return context.json(apiError('UNKNOWN_ERROR', 'No se pudieron cargar los lugares.'), 500)
     }
+  })
+
+  // Sólo los barrios que tienen lugares guardados, para el filtro de Lugares.
+  app.get('/api/places/neighborhoods', async (context) => {
+    if (!placesReader) return context.json(apiError('CONFIGURATION_ERROR', MISSING_DATABASE), 503)
+    try {
+      context.header('Cache-Control', 'no-store')
+      return context.json({ neighborhoods: await placesReader.neighborhoods() })
+    } catch (error) {
+      console.error(JSON.stringify({ event: 'places_neighborhoods_error', message: error instanceof Error ? error.message : String(error) }))
+      return context.json(apiError('UNKNOWN_ERROR', 'No se pudieron cargar los barrios.'), 500)
+    }
+  })
+
+  // Los ids de todos los filtrados (sin paginar), para pedir el puntaje de Google y ordenar por él en el cliente.
+  app.get('/api/places/ids', async (context) => {
+    if (!placeIds) return context.json(apiError('CONFIGURATION_ERROR', MISSING_DATABASE), 503)
+    const parsed = idsQuerySchema.safeParse(context.req.query())
+    if (!parsed.success) return context.json(apiError('VALIDATION_ERROR', 'Los filtros del listado no son válidos.'), 400)
+    try {
+      const rows = await placeIds.filtered(parsed.data)
+      context.header('Cache-Control', 'no-store')
+      return context.json({ ids: rows.map((row) => row.id), withoutGoogleId: rows.flatMap((row) => row.googlePlaceId ? [] : [row.id]) })
+    } catch (error) {
+      console.error(JSON.stringify({ event: 'places_ids_error', message: error instanceof Error ? error.message : String(error) }))
+      return context.json(apiError('UNKNOWN_ERROR', 'No se pudieron cargar los lugares.'), 500)
+    }
+  })
+
+  // Puntaje de Google de lugares guardados: Place Details sólo con rating y userRatingCount. No se guarda (términos de
+  // Google): se devuelve para mostrarlo. Un lugar que falla no corta el resto; si fallan todos, 502.
+  app.post('/api/places/google-ratings', async (context) => {
+    if (!provider?.getRating) return context.json(apiError('CONFIGURATION_ERROR', MISSING_GOOGLE_KEY), 503)
+    if (!placeIds) return context.json(apiError('CONFIGURATION_ERROR', MISSING_DATABASE), 503)
+    const parsed = ratingsRequestSchema.safeParse(await context.req.json().catch(() => null))
+    if (!parsed.success) return context.json(apiError('VALIDATION_ERROR', 'La lista de ids no es válida.'), 400)
+    const ids = [...new Set(parsed.data.ids)]
+    let rows: { id: string; googlePlaceId: string | null }[]
+    try {
+      rows = await placeIds.googleIds(ids)
+    } catch (error) {
+      console.error(JSON.stringify({ event: 'places_ratings_error', message: error instanceof Error ? error.message : String(error) }))
+      return context.json(apiError('UNKNOWN_ERROR', 'No se pudo consultar la base.'), 500)
+    }
+    const targets = rows.flatMap((row) => row.googlePlaceId ? [{ id: row.id, googlePlaceId: row.googlePlaceId }] : [])
+    const getRating = provider.getRating.bind(provider)
+    const limit = pLimit(RATING_CONCURRENCY)
+    const result: GoogleRatingsResponse = { ratings: {}, failed: [], skipped: ids.length - targets.length }
+    const providerErrors: PlacesProviderError[] = []
+    await Promise.all(targets.map((target) => limit(async () => {
+      try {
+        result.ratings[target.id] = await getRating(target.googlePlaceId)
+      } catch (error) {
+        if (error instanceof PlacesProviderError) providerErrors.push(error)
+        result.failed.push({ id: target.id, message: error instanceof PlacesProviderError ? error.message : 'No se pudo consultar Google Places.' })
+      }
+    })))
+    context.header('Cache-Control', 'no-store')
+    if (targets.length > 0 && result.failed.length === targets.length) {
+      const mapped = providerErrors[0] ? providerError(providerErrors[0]) : { status: 502 as const, body: apiError('UPSTREAM_ERROR', 'No se pudo consultar Google Places.') }
+      return context.json(mapped.body, mapped.status)
+    }
+    return context.json(result)
   })
 
   // Curaduría manual: sólo cambia featured. El pipeline nunca lo escribe.

@@ -141,6 +141,19 @@ describe('GooglePlacesProvider', () => {
     expect(init.headers['X-Goog-FieldMask']).toBe('primaryTypeDisplayName')
   })
 
+  it('getRating pide sólo rating y userRatingCount; sin dato, null', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ rating: 4.6, userRatingCount: 812 }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }))
+    const provider = new GooglePlacesProvider('private-key', fetcher)
+
+    expect(await provider.getRating('place-1')).toEqual({ rating: 4.6, userRatingCount: 812 })
+    expect(await provider.getRating('place-2')).toEqual({ rating: null, userRatingCount: null })
+    const [url, init] = fetcher.mock.calls[0]
+    expect(String(url)).toBe('https://places.googleapis.com/v1/places/place-1')
+    expect(init.headers['X-Goog-FieldMask']).toBe('rating,userRatingCount')
+  })
+
   it.each([
     [403, 'PERMISSION_DENIED', 'authorization'],
     [429, 'RESOURCE_EXHAUSTED', 'quota'],

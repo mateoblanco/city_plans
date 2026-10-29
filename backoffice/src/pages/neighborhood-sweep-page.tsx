@@ -128,7 +128,40 @@ const columns: readonly PlacesTableColumn<NeighborhoodSweepPlace>[] = [
       <span className="text-xs leading-5">{place.foundBy.map(formatFoundBy).join(' · ')}</span>
     ),
   },
+  // Sólo se muestran: vienen en el mismo pedido del barrido y no se guardan.
+  {
+    header: 'Puntaje',
+    cell: (place) => <span className="tabular-nums">{place.rating?.toLocaleString('es-UY', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) ?? '—'}</span>,
+  },
+  {
+    header: 'Reseñas',
+    cell: (place) => <span className="tabular-nums">{place.userRatingCount?.toLocaleString('es-UY') ?? '—'}</span>,
+  },
 ]
+
+type SweepRatingOrder = 'google' | 'rating_desc' | 'rating_asc' | 'reviews_desc'
+
+const RATING_ORDER_LABELS: Record<SweepRatingOrder, string> = {
+  google: 'Como lo devuelve Google',
+  rating_desc: 'Puntaje (mayor primero)',
+  rating_asc: 'Puntaje (menor primero)',
+  reviews_desc: 'Más reseñas',
+}
+
+/** "Menos de 4": con puntaje y menor a 4. Sin puntaje no entra. */
+const isLowRating = (place: NeighborhoodSweepPlace) => place.rating !== null && place.rating < 4
+
+/** Orden por puntaje o reseñas, estable; los que no tienen el dato van al final, en el orden de Google. */
+function sortByRatingOrder(places: NeighborhoodSweepPlace[], order: SweepRatingOrder) {
+  if (order === 'google') return places
+  const value = (place: NeighborhoodSweepPlace) => order === 'reviews_desc' ? place.userRatingCount : place.rating
+  const sign = order === 'rating_asc' ? 1 : -1
+  return [...places].sort((a, b) => {
+    const [x, y] = [value(a), value(b)]
+    if (x === null || y === null) return x === y ? 0 : x === null ? 1 : -1
+    return sign * (x - y)
+  })
+}
 
 const GROUPS: readonly { id: PlaceGroup; label: string }[] = [
   { id: 'accepted', label: 'Aceptados' },
@@ -277,6 +310,8 @@ export function NeighborhoodSweepPage() {
   const [existingIds, setExistingIds] = useState<ReadonlySet<string>>(new Set())
   const [existingStatus, setExistingStatus] = useState<ExistingStatus>('idle')
   const [hideExisting, setHideExisting] = useState(true)
+  const [ratingOrder, setRatingOrder] = useState<SweepRatingOrder>('google')
+  const [lowRatingOnly, setLowRatingOnly] = useState(false)
   const [mapVisible, setMapVisible] = useState(readMapVisible)
   // Lugar bajo el mouse, en el mapa o en la lista: se resalta en los dos.
   const [hoveredId, setHoveredId] = useState<string | null>(null)
@@ -318,6 +353,12 @@ export function NeighborhoodSweepPage() {
     hideExistingRef.current = hide
     setHideExisting(hide)
     if (hide) setSelectedIds((current) => withoutIds(current, existingIds))
+  }
+
+  // Como ocultar los ya guardados: lo que el filtro saca de la vista también sale de la selección.
+  function toggleLowRating(only: boolean) {
+    setLowRatingOnly(only)
+    if (only) setSelectedIds((current) => withoutIds(current, new Set(places.filter((place) => !isLowRating(place)).map((place) => place.placeId))))
   }
 
   async function runSweep(target: string, sweepMode: NeighborhoodSweepMode) {
@@ -413,14 +454,18 @@ export function NeighborhoodSweepPage() {
   const showOnlyInside = canFilter && onlyInside
   // Los ya guardados se sacan antes de los filtros de ubicación y grupo: no cuentan ni se pueden seleccionar.
   const shownPlaces = hideExisting ? places.filter((place) => !existingIds.has(place.placeId)) : places
-  const locationVisible = showOnlyInside ? shownPlaces.filter(isInside) : shownPlaces
+  const insideVisible = showOnlyInside ? shownPlaces.filter(isInside) : shownPlaces
+  // El filtro por puntaje va antes de contar los grupos: las tabs, el mapa y "seleccionar todos" usan el mismo conjunto.
+  const locationVisible = canFilter && lowRatingOnly ? insideVisible.filter(isLowRating) : insideVisible
   const existingInView = (showOnlyInside ? insidePlaces : places).filter((place) => existingIds.has(place.placeId)).length
   const existingText = existingLabel(existingStatus, existingInView, hideExisting)
   const groupCounts = { accepted: 0, review: 0, rejected: 0 }
   for (const place of locationVisible) if (place.group) groupCounts[place.group] += 1
   const groupedByReason = canFilter && group === 'review'
   const groupPlaces = canFilter ? locationVisible.filter((place) => place.group === group) : shownPlaces
-  const visiblePlaces = groupedByReason ? sortByReason(groupPlaces) : groupPlaces
+  // sortByReason es estable: dentro de cada motivo queda el orden por puntaje.
+  const orderedPlaces = canFilter ? sortByRatingOrder(groupPlaces, ratingOrder) : groupPlaces
+  const visiblePlaces = groupedByReason ? sortByReason(orderedPlaces) : orderedPlaces
   // El motivo va justo después del nombre.
   const tableColumns = [
     ...(canFilter && group !== 'accepted' ? [group === 'review' ? reasonColumnWithRelease(releasedIds, toggleReleased) : reasonColumn] : []),
@@ -696,6 +741,29 @@ export function NeighborhoodSweepPage() {
                       className="size-4 accent-foreground"
                     />
                     Mostrar sólo lugares del barrio
+                  </label>
+                )}
+                {canFilter && (
+                  <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={lowRatingOnly}
+                      onChange={(event) => toggleLowRating(event.target.checked)}
+                      className="size-4 accent-foreground"
+                    />
+                    Puntaje menor a 4
+                  </label>
+                )}
+                {canFilter && (
+                  <label className="inline-flex items-center gap-2 text-sm">
+                    Orden
+                    <select
+                      className="h-8 rounded-lg border bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      value={ratingOrder}
+                      onChange={(event) => setRatingOrder(event.target.value as SweepRatingOrder)}
+                    >
+                      {(Object.keys(RATING_ORDER_LABELS) as SweepRatingOrder[]).map((id) => <option key={id} value={id}>{RATING_ORDER_LABELS[id]}</option>)}
+                    </select>
                   </label>
                 )}
                 <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
