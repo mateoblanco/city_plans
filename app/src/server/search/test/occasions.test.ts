@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { findDef, OCCASION_TAGS } from '@shared/tags.ts'
 import { SEARCH_CONFIG } from '../config'
-import { interpretWithDictionary } from '../dictionary'
+import { applyDictionary, interpretWithDictionary } from '../dictionary'
 import { dishTarget } from '../dishes'
 import { boostsFor, matchLevelOf, type Fused, type FuseContext } from '../fuse'
-import { momentSignals, momentsOf } from '../moments'
+import { groupSignals, momentSignals, momentsOf } from '../moments'
 import { applyRemove, emptyInterpretation, validateInterpretation } from '../interpretation'
 import { normalizeQuery } from '../normalize'
 import { buildReasons } from '../reasons'
@@ -174,14 +174,95 @@ describe('momentFit', () => {
   it('celebration cuenta las reservas; con varios momentos vale el que más encaja, sin sumar', () => {
     expect(momentSignals(['celebration'], row({ id: 'a', reservations: 'recommended' }))).toBe(1)
     expect(momentSignals(['celebration'], row({ id: 'a', reservations: 'no_reservations' }))).toBe(0)
-    const place = row({ id: 'a', tags: ['groups', 'picada', 'draft_beer', 'date'] })
-    expect(momentSignals(['groups'], place)).toBe(3)
-    expect(momentSignals(['date', 'groups'], place)).toBe(3)
+    const place = row({ id: 'a', tags: ['celebration', 'groups', 'picada', 'date'] })
+    expect(momentSignals(['celebration'], place)).toBe(3)
+    expect(momentSignals(['date', 'celebration'], place)).toBe(3)
   })
 
   it('almuerzo de trabajo: menú del día, algo rápido y almuerzo', () => {
     expect(momentSignals(['menu_of_the_day', 'quick'], row({ id: 'a', tags: ['menu_of_the_day', 'quick', 'lunch'] }))).toBe(3)
     expect(momentSignals(['menu_of_the_day', 'quick'], row({ id: 'a', tags: ['work'] }))).toBe(0)
+  })
+})
+
+describe('groupFit', () => {
+  const { groupFit: tagFit, groupIdentity, groupSignal, maxGroupSignals, momentFit } = SEARCH_CONFIG.boosts
+  const groups = context({ moments: ['groups'] })
+  const pub = { iconCategory: 'beer_pub' as const }
+  const threeSignals = ['draft_beer', 'picada', 'live_music']
+
+  it('el tag y la identidad de pub no se suman entre sí', () => {
+    expect(boostsFor(row({ id: 'a', tags: ['groups'] }), groups, null).groupFit).toBeCloseTo(tagFit)
+    expect(boostsFor(row({ id: 'a', ...pub }), groups, null).groupFit).toBeCloseTo(groupIdentity)
+    expect(boostsFor(row({ id: 'a', categories: ['brewery'] }), groups, null).groupFit).toBeCloseTo(groupIdentity)
+    expect(boostsFor(row({ id: 'a', tags: ['groups'], ...pub }), groups, null).groupFit).toBeCloseTo(tagFit)
+  })
+
+  it('las señales suman con tope y cada familia cuenta una vez', () => {
+    expect(groupSignals(row({ id: 'a', tags: ['draft_beer', 'craft_beer', 'picada', 'tapas'] }))).toBe(2)
+    expect(groupSignals(row({ id: 'a', categories: ['pizzeria'], iconCategory: 'pizza' }))).toBe(1)
+    expect(boostsFor(row({ id: 'a', tags: ['draft_beer'] }), groups, null).groupFit).toBeCloseTo(groupSignal)
+    const many = row({ id: 'a', tags: [...threeSignals, 'pool_table', 'lively', 'classic_cocktails'], categories: ['pizzeria', 'bar'], style: 'casual' })
+    expect(groupSignals(many)).toBe(8)
+    expect(boostsFor(many, groups, null).groupFit).toBeCloseTo(maxGroupSignals * groupSignal)
+  })
+
+  it('no cuenta lo muy común: tag pizza, casual sin bar, drinks ni late_night', () => {
+    expect(groupSignals(row({ id: 'a', tags: ['pizza', 'drinks', 'late_night', 'burgers'], categories: ['restaurant'], style: 'casual' }))).toBe(0)
+    expect(groupSignals(row({ id: 'a', categories: ['bar'], style: 'cuidado' }))).toBe(0)
+    expect(groupSignals(row({ id: 'a', categories: ['bar'], style: 'casual' }))).toBe(1)
+  })
+
+  it('sin grupos pedidos no suma nada', () => {
+    const place = row({ id: 'a', tags: ['groups', ...threeSignals], ...pub })
+    expect(boostsFor(place, context(), null).groupFit).toBeUndefined()
+    expect(boostsFor(place, context({ moments: ['date'] }), null).groupFit).toBeUndefined()
+    expect(matchLevelOf(row({ id: 'a', tags: threeSignals }), [], [], ['date'])).toBe('maybe')
+  })
+
+  it('reemplaza a momentFit para grupos: no cuenta dos veces', () => {
+    expect(boostsFor(row({ id: 'a', tags: ['groups', 'picada'] }), groups, null).momentFit).toBeUndefined()
+    expect(boostsFor(row({ id: 'a', tags: ['celebration', 'groups'] }), context({ moments: ['celebration'] }), null).momentFit).toBeCloseTo(2 * momentFit)
+  })
+
+  it('has con el tag, la identidad o 3 señales; con 2 señales, maybe', () => {
+    expect(matchLevelOf(row({ id: 'a', tags: ['groups'] }), [], [], ['groups'])).toBe('has')
+    expect(matchLevelOf(row({ id: 'a', ...pub }), [], [], ['groups'])).toBe('has')
+    expect(matchLevelOf(row({ id: 'a', tags: threeSignals }), [], [], ['groups'])).toBe('has')
+    expect(matchLevelOf(row({ id: 'a', tags: threeSignals.slice(0, 2) }), [], [], ['groups'])).toBe('maybe')
+    // Con un plato pedido, has sigue pidiendo los dos.
+    expect(matchLevelOf(row({ id: 'a', ...pub, dishHas: [false] }), [dishTarget('chivito')], [], ['groups'])).toBe('maybe')
+  })
+
+  it('nadie queda afuera; el motivo "Para ir con amigos" sólo sale con el tag', async () => {
+    const places = [row({ id: 'nada', prominence: 1 }), row({ id: 'pub', ...pub }), row({ id: 'grupos', tags: ['groups'] })]
+    const response = await runSearch('para un grupo', { store: fakeStore(places).store, cache: fakeCache(llmOutput()).cache }, { now, debug: true })
+    expect(response.results.map((result) => result.id).sort()).toEqual(['grupos', 'nada', 'pub'])
+    expect(response.results.at(-1)?.id).toBe('nada')
+    const reasons = (id: string) => response.results.find((result) => result.id === id)?.reasons
+    expect(reasons('grupos')).toContain('Para ir con amigos')
+    expect(reasons('pub')).not.toContain('Para ir con amigos')
+  })
+})
+
+describe('frases de grupo en el diccionario', () => {
+  it('van a prefer, nunca a must, sin distinguir grupo grande o chico', () => {
+    for (const query of ['con amigas', 'con mis amigos', 'entre amigas', 'para ir con amigos', 'salir con amigas', 'amigos', 'juntada', 'juntada con amigos', 'para juntarse', 'grupo', 'para un grupo', 'grupo grande', 'para un grupo grande', 'grupos grandes', 'mesa grande', 'con los pibes', 'con la barra', 'big group']) {
+      const value = dictionary(query)
+      expect(value?.prefer.tags, query).toEqual(['groups'])
+      expect(value?.must.tags, query).toEqual([])
+    }
+  })
+
+  it('"con la barra" no se lee como ir solo; "barra" suelta sigue igual', () => {
+    expect(dictionary('con la barra')?.prefer.tags).not.toContain('solo')
+    expect(dictionary('barra')?.prefer.tags).toEqual(['solo'])
+  })
+
+  it('se suman a otro pedido y a lo que devuelve el modelo', () => {
+    expect(dictionary('comer con amigas')?.prefer.tags).toEqual(['groups'])
+    expect(dictionary('comer con amigas')?.intent).toBe('eat')
+    expect(applyDictionary(emptyInterpretation(), 'algo lindo con amigas').prefer.tags).toEqual(['groups'])
   })
 })
 

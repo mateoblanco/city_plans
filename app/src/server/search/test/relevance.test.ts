@@ -22,6 +22,23 @@ const context: RelevanceContext = { hasEmbedding: true, categories: ['pizzeria']
 const kept = (fused: Fused[], ctx = context) => relevanceCut(fused, ctx).kept.map((entry) => entry.row.id)
 
 describe('corte por relevancia', () => {
+  it('con grupos pedido, un pub o un lugar con 3 señales se queda aunque esté lejos y sin el tag', () => {
+    const moments: RelevanceContext = { hasEmbedding: true, categories: [], tags: ['groups'], moments: ['groups'], hasDishes: false }
+    const fused = [
+      item({ id: 'mejor', semantic: 0.45 }),
+      item({ id: 'pub', semantic: 0.1, iconCategory: 'beer_pub' }),
+      item({ id: 'senales', semantic: 0.1, tags: ['draft_beer', 'picada', 'live_music'] }),
+      item({ id: 'dos', semantic: 0.1, tags: ['draft_beer', 'picada'] }),
+      item({ id: 'tag', semantic: 0.1, tags: ['groups'] }),
+    ]
+    const result = relevanceCut(fused, moments)
+    expect(result.kept.map((entry) => entry.row.id)).toEqual(['mejor', 'pub', 'senales', 'tag'])
+    expect(result.relevance.get('pub')).toEqual({ kept: 'moment' })
+    expect(result.relevance.get('tag')).toEqual({ kept: 'tag' })
+    // Sin grupos pedido, el mismo pub se corta.
+    expect(kept([item({ id: 'mejor', semantic: 0.45 }), item({ id: 'pub', semantic: 0.1, iconCategory: 'beer_pub' })])).toEqual(['mejor'])
+  })
+
   it('saca lo que queda más de 0,08 por debajo del más parecido y no coincide con nada explícito', () => {
     const result = relevanceCut([item({ id: 'mejor', semantic: 0.45 }), item({ id: 'lejos', semantic: 0.3 })], context)
     expect(result.kept.map((entry) => entry.row.id)).toEqual(['mejor'])

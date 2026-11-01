@@ -56,6 +56,8 @@ describe('cuándo una búsqueda es amplia', () => {
 describe('qué grupos se piden', () => {
   it('reglas según la intención y el momento', () => {
     expect(ruleSections(interpretation({ prefer: { categories: [], tags: ['groups'], style: null } }), 'eat')).toEqual(['share', 'casual', 'world', 'discover'])
+    // Con amigos sin intención: sin "Algo especial".
+    expect(ruleSections(interpretation({ prefer: { categories: [], tags: ['groups'], style: null } }), null)).toEqual(['drinks', 'eat', 'share', 'casual', 'discover'])
     expect(ruleSections(interpretation({ prefer: { categories: [], tags: ['date'], style: null } }), 'bars')[0]).toBe('special')
     expect(ruleSections(interpretation(), 'cafes')).toEqual(['outdoor', 'casual', 'special', 'discover'])
   })

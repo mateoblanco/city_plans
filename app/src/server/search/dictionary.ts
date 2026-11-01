@@ -42,6 +42,18 @@ const SEA_VIEW_PHRASES = new Set([
   'frente al mar', 'vista al mar', 'cerca del mar', 'sobre la costa', 'sobre la rambla', 'en la rambla', 'cerca de la rambla', 'la rambla', 'rambla',
 ])
 
+// Ir con amigos o en grupo, sin distinguir grupo grande o chico: groups como preferencia, sin pasar por el modelo. Van acá
+// y no como sinónimos en shared/tags.ts, que entran en los textos guardados de los lugares. "con la barra" gana por ser
+// más larga que "barra", sinónimo de solo.
+const GROUP_PHRASES = new Map<string, 'es' | 'en'>([
+  ...[
+    'con amigas', 'con mis amigos', 'con mis amigas', 'entre amigos', 'entre amigas', 'para ir con amigos', 'para ir con amigas',
+    'salir con amigos', 'salir con amigas', 'amigos', 'amigas', 'juntada', 'juntada con amigos', 'para juntarse', 'grupo',
+    'para un grupo', 'grupo grande', 'para un grupo grande', 'grupos grandes', 'mesa grande', 'con los pibes', 'con las pibas', 'con la barra',
+  ].map((phrase) => [phrase, 'es'] as const),
+  ['big group', 'en'],
+])
+
 // Verbos que piden una intención sin nombrar un tag ("comer", "tomar algo"). Se miran antes que el catálogo, así
 // "tomar algo" es sólo Bares y no exige el tag drinks; una frase más larga del catálogo ("comer de noche") gana igual.
 const VERBS = new Map<string, [IntentId, 'es' | 'en']>(INTENT_VERBS.map(([phrase, id, lang]) => [normalize(phrase), [id, lang]]))
@@ -137,7 +149,11 @@ export function interpretWithDictionary(normalized: string, { partial = false }:
       const genericDish = GENERIC_DISHES.get(phrase)
       const combined = COMBINED_PHRASES.get(phrase)
       const freeFood = allYouCanEatFood(phrase)
-      if (MEATLESS_PHRASES.has(phrase)) {
+      const groupPhrase = GROUP_PHRASES.get(phrase)
+      if (groupPhrase) {
+        target.prefer.tags.push('groups')
+        votes[groupPhrase]++
+      } else if (MEATLESS_PHRASES.has(phrase)) {
         target.exclude.tags.push(MEAT_TAG)
         votes.es++
       } else if (SEA_VIEW_PHRASES.has(phrase)) {

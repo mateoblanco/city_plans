@@ -16,6 +16,7 @@ const KEPT_LABELS: Record<KeptBy, string> = {
   pinned: "por nombre",
   category: "por categoría",
   tag: "por tag",
+  moment: "por momento",
   dish: "por plato",
   keyword: "por keyword",
   venue: "por venue",

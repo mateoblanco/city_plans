@@ -7,7 +7,7 @@ import type { CandidateRow } from './candidates'
 import { isMainCuisine } from './cuisines'
 import { singularForms, type DishTarget } from './dishes'
 import type { DietKey, Price } from './interpretation'
-import { momentSignals } from './moments'
+import { groupFit, matchesMoment, momentSignals } from './moments'
 import { sectionSignals } from './sections'
 import { hoursConfirmed, openStatus, type OpenFilter, type OpenState } from './hours'
 
@@ -123,19 +123,19 @@ export function reciprocalRankFusion(rankings: Rankings): Map<string, number> {
 /**
  * has: el plato está en dishes o en el texto (o es genérico y tiene el tag); maybe: sólo el tag relacionado. Con precio
  * pedido, un precio desconocido es maybe: el filtro ya lo saca, así que sólo pasa con un lugar fijado por nombre.
- * Con un momento pedido (cita, con amigos…), los que no tienen ninguno de sus tags son maybe, como un plato; con plato y
- * momento, has pide los dos. Con una cocina pedida, igual: has si es su cocina principal (signature o ícono, cuisines.ts);
- * con el tag solo (un par de platos peruanos en un bar de tapas), maybe.
+ * Con un momento pedido (cita, con amigos…), los que no lo cumplen (su tag o, con grupos, moments.ts fitsGroup) son maybe,
+ * como un plato; con plato y momento, has pide los dos. Con una cocina pedida, igual: has si es su cocina principal
+ * (signature o ícono, cuisines.ts); con el tag solo (un par de platos peruanos en un bar de tapas), maybe.
  */
 export function matchLevelOf(
-  row: Pick<CandidateRow, 'dishHas' | 'tags' | 'categories' | 'price' | 'signature' | 'iconCategory'>,
+  row: Pick<CandidateRow, 'dishHas' | 'tags' | 'categories' | 'price' | 'signature' | 'iconCategory' | 'style'>,
   dishes: DishTarget[],
   price: readonly string[] = [],
   moments: readonly string[] = [],
   cuisines: readonly string[] = [],
 ): MatchLevel {
   if (price.length > 0 && row.price === 'unknown') return 'maybe'
-  if (moments.length > 0 && !moments.some((id) => row.tags.includes(id))) return 'maybe'
+  if (moments.length > 0 && !matchesMoment(moments, row)) return 'maybe'
   if (cuisines.length > 0 && !cuisines.some((id) => isMainCuisine(row, id))) return 'maybe'
   if (dishes.length === 0) return 'has'
   const has = dishes.some(
@@ -236,6 +236,8 @@ export function boostsFor(row: CandidateRow, context: FuseContext, open: OpenSta
   if (signals > 0) result.sectionFit = signals * boosts.sectionFit
   const moment = momentSignals(context.moments, row)
   if (moment > 0) result.momentFit = moment * boosts.momentFit
+  const group = groupFit(context.moments, row)
+  if (group > 0) result.groupFit = group
   // "Abre hoy" no empuja a los abiertos: ordena la relevancia y la card dice si abre más tarde.
   if (!context.openAt?.today && open?.state === 'open' && hoursConfirmed(row.hours)) result.confirmedOpen = boosts.confirmedOpen
   if (!context.wantsDancing && isDanceOnly(row)) result.danceOnly = boosts.danceOnly

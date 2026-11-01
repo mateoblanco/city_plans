@@ -75,6 +75,7 @@ const RULES: Record<IntentId | 'none', { groups?: SectionId[]; date?: SectionId[
   cafes: { base: ['outdoor', 'casual', 'special', 'discover'] },
   desserts: { base: ['outdoor', 'casual', 'discover'] },
   none: {
+    groups: ['drinks', 'eat', 'share', 'casual', 'discover'],
     date: ['special', 'eat', 'drinks', 'outdoor', 'casual', 'discover'],
     base: ['eat', 'drinks', 'outdoor', 'casual', 'special', 'discover'],
   },

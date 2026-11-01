@@ -61,7 +61,7 @@ describe('horario del texto', () => {
 
   it('"tarde" sin bares y "salir" sin noche no se fuerzan: va al modelo', () => {
     expect(interpretWithDictionary('comer tarde')).toBeNull()
-    expect(interpretWithDictionary('salir con amigos')).toBeNull()
+    expect(interpretWithDictionary('salir en pareja')).toBeNull()
     // "abierto hasta tarde" es la frase del catálogo (late_night), no "abierto" + "tarde".
     expect(interpretWithDictionary('bar abierto hasta tarde')?.must.openAt).toBeNull()
   })

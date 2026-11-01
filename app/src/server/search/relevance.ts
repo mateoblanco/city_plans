@@ -2,9 +2,10 @@ import { SEARCH_CONFIG } from './config'
 import type { FilterGroup } from './candidates'
 import type { Fused } from './fuse'
 import { matchesGroup } from './intents'
+import { matchesMoment } from './moments'
 
 /** Por qué un resultado pasa el corte; `no-similarity`: el lugar no tiene embedding, no hay con qué compararlo. */
-export type KeptBy = 'pinned' | 'category' | 'tag' | 'dish' | 'keyword' | 'venue' | 'intent' | 'similar' | 'no-similarity'
+export type KeptBy = 'pinned' | 'category' | 'tag' | 'moment' | 'dish' | 'keyword' | 'venue' | 'intent' | 'similar' | 'no-similarity'
 export type Relevance = { kept: KeptBy } | { cut: true; reason: string }
 
 export type RelevanceContext = {
@@ -14,6 +15,8 @@ export type RelevanceContext = {
   categories: string[]
   /** Tags pedidos (must + prefer + tags relacionados de los platos). */
   tags: string[]
+  /** Momentos pedidos: un lugar que cumple el momento sin tener su tag (un pub, con grupos) es una coincidencia. */
+  moments?: string[]
   hasDishes: boolean
   /**
    * La intención que el texto pidió con un verbo ("tomar algo" → Bares): cuenta como una categoría pedida, igual que
@@ -43,6 +46,7 @@ function explicitMatch(item: Fused, context: RelevanceContext): KeptBy | null {
   if (item.pinned) return 'pinned'
   if (row.categories.some((id) => context.categories.includes(id))) return 'category'
   if (row.tags.some((id) => context.tags.includes(id))) return 'tag'
+  if (context.moments && matchesMoment(context.moments, row)) return 'moment'
   if (context.hasDishes && (row.dishHas.some(Boolean) || row.dishExact.some(Boolean) || item.dishLevel === 'has')) return 'dish'
   if (row.keyword > 0) return 'keyword'
   if (context.venue && row.matchesFilters) return 'venue'

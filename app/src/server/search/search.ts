@@ -121,6 +121,7 @@ export type SearchDebug = {
     diet: CandidateRow['diet']
     price: string
     iconCategory: CandidateRow['iconCategory']
+    style: CandidateRow['style']
     neighborhoodId: string
     locatedIn: string | null
     rrf: number
@@ -557,6 +558,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       hasEmbedding: embedding !== null,
       categories: requestedCategories,
       tags: requestedTags,
+      moments: momentsOf(wanted.prefer.tags),
       hasDishes: dishes.length > 0,
       // La intención del verbo del texto (no la que sólo pide la URL).
       intent: wanted.intent !== null && wanted.intent === value.intent ? intentGroups(value.intent, [])[0] : null,
@@ -811,6 +813,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
         diet: item.row.diet,
         price: item.row.price,
         iconCategory: item.row.iconCategory,
+        style: item.row.style,
         neighborhoodId: item.row.neighborhoodId,
         locatedIn: item.row.locatedIn,
         rrf: item.rrf,

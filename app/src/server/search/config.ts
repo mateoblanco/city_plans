@@ -81,6 +81,17 @@ export const SEARCH_CONFIG = {
      */
     momentFit: 0.003,
     maxMomentSignals: 4,
+    /**
+     * Con groups pedido ("con amigos", "para un grupo"; moments.ts). Tag groups: 0.009, que con preferTag da 0.015. Sin el
+     * tag, un pub o cervecería suma groupIdentity, lo mismo que el tag con preferTag: no vale más que tenerlo. Cada señal
+     * (cerveza, para compartir, juegos…) suma groupSignal, hasta maxGroupSignals. Con minGroupSignals señales, o con el tag
+     * o la identidad, el lugar es "has" y pasa el corte por relevancia.
+     */
+    groupFit: 0.009,
+    groupIdentity: 0.015,
+    groupSignal: 0.005,
+    maxGroupSignals: 3,
+    minGroupSignals: 3,
     confirmedOpen: 0.01,
     /**
      * Principalmente para bailar (boliche, tag dancing, o dj sin comida) y la consulta no pide bailar: baja un poco
@@ -200,9 +211,10 @@ export const SEARCH_CONFIG = {
    * validación) para no usar lo guardado con el criterio viejo. 2: horario del texto ("tarde" con bares). 3: almuerzo
    * de trabajo (lunch + menú del día + algo rápido), no work. 4: un lugar que no es barrio (mercado, shopping) va a
    * unrecognized, no a neighborhoods. 5: cocinas paraguas (asian, latin_american). 6: "sin carne" es exclude de grilled_meat,
-   * no vegetariano, y las cocinas del texto se suman a lo del modelo.
+   * no vegetariano, y las cocinas del texto se suman a lo del modelo. 8: más frases de groups ("con amigas", "para un
+   * grupo", "juntada"…), en el prompt y en el diccionario.
    */
-  interpretationCacheVersion: 7,
+  interpretationCacheVersion: 8,
 
   timeZone: 'America/Montevideo',
   /** Faltando esto o menos para el cierre o la apertura, la card dice "Cierra pronto" / "Abre pronto". */

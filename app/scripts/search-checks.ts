@@ -1,6 +1,7 @@
 // Propiedades esperadas por consulta, para `yarn search:eval` y `yarn search:check` (sale con error si alguna falla).
 import { isDanceOnly, isKidsNight } from "../src/server/search/fuse";
 import { intentGroups, matchesGroup } from "../src/server/search/intents";
+import { fitsGroup } from "../src/server/search/moments";
 import type { SearchDebug, SearchResponse } from "../src/server/search/search";
 
 type Place = SearchDebug["results"][number];
@@ -81,7 +82,27 @@ const noneInTop = (count: number, description: string, bad: (place: Place) => bo
 
 const isMeat = (place: Place) => place.categories.includes("grill") || place.tags.includes("grilled_meat") || place.iconCategory === "grill" || place.iconCategory === "meat";
 
+const isBar = (place: Place) => place.categories.includes("bar") || place.categories.includes("brewery");
+
 export const CHECKS: Record<string, Check[]> = {
+  "para ir con amigos": [
+    nonEmpty,
+    {
+      description: "groups en prefer y no en must",
+      test: (_, response) => {
+        const { must, prefer } = response.debug!.interpretation;
+        return prefer.tags.includes("groups") && !must.tags.includes("groups") ? [] : [`prefer: ${prefer.tags.join(", ") || "—"}; must: ${must.tags.join(", ") || "—"}`];
+      },
+    },
+    {
+      description: "al menos 7 de los primeros 10 son bares, cervecerías o lugares con señales de grupo",
+      test: (places) => {
+        const top = places.slice(0, 10);
+        const others = top.filter((place) => !isBar(place) && !fitsGroup(place));
+        return top.length === 10 && others.length <= 3 ? [] : [`${top.length - others.length} de ${top.length}; no cumplen: ${others.map(name).join("; ") || "—"}`];
+      },
+    },
+  ],
   "comer con amigos": [nonEmpty, allInIntent("eat"), noDanceInTop(5), every("ningún lugar que sea sólo cafetería (cafe sin restaurante ni bar)", (place) => !place.categories.includes("cafe") || place.categories.includes("restaurant") || place.categories.includes("bar")), grouped],
   "tomar algo con amigos": [nonEmpty, allInIntent("bars"), noDanceInTop(5), grouped],
   "bar con amigos": [nonEmpty, allInIntent("bars")],
