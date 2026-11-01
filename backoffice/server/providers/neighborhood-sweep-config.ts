@@ -1,5 +1,6 @@
 import type { FoodPlaceType } from '../../src/data/food-place-types.ts'
 import type { CategoryId } from '../../src/data/tags.ts'
+import { LOW_RATING_MIN_REVIEWS } from '../../src/data/review-reasons.ts'
 
 export type SweepTypeConfig = {
   googleType: FoodPlaceType
@@ -23,18 +24,12 @@ export const SWEEP_TYPES: readonly SweepTypeConfig[] = [
 ]
 
 // Filtro previo al pipeline (sólo modo completo). Se evalúa con businessStatus, primaryType y reseñas.
-// Orden: cerrado → review (closed_permanently/closed_temporarily, bloqueado para procesar salvo que se mueva a mano); REJECT → rejected; REVIEW → review (review_type:<tipo>);
+// Orden: cerrado → review (closed_permanently/closed_temporarily; el definitivo queda bloqueado para procesar salvo que se mueva a mano); REJECT → rejected; REVIEW → review (review_type:<tipo>);
 // ACCEPT (lista o sufijo) → accepted, o review por pocas reseñas (few_reviews);
 // cualquier otro → review (unknown_type:<tipo>). El primaryType manda: los types secundarios no cuentan.
-export const MIN_REVIEWS_TO_ACCEPT = 10
-
-// Motivo de revisión low_rating en /api/extract (Place Details): puntaje menor a LOW_RATING_BELOW con al menos
-// LOW_RATING_MIN_REVIEWS reseñas. Es el mismo corte que few_reviews, así no queda hueco: con menos reseñas va por
-// few_reviews en el barrido. Sólo se guarda el código del motivo.
-export const LOW_RATING_BELOW = 3.9
-export const LOW_RATING_MIN_REVIEWS = MIN_REVIEWS_TO_ACCEPT
-
-export const CLOSED_BUSINESS_STATUSES: readonly string[] = ['CLOSED_PERMANENTLY', 'CLOSED_TEMPORARILY']
+// Es el mismo corte que low_rating (LOW_RATING_MIN_REVIEWS, src/data/review-reasons.ts): con menos reseñas va por
+// few_reviews en el barrido, así no queda hueco.
+export const MIN_REVIEWS_TO_ACCEPT = LOW_RATING_MIN_REVIEWS
 
 export const ACCEPT_PRIMARY_TYPES: readonly string[] = [
   'restaurant',

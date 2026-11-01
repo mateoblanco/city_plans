@@ -120,6 +120,9 @@ export type SearchDebug = {
     tags: string[]
     diet: CandidateRow['diet']
     price: string
+    iconCategory: CandidateRow['iconCategory']
+    neighborhoodId: string
+    locatedIn: string | null
     rrf: number
     boosts: Fused['boosts']
     baseScore: number
@@ -807,6 +810,9 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
         tags: item.row.tags,
         diet: item.row.diet,
         price: item.row.price,
+        iconCategory: item.row.iconCategory,
+        neighborhoodId: item.row.neighborhoodId,
+        locatedIn: item.row.locatedIn,
         rrf: item.rrf,
         boosts: item.boosts,
         baseScore: item.baseScore,

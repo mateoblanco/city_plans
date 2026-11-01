@@ -1,10 +1,10 @@
+import { closedReasonOf } from '../../src/data/review-reasons.ts'
 import type { PlaceGroup } from '../../src/types/places.ts'
 import {
   ACCEPT_PRIMARY_TYPES,
   ACCEPT_PRIMARY_TYPE_SUFFIXES,
   MIN_REVIEWS_TO_ACCEPT,
   REJECT_PRIMARY_TYPES,
-  CLOSED_BUSINESS_STATUSES,
   REVIEW_PRIMARY_TYPES,
 } from './neighborhood-sweep-config.ts'
 
@@ -24,10 +24,10 @@ export function classifyPlace(place: {
   primaryType?: string
   userRatingCount?: number
 }): PlaceClassification {
-  // Cerrado según Google: a revisión con el motivo; la UI no deja procesarlo salvo que se mueva a mano.
-  if (place.businessStatus && CLOSED_BUSINESS_STATUSES.includes(place.businessStatus)) {
-    return { group: 'review', reason: place.businessStatus.toLowerCase() }
-  }
+  // Cerrado según Google: a revisión con el motivo. El definitivo no se puede procesar salvo que se mueva a mano;
+  // el temporal sí, y /api/extract lo guarda en review con el mismo motivo.
+  const closed = closedReasonOf(place.businessStatus)
+  if (closed) return { group: 'review', reason: closed }
 
   const primaryType = place.primaryType
   if (!primaryType) return { group: 'review', reason: 'primary_type_missing' }

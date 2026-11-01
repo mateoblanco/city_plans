@@ -66,9 +66,9 @@ export const SEARCH_CONFIG = {
     barFit: 0.015,
     /**
      * Intención Comer y el lugar es conocido por un plato (su ícono es de comida de plato: parrilla, pasta, sushi…).
-     * Separa al restaurante del café o la heladería. Menos que barFit: "comer algo" a veces es algo al paso.
+     * Separa al restaurante del café o la heladería. Lo mismo que barFit.
      */
-    eatFit: 0.01,
+    eatFit: 0.015,
     /**
      * Por cada señal de la sección que tiene el lugar (las de su regla y las de bonus: picada + tapas + groups en Para
      * compartir), hasta maxSectionSignals. Ordena dentro de la sección (Ver todos o el grupo); no cambia quién entra.
@@ -87,6 +87,13 @@ export const SEARCH_CONFIG = {
      * menos que un primer puesto en un ranking. No se excluye.
      */
     danceOnly: -0.015,
+    /** Con niños pedido (kids_friendly en must o prefer) y el lugar tiene espacio para niños: más que un primer puesto. */
+    kidsArea: 0.02,
+    /**
+     * Con niños pedido y el lugar es de noche (fuse.ts isKidsNight: dj o dancing, o trasnoche en un bar sin restaurant; una
+     * sola vez): baja debajo de los restaurantes y cafés aptos, más que danceOnly. No se excluye.
+     */
+    kidsNight: -0.025,
   },
 
   /**
@@ -195,7 +202,7 @@ export const SEARCH_CONFIG = {
    * unrecognized, no a neighborhoods. 5: cocinas paraguas (asian, latin_american). 6: "sin carne" es exclude de grilled_meat,
    * no vegetariano, y las cocinas del texto se suman a lo del modelo.
    */
-  interpretationCacheVersion: 6,
+  interpretationCacheVersion: 7,
 
   timeZone: 'America/Montevideo',
   /** Faltando esto o menos para el cierre o la apertura, la card dice "Cierra pronto" / "Abre pronto". */

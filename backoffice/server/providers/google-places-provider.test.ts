@@ -154,6 +154,23 @@ describe('GooglePlacesProvider', () => {
     expect(init.headers['X-Goog-FieldMask']).toBe('rating,userRatingCount')
   })
 
+  it('getBusinessStatus pide sólo businessStatus; 404 es NOT_FOUND y sin dato, null', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ businessStatus: 'CLOSED_TEMPORARILY' }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { status: 'NOT_FOUND' } }), { status: 404 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { status: 'INTERNAL' } }), { status: 500 }))
+    const provider = new GooglePlacesProvider('private-key', fetcher)
+
+    expect(await provider.getBusinessStatus('place-1')).toBe('CLOSED_TEMPORARILY')
+    expect(await provider.getBusinessStatus('place-2')).toBe('NOT_FOUND')
+    expect(await provider.getBusinessStatus('place-3')).toBeNull()
+    await expect(provider.getBusinessStatus('place-4')).rejects.toMatchObject({ kind: 'upstream' })
+    const [url, init] = fetcher.mock.calls[0]
+    expect(String(url)).toBe('https://places.googleapis.com/v1/places/place-1')
+    expect(init.headers['X-Goog-FieldMask']).toBe('businessStatus')
+  })
+
   it.each([
     [403, 'PERMISSION_DENIED', 'authorization'],
     [429, 'RESOURCE_EXHAUSTED', 'quota'],

@@ -82,7 +82,7 @@ export function fakeStore(places: CandidateRow[], names: NameMatch[] = [], vecto
       filters.diet.every((key) => ['has_options', 'fully'].includes(place.diet[key])) &&
       (!filters.neighborhoods.length || filters.neighborhoods.includes(place.neighborhoodId)) &&
       (!filters.venues.length || inVenue(place, filters.venues)) &&
-      (!filters.price.length || place.price === 'unknown' || (filters.price as string[]).includes(place.price)) &&
+      (!filters.price.length || (filters.price as string[]).includes(place.price)) &&
       (!filters.openAt || matchesOpenAt(place, filters.openAt)) &&
       !filters.excludeCategories.some((id) => place.categories.includes(id)) &&
       !filters.excludeTags.flatMap(withSubcuisines).some((id) => place.tags.includes(id)) &&

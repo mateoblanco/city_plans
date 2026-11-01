@@ -14,9 +14,12 @@ export const DAY_NAMES: Record<Lang, string[]> = {
 }
 
 export const PRICE_LABELS: Record<Lang, Record<Price, string>> = {
-  es: { low: 'Barato', moderate: 'Precio medio', high: 'Caro', very_high: 'Muy caro' },
-  en: { low: 'Inexpensive', moderate: 'Moderate', high: 'Expensive', very_high: 'Very expensive' },
+  es: { low: 'Accesible', moderate: 'Normal', high: 'Caro' },
+  en: { low: 'Affordable', moderate: 'Moderate', high: 'Expensive' },
 }
+
+/** Los niveles del select de precio de la barra (los chips y motivos usan PRICE_LABELS). */
+export const PRICE_FILTER_LABELS: Record<Price, string> = { low: 'Accesible', moderate: 'Normal', high: 'Caro' }
 
 /** Un momento pedido, dicho como motivo: "Para ir con amigos" en lugar de "Grupos". */
 export const MOMENT_REASON: Record<Lang, Record<OccasionTag, string>> = {
@@ -168,10 +171,9 @@ export type TraitPhrase = { slot: TraitSlot; text: string }
 const TRAIT_PHRASES: Record<string, TraitPhrase> = {
   'style:casual': { slot: 'adj', text: 'descontracturados' },
   'style:cuidado': { slot: 'con', text: 'ambiente cuidado' },
-  'price:low': { slot: 'adj', text: 'baratos' },
-  'price:moderate': { slot: 'de', text: 'de precio medio' },
+  'price:low': { slot: 'adj', text: 'accesibles' },
+  'price:moderate': { slot: 'de', text: 'de precio normal' },
   'price:high': { slot: 'adj', text: 'caros' },
-  'price:very_high': { slot: 'adj', text: 'muy caros' },
   breakfast: { slot: 'para', text: 'para desayunar' },
   brunch: { slot: 'para', text: 'para el brunch' },
   lunch: { slot: 'para', text: 'para almorzar' },

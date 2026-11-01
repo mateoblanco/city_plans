@@ -928,7 +928,7 @@ describe('encaje con la intención y la sección', () => {
     }
     expect(boostsFor(yuzu, context({ intent: 'bars' }), null).eatFit).toBeUndefined()
     expect(boostsFor(yuzu, context(), null).eatFit).toBeUndefined()
-    expect(eatFit).toBeLessThan(barFit)
+    expect(eatFit).toBe(barFit)
   })
 
   it('a parecido semántico similar, el bar de verdad pasa adelante', () => {

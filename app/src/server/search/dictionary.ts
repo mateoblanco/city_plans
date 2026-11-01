@@ -12,12 +12,12 @@ const STOPWORDS_EN = new Set(['in', 'at', 'near', 'the', 'a', 'an', 'with', 'for
 const NEAR_ME = new Map([
   ['cerca mio', 'es'], ['cerca mia', 'es'], ['cerca de mi', 'es'], ['cerca de aca', 'es'], ['near me', 'en'], ['nearby', 'en'],
 ] as const)
-// Precio pedido: filtra (lo desconocido pasa) y un precio confirmado que coincide rankea más arriba.
+// Precio pedido: filtra (sólo los de ese precio confirmado) y un precio confirmado que coincide rankea más arriba. Tres niveles,
+// relativos al tipo de lugar: "especial" y "de lujo" son lo mismo que "caro". "cita especial" va antes por DATE_STYLES.
 const PRICE_WORDS = new Map<string, [Price[], 'es' | 'en']>([
   ...['barato', 'barata', 'baratos', 'baratas', 'economico', 'economica', 'economicos', 'economicas'].map((word) => [word, [['low'], 'es']] as const),
-  ...['caro', 'cara', 'caros', 'caras'].map((word) => [word, [['high', 'very_high'], 'es']] as const),
-  ...['de lujo', 'lujoso', 'lujosa', 'lujosos'].map((word) => [word, [['very_high'], 'es']] as const),
-  ['cheap', [['low'], 'en']], ['inexpensive', [['low'], 'en']], ['expensive', [['high', 'very_high'], 'en']], ['luxury', [['very_high'], 'en']],
+  ...['caro', 'cara', 'caros', 'caras', 'especial', 'especiales', 'de lujo', 'lujoso', 'lujosa', 'lujosos', 'lujosas'].map((word) => [word, [['high'], 'es']] as const),
+  ['cheap', [['low'], 'en']], ['inexpensive', [['low'], 'en']], ['affordable', [['low'], 'en']], ['expensive', [['high'], 'en']], ['luxury', [['high'], 'en']],
 ] as [string, [Price[], 'es' | 'en']][])
 
 // Citas que traen el estilo: una tranqui o descontracturada es casual; una romántica o especial, cuidado. "cita" sola es sólo date.

@@ -181,8 +181,8 @@ export function filterConditions(filters: CandidateFilters): SQL[] {
   for (const key of filters.diet) conditions.push(sql`${sql.identifier(DIET_COLUMN[key])} in ('has_options', 'fully')`)
   if (filters.neighborhoods.length) conditions.push(sql`neighborhood_id = any(${textArray(filters.neighborhoods)})`)
   if (filters.venues.length) conditions.push(venueSql(filters.venues))
-  // Precio desconocido no excluye: sólo afuera los que tienen otro precio conocido.
-  if (filters.price.length) conditions.push(sql`(price = 'unknown' or price = any(${textArray(filters.price)}))`)
+  // Precio pedido: sólo los que lo tienen confirmado ("barato" son sólo los Accesible, aunque sean pocos).
+  if (filters.price.length) conditions.push(sql`price = any(${textArray(filters.price)})`)
   if (filters.openAt) {
     const { moment, today, night } = filters.openAt
     conditions.push(today && moment.time ? opensTodaySql({ day: moment.day, time: moment.time }, night) : openAtSql(moment))

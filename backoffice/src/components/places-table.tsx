@@ -1,6 +1,7 @@
 import { Fragment, type ReactNode } from 'react'
 import { ArrowUpRight, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import {
   Table,
   TableBody,
@@ -38,6 +39,10 @@ type PlacesTableProps<T extends PlaceSummary> = {
   onHover?: (placeId: string | null) => void
   /** Agrupa las filas con un encabezado por grupo; places ya viene ordenado por grupo. */
   groupBy?: (place: T) => { key: string; label: ReactNode }
+  /** Clases extra de la fila (por ejemplo, el fondo de los ya guardados). El hover y el resaltado la pisan. */
+  rowClassName?: (place: T) => string | undefined
+  /** Etiqueta chica junto al nombre. */
+  nameBadge?: (place: T) => ReactNode
 }
 
 export function PlacesTable<T extends PlaceSummary>({
@@ -50,6 +55,8 @@ export function PlacesTable<T extends PlaceSummary>({
   highlightedId,
   onHover,
   groupBy,
+  rowClassName,
+  nameBadge,
 }: PlacesTableProps<T>) {
   const columnCount = columns.length + 1 + (selection ? 1 : 0) + (onSelect ? 1 : 0)
   const groupSizes = new Map<string, number>()
@@ -95,7 +102,7 @@ export function PlacesTable<T extends PlaceSummary>({
               )}
               <TableRow
                 data-highlighted={place.placeId === highlightedId || undefined}
-                className="data-highlighted:bg-muted"
+                className={cn(rowClassName?.(place), 'data-highlighted:bg-muted')}
                 onMouseEnter={onHover ? () => onHover(place.placeId) : undefined}
                 onMouseLeave={onHover ? () => onHover(null) : undefined}
               >
@@ -125,6 +132,7 @@ export function PlacesTable<T extends PlaceSummary>({
                     />
                     <span className="sr-only">(abre Google Maps en una nueva pestaña)</span>
                   </a>
+                  {nameBadge?.(place)}
                   {subtitle?.(place)}
                 </TableCell>
                 {columns.map((column) => (

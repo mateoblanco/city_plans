@@ -36,7 +36,7 @@ const list = (raw: string | null | undefined) =>
 /** Clave del chip en `f`; null si ese chip no es un filtro de la barra. section es el "Ver todos" de un grupo. */
 export function filterKey({ kind, id }: { kind: string; id: string }): string | null {
   if (kind === "openAt") return id === "today" ? "open:today" : null;
-  return kind === "diet" || kind === "neighborhood" || kind === "section" ? `${kind}:${id}` : null;
+  return kind === "diet" || kind === "neighborhood" || kind === "price" || kind === "section" ? `${kind}:${id}` : null;
 }
 
 /** URL de /search. `add` suma un chip a remove (lo que hacía antes quitar un chip). */
@@ -84,18 +84,25 @@ export function addFilterHref(state: SearchUrl, chip: { kind: string; id: string
 }
 
 /**
- * Barrios o cerca mío, el select de la barra: los barrios reemplazan a los anteriores y quitan los del texto que no se
- * eligieron, así sacar después un chip no hace volver el del texto. near pisa la ubicación (null la saca).
- * [] sin near = "Todos los barrios".
+ * Un select de la barra (barrios o precio): lo elegido reemplaza a lo anterior de ese kind y quita lo del texto que no
+ * se eligió, así sacar después un chip no hace volver el del texto. Lo elegido deja de estar quitado.
  */
-export function setNeighborhoodsHref(state: SearchUrl, ids: string[], chips: ChipRef[], near: string | null): string {
-  const keys = ids.map((id) => `neighborhood:${id}`);
-  const f = [...list(state.f).filter((item) => !item.startsWith("neighborhood:")), ...keys];
-  const fromText = chips
-    .filter((chip) => chip.kind === "neighborhood" && chip.fromText && !ids.includes(chip.id))
-    .map((chip) => `neighborhood:${chip.id}`);
+function replaceFilter(state: SearchUrl, kind: string, ids: string[], chips: ChipRef[]): SearchUrl {
+  const keys = ids.map((id) => `${kind}:${id}`);
+  const f = [...list(state.f).filter((item) => !item.startsWith(`${kind}:`)), ...keys];
+  const fromText = chips.filter((chip) => chip.kind === kind && chip.fromText && !ids.includes(chip.id)).map((chip) => `${kind}:${chip.id}`);
   const remove = [...list(state.remove).filter((item) => !keys.includes(item)), ...fromText].join(",");
-  return searchHref({ ...state, f: f.join(","), remove, near });
+  return { ...state, f: f.join(","), remove };
+}
+
+/** Barrios o cerca mío: near pisa la ubicación (null la saca). [] sin near = "Todos los barrios". */
+export function setNeighborhoodsHref(state: SearchUrl, ids: string[], chips: ChipRef[], near: string | null): string {
+  return searchHref({ ...replaceFilter(state, "neighborhood", ids, chips), near });
+}
+
+/** Precios del select de la barra. [] = "Cualquier precio". */
+export function setPricesHref(state: SearchUrl, ids: string[], chips: ChipRef[]): string {
+  return searchHref(replaceFilter(state, "price", ids, chips));
 }
 
 /** Cerca mío: las coordenadas van redondeadas a 3 decimales (unos 100 m). */

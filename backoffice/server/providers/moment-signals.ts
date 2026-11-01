@@ -37,7 +37,8 @@ export const MOMENT_SIGNALS: Record<MomentId, Signal[]> = {
   ],
   kids_friendly: [
     strong('menú infantil', ['menú infantil', 'menú para niños', 'menú kids', 'kids menu']),
-    strong('sillas altas', ['sillas altas', 'silla alta', 'sillitas para bebés', 'high chairs', 'high chair']),
+    // Débil: el atributo de Google lo tienen también bares de noche; sola no alcanza (y de noche no cuenta).
+    weak('sillas altas', ['sillas altas', 'silla alta', 'sillitas para bebés', 'high chairs', 'high chair']),
     strong('juegos para niños', ['juegos para niños', 'juegos infantiles', 'espacio para niños', 'zona infantil', 'área infantil', 'playground', 'kids area']),
     weak('patio', ['patio', 'jardín', 'garden']),
     weak('espacio amplio', ['amplio', 'amplia', 'espacioso', 'spacious']),
@@ -67,6 +68,15 @@ export const MOMENT_SIGNALS: Record<MomentId, Signal[]> = {
  * muchos cafés se pide en el mostrador y se come ahí).
  */
 export const NOT_FOR_DEDUCTION: Partial<Record<MomentId, string[]>> = { date: ['reservas'], quick: ['mostrador'] }
+
+/** Señales que no cuentan en un lugar de noche (late_night por horario, dj o dancing): un bar con sillas altas no es para chicos. */
+export const NOT_AT_NIGHT: Partial<Record<MomentId, string[]>> = { kids_friendly: ['sillas altas'] }
+
+/** Las señales de un momento sin las que no cuentan: las de NOT_FOR_DEDUCTION al deducir y las de NOT_AT_NIGHT de noche. */
+export function momentSignalsFor(id: MomentId, { deduction = false, night = false }: { deduction?: boolean; night?: boolean } = {}): Signal[] {
+  const skipped = new Set([...(deduction ? NOT_FOR_DEDUCTION[id] ?? [] : []), ...(night ? NOT_AT_NIGHT[id] ?? [] : [])])
+  return MOMENT_SIGNALS[id].filter((signal) => !skipped.has(signal.id))
+}
 
 export type StyleSignalId = 'casual' | 'cuidado'
 

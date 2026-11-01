@@ -226,7 +226,7 @@ describe('exploración multi-fuente', () => {
 
   it('GET /api/places acepta ids (uuid, hasta 100) para la página del orden por puntaje', async () => {
     const list = vi.fn().mockResolvedValue({ places: [], total: 0, counts: { all: 0, published: 0, review: 0 } })
-    const app = createApp({ placesReader: { list, neighborhoods: vi.fn(), setFeatured: vi.fn(), publish: vi.fn() } })
+    const app = createApp({ placesReader: { list, neighborhoods: vi.fn(), setFeatured: vi.fn(), publish: vi.fn(), dismissPriceSuggestion: vi.fn() } })
     const [a, b] = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222']
 
     expect((await app.request(`/api/places?ids=${b},${a},${b}&missing=price`)).status).toBe(200)
@@ -239,13 +239,13 @@ describe('exploración multi-fuente', () => {
 
   it('GET /api/places/neighborhoods: los barrios con lugares; 503 sin base y 500 si falla', async () => {
     const neighborhoods = vi.fn().mockResolvedValue([{ id: 'POCITOS', count: 123 }])
-    const response = await createApp({ placesReader: { list: vi.fn(), neighborhoods, setFeatured: vi.fn(), publish: vi.fn() } }).request('/api/places/neighborhoods')
+    const response = await createApp({ placesReader: { list: vi.fn(), neighborhoods, setFeatured: vi.fn(), publish: vi.fn(), dismissPriceSuggestion: vi.fn() } }).request('/api/places/neighborhoods')
     expect(response.status).toBe(200)
     expect(response.headers.get('Cache-Control')).toBe('no-store')
     expect(await response.json()).toEqual({ neighborhoods: [{ id: 'POCITOS', count: 123 }] })
     expect((await createApp().request('/api/places/neighborhoods')).status).toBe(503)
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const failed = await createApp({ placesReader: { list: vi.fn(), neighborhoods: vi.fn().mockRejectedValue(new Error('boom')), setFeatured: vi.fn(), publish: vi.fn() } }).request('/api/places/neighborhoods')
+    const failed = await createApp({ placesReader: { list: vi.fn(), neighborhoods: vi.fn().mockRejectedValue(new Error('boom')), setFeatured: vi.fn(), publish: vi.fn(), dismissPriceSuggestion: vi.fn() } }).request('/api/places/neighborhoods')
     expect(failed.status).toBe(500)
     error.mockRestore()
   })
@@ -254,10 +254,10 @@ describe('exploración multi-fuente', () => {
     const filtered = vi.fn().mockResolvedValue([{ id: 'a', googlePlaceId: 'g-a' }, { id: 'b', googlePlaceId: null }])
     const app = createApp({ placeIds: { filtered, googleIds: vi.fn() } })
 
-    const response = await app.request('/api/places/ids?missing=price,logo&status=review&sort=name')
+    const response = await app.request('/api/places/ids?missing=price,logo&price=unknown&status=review&sort=name')
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ ids: ['a', 'b'], withoutGoogleId: ['b'] })
-    expect(filtered).toHaveBeenLastCalledWith({ sort: 'name', edited: false, missing: ['price', 'logo'], status: 'review' })
+    expect(filtered).toHaveBeenLastCalledWith({ sort: 'name', edited: false, missing: ['price', 'logo'], price: 'unknown', status: 'review' })
     expect((await app.request('/api/places/ids?missing=web')).status).toBe(400)
     expect((await createApp().request('/api/places/ids')).status).toBe(503)
   })
@@ -269,7 +269,7 @@ describe('exploración multi-fuente', () => {
       if (placeId === 'g-b') throw new PlacesProviderError('upstream', 'Google Places no respondió.')
       return { rating: 4.4, userRatingCount: 90 }
     })
-    const placesReader = { list: vi.fn(), neighborhoods: vi.fn(), setFeatured: vi.fn(), publish: vi.fn() }
+    const placesReader = { list: vi.fn(), neighborhoods: vi.fn(), setFeatured: vi.fn(), publish: vi.fn(), dismissPriceSuggestion: vi.fn() }
     const app = createApp({ provider: { search: vi.fn(), getRating }, placeIds: { filtered: vi.fn(), googleIds }, placesReader })
     const post = (body: unknown, target = app) => target.request('/api/places/google-ratings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 
@@ -307,7 +307,7 @@ describe('exploración multi-fuente', () => {
       counts: { all: 1, published: 1, review: 0 },
     }
     const list = vi.fn().mockResolvedValue(page)
-    const app = createApp({ placesReader: { list, neighborhoods: vi.fn(), setFeatured: vi.fn(), publish: vi.fn() } })
+    const app = createApp({ placesReader: { list, neighborhoods: vi.fn(), setFeatured: vi.fn(), publish: vi.fn(), dismissPriceSuggestion: vi.fn() } })
 
     const response = await app.request('/api/places')
     expect(response.status).toBe(200)
@@ -322,16 +322,22 @@ describe('exploración multi-fuente', () => {
     await app.request('/api/places?missing=price,instagram,price&category=bar&status=review')
     expect(list).toHaveBeenLastCalledWith({ sort: 'recent', page: 1, pageSize: 50, edited: false, missing: ['price', 'instagram'], category: 'bar', status: 'review' })
 
+    await app.request('/api/places?price=moderate&category=bar')
+    expect(list).toHaveBeenLastCalledWith({ sort: 'recent', page: 1, pageSize: 50, edited: false, price: 'moderate', category: 'bar' })
+
     await app.request('/api/places?status=review&reason=low_rating')
     expect(list).toHaveBeenLastCalledWith({ sort: 'recent', page: 1, pageSize: 50, edited: false, status: 'review', reason: 'low_rating' })
 
-    for (const query of ['category=bodegon', 'status=hidden', 'sort=rating', 'page=0', 'pageSize=500', 'neighborhood=Narnia', 'missing=web', 'missing=price,x', 'missing=,', 'reason=foo', 'reason=few_reviews']) {
+    await app.request('/api/places?priceSuggestion=1')
+    expect(list).toHaveBeenLastCalledWith({ sort: 'recent', page: 1, pageSize: 50, edited: false, priceSuggestion: true })
+
+    for (const query of ['category=bodegon', 'status=hidden', 'sort=rating', 'page=0', 'pageSize=500', 'neighborhood=Narnia', 'missing=web', 'missing=price,x', 'missing=,', 'reason=foo', 'reason=few_reviews', 'price=cheap', 'price=', 'price=very_high', 'priceSuggestion=yes']) {
       const invalid = await app.request(`/api/places?${query}`)
       expect(invalid.status, query).toBe(400)
     }
 
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const failed = await createApp({ placesReader: { list: vi.fn().mockRejectedValue(new Error('boom')), neighborhoods: vi.fn(), setFeatured: vi.fn(), publish: vi.fn() } }).request('/api/places')
+    const failed = await createApp({ placesReader: { list: vi.fn().mockRejectedValue(new Error('boom')), neighborhoods: vi.fn(), setFeatured: vi.fn(), publish: vi.fn(), dismissPriceSuggestion: vi.fn() } }).request('/api/places')
     expect(failed.status).toBe(500)
     expect(await failed.json()).toEqual({ error: { code: 'UNKNOWN_ERROR', message: 'No se pudieron cargar los lugares.' } })
     error.mockRestore()
@@ -432,7 +438,7 @@ describe('exploración multi-fuente', () => {
   it('PATCH /api/places/:id/featured valida el pedido y cambia sólo featured', async () => {
     const id = '0b9f6a3c-1d2e-4f5a-8b7c-9d0e1f2a3b4c'
     const setFeatured = vi.fn(async (placeId: string) => placeId === id)
-    const app = createApp({ placesReader: { list: vi.fn(), neighborhoods: vi.fn(), setFeatured, publish: vi.fn() } })
+    const app = createApp({ placesReader: { list: vi.fn(), neighborhoods: vi.fn(), setFeatured, publish: vi.fn(), dismissPriceSuggestion: vi.fn() } })
     const patch = (placeId: string, body: unknown) => app.request(`/api/places/${placeId}/featured`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -452,11 +458,34 @@ describe('exploración multi-fuente', () => {
     expect(await missing.json()).toEqual({ error: { code: 'NOT_FOUND_ERROR', message: 'El lugar no existe.' } })
 
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const failing = createApp({ placesReader: { list: vi.fn(), neighborhoods: vi.fn(), setFeatured: vi.fn().mockRejectedValue(new Error('boom')), publish: vi.fn() } })
+    const failing = createApp({ placesReader: { list: vi.fn(), neighborhoods: vi.fn(), setFeatured: vi.fn().mockRejectedValue(new Error('boom')), publish: vi.fn(), dismissPriceSuggestion: vi.fn() } })
     const failed = await failing.request(`/api/places/${id}/featured`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ featured: true }) })
     expect(failed.status).toBe(500)
     error.mockRestore()
     expect((await createApp().request(`/api/places/${id}/featured`, { method: 'PATCH', body: '{"featured":true}' })).status).toBe(503)
+  })
+
+  it('DELETE /api/places/:id/price-suggestion descarta la sugerencia sin tocar el precio', async () => {
+    const id = '0b9f6a3c-1d2e-4f5a-8b7c-9d0e1f2a3b4c'
+    const other = '1b9f6a3c-1d2e-4f5a-8b7c-9d0e1f2a3b4c'
+    const dismissPriceSuggestion = vi.fn(async (placeId: string) => placeId === id)
+    const app = createApp({ placesReader: { list: vi.fn(), neighborhoods: vi.fn(), setFeatured: vi.fn(), publish: vi.fn(), dismissPriceSuggestion } })
+    const remove = (placeId: string) => app.request(`/api/places/${placeId}/price-suggestion`, { method: 'DELETE' })
+
+    const ok = await remove(id)
+    expect(ok.status).toBe(200)
+    expect(await ok.json()).toEqual({ id, dismissed: true })
+    expect(dismissPriceSuggestion).toHaveBeenCalledWith(id)
+    expect((await remove('no-es-uuid')).status).toBe(400)
+    expect((await remove(other)).status).toBe(404)
+
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const failing = createApp({ placesReader: { list: vi.fn(), neighborhoods: vi.fn(), setFeatured: vi.fn(), publish: vi.fn(), dismissPriceSuggestion: vi.fn().mockRejectedValue(new Error('boom')) } })
+    const failed = await failing.request(`/api/places/${id}/price-suggestion`, { method: 'DELETE' })
+    expect(failed.status).toBe(500)
+    expect(await failed.json()).toEqual({ error: { code: 'UNKNOWN_ERROR', message: 'No se pudo descartar la sugerencia.' } })
+    error.mockRestore()
+    expect((await createApp().request(`/api/places/${id}/price-suggestion`, { method: 'DELETE' })).status).toBe(503)
   })
 
   it('PATCH /api/places/:id/status publica a mano un lugar en review', async () => {
@@ -464,7 +493,7 @@ describe('exploración multi-fuente', () => {
     const other = '1b9f6a3c-1d2e-4f5a-8b7c-9d0e1f2a3b4c'
     const published = '2b9f6a3c-1d2e-4f5a-8b7c-9d0e1f2a3b4c'
     const publish = vi.fn(async (placeId: string) => placeId === id ? 'published' as const : placeId === published ? 'not_in_review' as const : 'not_found' as const)
-    const app = createApp({ placesReader: { list: vi.fn(), neighborhoods: vi.fn(), setFeatured: vi.fn(), publish } })
+    const app = createApp({ placesReader: { list: vi.fn(), neighborhoods: vi.fn(), setFeatured: vi.fn(), publish, dismissPriceSuggestion: vi.fn() } })
     const patch = (placeId: string, body: unknown) => app.request(`/api/places/${placeId}/status`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -488,7 +517,7 @@ describe('exploración multi-fuente', () => {
     expect(await notInReview.json()).toEqual({ error: { code: 'VALIDATION_ERROR', message: 'El lugar no está para revisar.' } })
 
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const failing = createApp({ placesReader: { list: vi.fn(), neighborhoods: vi.fn(), setFeatured: vi.fn(), publish: vi.fn().mockRejectedValue(new Error('boom')) } })
+    const failing = createApp({ placesReader: { list: vi.fn(), neighborhoods: vi.fn(), setFeatured: vi.fn(), publish: vi.fn().mockRejectedValue(new Error('boom')), dismissPriceSuggestion: vi.fn() } })
     const failed = await failing.request(`/api/places/${id}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'published' }) })
     expect(failed.status).toBe(500)
     expect(await failed.json()).toEqual({ error: { code: 'UNKNOWN_ERROR', message: 'No se pudo publicar el lugar.' } })

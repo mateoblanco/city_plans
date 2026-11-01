@@ -2,9 +2,15 @@
 // verificaciones de search-checks.ts (sale con error si alguna falla).
 // Uso: yarn search:eval [--debug] [--top=10] [--f=open:today,diet:vegan] [--intent=eat] [--sub=breakfast] [--likes=<id>,<id>…] [consulta...]
 //      yarn search:check   (sólo las consultas con verificaciones, sin el detalle)
+//      yarn search:eval --baseline=<archivo.json> consulta...   (punto de partida antes de un cambio en la base: top 10, tags de los publicados, interpretación y embeddings)
+//      yarn search:eval --compare=<archivo.json> [--out=<archivo.md>]   (top 10 antes y después, con la misma interpretación, los mismos embeddings de consulta y la misma hora; sin llamadas pagas)
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { neon } from "@neondatabase/serverless";
+import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
-import { memoryCache } from "../src/server/search/cache";
+import { memoryCache, uncached, type EmbeddingResult, type SearchCache } from "../src/server/search/cache";
+import type { LlmResult } from "../src/server/search/llm";
 import { formatUsd } from "../src/server/search/cost";
 import { runSearch } from "../src/server/search/search";
 import { hasViewAll, visiblePage } from "../src/components/pages/SearchPage/utils/pagination";
@@ -47,8 +53,123 @@ const top = Number(args.find((arg) => arg.startsWith("--top="))?.slice("--top=".
 const likes = args.find((arg) => arg.startsWith("--likes="))?.slice("--likes=".length).split(",").filter(Boolean) ?? [];
 const queries = args.filter((arg) => !arg.startsWith("--"));
 
-const store = neonPlacesStore(drizzle({ client: neon(process.env.DATABASE_URL!) }));
+// --baseline y --compare: el punto de partida y la comparación contra él (ver abajo).
+const flag = (name: string) => args.find((arg) => arg.startsWith(`--${name}=`))?.slice(name.length + 3) ?? null;
+const baselinePath = flag("baseline");
+const comparePath = flag("compare");
+const outPath = flag("out");
+
+const db = drizzle({ client: neon(process.env.DATABASE_URL!) });
+const store = neonPlacesStore(db);
 const cache = memoryCache();
+
+const COMPARE_TOP = 10;
+type Baseline = {
+  now: string;
+  options: { filters: string | null; intent: string | null; sub: string | null; likes: string[] };
+  /** Tags de cada lugar publicado: el "antes" de quien entra al top desde afuera. Sólo ids y tags, sin nombres. */
+  tags: Record<string, string[]>;
+  interpretations: Record<string, LlmResult>;
+  embeddings: Record<string, EmbeddingResult>;
+  queries: { query: string; source: string; interpretation: string; top: { id: string; score: number }[] }[];
+};
+
+const publishedPlaces = async () => {
+  const { rows } = await db.execute(sql`select id::text as id, name, tags from places where status = 'published'`);
+  return rows as { id: string; name: string; tags: string[] }[];
+};
+
+async function saveBaseline(path: string) {
+  if (!queries.length) throw new Error("--baseline lleva las consultas.");
+  const baseline: Baseline = { now: new Date().toISOString(), options: { filters, intent, sub, likes }, tags: {}, interpretations: {}, embeddings: {}, queries: [] };
+  // Un embedding que falla se vuelve null en silencio y una consulta puede pedir uno que no usa: se espera a todos y un error frena.
+  const pending: Promise<unknown>[] = [];
+  const errors: string[] = [];
+  const track = <T,>(key: string, call: Promise<T>, save: (value: T) => void): Promise<T> => {
+    const tracked = call.then((value) => { save(value); return value; });
+    pending.push(tracked.catch((error) => errors.push(`${key}: ${error}`)));
+    return tracked;
+  };
+  const recording: SearchCache = memoryCache({
+    interpret: (normalized) => track(normalized, uncached.interpret(normalized), (value) => { baseline.interpretations[normalized] = value; }),
+    embed: (text) => track(text, uncached.embed(text), (value) => { baseline.embeddings[text] = value; }),
+  });
+  let usd = 0;
+  for (const query of queries) {
+    const response = await runSearch(query, { store, cache: recording }, { debug: true, filters, intent, sub, widen: false, likes, now: new Date(baseline.now) });
+    await Promise.all(pending);
+    const info = response.debug!;
+    if (info.llmError || errors.length) throw new Error(`Punto de partida no guardado, "${query}" falló: ${[info.llmError, ...errors].filter(Boolean).join("; ")}`);
+    usd += info.cost.totalUsd;
+    const scores = new Map(info.results.map((entry) => [entry.id, entry.score]));
+    baseline.queries.push({ query, source: info.source, interpretation: JSON.stringify(info.interpretation), top: response.results.slice(0, COMPARE_TOP).map((result) => ({ id: result.id, score: scores.get(result.id)! })) });
+  }
+  baseline.tags = Object.fromEntries((await publishedPlaces()).map((place) => [place.id, place.tags]));
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(baseline));
+  console.log(`Punto de partida: ${path} · ${baseline.queries.length} búsquedas, ${Object.keys(baseline.tags).length} lugares publicados, costo ${formatUsd(usd)}.`);
+}
+
+async function compareBaseline(path: string) {
+  const baseline = JSON.parse(readFileSync(path, "utf8")) as Baseline;
+  // Sólo responde desde el archivo: una clave que falta frena la comparación en vez de llamar al modelo o seguir sin embedding.
+  const missing: string[] = [];
+  const stored = <T,>(entries: Record<string, T>, key: string): Promise<T> => {
+    if (key in entries) return Promise.resolve(entries[key]);
+    missing.push(key);
+    return Promise.reject(new Error(`No está en el punto de partida: ${key}`));
+  };
+  const replay: SearchCache = { interpret: (normalized) => stored(baseline.interpretations, normalized), embed: (text) => stored(baseline.embeddings, text) };
+  const places = await publishedPlaces();
+  const current = new Map(places.map((place) => [place.id, place]));
+  const nameOf = (id: string, fallback?: string) => (current.get(id)?.name ?? fallback ?? `${id} (ya no está publicado)`).replace(/\|/g, "/");
+  const tagDiff = (id: string) => {
+    const before = baseline.tags[id];
+    const after = current.get(id)?.tags;
+    if (!before || !after) return [];
+    return [...after.filter((tag) => !before.includes(tag)).map((tag) => `+${tag}`), ...before.filter((tag) => !after.includes(tag)).map((tag) => `−${tag}`)];
+  };
+  const changedPlaces = places.filter((place) => tagDiff(place.id).length > 0).length;
+  const summary: string[] = [];
+  const details: string[] = [];
+  for (const { query, source, interpretation, top } of baseline.queries) {
+    const response = await runSearch(query, { store, cache: replay }, { debug: true, ...baseline.options, widen: false, now: new Date(baseline.now) });
+    const info = response.debug!;
+    if (missing.length) throw new Error(`Comparación frenada, "${query}" pidió algo que no está en el punto de partida: ${missing.join(", ")}`);
+    if (info.source !== source || JSON.stringify(info.interpretation) !== interpretation) throw new Error(`Comparación frenada: la interpretación de "${query}" cambió (¿cambió el código de la búsqueda?).\n  antes: ${source} ${interpretation}\n  ahora: ${info.source} ${JSON.stringify(info.interpretation)}`);
+    const before = top.map((item) => item.id);
+    const after = response.results.slice(0, COMPARE_TOP).map((result) => result.id);
+    const names = new Map(response.results.map((result) => [result.id, result.name]));
+    const order = [...after, ...before.filter((id) => !after.includes(id))];
+    const row = (id: string) => {
+      const [was, is] = [before.indexOf(id), after.indexOf(id)];
+      const move = was < 0 ? "entra" : is < 0 ? "sale" : was === is ? "=" : was > is ? `↑${was - is}` : `↓${is - was}`;
+      return `| ${was < 0 ? "—" : was + 1} | ${is < 0 ? "—" : is + 1} | ${move} | ${nameOf(id, names.get(id))} | ${tagDiff(id).join(" ") || "—"} |`;
+    };
+    const entered = after.filter((id) => !before.includes(id)).length;
+    const left = before.filter((id) => !after.includes(id)).length;
+    const moved = after.filter((id, index) => before.includes(id) && before.indexOf(id) !== index).length;
+    summary.push(`| ${query} | ${entered} | ${left} | ${moved} | ${order.filter((id) => tagDiff(id).length > 0).length} |`);
+    details.push("", `## ${query}`, "", "| antes | después | movimiento | lugar | tags ganados o perdidos |", "|---|---|---|---|---|", ...order.map(row));
+  }
+  const report = [
+    "# Búsquedas antes y después", "",
+    `Misma interpretación, mismos embeddings de consulta y misma hora (${baseline.now}) que el punto de partida; sin llamadas pagas. Lugares publicados con tags distintos desde el punto de partida: ${changedPlaces}.`, "",
+    `| búsqueda | entran al top ${COMPARE_TOP} | salen | se mueven | del top con cambios de tags |`, "|---|---|---|---|---|", ...summary, ...details,
+  ].join("\n") + "\n";
+  if (outPath) {
+    mkdirSync(dirname(outPath), { recursive: true });
+    writeFileSync(outPath, report);
+    console.log(`Comparación: ${outPath}`);
+  } else console.log(report);
+}
+
+if (baselinePath && comparePath) throw new Error("--baseline guarda y --compare compara: uno u otro.");
+if (outPath && !comparePath) throw new Error("--out va con --compare.");
+if (baselinePath || comparePath) {
+  await (baselinePath ? saveBaseline(baselinePath) : compareBaseline(comparePath!));
+  process.exit(0);
+}
 
 const compact = (value: unknown) => JSON.stringify(value, (_key, item) => (Array.isArray(item) && item.length === 0 ? undefined : item));
 

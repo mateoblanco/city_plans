@@ -27,9 +27,9 @@ import {
 import { CATEGORIES } from '@/data/tags'
 import { neighborhoodDisplayName } from '@/data/neighborhood-names'
 import { REVIEW_REASON_IDS, reviewReasonLabel, type ReviewReason } from '@/data/review-reasons'
-import { PRICE_LEVELS } from '@/data/manual-overrides'
+import { PRICE_LABELS, PRICE_LEVELS } from '@/data/manual-overrides'
 import { googleMapsUrl } from '@/lib/google-maps-url'
-import { GOOGLE_RATINGS_BATCH, getGoogleRatings, listSavedNeighborhoods, listSavedPlaceIds, listSavedPlaces, publishPlace, savePlaceEdit, setPlaceFeatured } from '@/lib/places-api'
+import { GOOGLE_RATINGS_BATCH, getGoogleRatings, listSavedNeighborhoods, listSavedPlaceIds, listSavedPlaces, publishPlace, savePlaceEdit, setPlaceFeatured, dismissPriceSuggestion } from '@/lib/places-api'
 import { PLACE_LIST_CATEGORIES, PLACE_LIST_MISSING, type GoogleRating, type PlaceListItem, type PlaceNeighborhoodCount, type PlaceListMissing, type PlaceListPage, type PlaceListQuery, type PriceLevel } from '@/types/places'
 
 type LoadState =
@@ -59,7 +59,6 @@ const RATING_SORT_LABELS: Record<RatingSort, string> = { rating_desc: 'Puntaje d
 // Place Details Enterprise (rating y userRatingCount), primer tramo; los primeros 1.000 del mes son gratis.
 const PLACE_DETAILS_USD = 0.02
 const MISSING_LABELS: Record<PlaceListMissing, string> = { price: 'Precio', hours: 'Horario', logo: 'Logo', instagram: 'Instagram' }
-const PRICE_LABELS: Record<PriceLevel, string> = { low: '$', moderate: '$$', high: '$$$', very_high: '$$$$', unknown: 'Sin precio' }
 // Sin precio al final, como en la lista de opciones.
 const PRICE_OPTIONS: PriceLevel[] = [...PRICE_LEVELS.filter((id) => id !== 'unknown'), 'unknown']
 // Cuánto queda "Guardado" en la celda.
@@ -135,6 +134,8 @@ export function SavedPlacesPage() {
   // Precio editado desde la fila: guardando, guardado (unos segundos) o el error, por id.
   const [priceStates, setPriceStates] = useState<Record<string, { status: 'saving' } | { status: 'saved' } | { status: 'error'; message: string }>>({})
   const priceTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  const [dismissing, setDismissing] = useState<ReadonlySet<string>>(new Set())
+  const [dismissErrors, setDismissErrors] = useState<Record<string, string>>({})
   const [editing, setEditing] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   // Puntaje de Google por id: sólo en memoria de esta sesión (términos de Google), nunca en la base ni en localStorage.
@@ -297,6 +298,25 @@ export function SavedPlacesPage() {
     }
   }
 
+  // Optimista: la sugerencia desaparece enseguida y vuelve con el error si no se pudo descartar. El precio no cambia.
+  async function dismissSuggestion(place: PlaceListItem) {
+    setDismissing((current) => new Set(current).add(place.id))
+    setDismissErrors(({ [place.id]: _previous, ...rest }) => rest)
+    updateRow(place.id, { priceSuggestion: null })
+    try {
+      await dismissPriceSuggestion(place.id)
+    } catch (error) {
+      updateRow(place.id, { priceSuggestion: place.priceSuggestion })
+      setDismissErrors((current) => ({ ...current, [place.id]: error instanceof Error ? error.message : 'No se pudo descartar la sugerencia.' }))
+    } finally {
+      setDismissing((current) => {
+        const next = new Set(current)
+        next.delete(place.id)
+        return next
+      })
+    }
+  }
+
   // Optimista: queda publicado enseguida; vuelve con el error si no se pudo. Después se recarga la página (sale de "A revisar").
   async function publish(place: PlaceListItem) {
     updateRow(place.id, { status: 'published' })
@@ -322,7 +342,7 @@ export function SavedPlacesPage() {
   const tab = tabOf(query.status)
   const reviewTab = tab === 'review'
   const pages = page ? Math.max(1, Math.ceil(page.total / query.pageSize)) : 1
-  const filtered = Boolean(query.q || query.neighborhood || query.category || query.edited || query.missing?.length || query.reason)
+  const filtered = Boolean(query.q || query.neighborhood || query.category || query.price || query.edited || query.priceSuggestion || query.missing?.length || query.reason)
   const missing = query.missing ?? []
   const hasRatings = Object.keys(ratings).length > 0
   const showRatings = hasRatings || Object.keys(ratingErrors).length > 0
@@ -361,6 +381,13 @@ export function SavedPlacesPage() {
             </select>
           </label>
           <label className="grid gap-1 text-xs text-muted-foreground">
+            Precio
+            <select className={selectClass} value={query.price ?? ''} onChange={(event) => filter({ price: (event.target.value || undefined) as PriceLevel | undefined })}>
+              <option value="">Todos</option>
+              {PRICE_OPTIONS.map((id) => <option key={id} value={id}>{PRICE_LABELS[id]}</option>)}
+            </select>
+          </label>
+          <label className="grid gap-1 text-xs text-muted-foreground">
             Orden
             <select className={selectClass} value={ratingSort ?? query.sort} onChange={(event) => changeSort(event.target.value)}>
               {(Object.keys(SORT_LABELS) as PlaceListQuery['sort'][]).map((id) => <option key={id} value={id}>{SORT_LABELS[id]}</option>)}
@@ -381,6 +408,10 @@ export function SavedPlacesPage() {
           <label className="flex h-9 items-center gap-2 text-sm">
             <input type="checkbox" className="size-4 accent-primary" checked={Boolean(query.edited)} onChange={(event) => filter({ edited: event.target.checked || undefined })} />
             Editado a mano
+          </label>
+          <label className="flex h-9 items-center gap-2 text-sm">
+            <input type="checkbox" className="size-4 accent-primary" checked={Boolean(query.priceSuggestion)} onChange={(event) => filter({ priceSuggestion: event.target.checked || undefined })} />
+            Con sugerencia de precio
           </label>
           <Popover>
             <PopoverTrigger render={<Button type="button" variant="outline" className="h-9" aria-label={missing.length ? `Le falta… (${missing.length})` : 'Le falta…'} />}>
@@ -493,6 +524,7 @@ export function SavedPlacesPage() {
                           Puntaje de Google
                         </TableHead>
                       )}
+                      <TableHead className="px-4 sm:px-5">Sugerido</TableHead>
                       <TableHead className="px-4 sm:px-5">Logo</TableHead>
                       <TableHead className="px-4 sm:px-5">Barrio</TableHead>
                       <TableHead className="px-4 text-right sm:px-5">Tags</TableHead>
@@ -572,6 +604,39 @@ export function SavedPlacesPage() {
                                 : <span className="text-muted-foreground">—</span>}
                           </TableCell>
                         )}
+                        <TableCell className="px-4 py-3 sm:px-5" onClick={(event) => event.stopPropagation()}>
+                          {place.priceSuggestion && place.priceSuggestion.price !== place.price ? (
+                            <div className="flex items-center gap-2 whitespace-nowrap">
+                              <span
+                                className="cursor-help underline decoration-dotted underline-offset-4"
+                                title={[place.priceSuggestion.reason, place.priceSuggestion.snippet, place.priceSuggestion.sourceUrl].filter(Boolean).join('\n')}
+                                aria-label={`Precio sugerido de ${place.name}: ${PRICE_LABELS[place.priceSuggestion.price]}. ${place.priceSuggestion.reason}`}
+                              >
+                                {PRICE_LABELS[place.priceSuggestion.price]}
+                              </span>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={priceStates[place.id]?.status === 'saving' || dismissing.has(place.id)}
+                                onClick={() => void changePrice(place, place.priceSuggestion!.price)}
+                              >
+                                Aceptar
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                disabled={priceStates[place.id]?.status === 'saving' || dismissing.has(place.id)}
+                                onClick={() => void dismissSuggestion(place)}
+                                aria-label={`Descartar el precio sugerido de ${place.name}`}
+                              >
+                                Descartar
+                              </Button>
+                            </div>
+                          ) : <span className="text-muted-foreground">—</span>}
+                          {dismissErrors[place.id] && <p className="mt-1 max-w-48 text-xs text-destructive" role="alert">{dismissErrors[place.id]}</p>}
+                        </TableCell>
                         <TableCell className="px-4 py-3 sm:px-5">
                           <span className="flex items-center gap-2.5">
                             <PlaceIcon category={place.iconCategory} />

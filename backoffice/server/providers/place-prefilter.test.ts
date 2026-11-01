@@ -56,6 +56,14 @@ describe('classifyPlace', () => {
     expect(classifyPlace({ businessStatus: 'CLOSED_TEMPORARILY' })).toEqual({ group: 'review', reason: 'closed_temporarily' })
   })
 
+  it('los tres estados de Google con el mismo tipo: abierto sigue por tipo, cerrado va a revisión con su motivo', () => {
+    expect(classifyPlace({ primaryType: 'restaurant', businessStatus: 'OPERATIONAL', ...OK })).toEqual({ group: 'accepted', reason: null })
+    expect(classifyPlace({ primaryType: 'restaurant', businessStatus: 'CLOSED_TEMPORARILY', ...OK })).toEqual({ group: 'review', reason: 'closed_temporarily' })
+    expect(classifyPlace({ primaryType: 'restaurant', businessStatus: 'CLOSED_PERMANENTLY', ...OK })).toEqual({ group: 'review', reason: 'closed_permanently' })
+    // Sin businessStatus cuenta como abierto.
+    expect(classifyPlace({ primaryType: 'restaurant', ...OK })).toEqual({ group: 'accepted', reason: null })
+  })
+
   it('manda a revisión los aceptables con menos de 10 reseñas o sin reseñas', () => {
     expect(classifyPlace({ primaryType: 'bar', userRatingCount: 9 })).toEqual({ group: 'review', reason: 'few_reviews' })
     expect(classifyPlace({ primaryType: 'cafe', userRatingCount: 0 })).toEqual({ group: 'review', reason: 'few_reviews' })

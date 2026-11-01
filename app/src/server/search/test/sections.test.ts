@@ -67,6 +67,13 @@ describe('qué grupos se piden', () => {
     expect(requestedSections(interpretation({ sections: ['eat', 'outdoor', 'share'] }), { fromLlm: true, intent: 'eat' }).requested).toEqual(['outdoor', 'share'])
   })
 
+  it('con niños no hay "Para tomar algo", ni por reglas ni del modelo', () => {
+    const kids = interpretation({ prefer: { categories: [], tags: ['kids_friendly'], style: null } })
+    expect(requestedSections(kids, { fromLlm: false, intent: null }).requested).not.toContain('drinks')
+    expect(requestedSections({ ...kids, sections: ['eat', 'drinks', 'outdoor'] }, { fromLlm: true, intent: null }).requested).toEqual(['eat', 'outdoor'])
+    expect(requestedSections(interpretation(), { fromLlm: false, intent: null }).requested).toContain('drinks')
+  })
+
   it('un sub-filtro de la barra usa las reglas de su momento, no lo que eligió el modelo sólo con el texto', () => {
     const value = interpretation({ sections: ['share', 'classics', 'world'] })
     const breakfast = requestedSections(value, { fromLlm: true, intent: 'eat', subs: [{ id: 'breakfast', fromText: false }] })

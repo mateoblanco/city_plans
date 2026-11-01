@@ -209,10 +209,12 @@ export function placeListSearch(query: PlaceListQuery): string {
   if (query.q?.trim()) params.set('q', query.q.trim())
   if (query.neighborhood) params.set('neighborhood', query.neighborhood)
   if (query.category) params.set('category', query.category)
+  if (query.price) params.set('price', query.price)
   if (query.status) params.set('status', query.status)
   if (query.edited) params.set('edited', '1')
   if (query.missing?.length) params.set('missing', query.missing.join(','))
   if (query.reason) params.set('reason', query.reason)
+  if (query.priceSuggestion) params.set('priceSuggestion', '1')
   if (query.ids?.length) params.set('ids', query.ids.join(','))
   if (query.sort !== 'recent') params.set('sort', query.sort)
   if (query.page !== 1) params.set('page', String(query.page))
@@ -307,6 +309,12 @@ export async function setPlaceFeatured(id: string, featured: boolean, signal?: A
     signal,
   })
   await parseApiResponse<{ id: string; featured: boolean }>(response)
+}
+
+/** Descarta el precio sugerido de un lugar: deja de mostrarse, el precio no cambia. */
+export async function dismissPriceSuggestion(id: string, signal?: AbortSignal): Promise<void> {
+  const response = await fetch(`/api/places/${encodeURIComponent(id)}/price-suggestion`, { method: 'DELETE', signal })
+  await parseApiResponse<{ id: string; dismissed: true }>(response)
 }
 
 /** Publica a mano un lugar que quedó en revisión. */

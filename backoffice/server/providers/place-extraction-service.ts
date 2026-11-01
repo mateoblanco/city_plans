@@ -56,8 +56,10 @@ import {
   FOREIGN_ADDRESS,
   FOREIGN_TLDS,
   MENTIONS_URUGUAY,
+  TEMPLATE_HOSTS,
   canonical,
   hasPhrase,
+  isLowTrustSource,
   hostedBy,
   hostname,
   isDirectoryHost,
@@ -74,11 +76,12 @@ import type { ExaPlaceProvider } from './exa-place-provider.ts'
 import type { ApifyInstagramProvider, InstagramProfileData } from './apify-instagram-provider.ts'
 import type { PlaywrightWebsiteScraper, WebsitePageData } from './website-scraper.ts'
 import { logoUrl, type LogoStore } from './logo-storage.ts'
-import { isMomentId, MOMENT_IDS, MOMENT_SIGNALS, NOT_FOR_DEDUCTION, signalsIn, STYLE_SIGNALS, sufficientSignals, type SignalMatch } from './moment-signals.ts'
+import { isMomentId, MOMENT_IDS, momentSignalsFor, signalsIn, STYLE_SIGNALS, sufficientSignals, type SignalMatch } from './moment-signals.ts'
 import type { ExtractionSnapshotStore } from './extraction-snapshots.ts'
 import { classifyLogo, classifyProfilePicture, fetchPlaceLogo, logoModel, profilePictureStatus, type LogoClassifier, type LogoOutcome, type PictureClassification, type ProfilePictureStatus } from './place-logo.ts'
 import { brandKey, InstagramCandidateRegistry, type InstagramOwners, type ManualInstagramLookup, type SharedInstagram } from './instagram-candidate-registry.ts'
-import { googleRatingOf, instagramActivity, instagramOperating, reviewReasonsFor, type InstagramActivity } from './review-reasons.ts'
+import { googleBusinessStatusOf, googleRatingOf, instagramActivity, instagramOperating, reviewReasonsFor, type InstagramActivity } from './review-reasons.ts'
+import { priceKindOf, tierFor, type PriceKind, type PriceTier } from './price-tiers.ts'
 
 const DEFAULT_EXTRACTION_MODEL = 'anthropic/claude-sonnet-5.5'
 const MAX_CHARS_PER_SOURCE = 6_000
@@ -140,7 +143,7 @@ export const PlaceExtraction = z.object({
   facts: z.array(z.object({ id: z.string(), text: z.string(), sourceId: z.string(), kind: FactKind, proposedTag: z.string().nullable() })),
   tags: z.array(z.object({ group: TagGroupField, id: z.string(), facts: z.array(z.string()) })),
   dietary: z.object({ vegan: DietLevel, vegetarian: DietLevel, glutenFree: DietLevel }),
-  price: z.enum(['unknown', 'low', 'moderate', 'high', 'very_high']),
+  price: z.enum(['unknown', 'low', 'moderate', 'high']),
   reservations: z.enum(['unknown', 'no_reservations', 'accepts', 'recommended']),
   hours: z.object({
     raw: z.string().nullable(),
@@ -345,6 +348,13 @@ function llmPrice(model: string): LlmPrice | null {
 
 const ALLOWED_TAG_GROUPS = { categories: CATEGORIES, moments: MOMENTS, cuisines: CUISINES, foods: FOODS, drinks: DRINKS, features: FEATURES, atmosphere: ATMOSPHERE, goodFor: GOOD_FOR, offers: OFFERS, style: STYLES } as const
 
+/**
+ * Tags que una fuente de baja confianza (resumen de Exa o de plantilla: source-hosts.ts isLowTrustSource) no sostiene
+ * sola: sus facts cuentan como el resumen de Exa (sólo señales débiles) y su texto no es respaldo. Con un fact de
+ * reseñas, web propia, Instagram o una fuente editorial, el tag se queda.
+ */
+export const LOW_TRUST_GATED_TAGS = new Set<string>(['cozy', 'kids_friendly', 'groups'])
+
 export const SYSTEM_PROMPT = `Sos un curador de gastronomía de Montevideo. A partir de las fuentes, devolvé un JSON sobre el local objetivo. Trabajá en dos pasos y en este orden.
 
 PASO 1 — facts
@@ -372,11 +382,12 @@ PASO 2 — el resto del JSON, sólo a partir de facts
 - Los momentos de goodFor (groups, date, kids_friendly, celebration, quick) van si un fact los nombra ("ideal para ir con amigos", "para una cita", "menú para chicos") o, por inferencia, sólo con señales concretas en los facts que cites: una señal fuerte, o dos débiles distintas.
   - groups: fuerte: picada o tabla para compartir. Débiles: tapas o platitos para compartir, cerveza tirada, tragos, ambiente animado, música en vivo o DJ, mesas grandes o largas.
   - date: sin señales fuertes. Débiles: ambiente tranquilo, íntimo, vinos o carta de vinos, cocina cuidada o de autor, reservas, ambiente acogedor.
-  - kids_friendly: fuertes: menú infantil, sillas altas, juegos o espacio para niños. Débiles: patio, espacio amplio, propuesta familiar.
+  - kids_friendly: fuertes: menú infantil, juegos o espacio para niños. Débiles: sillas altas (en un bar de noche no cuenta), patio, espacio amplio, propuesta familiar.
   - celebration: fuertes: eventos privados, salón para eventos. Débiles: reservas para grupos, tragos, lugar u ocasión especial.
   - quick: fuerte: al paso. Débiles: mostrador, para llevar, menú del día o ejecutivo.
   Citá en el tag los facts que traen esas señales. Sin señal concreta, no lo pongas: nunca por el tipo de local. events es para actividades culturales (talleres, charlas, muestras); eventos privados o festejos son celebration.
 - Los facts de fuentes de terceros son válidos para tags de comida, bebida, características y momentos. Solo dietary necesita una mención explícita, y si una fuente oficial contradice a un tercero, gana la oficial.
+- ${[...LOW_TRUST_GATED_TAGS].join(', ')}: ni el RESUMEN ESTRUCTURADO DE EXA ni las fuentes de plantilla (${TEMPLATE_HOSTS.join(', ')}), que repiten el mismo texto en casi todas sus páginas, los sostienen solos: necesitan un fact de reseñas, web propia, Instagram o una fuente editorial. Si sólo esas fuentes lo dicen, no pongas el tag.
 - Platos concretos siempre se mapean a un tag: cortes de carne o achuras → grilled_meat; pescados, mariscos o arroces con mariscos → seafood; pastas rellenas o caseras → pasta; flan, panqueques u otros postres → desserts; bowls o ensaladas → salads; huevos o tostadas → breakfast. Variedad de cervezas → craft_beer o draft_beer. Transmisiones deportivas → el tag de pantallas para fútbol (watch_football).
 - Si hay facts de bebidas, tiene que haber al menos un tag de bebida. Una mención genérica de tragos o cócteles → classic_cocktails. Tragos propios de la casa, de autor, o cócteles con una base especial (ej. a base de vino) → signature_cocktails.
 - moments: no devuelvas late_night; lo decide el código con los horarios.
@@ -391,7 +402,7 @@ PASO 2 — el resto del JSON, sólo a partir de facts
 - offers: sólo promociones o formatos concretos (merienda para dos, menú del día o ejecutivo, tenedor libre, happy hour).
 - dietary no se infiere: has_options si un fact menciona opciones veganas, vegetarianas o sin TACC; fully sólo con una frase inequívoca de que todo el local cumple; "no" sólo si se dice explícitamente; si no, unknown. Si el menú menciona queso, huevo, manteca, leche o crema que no sean veganos, vegan no puede ser fully.
 - Una versión vegetal explícita de un plato (de soja, de seitán, veggie, de lentejas) cuenta como vegetarian has_options.
-- price sólo con precios o una mención explícita. reservations sólo con un fact que lo diga.
+- price sólo con precios o una mención explícita, y relativo a lo habitual para ese tipo de lugar (un café se compara con cafés, un bar con bares): low si es más accesible que lo habitual (menú del día, comida al paso, "precios accesibles", "económico"); moderate si está en lo habitual; high si es claramente más caro que lo habitual (alta cocina, menú degustación, coctelería de autor, "exclusivo"). reservations sólo con un fact que lo diga.
 - Cada campo de contact va con "" si las fuentes no lo dicen.
 - contact.website es exclusivamente la web propia del local: nunca un link de reservas, delivery, WhatsApp o Linktree.
 - Si las fuentes dicen que el local está dentro de otro lugar (shopping, mercado, galería, hotel, museo, polo gastronómico), completá locatedIn con el nombre de ese lugar. Si no lo dicen claramente, null. No lo deduzcas solo de la dirección.
@@ -1369,7 +1380,6 @@ function isOpenAt(hours: HoursSlot[], at: number) {
   })
 }
 
-type PriceTier = PlaceExtraction['price']
 type PriceCandidate = { value: number; trust: SourceTrust }
 
 const PRICE_CURRENCY = '(?:uyu|u\\$|\\$)'
@@ -1424,22 +1434,36 @@ function pricesInText(text: string, trust: SourceTrust): PriceCandidate[] {
   return candidates
 }
 
-function median(values: number[]) {
+/**
+ * Precios sueltos de una carta ("Milanesa con fritas $690"): sin pedir contexto de precio por persona, sin rangos ni
+ * montos en otra moneda. Para `yarn prices:suggest`; la extracción sigue usando sólo los precios por persona.
+ */
+export function menuPricesInText(text: string): { value: number; start: number; end: number }[] {
+  const prices: { value: number; start: number; end: number }[] = []
+  const rangeSpans = [...text.matchAll(PRICE_RANGE)].map((match) => ({ start: match.index ?? 0, end: (match.index ?? 0) + match[0].length }))
+  for (const match of text.matchAll(PRICE_SINGLE)) {
+    const start = match.index ?? 0
+    const end = start + match[0].length
+    if (rangeSpans.some((span) => start >= span.start && end <= span.end)) continue
+    if (hasForeignCurrency(text, start, end)) continue
+    const value = parseUruguayPrice(match[1])
+    if (Number.isFinite(value)) prices.push({ value, start, end })
+  }
+  return prices
+}
+
+export function median(values: number[]) {
   const sorted = [...values].sort((left, right) => left - right)
   const middle = Math.floor(sorted.length / 2)
   return sorted.length % 2 === 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2
 }
 
-function deterministicPrice(sources: Source[]): PriceTier | null {
+function deterministicPrice(sources: Source[], kind: PriceKind): PriceTier | null {
   const candidates = sources.flatMap((source) => pricesInText(source.text, source.trust))
   const official = candidates.filter((candidate) => candidate.trust === 'official')
   const selected = official.length > 0 ? official : candidates
   if (selected.length === 0) return null
-  const value = median(selected.map((candidate) => candidate.value))
-  if (value < 600) return 'low'
-  if (value < 1200) return 'moderate'
-  if (value <= 2500) return 'high'
-  return 'very_high'
+  return tierFor(kind, median(selected.map((candidate) => candidate.value)))
 }
 
 // Coherencia dietaria: no depende de palabras, sólo de los niveles ya validados.
@@ -1451,9 +1475,10 @@ function applyDietaryCoherence(result: Pick<ProcessedExtraction, 'dietary' | 'ta
 }
 
 // Reglas que no dependen de palabras: categorías, horarios y dietary.
-function applyConsistencyRules(result: ProcessedExtraction) {
-  // restaurant debe estar presente antes de las reglas de moments que dependen de ella.
-  applyRestaurantCategoryImplication(result)
+function applyConsistencyRules(result: ProcessedExtraction, options: { manualCategories?: boolean } = {}) {
+  // restaurant debe estar presente antes de las reglas de moments que dependen de ella. Con categorías editadas a mano
+  // no se agrega: el valor queda exacto.
+  if (!options.manualCategories) applyRestaurantCategoryImplication(result)
   appendCategoryFoodsAndCuisines(result)
   if (result.categories.includes('wine_bar')) {
     addUnique(result.tags, 'wine')
@@ -1728,10 +1753,13 @@ function canonicalSupportField(field: string) {
 
 type TaggedItem = PlaceExtraction['tags'][number]
 
+/** Categorías editadas a mano de un lugar guardado (manual_overrides.categories), o null si no tiene el override. */
+export type ManualCategoriesLookup = (googlePlaceId: string) => Promise<CategoryId[] | null>
+
 export function postProcess(
   target: Target,
   data: PlaceExtraction,
-  context: { sources?: Source[]; seedCategories?: CategoryId[]; categoryFallback?: string[]; deterministicContact?: DeterministicContact; prominenceSignals?: ProminenceSourceSignals; instagramManual?: InstagramManual; knownChain?: boolean; websiteRejected?: RejectedWebsite } = {},
+  context: { sources?: Source[]; seedCategories?: CategoryId[]; categoryFallback?: string[]; deterministicContact?: DeterministicContact; prominenceSignals?: ProminenceSourceSignals; instagramManual?: InstagramManual; knownChain?: boolean; websiteRejected?: RejectedWebsite; manualCategories?: CategoryId[] } = {},
 ): PlaceEnrichmentDraft {
   const sources = context.sources ?? []
   const sourcesById = new Map(sources.map((source) => [source.id, source]))
@@ -1822,11 +1850,16 @@ export function postProcess(
     factsById.set(fact.id, fact)
     support.set(field, [...(support.get(field) ?? []), fact.id])
   }
+  // Para el tag: el resumen de Exa siempre es débil; las de plantilla, también para LOW_TRUST_GATED_TAGS.
+  const weakSource = (id: string, source: Source) => source.url === EXA_SUMMARY_URL || (LOW_TRUST_GATED_TAGS.has(id) && isLowTrustSource(source.url))
+  // Lugar de noche (trasnoche por horario, dj o dancing): ahí no cuentan las señales de NOT_AT_NIGHT (sillas altas).
+  const nightSlots = branchOnly('hours') && (support.get('hours') ?? []).length > 0 ? slotsFromBlocks(result.hours.blocks) : []
+  const night = lateNightFromSlots(nightSlots) || result.tags.some((item) => (item.id === 'dj' || item.id === 'dancing') && knownTag(item) && supported(`${item.group}.${item.id}`))
   // Un tag que el modelo sólo respaldó con el resumen de Exa se queda si una fuente real (web,
   // Instagram, páginas de Exa) lo nombra: la línea que lo nombra pasa a ser su respaldo.
   const backedBySourceText = (id: string, field: string, accept: (source: Source) => boolean = () => true) => {
     for (const source of sources) {
-      if (source.url === EXA_SUMMARY_URL || !accept(source)) continue
+      if (weakSource(id, source) || !accept(source)) continue
       const line = source.text.split(/\n|(?<=\.)\s/).find((part) => tagMentioned(id, [part]))
       if (!line) continue
       addCodeFact(field, line, source)
@@ -1850,10 +1883,13 @@ export function postProcess(
     backedBySourceText(id, field, accept) ? { tag: id, mode: 'explicit', signals: [tagMention(id, sources.map((source) => source.text)) ?? id], factIds: lastSupport(field) } : null
   // Facts citados en un campo que salen del resumen de Exa: sus señales cuentan como débiles.
   const summaryFacts = (field: string) => (support.get(field) ?? []).map((factId) => factsById.get(factId)!).filter((fact) => fact.source.url === EXA_SUMMARY_URL)
+  // Lo mismo para un tag: los facts citados de fuentes débiles para él (weakSource).
+  const weakFacts = (id: string, field: string) => (support.get(field) ?? []).map((factId) => factsById.get(factId)!).filter((fact) => weakSource(id, fact.source))
+  const weakLabel = (factId: string) => factsById.get(factId)?.source.url === EXA_SUMMARY_URL ? 'resumen de Exa' : 'fuente de plantilla'
   const inferredEvidence = (id: string, signals: SignalMatch[]): TagEvidence => ({
     tag: id,
     mode: 'inferred',
-    signals: signals.map((match) => match.fromSummary ? `${match.signal} (resumen de Exa)` : match.signal),
+    signals: signals.map((match) => match.fromSummary ? `${match.signal} (${weakLabel(match.factId)})` : match.signal),
     factIds: [...new Set(signals.map((match) => match.factId))],
   })
   // Un momento: lo nombra la fuente, o hay una señal fuerte o dos débiles en los facts citados (el resumen de Exa
@@ -1861,19 +1897,26 @@ export function postProcess(
   const momentEvidence = (id: string, field: string, eligible: ValidFact[]): TagEvidence | null => {
     const explicit = explicitEvidence(id, eligible)
     if (explicit) return explicit
-    const signals = isMomentId(id) ? sufficientSignals(signalsIn(MOMENT_SIGNALS[id], eligible), signalsIn(MOMENT_SIGNALS[id], summaryFacts(field))) : null
+    const candidates = isMomentId(id) ? momentSignalsFor(id, { night }) : []
+    const signals = isMomentId(id) ? sufficientSignals(signalsIn(candidates, eligible), signalsIn(candidates, weakFacts(id, field))) : null
     if (signals) return inferredEvidence(id, signals)
     return eligible.length === 0 ? sourceTextEvidence(id, field) : null
   }
   // LITERAL_TAGS (cozy, neighborhood_spot…) no distinguen nada si se deducen: sólo si la fuente dice la frase.
   const literalEvidence = (id: string, field: string, eligible: ValidFact[]) =>
     eligible.length === 0 ? sourceTextEvidence(id, field) : explicitEvidence(id, eligible)
+  // Un tag implícito en otro (picada → groups) también necesita un fact que no sea de una fuente débil para él.
+  const trustedFor = (id: string, factIds: string[]) => factIds.some((factId) => !weakSource(id, factsById.get(factId)!.source))
   const gated = (evidence: TagEvidence | null) => {
     if (evidence) tagEvidence.push(evidence)
     return evidence !== null
   }
 
   for (const seedCategory of context.seedCategories ?? []) addUnique(categories, seedCategory)
+  // Categorías editadas a mano (manual_overrides.categories): mandan sobre las del modelo y las semilla, y de ellas salen
+  // los tags implícitos, el tipo de precio y los motivos de revisión.
+  const manualCategories = context.manualCategories?.length ? context.manualCategories : null
+  if (manualCategories) categories.splice(0, categories.length, ...manualCategories)
   // Una cocina del modelo necesita respaldo en los facts (la nombran o dos platos típicos); reviewExtraction anota las descartadas.
   const cuisineEvidence = supportedCuisines(retainTags<TagId>('cuisines'), facts)
   const tags: TagId[] = [...new Set<TagId>([
@@ -1887,7 +1930,7 @@ export function postProcess(
       const group = groupOf(id)
       if (!group || !NOT_FROM_EXA_SUMMARY_GROUPS.has(group)) return true
       const field = `${group}.${id}`
-      const eligible = (support.get(field) ?? []).map((factId) => factsById.get(factId)!).filter((fact) => fact.source.url !== EXA_SUMMARY_URL)
+      const eligible = (support.get(field) ?? []).map((factId) => factsById.get(factId)!).filter((fact) => !weakSource(id, fact.source))
       if (group === 'goodFor' && isMomentId(id)) return gated(momentEvidence(id, field, eligible))
       if (LITERAL_TAGS.has(id)) return gated(literalEvidence(id, field, eligible))
       if (eligible.length === 0) return backedBySourceText(id, field)
@@ -1911,30 +1954,33 @@ export function postProcess(
     tagEvidence.push({ tag: 'terrace', mode: 'inferred', signals: ['azotea (rooftop)'], factIds })
   }
   // Un espacio para niños hace al lugar apto niños: el fact de kids_area es su respaldo.
-  if (tags.includes('kids_area') && !tags.includes('kids_friendly')) {
-    const factIds = support.get('features.kids_area') ?? []
+  const kidsAreaFacts = support.get('features.kids_area') ?? []
+  if (tags.includes('kids_area') && !tags.includes('kids_friendly') && trustedFor('kids_friendly', kidsAreaFacts)) {
+    const factIds = kidsAreaFacts
     tags.push('kids_friendly')
     support.set('goodFor.kids_friendly', [...new Set([...(support.get('goodFor.kids_friendly') ?? []), ...factIds])])
     tagEvidence.push({ tag: 'kids_friendly', mode: 'inferred', signals: ['espacio para niños (kids_area)'], factIds })
   }
   // Una picada (o tabla) es para compartir aunque la fuente no lo diga: hace al lugar para grupos.
-  if (tags.includes('picada') && !tags.includes('groups')) {
-    const factIds = support.get('foods.picada') ?? []
+  const picadaFacts = support.get('foods.picada') ?? []
+  if (tags.includes('picada') && !tags.includes('groups') && trustedFor('groups', picadaFacts)) {
+    const factIds = picadaFacts
     tags.push('groups')
     support.set('goodFor.groups', [...new Set([...(support.get('goodFor.groups') ?? []), ...factIds])])
     tagEvidence.push({ tag: 'groups', mode: 'inferred', signals: ['picada (tag)'], factIds })
   }
   // Momentos que el modelo no propuso: el código los deduce de las señales en todos los facts, con las mismas reglas
-  // (una fuerte o dos débiles; el resumen de Exa sólo suma como débil), sin las señales de NOT_FOR_DEDUCTION.
+  // (una fuerte o dos débiles; el resumen de Exa sólo suma como débil), sin las señales de NOT_FOR_DEDUCTION (ni las de
+  // NOT_AT_NIGHT en un lugar de noche).
   // Uno que el modelo propuso y se descartó no vuelve por acá.
   const proposedMoments = new Set(result.tags.filter((item) => item.group === 'goodFor').map((item) => item.id))
   const ownFacts = facts.filter((fact) => fact.source.url !== EXA_SUMMARY_URL)
   const exaFacts = facts.filter((fact) => fact.source.url === EXA_SUMMARY_URL)
   for (const id of MOMENT_IDS) {
     if (tags.includes(id) || proposedMoments.has(id)) continue
-    const skipped = new Set(NOT_FOR_DEDUCTION[id] ?? [])
-    const candidates = MOMENT_SIGNALS[id].filter((signal) => !skipped.has(signal.id))
-    const signals = sufficientSignals(signalsIn(candidates, ownFacts), signalsIn(candidates, exaFacts))
+    // Para LOW_TRUST_GATED_TAGS, las fuentes de plantilla van con el resumen de Exa.
+    const candidates = momentSignalsFor(id, { deduction: true, night })
+    const signals = sufficientSignals(signalsIn(candidates, facts.filter((fact) => !weakSource(id, fact.source))), signalsIn(candidates, facts.filter((fact) => weakSource(id, fact.source))))
     if (!signals) continue
     tags.push(id)
     support.set(`goodFor.${id}`, [...new Set(signals.map((match) => match.factId))])
@@ -2040,7 +2086,7 @@ export function postProcess(
   }
   // Un precio por persona publicado en las fuentes tiene precedencia sobre la
   // clasificación del modelo, incluso cuando el modelo no lo haya citado.
-  processed.price = deterministicPrice(sources) ?? processed.price
+  processed.price = deterministicPrice(sources, priceKindOf(result.iconCategory, categories)) ?? processed.price
   // style nunca queda vacío: sin señales, sale del precio y, sin precio, del ícono.
   if (!style) {
     const fallback = fallbackStyle(processed.price, result.iconCategory)
@@ -2104,7 +2150,7 @@ export function postProcess(
     }
   }
 
-  applyConsistencyRules(processed)
+  applyConsistencyRules(processed, { manualCategories: Boolean(manualCategories) })
   processed.tags = capCuisines(processed.tags)
   // signature: ids que quedaron en tags, sin repetir y hasta 3. El resto se descarta.
   const finalTags = new Set<string>(processed.tags)
@@ -2558,6 +2604,8 @@ export type CollectedSources = {
   logo?: LogoOutcome
   /** Puntaje de Google del Place Details: sólo decide low_rating. No se guarda ni va al snapshot. */
   googleRating?: GoogleRating
+  /** businessStatus del Place Details: sólo decide closed_permanently/closed_temporarily. No se guarda ni va al snapshot. */
+  businessStatus?: string | null
   /** 429 de esta etapa; extractFrom sigue sumando los suyos. Falta si las fuentes vienen de un JSON. */
   rateLimits?: RateLimitLog
   costUsage: ExtractionCostUsage
@@ -2669,10 +2717,11 @@ export class PlaceExtractionService implements PlaceExtractor {
   private readonly candidateRegistry: Pick<InstagramCandidateRegistry, 'claim'> & Partial<Pick<InstagramCandidateRegistry, 'forget'>>
   private readonly instagramOwners?: InstagramOwners
   private readonly manualInstagram?: ManualInstagramLookup
+  private readonly manualCategories?: ManualCategoriesLookup
   private readonly brandSiblings?: BrandSiblings
   private readonly discoveries: DiscoveryStore
 
-  constructor(config: { apiKey?: string; details: DetailsProvider; exa?: ExaPlaceProvider; instagram?: InstagramProvider; website?: WebsiteProvider; transit?: TransitProvider; generate?: GenerateExtraction; generateHours?: GenerateHours; costRates?: Partial<ExtractionCostRates>; reservationHosts?: readonly string[]; model?: ExtractionModelConfig; hoursModel?: ExtractionModelConfig; logoStorage?: LogoStore; classifyLogo?: LogoClassifier; logoModel?: string; logoFetcher?: typeof fetch; rateLimitRetry?: RateLimitRetryOptions; snapshots?: ExtractionSnapshotStore; candidateRegistry?: Pick<InstagramCandidateRegistry, 'claim'> & Partial<Pick<InstagramCandidateRegistry, 'forget'>>; instagramOwners?: InstagramOwners; manualInstagram?: ManualInstagramLookup; brandSiblings?: BrandSiblings; discoveries?: DiscoveryStore }) {
+  constructor(config: { apiKey?: string; details: DetailsProvider; exa?: ExaPlaceProvider; instagram?: InstagramProvider; website?: WebsiteProvider; transit?: TransitProvider; generate?: GenerateExtraction; generateHours?: GenerateHours; costRates?: Partial<ExtractionCostRates>; reservationHosts?: readonly string[]; model?: ExtractionModelConfig; hoursModel?: ExtractionModelConfig; logoStorage?: LogoStore; classifyLogo?: LogoClassifier; logoModel?: string; logoFetcher?: typeof fetch; rateLimitRetry?: RateLimitRetryOptions; snapshots?: ExtractionSnapshotStore; candidateRegistry?: Pick<InstagramCandidateRegistry, 'claim'> & Partial<Pick<InstagramCandidateRegistry, 'forget'>>; instagramOwners?: InstagramOwners; manualInstagram?: ManualInstagramLookup; manualCategories?: ManualCategoriesLookup; brandSiblings?: BrandSiblings; discoveries?: DiscoveryStore }) {
     this.configured = Boolean(config.apiKey?.trim())
     this.details = config.details
     this.exa = config.exa
@@ -2694,6 +2743,7 @@ export class PlaceExtractionService implements PlaceExtractor {
     this.candidateRegistry = config.candidateRegistry ?? new InstagramCandidateRegistry()
     this.instagramOwners = config.instagramOwners
     this.manualInstagram = config.manualInstagram
+    this.manualCategories = config.manualCategories
     this.brandSiblings = config.brandSiblings
     this.discoveries = config.discoveries ?? new DiscoveryStore()
   }
@@ -2702,6 +2752,15 @@ export class PlaceExtractionService implements PlaceExtractor {
    * Otro lugar guardado de la misma marca (Instagram validado o manual, o brand_key). Si la base falla, false: las
    * reglas de sucursal quedan como sin cadena conocida.
    */
+  /** Categorías editadas a mano del lugar guardado; si la base falla, sigue con las del modelo. */
+  private async savedCategories(collected: CollectedSources): Promise<CategoryId[] | undefined> {
+    if (!this.manualCategories) return undefined
+    return (await this.manualCategories(collected.target.googlePlaceId).catch((error: unknown) => {
+      console.warn(JSON.stringify({ event: 'manual_categories_failed', placeId: collected.placeId, error: String(error) }))
+      return null
+    })) ?? undefined
+  }
+
   private async knownChain(collected: CollectedSources): Promise<boolean> {
     if (!this.brandSiblings) return false
     const profile = collected.instagramValidation.profile
@@ -3022,6 +3081,7 @@ export class PlaceExtractionService implements PlaceExtractor {
         prominenceSignals,
         logo,
         googleRating: googleRatingOf(details),
+        businessStatus: googleBusinessStatusOf(details),
         rateLimits,
         costUsage,
         timings,
@@ -3133,6 +3193,7 @@ export class PlaceExtractionService implements PlaceExtractor {
         websiteRejected: collected.websiteRejected,
         categoryFallback: [],
         knownChain: await this.knownChain(collected),
+        manualCategories: await this.savedCategories(collected),
       }
       let data = extracted
       let allSources = sources
@@ -3206,7 +3267,7 @@ export class PlaceExtractionService implements PlaceExtractor {
       }).catch((error: unknown) => console.warn(JSON.stringify({ event: 'extraction_snapshot_failed', placeId: target.googlePlaceId, error: String(error) })))
       const review = reviewExtraction(place, data, hoursRetry, placeLogo.review, rateLimits.summary(), collected.instagramManual, collected.instagramTieBreak, collected.sharedInstagram)
       const activity = modelRejectedInstagram ? null : collected.instagramActivity
-      place = { ...place, reviewReasons: reviewReasonsFor(place, review, { instagramOperating: instagramOperating(activity, new Date()), chainBranch: place.signals.chainBranch, googleRating: collected.googleRating }) }
+      place = { ...place, reviewReasons: reviewReasonsFor(place, review, { instagramOperating: instagramOperating(activity, new Date()), chainBranch: place.signals.chainBranch, googleRating: collected.googleRating, businessStatus: collected.businessStatus }) }
       return {
         source: 'llm', status: 'ok', model: config.model,
         // La salida del modelo con la que se armó el place (con el horario recuperado, si lo hubo): con las mismas

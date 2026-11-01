@@ -277,6 +277,12 @@ describe('Buscar por barrio', () => {
     await user.click(hide)
     expect(screen.getByText('· 1 ya está en la base')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Lugar guardado/ })).toBeInTheDocument()
+    // Los guardados se pintan con fondo suave y llevan la etiqueta "Guardado"; los demás, no.
+    const savedRow = screen.getByRole('link', { name: /Lugar guardado/ }).closest('tr')!
+    expect(savedRow).toHaveClass('bg-sky-50')
+    expect(within(savedRow).getByText('Guardado')).toBeInTheDocument()
+    expect(screen.getAllByText('Guardado')).toHaveLength(1)
+    expect(screen.getByLabelText('Seleccionar Lugar a2').closest('tr')).not.toHaveClass('bg-sky-50')
     await user.click(screen.getByLabelText('Seleccionar Lugar guardado'))
     await user.click(screen.getByRole('button', { name: 'Procesar sin revisar (3)' }))
     await waitFor(() => expect(extractBodies.map((body) => body.googlePlaceId).sort()).toEqual(['a1', 'a2', 'a3']))
@@ -699,7 +705,7 @@ describe('Buscar por barrio', () => {
     })
   })
 
-  it('los cerrados según Google quedan en A revisar sin poder seleccionarse hasta moverlos a mano, y el resumen los cuenta', async () => {
+  it('los cerrados según Google quedan en A revisar: el definitivo no se selecciona hasta moverlo a mano, el temporal sí, y el resumen los cuenta', async () => {
     const closed = { ...place, placeId: 'c1', name: 'Cerrado Uno', group: 'review' as const, reason: 'closed_permanently' }
     const paused = { ...place, placeId: 'c2', name: 'Cerrado Dos', group: 'review' as const, reason: 'closed_temporarily' }
     const fewReviews = { ...place, placeId: 'f1', name: 'Pocas Reseñas', group: 'review' as const, reason: 'few_reviews' }
@@ -708,9 +714,9 @@ describe('Buscar por barrio', () => {
       source: 'llm', status: 'ok', model: 'anthropic/claude-sonnet-5.5',
       performance: { totalMs: 1000, stepsMs: { llm: 1000 }, costUsd: { totalUsd: 0.1, providers: { llm: { costUsd: 0.04 } } } },
       place: {
-        googlePlaceId: id, name: id === 'c1' ? 'Cerrado Uno' : 'Pocas Reseñas', categories: [], tags: [], placeFacts: [],
+        googlePlaceId: id, name: { c1: 'Cerrado Uno', c2: 'Cerrado Dos' }[id] ?? 'Pocas Reseñas', categories: [], tags: [], placeFacts: [],
         hours: { status: 'none' }, contact: { instagram: null, website: null },
-        reviewReasons: id === 'c1' ? ['not_open_yet', 'no_place_facts'] : [],
+        reviewReasons: { c1: ['not_open_yet', 'no_place_facts'], c2: ['closed_temporarily'] }[id] ?? [],
       },
       review: { unmappedFacts: [], doubts: [], anomalies: [], hoursRetry: { attempted: false, recovered: false, costUsd: 0 } },
       sourceAudit: { instagram: false, instagramSelection: { handle: null, origin: null, candidates: [] } },
@@ -735,53 +741,62 @@ describe('Buscar por barrio', () => {
 
     await user.click(screen.getByRole('button', { name: 'A revisar (3)' }))
     // En el encabezado del grupo y en la columna Motivo.
-    expect(screen.getAllByText('Cerrado definitivamente según Google')).toHaveLength(2)
-    expect(screen.getAllByText('Cerrado temporalmente según Google')).toHaveLength(2)
+    expect(screen.getAllByText('Cerrado definitivamente')).toHaveLength(2)
+    expect(screen.getAllByText('Cerrado temporalmente')).toHaveLength(2)
     expect(screen.getByLabelText('Seleccionar Cerrado Uno')).toBeDisabled()
+    // El temporal se procesa sin moverlo a mano (se guarda en revisión): no tiene "Permitir procesar".
+    expect(screen.getByLabelText('Seleccionar Cerrado Dos')).toBeEnabled()
+    expect(screen.queryByRole('button', { name: 'Permitir procesar Cerrado Dos' })).not.toBeInTheDocument()
     // "Seleccionar todos" sólo toma los que se pueden procesar.
     await user.click(screen.getByLabelText('Seleccionar todos'))
     expect(screen.getByLabelText('Seleccionar Cerrado Uno')).not.toBeChecked()
-    expect(screen.getByRole('button', { name: 'Procesar (1)' })).toBeEnabled()
+    expect(screen.getByLabelText('Seleccionar Cerrado Dos')).toBeChecked()
+    expect(screen.getByRole('button', { name: 'Procesar (2)' })).toBeEnabled()
 
     await user.click(screen.getByRole('button', { name: 'Permitir procesar Cerrado Uno' }))
     expect(screen.getByLabelText('Seleccionar Cerrado Uno')).toBeEnabled()
     await user.click(screen.getByLabelText('Seleccionar Cerrado Uno'))
-    expect(screen.getByRole('button', { name: 'Procesar (2)' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Procesar (3)' })).toBeEnabled()
     // Volver a bloquearlo lo saca de la selección.
     await user.click(screen.getByRole('button', { name: 'Volver a bloquear Cerrado Uno' }))
-    expect(screen.getByRole('button', { name: 'Procesar (1)' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Procesar (2)' })).toBeEnabled()
     await user.click(screen.getByRole('button', { name: 'Permitir procesar Cerrado Uno' }))
     await user.click(screen.getByLabelText('Seleccionar Cerrado Uno'))
 
-    await user.click(screen.getByRole('button', { name: 'Procesar sin revisar (2)' }))
+    await user.click(screen.getByRole('button', { name: 'Procesar sin revisar (3)' }))
     const metrics = await screen.findByRole('region', { name: 'Métricas del procesamiento' })
-    expect(extractBodies.map((body) => body.googlePlaceId).sort()).toEqual(['c1', 'f1'])
+    expect(extractBodies.map((body) => body.googlePlaceId).sort()).toEqual(['c1', 'c2', 'f1'])
     const review = within(within(metrics).getByRole('list', { name: 'A revisar por motivo' }))
     expect(review.getByText('Todavía no abrió').nextElementSibling).toHaveTextContent('1')
     expect(review.getByText('Sin datos del local: las fuentes eran de otros lugares').nextElementSibling).toHaveTextContent('1')
     expect(review.getByText('Bar sin bebidas').nextElementSibling).toHaveTextContent('0')
-    expect(review.getByText('Cerrado definitivamente según Google (barrido)').nextElementSibling).toHaveTextContent('1')
-    expect(review.getByText('Cerrado temporalmente según Google (barrido)').nextElementSibling).toHaveTextContent('1')
+    // El temporal procesado sale por su motivo; el definitivo del barrido, aparte y una sola vez.
+    expect(review.getByText('Cerrado temporalmente').nextElementSibling).toHaveTextContent('1')
+    expect(review.getByText('Cerrado definitivamente (barrido)').nextElementSibling).toHaveTextContent('1')
+    expect(review.queryByText('Cerrado temporalmente (barrido)')).not.toBeInTheDocument()
     expect(review.getByText('Cerrado Dos')).toBeInTheDocument()
-    expect(within(metrics).getByText('1 procesado se guarda sin publicar')).toBeInTheDocument()
+    expect(within(metrics).getByText('2 procesados se guardan sin publicar')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /Procesados/ }))
     expect(screen.getByText('Irá a revisión: Todavía no abrió · Sin datos del local: las fuentes eran de otros lugares')).toBeInTheDocument()
   })
 
-  it('muestra puntaje y reseñas, ordena por ellos (sin dato al final) y filtra los de menos de 4', async () => {
+  it('muestra puntaje y reseñas, ordena por ellos (sin dato al final) y filtra por puntaje alto o bajo', async () => {
     const items = [
       { ...place, placeId: 'a', name: 'Alto', rating: 4.7, userRatingCount: 50 },
       { ...place, placeId: 'b', name: 'Sin dato', rating: null, userRatingCount: null },
       { ...place, placeId: 'c', name: 'Bajo', rating: 3.2, userRatingCount: 900 },
       { ...place, placeId: 'd', name: 'Justo', rating: 4, userRatingCount: 10 },
+      { ...place, placeId: 'e', name: 'Borde', rating: 3.8, userRatingCount: 10 },
+      { ...place, placeId: 'f', name: 'Pocas', rating: 3.8, userRatingCount: 5 },
+      { ...place, placeId: 'g', name: 'Pasa', rating: 3.9, userRatingCount: 200 },
     ]
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
       const url = String(input)
       if (url.includes('/sweep')) {
         return ndjson([
           { type: 'places', items },
-          { type: 'done', summary: summary({ totalPlaces: 4, byGroup: { accepted: 4, review: 0, rejected: 0 } }) },
+          { type: 'done', summary: summary({ totalPlaces: 7, byGroup: { accepted: 7, review: 0, rejected: 0 } }) },
         ])
       }
       return Promise.resolve(new Response(JSON.stringify({ ids: [] }), { status: 200 }))
@@ -793,26 +808,38 @@ describe('Buscar por barrio', () => {
     const header = within(table()).getAllByRole('columnheader').map((cell) => cell.textContent)
     const column = (name: string) => within(table()).getAllByRole('row').slice(1).map((row) => within(row).getAllByRole('cell')[header.indexOf(name)].textContent)
 
-    expect(column('Puntaje')).toEqual(['4,7', '—', '3,2', '4,0'])
-    expect(column('Reseñas')).toEqual(['50', '—', '900', '10'])
+    expect(column('Puntaje')).toEqual(['4,7', '—', '3,2', '4,0', '3,8', '3,8', '3,9'])
+    expect(column('Reseñas')).toEqual(['50', '—', '900', '10', '10', '5', '200'])
 
     const sort = screen.getByRole('combobox', { name: 'Orden' })
     await user.selectOptions(sort, 'rating_desc')
-    expect(column('Puntaje')).toEqual(['4,7', '4,0', '3,2', '—'])
+    expect(column('Puntaje')).toEqual(['4,7', '4,0', '3,9', '3,8', '3,8', '3,2', '—'])
     await user.selectOptions(sort, 'rating_asc')
-    expect(column('Puntaje')).toEqual(['3,2', '4,0', '4,7', '—'])
+    expect(column('Puntaje')).toEqual(['3,2', '3,8', '3,8', '3,9', '4,0', '4,7', '—'])
     await user.selectOptions(sort, 'reviews_desc')
-    expect(column('Reseñas')).toEqual(['900', '50', '10', '—'])
+    expect(column('Reseñas')).toEqual(['900', '200', '50', '10', '10', '5', '—'])
+    await user.selectOptions(sort, 'google')
 
-    // Seleccionados antes del filtro: los que quedan afuera se deseleccionan.
+    // Seleccionados antes del filtro: los que quedan afuera se deseleccionan. Oculta los que irían a low_rating (hasta
+    // 3,8 con 10 o más reseñas); con pocas reseñas o sin puntaje quedan.
     await user.click(screen.getByRole('checkbox', { name: 'Seleccionar todos' }))
-    await user.click(screen.getByRole('checkbox', { name: 'Puntaje menor a 4' }))
-    expect(column('Puntaje')).toEqual(['3,2'])
-    expect(screen.getByRole('button', { name: 'Aceptados (1)' })).toBeTruthy()
-    await user.click(screen.getByRole('checkbox', { name: 'Puntaje menor a 4' }))
-    expect(column('Puntaje')).toHaveLength(4)
-    const selected = within(table()).getAllByRole('row').slice(1).filter((row) => (within(row).getAllByRole('checkbox')[0] as HTMLInputElement).checked)
-    expect(selected).toHaveLength(1)
+    await user.click(screen.getByRole('checkbox', { name: 'Puntaje mayor a 3,8' }))
+    expect(column('Puntaje')).toEqual(['4,7', '—', '4,0', '3,8', '3,9'])
+    expect(column('Reseñas')).toEqual(['50', '—', '10', '5', '200'])
+    expect(screen.getByRole('button', { name: 'Aceptados (5)' })).toBeTruthy()
+    const checkedRows = () => within(table()).getAllByRole('row').slice(1).filter((row) => (within(row).getAllByRole('checkbox')[0] as HTMLInputElement).checked)
+    expect(checkedRows()).toHaveLength(5)
+    // "Menor o igual a 3,8" muestra sólo los que irían a low_rating y desmarca el otro filtro.
+    await user.click(screen.getByRole('checkbox', { name: 'Puntaje menor o igual a 3,8' }))
+    expect(screen.getByRole('checkbox', { name: 'Puntaje mayor a 3,8' })).not.toBeChecked()
+    expect(column('Puntaje')).toEqual(['3,2', '3,8'])
+    expect(column('Reseñas')).toEqual(['900', '10'])
+    expect(screen.getByRole('button', { name: 'Aceptados (2)' })).toBeTruthy()
+    // Los de puntaje bajo se habían deseleccionado con el primer filtro, y los de puntaje alto salen con este.
+    expect(checkedRows()).toHaveLength(0)
+    await user.click(screen.getByRole('checkbox', { name: 'Puntaje menor o igual a 3,8' }))
+    expect(column('Puntaje')).toHaveLength(7)
+    expect(checkedRows()).toHaveLength(0)
   })
 
   it('A revisar agrupa por motivo, el más frecuente primero, con el motivo después del nombre y spinner en la tab mientras procesa', async () => {

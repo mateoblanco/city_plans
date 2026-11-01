@@ -12,7 +12,7 @@ const place = (overrides: Partial<PlaceListItem>): PlaceListItem => ({
   id: 'uuid-1', googlePlaceId: 'ChIJpalenque', name: 'El Palenque', neighborhoodId: 'CIUDAD VIEJA', categories: ['restaurant'], tags: ['cash_only', 'kids_friendly'],
   status: 'published', hoursStatus: 'exact', price: 'moderate', updatedAt: '2026-10-12T15:30:00.000Z', hasEmbedding: true,
   prominence: 0.125, igFollowers: null, brandKey: null, instagram: null, featured: false,
-  logoUrl: null, logoKind: null, logoBgColor: null, logoColor: null, iconCategory: 'grill', style: null, reviewReasons: [], editedFields: [], ...overrides,
+  logoUrl: null, logoKind: null, logoBgColor: null, logoColor: null, iconCategory: 'grill', style: null, reviewReasons: [], editedFields: [], priceSuggestion: null, ...overrides,
 })
 
 const fold = (value: string) => value.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -23,7 +23,7 @@ const fold = (value: string) => value.normalize('NFD').replace(/[̀-ͯ]/g, '').t
  */
 type FakeRatings = Record<string, GoogleRating | 'fail'>
 
-function fakeServer(rows: PlaceListItem[], fail: { list?: number; featured?: boolean; publish?: boolean; price?: boolean; ratings?: boolean; neighborhoods?: boolean } = {}, hold?: Promise<void>, ratings: FakeRatings = {}) {
+function fakeServer(rows: PlaceListItem[], fail: { list?: number; featured?: boolean; publish?: boolean; price?: boolean; ratings?: boolean; neighborhoods?: boolean; dismiss?: boolean } = {}, hold?: Promise<void>, ratings: FakeRatings = {}) {
   const data = rows.map((row) => ({ ...row }))
   let listFailures = fail.list ?? 0
   const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
@@ -39,6 +39,12 @@ function fakeServer(rows: PlaceListItem[], fail: { list?: number; featured?: boo
       if (fail.publish) return jsonResponse({ error: { code: 'UNKNOWN_ERROR', message: 'No se pudo publicar el lugar.' } }, 500)
       data.find((row) => row.id === id)!.status = 'published'
       return jsonResponse({ id, status: 'published' })
+    }
+    const dismiss = url.pathname.match(/^\/api\/places\/([^/]+)\/price-suggestion$/)
+    if (dismiss && init?.method === 'DELETE') {
+      if (fail.dismiss) return jsonResponse({ error: { code: 'UNKNOWN_ERROR', message: 'No se pudo descartar la sugerencia.' } }, 500)
+      data.find((row) => row.id === dismiss[1])!.priceSuggestion = null
+      return jsonResponse({ id: dismiss[1], dismissed: true })
     }
     const edit = url.pathname.match(/^\/api\/places\/([^/]+)$/)
     if (edit && init?.method === 'PATCH') {
@@ -77,7 +83,9 @@ function fakeServer(rows: PlaceListItem[], fail: { list?: number; featured?: boo
     const filtered = data.filter((row) => (!q || fold(row.name).includes(fold(q)))
       && (!params.get('neighborhood') || row.neighborhoodId === params.get('neighborhood'))
       && (!params.get('category') || row.categories.includes(params.get('category')!))
+      && (!params.get('price') || row.price === params.get('price'))
       && (!params.get('edited') || row.editedFields.length > 0)
+      && (!params.get('priceSuggestion') || (row.priceSuggestion !== null && row.priceSuggestion.price !== row.price))
       && (!params.get('reason') || row.reviewReasons.includes(params.get('reason') as never))
       && (!params.get('missing') || params.get('missing')!.split(',').some((field) => ({
         price: row.price === 'unknown', hours: row.hoursStatus === 'none', logo: row.logoUrl === null, instagram: row.instagram === null,
@@ -270,6 +278,76 @@ describe('SavedPlacesPage', () => {
     expect(listCalls(fetchMock).at(-1)).toBe('/api/places?neighborhood=CIUDAD+VIEJA&status=review&missing=price%2Chours%2Cinstagram&pageSize=50')
   })
 
+  it('filtra por precio en el servidor, junto con barrio', async () => {
+    const fetchMock = fakeServer([
+      place({ id: 'a', name: 'Moderado' }),
+      place({ id: 'b', name: 'Barato', price: 'low', updatedAt: '2026-10-11T15:30:00.000Z' }),
+      place({ id: 'c', name: 'Sin Dato', price: 'unknown', updatedAt: '2026-10-10T15:30:00.000Z' }),
+      place({ id: 'd', name: 'Moderado Centro', neighborhoodId: 'CENTRO', updatedAt: '2026-10-09T15:30:00.000Z' }),
+    ])
+    render(<SavedPlacesPage />)
+    await screen.findByText('4 lugares')
+    const user = userEvent.setup()
+
+    expect(within(screen.getByLabelText('Precio')).getAllByRole('option').map((option) => option.textContent)).toEqual(['Todos', '$ Accesible', '$$ Normal', '$$$ Caro', 'Sin precio'])
+    await user.selectOptions(screen.getByLabelText('Precio'), 'moderate')
+    await waitFor(() => expect(names()).toEqual(['Moderado', 'Moderado Centro']))
+    expect(listCalls(fetchMock).at(-1)).toBe('/api/places?price=moderate&pageSize=50')
+
+    await user.selectOptions(screen.getByLabelText('Barrio'), 'CIUDAD VIEJA')
+    await waitFor(() => expect(names()).toEqual(['Moderado']))
+    expect(listCalls(fetchMock).at(-1)).toBe('/api/places?neighborhood=CIUDAD+VIEJA&price=moderate&pageSize=50')
+
+    await user.selectOptions(screen.getByLabelText('Precio'), 'unknown')
+    await waitFor(() => expect(names()).toEqual(['Sin Dato']))
+    await user.selectOptions(screen.getByLabelText('Precio'), 'high')
+    expect(await screen.findByText('Ningún lugar coincide con los filtros')).toBeTruthy()
+  })
+
+  it('muestra el precio sugerido con su motivo, lo acepta como override y filtra por sugerencia', async () => {
+    const suggestion = { price: 'low' as const, signal: 'menu' as const, reason: 'Carta: mediana $480 de 12 precios', snippet: '"Milanesa con fritas $ 490"', sourceUrl: 'https://palenque.example/' }
+    const fetchMock = fakeServer([
+      place({ priceSuggestion: suggestion }),
+      place({ id: 'b', name: 'Café Brasilero', updatedAt: '2026-10-01T15:30:00.000Z' }),
+    ])
+    render(<SavedPlacesPage />)
+    const user = userEvent.setup()
+
+    const suggested = await screen.findByLabelText('Precio sugerido de El Palenque: $ Accesible. Carta: mediana $480 de 12 precios')
+    expect(suggested).toHaveAttribute('title', 'Carta: mediana $480 de 12 precios\n"Milanesa con fritas $ 490"\nhttps://palenque.example/')
+    expect(within(screen.getByRole('row', { name: /Café Brasilero/ })).queryByRole('button', { name: 'Aceptar' })).toBeNull()
+
+    await user.click(screen.getByRole('checkbox', { name: 'Con sugerencia de precio' }))
+    await waitFor(() => expect(names()).toEqual(['El Palenque']))
+    expect(listCalls(fetchMock).at(-1)).toContain('priceSuggestion=1')
+
+    await user.click(screen.getByRole('button', { name: 'Aceptar' }))
+    await waitFor(() => expect(screen.getByLabelText('Precio de El Palenque')).toHaveValue('low'))
+    expect(fetchMock).toHaveBeenCalledWith('/api/places/uuid-1', expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ edit: { price: 'low' } }) }))
+    // Ya coincide: la sugerencia se oculta.
+    expect(screen.queryByRole('button', { name: 'Aceptar' })).toBeNull()
+  })
+
+  it('descarta el precio sugerido sin cambiar el precio, y lo vuelve a mostrar si falla', async () => {
+    const suggestion = { price: 'high' as const, signal: 'phrase' as const, reason: 'Frase en las fuentes: frase "menú degustación"', snippet: null, sourceUrl: null }
+    const fetchMock = fakeServer([place({ priceSuggestion: suggestion })])
+    render(<SavedPlacesPage />)
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('button', { name: 'Descartar el precio sugerido de El Palenque' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Aceptar' })).toBeNull())
+    expect(screen.getByLabelText('Precio de El Palenque')).toHaveValue('moderate')
+    expect(fetchMock).toHaveBeenCalledWith('/api/places/uuid-1/price-suggestion', expect.objectContaining({ method: 'DELETE' }))
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(false)
+    cleanup()
+
+    fakeServer([place({ priceSuggestion: suggestion })], { dismiss: true })
+    render(<SavedPlacesPage />)
+    await user.click(await screen.findByRole('button', { name: 'Descartar el precio sugerido de El Palenque' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo descartar la sugerencia.')
+    expect(screen.getByRole('button', { name: 'Aceptar' })).toBeEnabled()
+  })
+
   it('cambia el precio desde la fila sin abrir el modal: guardando, guardado y editado a mano', async () => {
     let release!: () => void
     const hold = new Promise<void>((resolve) => { release = resolve })
@@ -278,16 +356,16 @@ describe('SavedPlacesPage', () => {
     const user = userEvent.setup()
 
     const select = await screen.findByLabelText('Precio de El Palenque')
-    expect(within(select).getAllByRole('option').map((option) => option.textContent)).toEqual(['$', '$$', '$$$', '$$$$', 'Sin precio'])
-    await user.selectOptions(select, 'very_high')
+    expect(within(select).getAllByRole('option').map((option) => option.textContent)).toEqual(['$ Accesible', '$$ Normal', '$$$ Caro', 'Sin precio'])
+    await user.selectOptions(select, 'high')
     const status = screen.getByLabelText('Guardado del precio de El Palenque')
     expect(status).toHaveTextContent('Guardando…')
     expect(select).toBeDisabled()
     release()
     await waitFor(() => expect(status).toHaveTextContent('Guardado'))
-    expect(select).toHaveValue('very_high')
+    expect(select).toHaveValue('high')
     expect(within(screen.getAllByRole('row')[1]).getByLabelText('Editado a mano')).toBeTruthy()
-    expect(fetchMock).toHaveBeenCalledWith('/api/places/uuid-1', expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ edit: { price: 'very_high' } }) }))
+    expect(fetchMock).toHaveBeenCalledWith('/api/places/uuid-1', expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ edit: { price: 'high' } }) }))
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
@@ -324,7 +402,7 @@ describe('SavedPlacesPage', () => {
     render(<SavedPlacesPage />)
     await screen.findByText('1 lugar')
     expect(screen.getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
-      'Nombre', 'Google Maps', 'Categorías', 'Instagram', 'Precio', 'Logo', 'Barrio', 'Tags', 'Status', 'Horario', 'Embedding', 'Prominencia', 'Seguidores', 'Marca',
+      'Nombre', 'Google Maps', 'Categorías', 'Instagram', 'Precio', 'Sugerido', 'Logo', 'Barrio', 'Tags', 'Status', 'Horario', 'Embedding', 'Prominencia', 'Seguidores', 'Marca',
       'Destacado', 'Última actualización',
     ])
   })

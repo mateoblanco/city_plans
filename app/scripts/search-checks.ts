@@ -1,5 +1,5 @@
 // Propiedades esperadas por consulta, para `yarn search:eval` y `yarn search:check` (sale con error si alguna falla).
-import { isDanceOnly } from "../src/server/search/fuse";
+import { isDanceOnly, isKidsNight } from "../src/server/search/fuse";
 import { intentGroups, matchesGroup } from "../src/server/search/intents";
 import type { SearchDebug, SearchResponse } from "../src/server/search/search";
 
@@ -54,6 +54,33 @@ const noDanceInTop = (count: number): Check => ({
   test: (places) => places.slice(0, count).filter(isDanceOnly).map(name),
 });
 
+/** Sub-filtro de la intención activo y pedido por el texto (no sólo por la barra). */
+const subFromText = (id: string): Check => ({
+  description: `sub-filtro ${id} activo desde el texto`,
+  test: (_, response) => {
+    const sub = response.bar.subs.find((item) => item.id === id);
+    return sub?.active && sub.fromText ? [] : [`intención ${response.bar.intent?.id ?? "—"}, ${id}: ${sub ? `active ${sub.active}, fromText ${sub.fromText}` : "no está"}`];
+  },
+});
+
+const hasChip = (kind: string, id: string): Check => ({
+  description: `chip ${kind}:${id}`,
+  test: (_, response) => (response.interpreted.chips.some((chip) => chip.kind === kind && chip.id === id) ? [] : [`chips: ${response.interpreted.chips.map((chip) => `${chip.kind}:${chip.id}`).join(", ") || "—"}`]),
+});
+
+const inTop = (count: number, placeName: string): Check => ({
+  description: `${placeName} en los primeros ${count}`,
+  test: (places) => (places.slice(0, count).some((place) => place.name === placeName) ? [] : [`#${places.findIndex((place) => place.name === placeName) + 1 || "—"}`]),
+});
+
+/** Como every, sólo para los primeros count. */
+const noneInTop = (count: number, description: string, bad: (place: Place) => boolean): Check => ({
+  description: `${description} en los primeros ${count}`,
+  test: (places) => places.slice(0, count).filter(bad).map(name),
+});
+
+const isMeat = (place: Place) => place.categories.includes("grill") || place.tags.includes("grilled_meat") || place.iconCategory === "grill" || place.iconCategory === "meat";
+
 export const CHECKS: Record<string, Check[]> = {
   "comer con amigos": [nonEmpty, allInIntent("eat"), noDanceInTop(5), every("ningún lugar que sea sólo cafetería (cafe sin restaurante ni bar)", (place) => !place.categories.includes("cafe") || place.categories.includes("restaurant") || place.categories.includes("bar")), grouped],
   "tomar algo con amigos": [nonEmpty, allInIntent("bars"), noDanceInTop(5), grouped],
@@ -63,6 +90,33 @@ export const CHECKS: Record<string, Check[]> = {
   "sin tacc": [nonEmpty, every("todos con opciones sin TACC", glutenFreeOk)],
   "algo que no sea pizza": [nonEmpty, every("ninguna pizzería", (place) => !place.categories.includes("pizzeria"))],
   "cafés en pocitos": [nonEmpty, allInIntent("cafes")],
+  "almorzar en Ciudad Vieja": [nonEmpty, subFromText("lunch"), hasChip("neighborhood", "CIUDAD VIEJA"), topHaveCategory(5, "restaurant")],
+  "algo barato para cenar": [
+    nonEmpty,
+    subFromText("dinner"),
+    { description: "precio pedido low", test: (_, response) => (JSON.stringify(response.debug?.interpretation.must.price) === '["low"]' ? [] : [`must.price: ${JSON.stringify(response.debug?.interpretation.must.price)}`]) },
+    every("todos con precio Accesible", (place) => place.price === "low"),
+  ],
+  "un café acogedor": [nonEmpty, allInIntent("cafes"), topHaveCategory(10, "cafe")],
+  "con niños": [
+    nonEmpty,
+    inTop(3, "Café Kids"),
+    noneInTop(10, "ninguno con dj o dancing ni bar nocturno (late_night sin restaurant)", isKidsNight),
+    { description: "sin grupo de bares", test: (_, response) => (response.sections ?? []).filter((section) => section.id === "drinks").map((section) => section.title) },
+  ],
+  "pizza a la leña": [nonEmpty, every("todos con horno a leña", (place) => place.tags.includes("wood_fired_oven")), topHaveCategory(3, "pizzeria")],
+  "comer carne": [
+    nonEmpty,
+    { description: "el primero no es un café", test: (places) => (places[0] && places[0].categories.includes("cafe") ? [name(places[0])] : []) },
+    { description: "los primeros 5 son de parrilla o carne", test: (places) => places.slice(0, 5).filter((place) => !isMeat(place)).map(name) },
+  ],
+  "algo sin carne": [nonEmpty, noneInTop(10, "ninguna parrilla ni carne", isMeat)],
+  "Mercado del Puerto": [
+    nonEmpty,
+    hasChip("venue", "Mercado del Puerto"),
+    { description: "dentro del venue o su radio (sin relajarlo)", test: (_, response) => response.relaxed.filter((notice) => notice.what === "venue" || notice.what === "similarity").map((notice) => notice.message) },
+    every("todos en Ciudad Vieja", (place) => place.neighborhoodId === "CIUDAD VIEJA"),
+  ],
 };
 
 /** Corre las verificaciones de una consulta; devuelve las fallas ("descripción: lugares"). */

@@ -23,6 +23,16 @@ export const FOREIGN_ADDRESS = /\b(?:porto alegre|sao paulo|rio de janeiro|flori
 export const MENTIONS_URUGUAY = /\b(?:uruguay|montevideo)\b/
 // Resumen que arma Exa a partir de la búsqueda (que lleva el nombre): no confirma el nombre.
 export const EXA_SUMMARY_URL = 'https://exa.ai/'
+// Texto de plantilla (SEO armado con los atributos de Google o resúmenes generados): "ambiente informal y acogedor",
+// "ideal para grupos", "sillas altas" salen igual en casi todas sus páginas. Medido sobre cache/extractions: opina dice
+// "acogedor" en el 78 % de sus páginas, wanderlog en el 25 % y guiacomercial en el 23 %; smartservices es el mismo SEO;
+// wanderboat y bocadium, marcadas a mano al revisar el recálculo de tags.
+export const TEMPLATE_HOSTS = ['opina.com.uy', 'smartservices.uy', 'guiacomercial.uy', 'wanderlog.com', 'wanderboat.ai', 'bocadium.com']
+
+/** Fuente de baja confianza para lo subjetivo: el resumen de Exa (lo escribe otro modelo) o una de plantilla. */
+export function isLowTrustSource(url: string) {
+  return url === EXA_SUMMARY_URL || hostedBy(url, TEMPLATE_HOSTS)
+}
 
 export function hostname(value: string | null) {
   try { return value ? new URL(value).hostname.toLowerCase().replace(/^www\./, '') : null } catch { return null }

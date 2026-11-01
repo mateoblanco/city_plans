@@ -31,7 +31,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { NEIGHBORHOOD_NAMES, neighborhoodDisplayName } from '@/data/neighborhood-names'
 import { CATEGORIES, type CategoryId } from '@/data/tags'
-import { CLOSED_REASONS, REVIEW_REASONS, isClosedReason, type ReviewReason } from '@/data/review-reasons'
+import { CLOSED_REASONS, LOW_RATING_BELOW, REVIEW_REASONS, isClosedReason, isLowRating, type ReviewReason } from '@/data/review-reasons'
 import { existingPlaceIds, sweepNeighborhood, type ExtractRequest } from '@/lib/places-api'
 import { APIFY_FAILURE_LIMIT, EXA_FAILURE_LIMIT, EXTRACT_CONCURRENCY } from '@/lib/extraction-config'
 import { LOGO_GROUPS, type LogoSummary } from '@/lib/logo-summary'
@@ -148,8 +148,17 @@ const RATING_ORDER_LABELS: Record<SweepRatingOrder, string> = {
   reviews_desc: 'Más reseñas',
 }
 
-/** "Menos de 4": con puntaje y menor a 4. Sin puntaje no entra. */
-const isLowRating = (place: NeighborhoodSweepPlace) => place.rating !== null && place.rating < 4
+// Los dos filtros de puntaje parten el barrido por low_rating: "Puntaje mayor a 3,8" oculta exactamente los que irían a
+// revisión por puntaje bajo y "Puntaje menor o igual a 3,8" muestra sólo esos. Google redondea el puntaje a un decimal,
+// así que "menor a 3,9" es "hasta 3,8". Con pocas reseñas o sin puntaje no son low_rating: entran sólo en el primero.
+type RatingFilter = 'all' | 'high' | 'low'
+const RATING_CUT = (LOW_RATING_BELOW - 0.1).toLocaleString('es-UY', { maximumFractionDigits: 1 })
+const RATING_FILTER_LABELS: Record<Exclude<RatingFilter, 'all'>, string> = {
+  high: `Puntaje mayor a ${RATING_CUT}`,
+  low: `Puntaje menor o igual a ${RATING_CUT}`,
+}
+const matchesRatingFilter = (place: NeighborhoodSweepPlace, filter: RatingFilter) =>
+  filter === 'all' || (filter === 'low') === isLowRating(place)
 
 /** Orden por puntaje o reseñas, estable; los que no tienen el dato van al final, en el orden de Google. */
 function sortByRatingOrder(places: NeighborhoodSweepPlace[], order: SweepRatingOrder) {
@@ -174,7 +183,10 @@ const reasonColumn: PlacesTableColumn<NeighborhoodSweepPlace> = {
   cell: (place) => <span className="font-mono text-xs">{place.reason ?? '—'}</span>,
 }
 
-/** Motivo con el cerrado según Google en español y el botón para moverlo a mano a procesar (o volver a bloquearlo). */
+/**
+ * Motivo con el cerrado según Google en español. El definitivo lleva el botón para moverlo a mano a procesar (o volver a
+ * bloquearlo); el temporal se puede procesar y se guarda en revisión.
+ */
 function reasonColumnWithRelease(released: ReadonlySet<string>, onToggle: (place: NeighborhoodSweepPlace) => void): PlacesTableColumn<NeighborhoodSweepPlace> {
   return {
     header: 'Motivo',
@@ -184,9 +196,9 @@ function reasonColumnWithRelease(released: ReadonlySet<string>, onToggle: (place
       return (
         <span className="flex flex-wrap items-center gap-2">
           <span className="text-xs font-medium text-amber-700">{CLOSED_REASONS[place.reason]}</span>
-          <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => onToggle(place)} aria-label={`${isReleased ? 'Volver a bloquear' : 'Permitir procesar'} ${place.name}`}>
+          {place.reason === 'closed_permanently' && <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => onToggle(place)} aria-label={`${isReleased ? 'Volver a bloquear' : 'Permitir procesar'} ${place.name}`}>
             {isReleased ? 'Volver a bloquear' : 'Permitir procesar'}
-          </Button>
+          </Button>}
         </span>
       )
     },
@@ -311,7 +323,7 @@ export function NeighborhoodSweepPage() {
   const [existingStatus, setExistingStatus] = useState<ExistingStatus>('idle')
   const [hideExisting, setHideExisting] = useState(true)
   const [ratingOrder, setRatingOrder] = useState<SweepRatingOrder>('google')
-  const [lowRatingOnly, setLowRatingOnly] = useState(false)
+  const [ratingFilter, setRatingFilter] = useState<RatingFilter>('all')
   const [mapVisible, setMapVisible] = useState(readMapVisible)
   // Lugar bajo el mouse, en el mapa o en la lista: se resalta en los dos.
   const [hoveredId, setHoveredId] = useState<string | null>(null)
@@ -355,10 +367,12 @@ export function NeighborhoodSweepPage() {
     if (hide) setSelectedIds((current) => withoutIds(current, existingIds))
   }
 
-  // Como ocultar los ya guardados: lo que el filtro saca de la vista también sale de la selección.
-  function toggleLowRating(only: boolean) {
-    setLowRatingOnly(only)
-    if (only) setSelectedIds((current) => withoutIds(current, new Set(places.filter((place) => !isLowRating(place)).map((place) => place.placeId))))
+  // Como ocultar los ya guardados: lo que el filtro saca de la vista también sale de la selección. Los dos filtros de
+  // puntaje se excluyen: marcar uno desmarca el otro.
+  function toggleRatingFilter(filter: Exclude<RatingFilter, 'all'>, checked: boolean) {
+    const next = checked ? filter : 'all'
+    setRatingFilter(next)
+    if (next !== 'all') setSelectedIds((current) => withoutIds(current, new Set(places.filter((place) => !matchesRatingFilter(place, next)).map((place) => place.placeId))))
   }
 
   async function runSweep(target: string, sweepMode: NeighborhoodSweepMode) {
@@ -456,7 +470,7 @@ export function NeighborhoodSweepPage() {
   const shownPlaces = hideExisting ? places.filter((place) => !existingIds.has(place.placeId)) : places
   const insideVisible = showOnlyInside ? shownPlaces.filter(isInside) : shownPlaces
   // El filtro por puntaje va antes de contar los grupos: las tabs, el mapa y "seleccionar todos" usan el mismo conjunto.
-  const locationVisible = canFilter && lowRatingOnly ? insideVisible.filter(isLowRating) : insideVisible
+  const locationVisible = canFilter ? insideVisible.filter((place) => matchesRatingFilter(place, ratingFilter)) : insideVisible
   const existingInView = (showOnlyInside ? insidePlaces : places).filter((place) => existingIds.has(place.placeId)).length
   const existingText = existingLabel(existingStatus, existingInView, hideExisting)
   const groupCounts = { accepted: 0, review: 0, rejected: 0 }
@@ -488,8 +502,8 @@ export function NeighborhoodSweepPage() {
   if (hasBatch) {
     tableColumns.push({ header: 'Procesamiento', cell: (place) => processingStatus(batch.rows[place.placeId], () => setResultPlace(place)) })
   }
-  // Un cerrado según Google no se puede seleccionar hasta moverlo a mano.
-  const blocked = (place: NeighborhoodSweepPlace) => isClosedReason(place.reason) && !releasedIds.has(place.placeId)
+  // Un cerrado definitivamente según Google no se puede seleccionar hasta moverlo a mano. El temporal sí: se guarda en revisión.
+  const blocked = (place: NeighborhoodSweepPlace) => place.reason === 'closed_permanently' && !releasedIds.has(place.placeId)
   // La misma regla para el checkbox y el clic en el mapa. Los ya guardados ocultos no llegan acá.
   const canSelect = (place: NeighborhoodSweepPlace) => canFilter && place.group !== null && place.group !== 'rejected' && !blocked(place)
   const selectableVisible = visiblePlaces.filter((place) => !blocked(place))
@@ -548,7 +562,7 @@ export function NeighborhoodSweepPage() {
     })
   }
 
-  // Sólo aceptados y a revisar van al pipeline; los cerrados, sólo si se movieron a mano.
+  // Sólo aceptados y a revisar van al pipeline; los cerrados definitivamente, sólo si se movieron a mano.
   const selectedRequests: ExtractRequest[] = shownPlaces
     .filter((place) => selectedIds.has(place.placeId) && place.group !== 'rejected' && place.group !== null && !blocked(place))
     .map((place) => ({
@@ -743,17 +757,17 @@ export function NeighborhoodSweepPage() {
                     Mostrar sólo lugares del barrio
                   </label>
                 )}
-                {canFilter && (
-                  <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
+                {canFilter && (Object.keys(RATING_FILTER_LABELS) as Exclude<RatingFilter, 'all'>[]).map((filter) => (
+                  <label key={filter} className="inline-flex cursor-pointer items-center gap-2 text-sm">
                     <input
                       type="checkbox"
-                      checked={lowRatingOnly}
-                      onChange={(event) => toggleLowRating(event.target.checked)}
+                      checked={ratingFilter === filter}
+                      onChange={(event) => toggleRatingFilter(filter, event.target.checked)}
                       className="size-4 accent-foreground"
                     />
-                    Puntaje menor a 4
+                    {RATING_FILTER_LABELS[filter]}
                   </label>
-                )}
+                ))}
                 {canFilter && (
                   <label className="inline-flex items-center gap-2 text-sm">
                     Orden
@@ -954,6 +968,10 @@ export function NeighborhoodSweepPage() {
                       highlightedId={showMap ? hoveredId : null}
                       onHover={showMap ? setHoveredId : undefined}
                       groupBy={groupedByReason ? reasonGroup : undefined}
+                      rowClassName={(place) => existingIds.has(place.placeId) ? 'bg-sky-50 dark:bg-sky-950/40' : undefined}
+                      nameBadge={(place) => existingIds.has(place.placeId) && (
+                        <span className="ml-2 inline-block rounded-sm bg-sky-100 px-1.5 py-px align-middle text-xs font-medium text-sky-800 dark:bg-sky-900 dark:text-sky-100">Guardado</span>
+                      )}
                       selection={
                         selectable
                           ? {
@@ -1108,11 +1126,11 @@ function ProviderErrorsBlock({ apify, exa, shared, nameOf }: { apify: string[]; 
   )
 }
 
-/** Lugares que se guardan con status review, por motivo, y los cerrados según Google del barrido. */
+/** Lugares que se guardan con status review, por motivo, y los cerrados definitivamente del barrido (no se procesan). */
 function ReviewSummaryBlock({ summary, closed }: { summary: ReviewSummary; closed: ClosedSummary }) {
   const rows = [
     ...(Object.keys(REVIEW_REASONS) as ReviewReason[]).map((id) => ({ id, label: REVIEW_REASONS[id], names: summary.byReason[id] })),
-    ...(Object.keys(CLOSED_REASONS) as (keyof ClosedSummary)[]).map((id) => ({ id, label: `${CLOSED_REASONS[id]} (barrido)`, names: closed[id] })),
+    { id: 'closed_permanently_sweep', label: `${CLOSED_REASONS.closed_permanently} (barrido)`, names: closed.closed_permanently },
   ]
   return (
     <div className="sm:col-span-2 lg:col-span-1">

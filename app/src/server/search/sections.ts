@@ -90,7 +90,8 @@ export function ruleSections(value: Interpretation, intent: IntentId | null, sub
 
 /**
  * Sin el grupo que repite lo pedido: Comer no muestra "Para comer", ni style casual "Descontracturado", ni el sub-filtro
- * Música en vivo "Con música en vivo" (un grupo con alguna categoría o tag del sub-filtro).
+ * Música en vivo "Con música en vivo" (un grupo con alguna categoría o tag del sub-filtro). Con niños (kids_friendly en
+ * must o prefer), tampoco "Para tomar algo": no es un grupo para ir con chicos.
  */
 function withoutRedundant(ids: SectionId[], value: Interpretation, intent: IntentId | null, subs: string[]): SectionId[] {
   const subTerms = new Set<string>(
@@ -108,6 +109,7 @@ function withoutRedundant(ids: SectionId[], value: Interpretation, intent: Inten
     ...(intent === 'bars' ? ['drinks' as const] : []),
     ...(value.prefer.style === 'casual' ? ['casual' as const] : []),
     ...(value.prefer.style === 'cuidado' ? ['special' as const] : []),
+    ...([...value.must.tags, ...value.prefer.tags].includes('kids_friendly') ? ['drinks' as const] : []),
   ])
   return ids.filter((id) => !redundant.has(id) && !repeatsSub(id))
 }

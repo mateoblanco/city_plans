@@ -1,10 +1,10 @@
 import { NEIGHBORHOOD_NAMES } from '@shared/neighborhood-names.ts'
 import { isSectionId, type SectionId } from '@shared/sections.ts'
 import { roundCoord } from './coords'
-import { DIET_KEYS, type DietKey, type Interpretation } from './interpretation'
+import { DIET_KEYS, PRICES, type DietKey, type Interpretation, type Price } from './interpretation'
 
 /**
- * Filtros de la barra (`f=open:today,diet:vegan,neighborhood:CORDON,neighborhood:POCITOS`). No son un sistema aparte: se aplican sobre
+ * Filtros de la barra (`f=open:today,diet:vegan,neighborhood:CORDON,neighborhood:POCITOS,price:low`). No son un sistema aparte: se aplican sobre
  * la interpretación y salen como los mismos chips que lo escrito. Las categorías van por la intención (intents.ts).
  */
 export type SearchFilters = {
@@ -13,6 +13,8 @@ export type SearchFilters = {
   diet: DietKey[]
   /** Reemplazan los barrios del texto. */
   neighborhoods: string[]
+  /** Reemplazan los precios del texto. */
+  price: Price[]
   /**
    * "Ver todos" de un grupo (`section:outdoor`): exige la regla del grupo de shared/sections.ts. Uno solo; discover
    * no tiene regla fija, así que no es un filtro.
@@ -22,10 +24,10 @@ export type SearchFilters = {
 
 export type LatLng = { lat: number; lng: number }
 
-export const emptyFilters = (): SearchFilters => ({ opensToday: false, diet: [], neighborhoods: [], section: null })
+export const emptyFilters = (): SearchFilters => ({ opensToday: false, diet: [], neighborhoods: [], price: [], section: null })
 
 export const hasFilters = (filters: SearchFilters) =>
-  filters.opensToday || filters.diet.length > 0 || filters.neighborhoods.length > 0 || filters.section !== null
+  filters.opensToday || filters.diet.length > 0 || filters.neighborhoods.length > 0 || filters.price.length > 0 || filters.section !== null
 
 /** Parsea `f`; descarta lo que no está en los catálogos. */
 export function parseFilters(raw: string | null | undefined): SearchFilters {
@@ -38,6 +40,7 @@ export function parseFilters(raw: string | null | undefined): SearchFilters {
     if (kind === 'open' && id === 'today') filters.opensToday = true
     else if (kind === 'diet' && (DIET_KEYS as readonly string[]).includes(id) && !filters.diet.includes(id as DietKey)) filters.diet.push(id as DietKey)
     else if (kind === 'neighborhood' && id in NEIGHBORHOOD_NAMES && !filters.neighborhoods.includes(id)) filters.neighborhoods.push(id)
+    else if (kind === 'price' && (PRICES as readonly string[]).includes(id) && !filters.price.includes(id as Price)) filters.price.push(id as Price)
     else if (kind === 'section' && isSectionId(id) && id !== 'discover') filters.section = id
   }
   return filters
@@ -55,7 +58,7 @@ export function parseNear(raw: string | null | undefined): LatLng | null {
 }
 
 /**
- * Suma los filtros a lo interpretado. La dieta se suma; "abre hoy" y los barrios reemplazan lo del texto:
+ * Suma los filtros a lo interpretado. La dieta se suma; "abre hoy", los barrios y el precio reemplazan lo del texto:
  * si se contradicen, gana el filtro.
  */
 export function applyFilters(value: Interpretation, filters: SearchFilters): Interpretation {
@@ -64,6 +67,7 @@ export function applyFilters(value: Interpretation, filters: SearchFilters): Int
   // "esta noche" del texto ya es "Abre hoy" (a la noche): el filtro no lo pisa.
   if (filters.opensToday && must.openAt !== 'tonight') must.openAt = 'today'
   if (filters.neighborhoods.length) must.neighborhoods = [...filters.neighborhoods]
+  if (filters.price.length) must.price = [...filters.price]
   return { ...value, must }
 }
 
@@ -73,6 +77,7 @@ export function filterChipKeys(filters: SearchFilters): Set<string> {
     ...(filters.opensToday ? ['openAt:today'] : []),
     ...filters.diet.map((key) => `diet:${key}`),
     ...filters.neighborhoods.map((id) => `neighborhood:${id}`),
+    ...filters.price.map((id) => `price:${id}`),
     ...(filters.section ? [`section:${filters.section}`] : []),
   ])
 }

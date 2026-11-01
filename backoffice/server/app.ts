@@ -25,7 +25,7 @@ import type { NeighborhoodSweeper } from './providers/neighborhood-sweep.ts'
 import type { PlacesSaver } from './places/save.ts'
 import type { PlaceIdsReader, PlacesReader } from './places/list.ts'
 import { EditError, type PlaceEditor } from './places/edit.ts'
-import { PlaceEdit } from '../src/data/manual-overrides.ts'
+import { PlaceEdit, PRICE_LEVELS } from '../src/data/manual-overrides.ts'
 import { REVIEW_REASON_IDS } from '../src/data/review-reasons.ts'
 import { PLACE_LIST_CATEGORIES, PLACE_LIST_MISSING, PLACE_LIST_SORTS, type GoogleRating, type GoogleRatingsResponse } from '../src/types/places.ts'
 import {
@@ -130,11 +130,13 @@ const listQuerySchema = z.object({
   category: z.enum(PLACE_LIST_CATEGORIES).optional(),
   status: z.enum(['published', 'review']).optional(),
   edited: z.enum(['1', 'true']).optional().transform((value) => value !== undefined),
+  price: z.enum(PRICE_LEVELS).optional(),
   // "price,instagram": le falta alguno. Un valor desconocido es un 400, como los demás filtros.
   missing: z.string().optional()
     .transform((value) => value ? [...new Set(value.split(',').map((item) => item.trim()).filter(Boolean))] : undefined)
     .pipe(z.array(z.enum(PLACE_LIST_MISSING)).min(1).optional()),
   reason: z.enum(REVIEW_REASON_IDS).optional(),
+  priceSuggestion: z.enum(['1', 'true']).optional().transform((value) => (value === undefined ? undefined : true)),
   sort: z.enum(PLACE_LIST_SORTS).default('recent'),
   page: z.coerce.number().int().min(1).max(10_000).default(1),
   pageSize: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(50),
@@ -573,6 +575,21 @@ export function createApp({ provider, exaProvider, matchProviders = {}, instagra
     } catch (error) {
       console.error(JSON.stringify({ event: 'places_status_error', message: error instanceof Error ? error.message : String(error) }))
       return context.json(apiError('UNKNOWN_ERROR', 'No se pudo publicar el lugar.'), 500)
+    }
+  })
+
+  // Descartar el precio sugerido (yarn prices:suggest): no toca el precio, sólo deja de mostrarlo.
+  app.delete('/api/places/:id/price-suggestion', async (context) => {
+    if (!placesReader) return context.json(apiError('CONFIGURATION_ERROR', MISSING_DATABASE), 503)
+    const id = context.req.param('id')
+    if (!z.uuid().safeParse(id).success) return context.json(apiError('VALIDATION_ERROR', 'El id del lugar no es válido.'), 400)
+    try {
+      const found = await placesReader.dismissPriceSuggestion(id)
+      if (!found) return context.json(apiError('NOT_FOUND_ERROR', 'El lugar no tiene precio sugerido.'), 404)
+      return context.json({ id, dismissed: true })
+    } catch (error) {
+      console.error(JSON.stringify({ event: 'places_price_suggestion_error', message: error instanceof Error ? error.message : String(error) }))
+      return context.json(apiError('UNKNOWN_ERROR', 'No se pudo descartar la sugerencia.'), 500)
     }
   })
 

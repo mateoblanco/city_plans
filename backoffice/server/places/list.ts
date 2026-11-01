@@ -1,14 +1,14 @@
-import { and, asc, desc, eq, inArray, isNotNull, ne, or, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql, type SQL } from 'drizzle-orm'
 import type { NeonHttpDatabase } from 'drizzle-orm/neon-http'
 import type * as schema from '../db/schema.ts'
 import type { PlaceListItem, PlaceListMissing, PlaceListPage, PlaceListQuery, PlaceNeighborhoodCount } from '../../src/types/places.ts'
 import { editedFields, parseManualOverrides } from '../../src/data/manual-overrides.ts'
-import { places } from '../db/schema.ts'
+import { places, priceSuggestions } from '../db/schema.ts'
 import { logoUrl } from '../providers/logo-storage.ts'
 import { brandSlug, instagramKey } from './brand-key.ts'
 import { medianIgTerm } from './prominence.ts'
 import type { InstagramOwners, ManualInstagramLookup } from '../providers/instagram-candidate-registry.ts'
-import type { BrandSiblings } from '../providers/place-extraction-service.ts'
+import type { BrandSiblings, ManualCategoriesLookup } from '../providers/place-extraction-service.ts'
 
 export type { PlaceListItem }
 
@@ -21,6 +21,8 @@ export type PlacesReader = {
   setFeatured(id: string, featured: boolean): Promise<boolean>
   /** Publica a mano un lugar en review. not_found si no existe; not_in_review si su status es otro. */
   publish(id: string): Promise<'published' | 'not_found' | 'not_in_review'>
+  /** Descarta el precio sugerido del lugar (deja de mostrarse). false si no tiene sugerencia. */
+  dismissPriceSuggestion(id: string): Promise<boolean>
 }
 
 /** % y _ de LIKE, escapados: la búsqueda por nombre es literal. */
@@ -45,7 +47,12 @@ function filtersOf(query: Omit<PlaceListQuery, 'page' | 'pageSize'>): SQL[] {
     }
     conditions.push(or(...query.missing.map((field) => missing[field]))!)
   }
+  if (query.price) conditions.push(eq(places.price, query.price))
   if (query.reason) conditions.push(sql`${places.reviewReasons} @> array[${query.reason}]::text[]`)
+  // Una sugerencia nunca es unknown: distinta del precio actual incluye a los que no tienen precio. Las descartadas no.
+  if (query.priceSuggestion) {
+    conditions.push(sql`exists (select 1 from ${priceSuggestions} where ${priceSuggestions.placeId} = ${places.id} and ${priceSuggestions.price} <> ${places.price} and ${priceSuggestions.dismissedAt} is null)`)
+  }
   return conditions
 }
 
@@ -94,9 +101,17 @@ export function drizzlePlacesReader(db: NeonHttpDatabase<typeof schema>): Places
             iconCategory: places.iconCategory,
             style: places.style,
             manualOverrides: places.manualOverrides,
+            suggestion: {
+              price: priceSuggestions.price,
+              signal: priceSuggestions.signal,
+              reason: priceSuggestions.reason,
+              snippet: priceSuggestions.snippet,
+              sourceUrl: priceSuggestions.sourceUrl,
+            },
             total: sql<number>`(count(*) over())::int`,
           })
           .from(places)
+          .leftJoin(priceSuggestions, and(eq(priceSuggestions.placeId, places.id), ne(priceSuggestions.price, places.price), isNull(priceSuggestions.dismissedAt)))
           .where(where)
           .orderBy(...order)
           .limit(query.pageSize)
@@ -111,12 +126,13 @@ export function drizzlePlacesReader(db: NeonHttpDatabase<typeof schema>): Places
           .where(and(...filters)),
       ])
       return {
-        places: rows.map(({ logoKey, manualOverrides, total: _total, ...row }) => ({
+        places: rows.map(({ logoKey, manualOverrides, suggestion, total: _total, ...row }) => ({
           ...row,
           instagram: instagramKey(row.instagram),
           updatedAt: row.updatedAt.toISOString(),
           logoUrl: logoUrl(logoKey),
           editedFields: editedFields(parseManualOverrides(manualOverrides)),
+          priceSuggestion: suggestion?.price && suggestion.price !== 'unknown' ? { ...suggestion, price: suggestion.price } : null,
         })),
         // Una página vacía (más allá del final) no trae el total por la ventana: se toma de los conteos.
         total: rows[0]?.total ?? (query.status ? counts[query.status] : counts.all),
@@ -146,6 +162,12 @@ export function drizzlePlacesReader(db: NeonHttpDatabase<typeof schema>): Places
       if (updated.length > 0) return 'published'
       const found = await db.select({ id: places.id }).from(places).where(eq(places.id, id))
       return found.length > 0 ? 'not_in_review' : 'not_found'
+    },
+    async dismissPriceSuggestion(id) {
+      const updated = await db.update(priceSuggestions).set({ dismissedAt: new Date() })
+        .where(eq(priceSuggestions.placeId, id))
+        .returning({ placeId: priceSuggestions.placeId })
+      return updated.length > 0
     },
   }
 }
@@ -225,5 +247,17 @@ export function drizzleManualInstagram(db: NeonHttpDatabase<typeof schema>): Man
     const overrides = parseManualOverrides(row?.manualOverrides)
     if (!Object.hasOwn(overrides, 'instagram')) return null
     return { handle: overrides.instagram ?? null }
+  }
+}
+
+/** Las categorías editadas a mano del lugar (manual_overrides.categories), o null si no tiene el override. */
+export function drizzleManualCategories(db: NeonHttpDatabase<typeof schema>): ManualCategoriesLookup {
+  return async (googlePlaceId) => {
+    const [row] = await db
+      .select({ manualOverrides: places.manualOverrides })
+      .from(places)
+      .where(eq(places.googlePlaceId, googlePlaceId))
+      .limit(1)
+    return parseManualOverrides(row?.manualOverrides).categories ?? null
   }
 }

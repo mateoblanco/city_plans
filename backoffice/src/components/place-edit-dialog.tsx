@@ -8,17 +8,21 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { HoursEditor } from '@/components/hours-editor'
 import { PlaceLogo } from '@/components/place-logo'
 import { TagPicker } from '@/components/tag-picker'
+import { TextListEditor } from '@/components/text-list-editor'
 import { ICON_CATEGORIES, type IconCategory } from '@/data/icon-categories'
 import { neighborhoodDisplayName } from '@/data/neighborhood-names'
-import { CUISINES, STYLES, TAG_GROUPS, groupOf, type StyleId, type TagId } from '@/data/tags'
-import { BRAND_KEY, DIET_LEVELS, PRICE_LEVELS, type EditField, type ManualLogo, type PlaceEdit } from '@/data/manual-overrides'
+import { MONTEVIDEO_NEIGHBORHOODS, type MontevideoNeighborhood } from '@/data/neighborhoods'
+import { CATEGORIES, CUISINES, STYLES, TAG_GROUPS, groupOf, type CategoryId, type StyleId, type TagDef, type TagId } from '@/data/tags'
+import {
+  BRAND_KEY, DIET_LEVELS, MAX_CATEGORIES, MAX_DISHES, MAX_HIGHLIGHTS, MAX_SIGNATURE, PRICE_LABELS, PRICE_LEVELS, RESERVATION_LABELS,
+  RESERVATION_LEVELS, normalizeDish, type EditField, type ManualLogo, type PlaceEdit,
+} from '@/data/manual-overrides'
 import { hoursSlotIssues, sameSlots, type HoursIssue, type ManualSlot } from '@/data/hours-edit'
 import { googleMapsUrl } from '@/lib/google-maps-url'
 import { parseInstagramHandle } from '@/lib/instagram-handle'
 import { deleteSavedPlace, getPlaceDetail, PlacesApiError, planPlaceEdit, savePlaceEdit, uploadPlaceLogo } from '@/lib/places-api'
 import type { DietLevel, InstagramOwner, PlaceDetail, PlaceEditPlan, PriceLevel } from '@/types/places'
 
-const PRICE_LABELS: Record<PriceLevel, string> = { unknown: 'Sin dato', low: '$ (barato)', moderate: '$$ (moderado)', high: '$$$ (caro)', very_high: '$$$$ (muy caro)' }
 const DIET_LABELS: Record<DietLevel, string> = { unknown: 'Sin dato', no: 'No', has_options: 'Tiene opciones', fully: 'Todo el menú' }
 const GROUP_HEADINGS: Record<keyof typeof TAG_GROUPS, string> = {
   moments: 'Momentos', cuisines: 'Cocinas', foods: 'Comidas', drinks: 'Bebidas', features: 'Características',
@@ -29,6 +33,10 @@ const TAG_PICKER_GROUPS = (Object.entries(TAG_GROUPS) as [keyof typeof TAG_GROUP
   .filter(([group]) => group !== 'cuisines')
   .map(([group, tags]) => ({ heading: GROUP_HEADINGS[group], tags }))
 const CUISINE_GROUPS = [{ heading: 'Cocinas', tags: CUISINES }]
+const CATEGORY_GROUPS = [{ heading: 'Categorías', tags: CATEGORIES }]
+const neighborhoodLabel = (id: string) => neighborhoodDisplayName(id) ?? id
+// Barrios ordenados por el nombre que se muestra.
+const NEIGHBORHOOD_OPTIONS = [...MONTEVIDEO_NEIGHBORHOODS].sort((left, right) => neighborhoodLabel(left).localeCompare(neighborhoodLabel(right), 'es'))
 const PLAN_DEBOUNCE_MS = 400
 const HOURS_STATUS_LABELS: Record<PlaceDetail['hours']['status'], string> = { exact: 'exacto', partial: 'parcial', vague: 'vago', none: 'sin horario' }
 const HOURS_SOURCE_LABELS: Record<string, string> = { official: 'fuente oficial', third_party: 'terceros', manual: 'cargado a mano' }
@@ -53,6 +61,14 @@ type Draft = {
   logo: { logo: ManualLogo; url: string | null; classificationUsd: number } | null
   /** Turnos del editor; un turno sin cierre del pipeline aparece con el cierre vacío. */
   hours: ManualSlot[]
+  dishes: string[]
+  signature: TagId[]
+  /** Sólo el texto en español; el en lo conserva el servidor. */
+  highlights: string[]
+  categories: CategoryId[]
+  neighborhoodId: string
+  locatedIn: string
+  reservations: PlaceDetail['reservations']
 }
 
 const isCuisine = (id: string) => groupOf(id) === 'cuisines'
@@ -76,10 +92,17 @@ function draftOf(place: PlaceDetail): Draft {
     featured: place.featured,
     logo: null,
     hours: place.hours.slots.map((slot) => ({ day: slot.day, opens: slot.opens, closes: slot.closes ?? '' })),
+    dishes: place.dishes,
+    signature: place.signature,
+    highlights: place.highlights.map((highlight) => highlight.es),
+    categories: place.categories as CategoryId[],
+    neighborhoodId: place.neighborhoodId,
+    locatedIn: place.locatedIn ?? '',
+    reservations: place.reservations,
   }
 }
 
-type Validated = { edit: PlaceEdit; errors: Partial<Record<'name' | 'instagram' | 'website' | 'brandKey', string>>; hoursIssues: HoursIssue[] }
+type Validated = { edit: PlaceEdit; errors: Partial<Record<'name' | 'instagram' | 'website' | 'brandKey' | 'categories' | 'signature', string>>; hoursIssues: HoursIssue[] }
 
 const sameSet = (left: readonly string[], right: readonly string[]) => left.length === right.length && left.every((id) => right.includes(id))
 
@@ -113,6 +136,21 @@ function editOf(place: PlaceDetail, draft: Draft): Validated {
   else if ((brandKey || null) !== place.brandKey) edit.brandKey = brandKey || null
   if (draft.chainBranch !== place.chainBranch) edit.chainBranch = draft.chainBranch
   if (draft.featured !== place.featured) edit.featured = draft.featured
+  const dishes = draft.dishes.map(normalizeDish)
+  if (!sameSet(dishes, place.dishes.map(normalizeDish))) edit.dishes = dishes
+  // Sólo se manda si se tocó «Conocido por»: un tag sacado de los tags sale de signature en el servidor, sin bloquearlo.
+  const signature = draft.signature.filter((id) => tags.includes(id))
+  if (signature.length > MAX_SIGNATURE) errors.signature = `Hasta ${MAX_SIGNATURE}.`
+  else if (!sameSet(draft.signature, place.signature)) edit.signature = signature
+  const highlights = place.highlights.map((highlight) => highlight.es)
+  if (highlights.length !== draft.highlights.length || highlights.some((es, index) => es !== draft.highlights[index])) edit.highlights = draft.highlights
+  if (draft.categories.length === 0) errors.categories = 'Elegí al menos una categoría.'
+  else if (draft.categories.length > MAX_CATEGORIES) errors.categories = `Hasta ${MAX_CATEGORIES} categorías.`
+  else if (!sameSet(draft.categories, place.categories)) edit.categories = draft.categories
+  if (draft.neighborhoodId !== place.neighborhoodId) edit.neighborhoodId = draft.neighborhoodId as MontevideoNeighborhood
+  const locatedIn = draft.locatedIn.trim().replace(/\s+/g, ' ')
+  if ((locatedIn || null) !== place.locatedIn) edit.locatedIn = locatedIn || null
+  if (draft.reservations !== place.reservations) edit.reservations = draft.reservations
   if (draft.logo) edit.logo = draft.logo.logo
   // El horario sólo se valida y se manda si se tocó: uno del pipeline sin cierre no bloquea el resto de la edición.
   let hoursIssues: HoursIssue[] = []
@@ -241,6 +279,17 @@ function PlaceEditForm({ placeId, onClose, onSaved, onDeleted }: Omit<PlaceEditD
   const edited = (field: EditField) => Boolean(place?.editedFields.includes(field))
   // Los sacados a mano ya no están en place.tags; los agregados se ven distinto aunque la extracción también los traiga.
   const manualTags = place?.manualOverrides.tags?.add ?? []
+  const manualDishes = place?.manualOverrides.dishes?.add ?? []
+  // "Conocido por" se elige entre los tags del lugar, como están en el borrador.
+  const signatureGroups = useMemo(() => {
+    if (!draft) return []
+    const own = (ids: readonly TagId[]) => Object.fromEntries(ids.flatMap((id) => {
+      const group = groupOf(id) as keyof typeof TAG_GROUPS | null
+      const definition = group ? (TAG_GROUPS[group] as Record<string, TagDef>)[id] : undefined
+      return definition ? [[id, definition]] : []
+    }))
+    return [{ heading: 'Tags del lugar', tags: own(draft.tags) }, { heading: 'Cocinas del lugar', tags: own(draft.cuisines) }]
+  }, [draft])
 
   async function save(confirmSharedInstagram = false) {
     if (!place || !validated || hasErrors || !changed) return
@@ -354,6 +403,51 @@ function PlaceEditForm({ placeId, onClose, onSaved, onDeleted }: Omit<PlaceEditD
         <Field label="Cocinas" edited={edited('tags')}>
           <TagPicker noun="cocina" groups={CUISINE_GROUPS} value={draft.cuisines} manual={manualTags} disabled={busy} onChange={(cuisines) => update({ cuisines })} />
         </Field>
+
+        <Field label={`Conocido por (hasta ${MAX_SIGNATURE}, de sus tags)`} edited={edited('signature')} error={errors.signature}>
+          <TagPicker
+            noun="tag de «conocido por»"
+            groups={signatureGroups}
+            value={draft.signature.filter((id) => draft.tags.includes(id) || draft.cuisines.includes(id))}
+            max={MAX_SIGNATURE}
+            removeLabel={(name) => `Sacar ${name} de «conocido por»`}
+            disabled={busy}
+            onChange={(signature) => update({ signature })}
+          />
+        </Field>
+
+        <Field label="Categorías" edited={edited('categories')} error={errors.categories}>
+          <p className="text-xs text-muted-foreground">Cambian las intenciones de búsqueda, el tipo de precio y el tipo de lugar; una re-extracción las usa tal cual.</p>
+          <TagPicker noun="categoría" groups={CATEGORY_GROUPS} value={draft.categories as unknown as TagId[]} max={MAX_CATEGORIES} disabled={busy} onChange={(categories) => update({ categories: categories as unknown as CategoryId[] })} />
+        </Field>
+
+        <Field label="Platos" edited={edited('dishes')}>
+          <TextListEditor noun="plato" value={draft.dishes} manual={manualDishes} normalize={normalizeDish} maxItems={MAX_DISHES} maxLength={80} placeholder="milanesa napolitana" disabled={busy} onChange={(dishes) => update({ dishes })} />
+        </Field>
+
+        <Field label="Destacados" edited={edited('highlights')}>
+          <TextListEditor noun="destacado" value={draft.highlights} maxItems={MAX_HIGHLIGHTS} maxLength={120} placeholder="Chivito canadiense" disabled={busy} onChange={(highlights) => update({ highlights })} />
+        </Field>
+
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Field label="Barrio" htmlFor="edit-neighborhood" edited={edited('neighborhood_id')}>
+            <select id="edit-neighborhood" className={selectClass} value={draft.neighborhoodId} disabled={busy} onChange={(event) => update({ neighborhoodId: event.target.value })}>
+              {!(MONTEVIDEO_NEIGHBORHOODS as readonly string[]).includes(draft.neighborhoodId) && <option value={draft.neighborhoodId}>{neighborhoodLabel(draft.neighborhoodId)}</option>}
+              {NEIGHBORHOOD_OPTIONS.map((id) => <option key={id} value={id}>{neighborhoodLabel(id)}</option>)}
+            </select>
+          </Field>
+          <Field label="Dentro de" htmlFor="edit-located-in" edited={edited('located_in')}>
+            <Input id="edit-located-in" list="edit-located-in-values" value={draft.locatedIn} maxLength={120} placeholder="Mercado, shopping…" disabled={busy} onChange={(event) => update({ locatedIn: event.target.value })} />
+            <datalist id="edit-located-in-values">
+              {place!.locatedInValues.map((value) => <option key={value} value={value} />)}
+            </datalist>
+          </Field>
+          <Field label="Reservas" htmlFor="edit-reservations" edited={edited('reservations')}>
+            <select id="edit-reservations" className={selectClass} value={draft.reservations} disabled={busy} onChange={(event) => update({ reservations: event.target.value as PlaceDetail['reservations'] })}>
+              {RESERVATION_LEVELS.map((id) => <option key={id} value={id}>{RESERVATION_LABELS[id]}</option>)}
+            </select>
+          </Field>
+        </div>
 
         <div className="grid gap-4 sm:grid-cols-3">
           <Field label="Estilo" htmlFor="edit-style" edited={edited('style')}>

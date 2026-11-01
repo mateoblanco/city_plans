@@ -128,7 +128,7 @@ export function placeKind(row: { iconCategory: string | null; categories: string
   return intent ? KIND_BY_INTENT[intent] : null
 }
 
-const PRICE_LEVELS = ['low', 'moderate', 'high', 'very_high']
+const PRICE_LEVELS = ['low', 'moderate', 'high']
 
 /** Rasgos de un lugar para la afinidad: sus tags (sin uruguayan), su style (sin intermedio), su precio y su barrio. */
 export function traitsOf(row: { tags: string[]; style: string | null; price: string; neighborhoodId: string }): string[] {

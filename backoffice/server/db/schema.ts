@@ -50,7 +50,8 @@ const tsvector = customType<{ data: string }>({
 // review: el pipeline encontró un motivo para no publicarlo (review_reasons); se publica a mano.
 export const PLACE_STATUS = ["draft", "published", "review", "hidden"] as const;
 export const DIET_LEVEL = ["unknown", "no", "has_options", "fully"] as const;
-export const PRICE = ["unknown", "low", "moderate", "high", "very_high"] as const;
+// Relativo a lo habitual para el tipo de lugar (cortes en server/providers/price-tiers.ts).
+export const PRICE = ["unknown", "low", "moderate", "high"] as const;
 export const RESERVATIONS = ["unknown", "no_reservations", "accepts", "recommended"] as const;
 export const LOGO_KIND = ["logo", "local", "food", "person", "other"] as const;
 // manual: subido desde el backoffice; owner: más adelante, cuando el dueño pueda cambiar el logo.
@@ -201,6 +202,29 @@ export const places = pgTable(
     index("places_status_idx").on(t.status),
     index("places_prominence_idx").on(t.prominence),
     index("places_brand_key_idx").on(t.brandKey),
+  ]
+);
+
+// Precio sugerido por `yarn prices:suggest --write` (server/places/price-suggestion.ts): no toca places.price; la tabla
+// de Lugares lo muestra si difiere y aceptarlo lo guarda como override price; descartarlo pone dismissed_at y deja de
+// mostrarse. Cada corrida con --write la reemplaza, conservando el descarte si vuelve a sugerir el mismo precio.
+export const PRICE_SUGGESTION_SIGNAL = ["menu", "phrase", "tags"] as const;
+export const priceSuggestions = pgTable(
+  "price_suggestions",
+  {
+    placeId: uuid("place_id").primaryKey().references(() => places.id, { onDelete: "cascade" }),
+    price: text("price", { enum: PRICE }).notNull(),
+    signal: text("signal", { enum: PRICE_SUGGESTION_SIGNAL }).notNull(),
+    reason: text("reason").notNull(),
+    // Fragmento de la fuente (web, Instagram o Exa; nunca Google), con el precio si salió de la carta.
+    snippet: text("snippet"),
+    sourceUrl: text("source_url"),
+    computedAt: timestamp("computed_at", { withTimezone: true }).notNull().defaultNow(),
+    dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
+  },
+  (t) => [
+    check("price_suggestions_price_check", sql`${t.price} in ('low', 'moderate', 'high')`),
+    check("price_suggestions_signal_check", sql`${t.signal} in (${inList(PRICE_SUGGESTION_SIGNAL)})`),
   ]
 );
 

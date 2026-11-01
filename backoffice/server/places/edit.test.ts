@@ -18,7 +18,7 @@ function row(overrides: Partial<EditRow> = {}): EditRow {
     dietVegan: 'unknown', dietVegetarian: 'has_options', dietGlutenFree: 'no', price: 'high', style: 'casual', iconCategory: 'grill',
     instagram: 'elpalenque', website: null, brandKey: null, featured: false, logoKey: 'logos/place-1-0a1b2c3d.webp', logoKind: 'logo',
     logoBgColor: '#ffffff', logoColor: '#c0392b', logoSource: 'instagram', igFollowers: 999, chainBranch: false, prominence: 0.6,
-    embeddingTextHash: null, manualOverrides: {},
+    embeddingTextHash: null, manualOverrides: {}, reservations: 'unknown',
     hours: { raw: 'Lun a dom: 12:00–16:00', display: null, slots: [{ day: 1, opens: '12:00', closes: '16:00' }], status: 'exact', source: 'official', missingReason: null },
   }
   const merged = { ...base, ...overrides }
@@ -34,6 +34,7 @@ function fakeStore(rows: EditRow[], brandRows: BrandRow[] = []) {
   const store: EditStore = {
     get: vi.fn(async (id: string) => byId.get(id) ?? null),
     brandKeys: async () => ['cordon-beer'],
+    locatedInValues: async () => ['Mercado del Puerto'],
     instagramOwners: vi.fn(async (handle: string, exceptId: string) => rows
       .filter((item) => item.id !== exceptId && item.instagram === handle)
       .map(({ id, name, neighborhoodId, brandKey }) => ({ id, name, neighborhoodId, brandKey }))),
@@ -344,5 +345,75 @@ describe('deletePlace', () => {
     const result = await deletePlace('uuid-1', deps(store, { archiveSnapshot: vi.fn().mockRejectedValue(new Error('EACCES')) }))
     expect(brandUpdates).toEqual([])
     expect(result).toMatchObject({ snapshot: null, warnings: ['No se pudo mover el snapshot de cache/extractions: EACCES'] })
+  })
+})
+
+describe('campos nuevos del modal', () => {
+  it('platos: guarda la lista y la diferencia, y regenera los textos con el plato nuevo', async () => {
+    const { store, updates } = fakeStore([row()])
+    const d = deps(store)
+    const { place } = await applyEdit('uuid-1', { dishes: ['milanesa napolitana'] }, d)
+    const values = updates[0].values
+    expect(values).toMatchObject({ dishes: ['milanesa napolitana'], manualOverrides: { dishes: { add: ['milanesa napolitana'], remove: ['pulpo a la gallega'] } } })
+    expect(values.keywordText).toContain('milanesa napolitana')
+    expect(values.keywordText).not.toContain('pulpo a la gallega')
+    expect(place.editedFields).toEqual(['dishes'])
+  })
+
+  it('signature: sólo tags del lugar; uno que no tiene es 422 y no guarda nada', async () => {
+    const { store, updates } = fakeStore([row()])
+    const d = deps(store)
+    await expect(applyEdit('uuid-1', { signature: ['seafood', 'date'] }, d)).rejects.toMatchObject({ code: 'VALIDATION_ERROR', status: 422 })
+    await expect(planEdit(row(), { signature: ['date'] }, d)).rejects.toBeInstanceOf(EditError)
+    expect(updates).toEqual([])
+
+    // Con el tag agregado en la misma edición, sí; y queda bloqueado.
+    await applyEdit('uuid-1', { tags: ['seafood', 'terrace', 'date'], signature: ['date', 'seafood'] }, d)
+    expect(updates[0].values).toMatchObject({ signature: ['date', 'seafood'], manualOverrides: { signature: ['date', 'seafood'] } })
+    expect(updates[0].values.embeddingText).toContain('Cita')
+  })
+
+  it('categorías: quedan bloqueadas, regeneran textos y embedding, y avisan si cambia el tipo de precio', async () => {
+    const { store, updates } = fakeStore([row()])
+    const d = deps(store)
+    // Ícono y categoría de café: el precio de una parrilla ($$$) era con los cortes de restaurante.
+    const plan = await planEdit(row(), { categories: ['cafe'], iconCategory: 'coffee' }, d)
+    expect(plan.steps.map((step) => step.id)).toEqual(['search_texts', 'embedding', 'price_kind'])
+    expect(plan.steps[2].label).toContain('restaurante → café')
+    // Con el precio editado a mano no avisa.
+    const priced = row({ manualOverrides: { price: 'high' } })
+    expect((await planEdit(priced, { categories: ['cafe'], iconCategory: 'coffee' }, d)).steps.map((step) => step.id)).not.toContain('price_kind')
+
+    await applyEdit('uuid-1', { categories: ['bar', 'restaurant'] }, d)
+    expect(updates[0].values).toMatchObject({ categories: ['bar', 'restaurant'], manualOverrides: { categories: ['bar', 'restaurant'] } })
+    expect(d.embed).toHaveBeenCalledTimes(1)
+  })
+
+  it('barrio y "dentro de" regeneran los textos; reservas sólo escribe la columna', async () => {
+    const { store, updates } = fakeStore([row()])
+    const d = deps(store)
+    await applyEdit('uuid-1', { neighborhoodId: 'Pocitos', locatedIn: null }, d)
+    expect(updates[0].values).toMatchObject({ neighborhoodId: 'Pocitos', locatedIn: null, manualOverrides: { neighborhood_id: 'Pocitos', located_in: null } })
+    expect(updates[0].values.embeddingText).toContain('Pocitos')
+    expect(updates[0].values.embeddingText).not.toContain('Mercado del Puerto')
+
+    const other = fakeStore([row()])
+    const d2 = deps(other.store)
+    await applyEdit('uuid-1', { reservations: 'recommended' }, d2)
+    expect(d2.embed).not.toHaveBeenCalled()
+    expect(other.updates[0].values).toEqual({ reservations: 'recommended', manualOverrides: { reservations: 'recommended' } })
+  })
+
+  it('destacados: conservan el en de los que quedan y entran en el texto por palabra', async () => {
+    const saved = row({ highlights: [{ es: 'Pulpo a la gallega', en: 'Galician octopus' }] })
+    const { store, updates } = fakeStore([saved])
+    await applyEdit('uuid-1', { highlights: ['Pulpo a la gallega', 'Fainá'] }, deps(store))
+    expect(updates[0].values.highlights).toEqual([{ es: 'Pulpo a la gallega', en: 'Galician octopus' }, { es: 'Fainá', en: '' }])
+    expect(updates[0].values.keywordText).toContain('Fainá')
+  })
+
+  it('el detalle trae los campos nuevos y los "dentro de" para sugerir', () => {
+    const place = toDetail(row({ reservations: 'accepts' }), [], ['Mercado del Puerto'])
+    expect(place).toMatchObject({ dishes: ['pulpo a la gallega'], signature: ['seafood'], locatedIn: 'Mercado del Puerto', reservations: 'accepts', locatedInValues: ['Mercado del Puerto'] })
   })
 })

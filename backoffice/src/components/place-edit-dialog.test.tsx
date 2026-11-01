@@ -13,6 +13,8 @@ const detail = (overrides: Partial<PlaceDetail> = {}): PlaceDetail => ({
   tags: ['seafood', 'terrace', 'italian'], style: 'casual', iconCategory: 'grill', price: 'high', dietVegan: 'unknown', dietVegetarian: 'has_options',
   dietGlutenFree: 'no', instagram: 'elpalenque', website: null, brandKey: null, chainBranch: false, featured: false, logoUrl: null, logoKind: null, logoBgColor: null,
   logoColor: null, logoSource: null, igFollowers: 999, prominence: 0.6, manualOverrides: {}, editedFields: [], brandKeys: ['cordon-beer'],
+  dishes: ['pulpo a la gallega'], signature: ['seafood'], highlights: [{ es: 'Pulpo', en: 'Octopus' }], locatedIn: null, reservations: 'unknown',
+  locatedInValues: ['Mercado del Puerto'],
   hours: { raw: null, display: null, slots: [{ day: 1, opens: '12:00', closes: '16:00' }], status: 'exact', source: 'official', missingReason: null },
   ...overrides,
 })
@@ -143,6 +145,40 @@ describe('PlaceEditDialog', () => {
     await waitFor(() => expect(props.onClose).toHaveBeenCalled())
     expect(bodies('PATCH /api/places/uuid-1')).toEqual([{ edit: { tags: ['terrace', 'italian'], price: 'low' }, confirmSharedInstagram: false }])
     expect(props.onSaved).toHaveBeenCalledWith(expect.objectContaining({ price: 'low' }))
+  })
+
+  it('platos: agregar uno y sacar otro manda la lista; reservas y barrio mandan sólo lo que cambió', async () => {
+    const { bodies } = fakeApi({
+      'GET /api/places/uuid-1': () => jsonResponse({ place: detail() }),
+      'PATCH /api/places/uuid-1 dry': () => jsonResponse({ plan: plan({ changed: ['dishes'] }) }),
+      'PATCH /api/places/uuid-1': () => jsonResponse({ place: detail(), warnings: [] }),
+    })
+    const props = renderDialog()
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('button', { name: 'Sacar pulpo a la gallega' }))
+    // Enter agrega el plato (en minúscula) sin mandar el formulario.
+    await user.type(screen.getByRole('textbox', { name: 'Nuevo plato' }), 'Milanesa Napolitana{Enter}')
+    expect(screen.getByRole('button', { name: 'Sacar milanesa napolitana' })).toBeTruthy()
+    await user.selectOptions(screen.getByLabelText('Reservas'), 'recommended')
+    await user.selectOptions(screen.getByLabelText('Barrio'), 'Pocitos')
+    await user.click(screen.getByRole('button', { name: 'Guardar' }))
+
+    await waitFor(() => expect(props.onClose).toHaveBeenCalled())
+    expect(bodies('PATCH /api/places/uuid-1')).toEqual([{
+      edit: { dishes: ['milanesa napolitana'], neighborhoodId: 'Pocitos', reservations: 'recommended' }, confirmSharedInstagram: false,
+    }])
+  })
+
+  it('marca "editado a mano" en los campos nuevos', async () => {
+    const editedFields = ['dishes', 'signature', 'highlights', 'categories', 'neighborhood_id', 'located_in', 'reservations'] as const
+    fakeApi({ 'GET /api/places/uuid-1': () => jsonResponse({ place: detail({ editedFields: [...editedFields] }) }) })
+    renderDialog()
+    await screen.findByLabelText('Nombre')
+    expect(screen.getAllByText('editado a mano')).toHaveLength(editedFields.length)
+    for (const label of ['Platos', 'Destacados', 'Categorías', 'Barrio', 'Dentro de', 'Reservas']) {
+      expect(within(screen.getByText(label, { selector: 'label, span' }).parentElement!).getByText('editado a mano')).toBeTruthy()
+    }
   })
 
   it('horario: copia el lunes a los demás días, marca la superposición y guarda los turnos (también uno que cruza la medianoche)', async () => {

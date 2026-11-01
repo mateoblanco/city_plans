@@ -122,7 +122,7 @@ export function reciprocalRankFusion(rankings: Rankings): Map<string, number> {
 
 /**
  * has: el plato está en dishes o en el texto (o es genérico y tiene el tag); maybe: sólo el tag relacionado. Con precio
- * pedido, un precio desconocido es maybe: sigue saliendo, pero debajo de los que coinciden (el filtro ya sacó los demás).
+ * pedido, un precio desconocido es maybe: el filtro ya lo saca, así que sólo pasa con un lugar fijado por nombre.
  * Con un momento pedido (cita, con amigos…), los que no tienen ninguno de sus tags son maybe, como un plato; con plato y
  * momento, has pide los dos. Con una cocina pedida, igual: has si es su cocina principal (signature o ícono, cuisines.ts);
  * con el tag solo (un par de platos peruanos en un bar de tapas), maybe.
@@ -203,6 +203,15 @@ export function isDanceOnly(row: Pick<CandidateRow, 'categories' | 'tags'>): boo
   return (row.tags.includes('dancing') || row.tags.includes('dj')) && !food
 }
 
+/**
+ * Lo de la noche que baja con niños pedido (kidsNight): dj o dancing siempre; trasnoche sólo en un bar sin restaurant
+ * (un restaurante que cierra tarde sigue siendo para ir con chicos).
+ */
+export function isKidsNight(row: Pick<CandidateRow, 'categories' | 'tags'>): boolean {
+  if (row.tags.includes('dj') || row.tags.includes('dancing')) return true
+  return row.tags.includes('late_night') && row.categories.includes('bar') && !row.categories.includes('restaurant')
+}
+
 export function boostsFor(row: CandidateRow, context: FuseContext, open: OpenState | null): Fused['boosts'] {
   const { boosts } = SEARCH_CONFIG
   const result: Fused['boosts'] = {}
@@ -230,6 +239,10 @@ export function boostsFor(row: CandidateRow, context: FuseContext, open: OpenSta
   // "Abre hoy" no empuja a los abiertos: ordena la relevancia y la card dice si abre más tarde.
   if (!context.openAt?.today && open?.state === 'open' && hoursConfirmed(row.hours)) result.confirmedOpen = boosts.confirmedOpen
   if (!context.wantsDancing && isDanceOnly(row)) result.danceOnly = boosts.danceOnly
+  if (context.requestedTags.includes('kids_friendly')) {
+    if (row.tags.includes('kids_area')) result.kidsArea = boosts.kidsArea
+    if (isKidsNight(row)) result.kidsNight = boosts.kidsNight
+  }
   return result
 }
 

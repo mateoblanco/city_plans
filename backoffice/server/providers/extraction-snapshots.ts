@@ -1,6 +1,7 @@
 import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { GooglePlaceDetailsResponse, InstagramAuditCandidate, PlaceEnrichmentDraft, PlaceReview } from '../../src/types/places.ts'
+import type { CategoryId } from '../../src/data/tags.ts'
 import type { TransitInfo } from './montevideo-bus-provider.ts'
 import type { InstagramActivity } from './review-reasons.ts'
 import {
@@ -84,9 +85,10 @@ export async function readSnapshots(dir = DEFAULT_SNAPSHOT_DIR): Promise<Extract
 
 /**
  * postProcess con la salida guardada y el local objetivo de un Place Details nuevo (la única llamada paga). knownChain:
- * hay otro lugar guardado de la misma marca (lo calcula quien llama, con la base).
+ * hay otro lugar guardado de la misma marca (lo calcula quien llama, con la base). manualCategories: las categorías
+ * editadas a mano del lugar guardado, como en /api/extract.
  */
-export async function replaySnapshot(snapshot: ExtractionSnapshot, details: { getDetails(placeId: string): Promise<GooglePlaceDetailsResponse> }, options: { knownChain?: boolean } = {}): Promise<PlaceEnrichmentDraft> {
+export async function replaySnapshot(snapshot: ExtractionSnapshot, details: { getDetails(placeId: string): Promise<GooglePlaceDetailsResponse> }, options: { knownChain?: boolean; manualCategories?: CategoryId[] } = {}): Promise<PlaceEnrichmentDraft> {
   const target = targetFromDetails(snapshot.googlePlaceId, await details.getDetails(snapshot.googlePlaceId), snapshot.request, snapshot.transit)
   return postProcess(target, snapshot.llmOutput, {
     sources: snapshot.sources,
@@ -96,5 +98,6 @@ export async function replaySnapshot(snapshot: ExtractionSnapshot, details: { ge
     instagramManual: snapshot.instagramAudit?.manual,
     categoryFallback: [],
     knownChain: options.knownChain,
+    manualCategories: options.manualCategories,
   })
 }

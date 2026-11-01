@@ -32,7 +32,7 @@ export const PlaceDraft = z.object({
   // Un solo array con ids de tags.ts; groupOf(id) devuelve su grupo.
   tags: z.array(z.enum(TAG_IDS)),
   dietary: z.object({ vegan: DietLevel, vegetarian: DietLevel, glutenFree: DietLevel }),
-  price: z.enum(['unknown', 'low', 'moderate', 'high', 'very_high']),
+  price: z.enum(['unknown', 'low', 'moderate', 'high']),
   reservations: z.enum(['unknown', 'no_reservations', 'accepts', 'recommended']),
   hours: z.object({
     raw: z.string().nullable(),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addFilterHref, extraHref, intentHref, nearHref, removeChipHref, searchHref, sectionHref, setNeighborhoodsHref, subHref, widenUrl, type BarRef } from "../search-href";
+import { addFilterHref, extraHref, intentHref, nearHref, removeChipHref, searchHref, sectionHref, setNeighborhoodsHref, setPricesHref, subHref, widenUrl, type BarRef } from "../search-href";
 
 describe("searchHref", () => {
   it("suma el chip a los remove que ya estaban, sin duplicar", () => {
@@ -75,6 +75,24 @@ describe("chips y barra de filtros", () => {
   it("barrios y cerca mío se excluyen: cada uno saca al otro", () => {
     expect(read(setNeighborhoodsHref(state, ["POCITOS"], [], null)).near).toBeUndefined();
     expect(read(setNeighborhoodsHref(state, [], [], "-34.9,-56.16"))).toEqual({ q: "pizza", remove: "tag:terrace", f: "diet:vegan", near: "-34.9,-56.16" });
+  });
+
+  it("precios: reemplazan los de f, quitan los del texto no elegidos y [] es cualquier precio", () => {
+    expect(read(setPricesHref({ ...state, f: "diet:vegan,price:high" }, ["low", "moderate"], []))).toEqual({
+      q: "pizza",
+      remove: "tag:terrace",
+      f: "diet:vegan,price:low,price:moderate",
+      near: "-34.905,-56.185",
+    });
+    // "bar no muy caro" pide Accesible y Normal: dejar sólo Accesible quita Normal del texto.
+    const noMuyCaro = [
+      { kind: "price", id: "low", fromText: true, fromFilter: false },
+      { kind: "price", id: "moderate", fromText: true, fromFilter: false },
+    ];
+    expect(read(setPricesHref({ q: "bar no muy caro" }, ["low"], noMuyCaro))).toEqual({ q: "bar no muy caro", remove: "price:moderate", f: "price:low" });
+    expect(read(setPricesHref({ q: "bar no muy caro" }, [], noMuyCaro))).toEqual({ q: "bar no muy caro", remove: "price:low,price:moderate" });
+    // Volver a elegir uno quitado del texto lo saca de remove.
+    expect(read(setPricesHref({ q: "bar no muy caro", remove: "price:low" }, ["low"], noMuyCaro))).toEqual({ q: "bar no muy caro", remove: "price:moderate", f: "price:low" });
   });
 
   it("cerca mío redondea las coordenadas a 3 decimales", () => {

@@ -12,7 +12,8 @@ import { logoUrl } from '../providers/logo-storage.ts'
 import { fetchPlaceLogo, processLogoImage, type LogoDeps } from '../providers/place-logo.ts'
 import { llmUsageCost, LLM_PRICES_PER_MILLION } from '../providers/place-extraction-service.ts'
 import { assignBrandKeys, brandSlug, instagramKey, type BrandRow } from './brand-key.ts'
-import { changedEditFields, hoursFromSlots, mergeEdit, placeSearchTexts, withLateNight } from './manual-overrides.ts'
+import { changedEditFields, highlightsFromEdit, hoursFromSlots, mergeEdit, placeSearchTexts, withLateNight } from './manual-overrides.ts'
+import { PRICE_KIND_LABELS, priceKindOf } from '../providers/price-tiers.ts'
 import { computeProminence } from './prominence.ts'
 import { drizzleIgMedian } from './list.ts'
 import { instagramProfileUrl } from './refresh-signals.ts'
@@ -24,7 +25,7 @@ export type EditRow = Pick<Place,
   'id' | 'googlePlaceId' | 'name' | 'neighborhoodId' | 'status' | 'descriptionEs' | 'descriptionEn' | 'locatedIn' |
   'categories' | 'tags' | 'signature' | 'dishes' | 'highlights' | 'dietVegan' | 'dietVegetarian' | 'dietGlutenFree' |
   'price' | 'style' | 'iconCategory' | 'instagram' | 'website' | 'brandKey' | 'featured' | 'logoKey' | 'logoKind' |
-  'logoBgColor' | 'logoColor' | 'logoSource' | 'igFollowers' | 'chainBranch' | 'prominence' | 'embeddingTextHash' | 'hours'> & {
+  'logoBgColor' | 'logoColor' | 'logoSource' | 'igFollowers' | 'chainBranch' | 'prominence' | 'embeddingTextHash' | 'hours' | 'reservations'> & {
   manualOverrides: ManualOverrides
 }
 
@@ -33,6 +34,8 @@ export type EditStore = {
   get(id: string): Promise<EditRow | null>
   /** brand_key distintas de todos los lugares, para sugerir en el modal. */
   brandKeys(): Promise<string[]>
+  /** located_in distintos de todos los lugares, para sugerir en el modal. */
+  locatedInValues(): Promise<string[]>
   /** Otros lugares con ese Instagram (handle en minúscula, sin @). */
   instagramOwners(handle: string, exceptId: string): Promise<InstagramOwner[]>
   /** Lugares guardados con alguno de esos Instagram o brand_key (como en savePlaces). */
@@ -62,7 +65,7 @@ export type EditDeps = {
   now?: () => Date
 }
 
-export type EditErrorCode = 'NOT_FOUND_ERROR' | 'INSTAGRAM_IN_USE' | 'INSTAGRAM_NOT_FOUND' | 'INSTAGRAM_PROVIDER_ERROR' | 'CONFIGURATION_ERROR' | 'LOGO_INVALID'
+export type EditErrorCode = 'NOT_FOUND_ERROR' | 'VALIDATION_ERROR' | 'INSTAGRAM_IN_USE' | 'INSTAGRAM_NOT_FOUND' | 'INSTAGRAM_PROVIDER_ERROR' | 'CONFIGURATION_ERROR' | 'LOGO_INVALID'
 
 /** Error con el código y el status HTTP que devuelve la API. */
 export class EditError extends Error {
@@ -82,8 +85,11 @@ const NOT_FOUND = 'El lugar no existe.'
 const message = (error: unknown) => error instanceof Error ? error.message : String(error)
 const round = (value: number) => Math.round(value * 1e6) / 1e6
 
-// Lo que entra en los textos de búsqueda. El precio no: la app lo filtra por la columna.
-const SEARCH_FIELDS = new Set<keyof PlaceEdit>(['name', 'tags', 'style', 'dietVegan', 'dietVegetarian', 'dietGlutenFree'])
+// Lo que entra en los textos de búsqueda. El precio y las reservas no: la app los filtra por la columna.
+const SEARCH_FIELDS = new Set<keyof PlaceEdit>([
+  'name', 'tags', 'style', 'dietVegan', 'dietVegetarian', 'dietGlutenFree', 'dishes', 'signature', 'highlights', 'categories',
+  'neighborhoodId', 'locatedIn',
+])
 
 /** Clasificación del logo con el modelo del logo: ~1.500 tokens de entrada (la imagen a 512 px) y unos pocos de salida. */
 export function estimatedLogoClassificationUsd(model: string) {
@@ -91,7 +97,7 @@ export function estimatedLogoClassificationUsd(model: string) {
   return price ? round((1500 * price.input + 20 * price.output) / 1_000_000) : 0
 }
 
-export function toDetail(row: EditRow, brandKeys: string[] = []): PlaceDetail {
+export function toDetail(row: EditRow, brandKeys: string[] = [], locatedInValues: string[] = []): PlaceDetail {
   return {
     id: row.id,
     googlePlaceId: row.googlePlaceId,
@@ -122,6 +128,12 @@ export function toDetail(row: EditRow, brandKeys: string[] = []): PlaceDetail {
     manualOverrides: row.manualOverrides,
     editedFields: editedFields(row.manualOverrides),
     brandKeys,
+    dishes: row.dishes,
+    signature: row.signature as PlaceDetail['signature'],
+    highlights: row.highlights,
+    locatedIn: row.locatedIn,
+    reservations: row.reservations,
+    locatedInValues,
   }
 }
 
@@ -132,7 +144,11 @@ function editedValues(row: EditRow, edit: PlaceEdit, changed: readonly (keyof Pl
     if (key === 'tags') {
       values.tags = edit.tags!
       // signature es un subconjunto de tags: un tag sacado a mano sale también de ahí.
-      values.signature = row.signature.filter((id) => edit.tags!.includes(id as never))
+      values.signature = (edit.signature ?? row.signature).filter((id) => edit.tags!.includes(id as never))
+    } else if (key === 'signature') {
+      if (!changed.includes('tags')) values.signature = edit.signature!
+    } else if (key === 'highlights') {
+      values.highlights = highlightsFromEdit(row.highlights, edit.highlights!)
     } else if (key === 'hours') {
       values.hours = hoursFromSlots(edit.hours!.slots)
     } else if (key === 'logo') {
@@ -157,18 +173,28 @@ function editedValues(row: EditRow, edit: PlaceEdit, changed: readonly (keyof Pl
   return values
 }
 
+/** signature tiene que salir de los tags finales del lugar (los de esta edición o los guardados). */
+function checkSignature(row: EditRow, edit: PlaceEdit, changed: readonly (keyof PlaceEdit)[]) {
+  if (!changed.includes('signature')) return
+  const tags: readonly string[] = changed.includes('tags') ? edit.tags! : row.tags
+  const missing = edit.signature!.filter((id) => !tags.includes(id))
+  if (missing.length > 0) throw new EditError('VALIDATION_ERROR', 422, `«Conocido por» sólo puede tener tags del lugar: ${missing.join(', ')} no está en los tags.`)
+}
+
 /** Cambia algo de la búsqueda: los campos de SEARCH_FIELDS o los tags por el horario (late_night). */
 const touchesSearch = (row: EditRow, changed: readonly (keyof PlaceEdit)[], values: Partial<NewPlace>) =>
   changed.some((key) => SEARCH_FIELDS.has(key)) || (values.tags !== undefined && values.tags.includes('late_night') !== row.tags.includes('late_night'))
 
 /**
  * Qué se recalcula al guardar la edición y cuánto cuesta. Si cambia algo de la búsqueda (nombre, tags, cocinas,
- * style, dietas): textos y embedding. Si cambia el Instagram: el perfil con Apify, el logo (salvo uno subido a mano),
- * los seguidores con la prominencia y el agrupado de marca. El precio, el ícono, la web y el destacado sólo escriben
- * la columna.
+ * style, dietas, platos, signature, destacados, categorías, barrio, "dentro de"): textos y embedding. Si cambia el
+ * Instagram: el perfil con Apify, el logo (salvo uno subido a mano), los seguidores con la prominencia y el agrupado de
+ * marca. El precio, el ícono, las reservas, la web y el destacado sólo escriben la columna. Un signature con tags que el
+ * lugar no tiene es un error.
  */
 export async function planEdit(row: EditRow, edit: PlaceEdit, deps: Pick<EditDeps, 'store' | 'instagramRunUsd' | 'logo'>): Promise<PlaceEditPlan> {
   const changed = changedEditFields(row, edit)
+  checkSignature(row, edit, changed)
   const steps: PlaceEditPlan['steps'] = []
   const edited = editedValues(row, edit, changed)
   if (changed.includes('hours')) {
@@ -203,6 +229,12 @@ export async function planEdit(row: EditRow, edit: PlaceEdit, deps: Pick<EditDep
     if (!changed.includes('brandKey') && !Object.hasOwn(row.manualOverrides, 'brand_key')) {
       steps.push({ id: 'brand_keys', label: 'Agrupado de sucursales (brand_key) por sucursal de cadena', costUsd: 0 })
     }
+  }
+  // El precio es relativo al tipo de lugar: con otras categorías (o ícono) puede quedar mal, y sin la carta no se recalcula.
+  if ((changed.includes('categories') || changed.includes('iconCategory')) && !changed.includes('price') && !Object.hasOwn(row.manualOverrides, 'price') && row.price !== 'unknown') {
+    const before = priceKindOf(row.iconCategory, row.categories)
+    const after = priceKindOf(edit.iconCategory !== undefined ? edit.iconCategory : row.iconCategory, edit.categories ?? row.categories)
+    if (before !== after) steps.push({ id: 'price_kind', label: `El tipo de precio cambia (${PRICE_KIND_LABELS[before]} → ${PRICE_KIND_LABELS[after]}): revisá el precio`, costUsd: 0 })
   }
   if (changed.includes('brandKey')) steps.push({ id: 'brand_keys', label: 'Agrupado de sucursales (brand_key) y sucursal de cadena', costUsd: 0 })
   if (steps.length === 0 && changed.length > 0) steps.push({ id: 'column_only', label: 'Sólo se guardan los campos, sin recálculos', costUsd: 0 })
@@ -240,7 +272,7 @@ export async function applyEdit(id: string, edit: PlaceEdit, deps: EditDeps, opt
     const names = plan.instagramOwners.map((owner) => owner.name).join(', ')
     throw new EditError('INSTAGRAM_IN_USE', 409, `@${edit.instagram} ya está en ${names}. Confirmá si es otra sucursal.`, plan.instagramOwners)
   }
-  if (plan.changed.length === 0) return { place: toDetail(row, await store.brandKeys()), warnings: [] }
+  if (plan.changed.length === 0) return { place: toDetail(row, await store.brandKeys(), await store.locatedInValues()), warnings: [] }
 
   const warnings: string[] = []
   const overrides = mergeEdit(row.manualOverrides, row, edit)
@@ -347,7 +379,7 @@ export async function applyEdit(id: string, edit: PlaceEdit, deps: EditDeps, opt
     await store.setChainBranch(other.id, other.prominence).catch((error: unknown) => warnings.push(`No se pudo marcar otra sucursal como cadena: ${message(error)}`))
   }
   const updated = await store.get(id)
-  return { place: toDetail(updated ?? { ...row, ...values, manualOverrides: overrides } as EditRow, await store.brandKeys()), warnings }
+  return { place: toDetail(updated ?? { ...row, ...values, manualOverrides: overrides } as EditRow, await store.brandKeys(), await store.locatedInValues()), warnings }
 }
 
 // Motivos del logo en español (los mismos que ISSUE_LABELS del frontend).
@@ -443,7 +475,8 @@ const EDIT_COLUMNS = {
   iconCategory: places.iconCategory, instagram: places.instagram, website: places.website, brandKey: places.brandKey,
   featured: places.featured, logoKey: places.logoKey, logoKind: places.logoKind, logoBgColor: places.logoBgColor,
   logoColor: places.logoColor, logoSource: places.logoSource, igFollowers: places.igFollowers, chainBranch: places.chainBranch,
-  prominence: places.prominence, embeddingTextHash: places.embeddingTextHash, hours: places.hours, manualOverrides: places.manualOverrides,
+  prominence: places.prominence, embeddingTextHash: places.embeddingTextHash, hours: places.hours, reservations: places.reservations,
+  manualOverrides: places.manualOverrides,
 }
 
 export function drizzleEditStore(db: Database): EditStore {
@@ -456,6 +489,10 @@ export function drizzleEditStore(db: Database): EditStore {
     async brandKeys() {
       const rows = await db.selectDistinct({ brandKey: places.brandKey }).from(places).where(sql`${places.brandKey} is not null`).orderBy(places.brandKey)
       return rows.flatMap((row) => row.brandKey ?? [])
+    },
+    async locatedInValues() {
+      const rows = await db.selectDistinct({ locatedIn: places.locatedIn }).from(places).where(sql`${places.locatedIn} is not null`).orderBy(places.locatedIn)
+      return rows.flatMap((row) => row.locatedIn ?? [])
     },
     async instagramOwners(value, exceptId) {
       return db.select({ id: places.id, name: places.name, neighborhoodId: places.neighborhoodId, brandKey: places.brandKey })
@@ -507,7 +544,7 @@ export function placeEditor(deps: EditDeps): PlaceEditor {
   return {
     async get(id) {
       const row = await deps.store.get(id)
-      return row ? toDetail(row, await deps.store.brandKeys()) : null
+      return row ? toDetail(row, await deps.store.brandKeys(), await deps.store.locatedInValues()) : null
     },
     async plan(id, edit) {
       const row = await deps.store.get(id)

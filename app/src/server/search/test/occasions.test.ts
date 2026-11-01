@@ -189,8 +189,12 @@ describe('precio en el atajo', () => {
   it('barato, económico, caro y de lujo', () => {
     expect(dictionary('bar barato')?.must.price).toEqual(['low'])
     expect(dictionary('restaurante económico')?.must.price).toEqual(['low'])
-    expect(dictionary('restaurante caro')?.must.price).toEqual(['high', 'very_high'])
-    expect(dictionary('restaurante de lujo')?.must.price).toEqual(['very_high'])
+    expect(dictionary('restaurante caro')?.must.price).toEqual(['high'])
+    expect(dictionary('restaurante de lujo')?.must.price).toEqual(['high'])
+    expect(dictionary('restaurante especial')?.must.price).toEqual(['high'])
+    // "cita especial" es una cita con estilo cuidado, no un pedido de precio.
+    expect(dictionary('cita especial')?.must.price).toEqual([])
+    expect(dictionary('cafe de especialidad')?.must.price ?? []).toEqual([])
   })
 })
 
@@ -236,10 +240,10 @@ describe('búsqueda con momentos y style', () => {
     expect(removed.bar.extras.map((item) => item.id)).not.toContain('casual')
   })
 
-  it('"bar barato": el de precio confirmado va arriba del desconocido', async () => {
+  it('"bar barato": sólo los de precio confirmado, sin los de precio desconocido', async () => {
     const response = await runSearch('bar barato', { store: fakeStore([...places].reverse()).store, cache: fakeCache().cache }, { now, debug: true })
     expect(response.debug?.source).toBe('shortcut')
-    expect(response.results.map((result) => result.id)).toEqual(['bar-barrio', 'bar-autor'])
+    expect(response.results.map((result) => result.id)).toEqual(['bar-barrio'])
     expect(response.interpreted.chips.map((chip) => `${chip.kind}:${chip.id}`)).toContain('price:low')
   })
 })
@@ -258,6 +262,33 @@ describe('boliches abajo', () => {
     expect(boostsFor(row({ id: 'brickel', categories: ['bar'], tags: ['dancing', 'dj', 'burgers', 'picada'] }), context(), null).danceOnly).toBeUndefined()
     expect(boostsFor(row({ id: 'resto-dj', categories: ['restaurant'], tags: ['dj'] }), context(), null).danceOnly).toBeUndefined()
     expect(boostsFor(row({ id: 'boliche', categories: ['night_club'] }), context({ wantsDancing: true }), null).danceOnly).toBeUndefined()
+  })
+})
+
+describe('con niños', () => {
+  const kids = context({ requestedTags: ['kids_friendly'], preferTags: ['kids_friendly'], moments: ['kids_friendly'] })
+
+  it('sube el espacio para niños y baja lo de la noche (una vez), sin excluir', () => {
+    const { kidsArea, kidsNight } = SEARCH_CONFIG.boosts
+    expect(boostsFor(row({ id: 'cafe-kids', categories: ['cafe'], tags: ['kids_friendly', 'kids_area'] }), kids, null).kidsArea).toBe(kidsArea)
+    expect(boostsFor(row({ id: 'resto', categories: ['restaurant'], tags: ['kids_friendly'] }), kids, null)).not.toHaveProperty('kidsNight')
+    for (const tags of [['late_night'], ['dj'], ['dancing'], ['late_night', 'dj', 'dancing']]) {
+      expect(boostsFor(row({ id: 'bar', categories: ['bar'], tags: ['kids_friendly', 'pizza', ...tags] }), kids, null).kidsNight, tags.join()).toBe(kidsNight)
+    }
+  })
+
+  it('trasnoche sólo baja a un bar sin restaurant; dj o dancing bajan siempre', () => {
+    const { kidsNight } = SEARCH_CONFIG.boosts
+    expect(boostsFor(row({ id: 'biga', categories: ['restaurant', 'pizzeria'], tags: ['kids_friendly', 'late_night'] }), kids, null).kidsNight).toBeUndefined()
+    expect(boostsFor(row({ id: 'resto-bar', categories: ['bar', 'restaurant'], tags: ['kids_friendly', 'late_night'] }), kids, null).kidsNight).toBeUndefined()
+    expect(boostsFor(row({ id: 'cerveceria', categories: ['brewery'], tags: ['kids_friendly', 'late_night'] }), kids, null).kidsNight).toBeUndefined()
+    expect(boostsFor(row({ id: 'resto-dj', categories: ['restaurant'], tags: ['kids_friendly', 'dj'] }), kids, null).kidsNight).toBe(kidsNight)
+  })
+
+  it('sin niños pedido no aplica', () => {
+    const boosts = boostsFor(row({ id: 'bar', categories: ['bar'], tags: ['kids_area', 'late_night'] }), context(), null)
+    expect(boosts.kidsArea).toBeUndefined()
+    expect(boosts.kidsNight).toBeUndefined()
   })
 
   it('"comer con amigos" deja al boliche detrás; "para bailar" no lo baja', async () => {

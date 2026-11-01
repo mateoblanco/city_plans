@@ -205,6 +205,26 @@ export class GooglePlacesProvider implements PlacesProvider {
     return { rating: payload.rating ?? null, userRatingCount: payload.userRatingCount ?? null }
   }
 
+  /**
+   * Sólo businessStatus (Place Details Pro), para places:check-status. No se guarda. 'NOT_FOUND' si Google ya no tiene
+   * el lugar (404); null si no trae el dato.
+   */
+  async getBusinessStatus(placeId: string): Promise<string | null> {
+    let response: Response
+    try {
+      const url = new URL(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`)
+      response = await this.fetcher(url, {
+        headers: { 'X-Goog-Api-Key': this.apiKey, 'X-Goog-FieldMask': 'businessStatus' },
+      })
+    } catch (error) {
+      throw new PlacesProviderError('upstream', 'No se pudo conectar con Google Places.', { cause: error })
+    }
+    if (response.status === 404) return 'NOT_FOUND'
+    if (!response.ok) await throwGoogleError(response)
+    const payload = (await response.json()) as { businessStatus?: string }
+    return payload.businessStatus || null
+  }
+
   private async fetchDetails(placeId: string): Promise<GooglePlaceDetailsResponse> {
     let response: Response
     try {

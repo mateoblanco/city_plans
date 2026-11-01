@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { editedFields, parseManualOverrides } from '../../src/data/manual-overrides.ts'
 import { applyOverrides, changedEditFields, mergeEdit, type EditableValues } from './manual-overrides.ts'
+import { PlaceEdit } from '../../src/data/manual-overrides.ts'
 
 const current: EditableValues = {
   name: 'El Palenque', tags: ['seafood', 'terrace'], style: 'casual', iconCategory: 'grill', price: 'high',
   dietVegan: 'unknown', dietVegetarian: 'has_options', dietGlutenFree: 'no', instagram: '@ElPalenque', website: null, brandKey: null, chainBranch: false,
   hours: { slots: [{ day: 1, opens: '12:00', closes: '16:00' }], status: 'exact', source: 'official' },
+  dishes: ['pulpo a la gallega', 'chivito'], signature: ['seafood'], highlights: [{ es: 'Pulpo a la gallega', en: 'Galician-style octopus' }],
+  categories: ['grill'], neighborhoodId: 'Ciudad Vieja', locatedIn: 'Mercado del Puerto', reservations: 'unknown',
 }
 
 describe('applyOverrides', () => {
@@ -94,5 +97,73 @@ describe('parseManualOverrides y editedFields', () => {
 
   it('editado a mano: sin Publicar ni motivos, y sin una diferencia de tags vacía', () => {
     expect(editedFields({ status: 'published', review_reasons: [], instagram: null, tags: { add: [], remove: [] } })).toEqual(['instagram'])
+  })
+})
+
+describe('platos (dishes)', () => {
+  it('agregar uno y sacar uno guarda la diferencia; una re-extracción suma el nuevo pero no vuelve a poner el sacado', () => {
+    // El modal manda la lista completa: saca "chivito" y agrega "Milanesa Napolitana" (se guarda en minúscula).
+    const edit = PlaceEdit.parse({ dishes: ['pulpo a la gallega', 'Milanesa  Napolitana'] })
+    expect(changedEditFields(current, edit)).toEqual(['dishes'])
+    const overrides = mergeEdit({}, current, edit)
+    expect(overrides.dishes).toEqual({ add: ['milanesa napolitana'], remove: ['chivito'] })
+    expect(editedFields(overrides)).toEqual(['dishes'])
+
+    // La re-extracción trae uno nuevo (ñoquis) y el que se sacó (chivito).
+    const final = applyOverrides({ dishes: ['pulpo a la gallega', 'chivito', 'ñoquis'] }, overrides)
+    expect(final.dishes).toEqual(['pulpo a la gallega', 'ñoquis', 'milanesa napolitana'])
+    // Si el pipeline también trae el agregado, no se repite.
+    expect(applyOverrides({ dishes: ['Milanesa napolitana'] }, overrides).dishes).toEqual(['Milanesa napolitana'])
+  })
+
+  it('volver a poner uno sacado lo saca de remove; sacar uno agregado lo saca de add (como los tags)', () => {
+    const overrides = { dishes: { add: ['milanesa napolitana'], remove: ['chivito'] } }
+    const saved = { ...current, dishes: ['pulpo a la gallega', 'milanesa napolitana'] }
+    expect(mergeEdit(overrides, saved, { dishes: ['pulpo a la gallega', 'chivito'] }).dishes).toEqual({ add: ['chivito'], remove: ['milanesa napolitana'] })
+    // Sin cambios (misma lista en otro orden o mayúsculas), no cuenta como edición.
+    expect(changedEditFields(saved, { dishes: ['milanesa napolitana', 'pulpo a la gallega'] })).toEqual([])
+  })
+
+  it('un camino que no escribe dishes no los toca', () => {
+    expect(applyOverrides({ igFollowers: 3 }, { dishes: { add: ['chivito'], remove: [] } })).toEqual({ igFollowers: 3 })
+  })
+})
+
+describe('signature, categorías y demás campos de un valor', () => {
+  it('signature a mano manda sobre el del pipeline, sin los tags que ya no están', () => {
+    const overrides = { signature: ['terrace', 'seafood'] } as const
+    const final = applyOverrides({ tags: ['seafood', 'terrace'], signature: ['seafood'] }, { signature: [...overrides.signature] })
+    expect(final.signature).toEqual(['terrace', 'seafood'])
+    // Con terrace sacado a mano, sale también del signature.
+    expect(applyOverrides({ tags: ['seafood', 'terrace'], signature: [] }, { signature: [...overrides.signature], tags: { add: [], remove: ['terrace'] } }).signature).toEqual(['seafood'])
+  })
+
+  it('sacar un tag en el modal lo saca también del signature guardado', () => {
+    const overrides = mergeEdit({ signature: ['seafood', 'terrace'] }, { ...current, signature: ['seafood', 'terrace'] }, { tags: ['seafood'] })
+    expect(overrides.signature).toEqual(['seafood'])
+  })
+
+  it('categorías, barrio, "dentro de", reservas y destacados quedan bloqueados ante una re-extracción', () => {
+    const overrides = {
+      categories: ['restaurant' as const, 'pizzeria' as const], neighborhood_id: 'Pocitos' as const, located_in: null,
+      reservations: 'recommended' as const, highlights: [{ es: 'Fainá', en: '' }],
+    }
+    const auto = { categories: ['grill'], neighborhoodId: 'Ciudad Vieja', locatedIn: 'Mercado del Puerto', reservations: 'accepts' as const, highlights: [{ es: 'Pulpo', en: 'Octopus' }] }
+    expect(applyOverrides(auto, overrides)).toEqual({
+      categories: ['restaurant', 'pizzeria'], neighborhoodId: 'Pocitos', locatedIn: null, reservations: 'recommended', highlights: [{ es: 'Fainá', en: '' }],
+    })
+    expect(editedFields(overrides)).toEqual(['highlights', 'categories', 'neighborhood_id', 'located_in', 'reservations'])
+  })
+
+  it('destacados: el en se conserva en los que quedan y los nuevos van vacíos', () => {
+    const overrides = mergeEdit({}, current, { highlights: ['pulpo a la gallega', 'Fainá'] })
+    expect(overrides.highlights).toEqual([{ es: 'pulpo a la gallega', en: 'Galician-style octopus' }, { es: 'Fainá', en: '' }])
+  })
+
+  it('el schema de la edición limita signature a 3 y las categorías al catálogo', () => {
+    expect(PlaceEdit.safeParse({ signature: ['seafood', 'terrace', 'groups', 'date'] }).success).toBe(false)
+    expect(PlaceEdit.safeParse({ categories: ['karaoke'] }).success).toBe(false)
+    expect(PlaceEdit.safeParse({ categories: [] }).success).toBe(false)
+    expect(PlaceEdit.safeParse({ neighborhoodId: 'Narnia' }).success).toBe(false)
   })
 })

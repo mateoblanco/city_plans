@@ -1,10 +1,11 @@
 import { INTENT_IDS, INTENTS } from "@shared/intents.ts";
 import { neighborhoodDisplayName } from "@shared/neighborhood-names.ts";
 import { publishedNeighborhoods, type Chip, type IntentBar } from "@/server/search";
-import { DIET_KEYS } from "@/server/search/interpretation";
-import { dietLabel } from "@/server/search/labels";
+import { DIET_KEYS, PRICES } from "@/server/search/interpretation";
+import { dietLabel, PRICE_FILTER_LABELS } from "@/server/search/labels";
 import FilterChip from "./FilterChip/FilterChip";
 import NeighborhoodSelect from "./NeighborhoodSelect/NeighborhoodSelect";
+import PriceSelect from "./PriceSelect/PriceSelect";
 import { addFilterHref, extraHref, intentHref, removeChipHref, searchHref, subHref, type SearchUrl } from "@/components/pages/SearchPage/utils/search-href";
 import chipStyles from "./FilterChip/FilterChip.module.scss";
 import styles from "./FilterBar.module.scss";
@@ -45,6 +46,10 @@ const FilterBar = async (props: Props) => {
   const neighborhoods = [...new Set([...published, ...neighborhoodChips.map((chip) => chip.id)])]
     .map((id) => ({ id, label: neighborhoodDisplayName(id) ?? id }))
     .sort((a, b) => a.label.localeCompare(b.label, "es"));
+  const priceChips = props.chips
+    .filter((chip) => chip.kind === "price")
+    .map(({ kind, id, fromText, fromFilter }) => ({ kind, id, fromText, fromFilter }));
+  const prices = PRICES.map((id) => ({ id, label: PRICE_FILTER_LABELS[id] }));
   const toggle = { state: props.state, chips: props.chips };
   const activeDiets = props.chips.filter((chip) => chip.kind === "diet").length;
   const activeIntent = props.bar.intent?.id ?? null;
@@ -80,6 +85,7 @@ const FilterBar = async (props: Props) => {
           );
         })}
       </div>
+      <PriceSelect options={prices} chips={priceChips} state={props.state} />
       {showSubs && (
         <div className={`${styles.filterRow} ${styles.subRow}`} role="group" aria-label="Sub-filtros">
           {props.bar.subs.map((sub) => (

@@ -144,12 +144,12 @@ describe('con grupos', () => {
     expect(response.debug?.personal.groups.map((group) => [group.id, group.shown])).toEqual([['similar', true], ['profile', false]])
   })
 
-  it('con precio pedido, los de precio desconocido son "maybe" y no entran en los personales', async () => {
+  it('con precio pedido, los de precio desconocido no salen (ni en los personales)', async () => {
     const places = basePlaces().map(({ place, vector }) => ({ place: { ...place, price: place.id === 'c4' || place.id === 'c5' ? 'unknown' : 'low' }, vector }))
     const { search } = setup(places)
     const response = await search('comer con amigos barato', { likes: ['c0', 'c1', 'c2'], intent: 'cafes' })
     const levels = new Map(response.results.map((result) => [result.id, result.matchLevel]))
-    expect(levels.get('c4')).toBe('maybe')
+    expect(levels.has('c4')).toBe(false)
     expect(levels.get('c3')).toBe('has')
     expect(personalIds(response)).not.toContain('c4')
     expect(personalIds(response)).not.toContain('c5')
@@ -249,7 +249,7 @@ describe('"Parecido a": el like arriba y parecido de verdad', () => {
     expect(check({ style: 'casual' })).toBe('estilo casual ≠ intermedio')
     expect(check({ style: null })).toBeNull()
     expect(check({ price: 'high' })).toBeNull()
-    expect(check({ price: 'very_high' })).toBe('precio very_high vs moderate')
+    expect(concreteMismatch({ ...liked, price: 'low' }, { ...liked, tags: [], price: 'high' })).toBe('precio high vs low')
     expect(check({ price: 'unknown' })).toBeNull()
     // Tapas y curry van solas.
     expect(concreteMismatch({ ...liked, iconCategory: 'tapas', tags: [] }, { ...liked, iconCategory: 'seafood', tags: [] })).not.toBeNull()
@@ -669,7 +669,7 @@ describe('perfiles por tipo, afinidad, motivo y variedad', () => {
       const groups = Object.entries(ALL_GROUPS).filter(([name]) => name !== 'categories' && name !== 'style')
       const missing = groups.flatMap(([, group]) => Object.keys(group).filter((key) => !traitPhrase(key)?.text))
       expect(missing).toEqual([])
-      for (const key of ['style:casual', 'style:cuidado', 'price:low', 'price:moderate', 'price:high', 'price:very_high', 'barrio:POCITOS']) expect(traitPhrase(key)?.text).toBeTruthy()
+      for (const key of ['style:casual', 'style:cuidado', 'price:low', 'price:moderate', 'price:high', 'barrio:POCITOS']) expect(traitPhrase(key)?.text).toBeTruthy()
       expect(traitPhrase('barrio:POCITOS')?.text).toBe('en Pocitos')
       expect(profileReasonTitle('cafes', ['quiet', 'specialty_coffee'], 'es')).toBe('Porque te gustan los cafés tranquilos con café de especialidad')
       expect(profileReasonTitle('eat', ['japanese', 'barrio:CORDON'], 'es')).toBe('Porque te gustan los restaurantes de cocina japonesa en Cordón')

@@ -106,6 +106,13 @@ describe('planMomentsChange', () => {
     expect(change.keywordText).not.toContain('Cita')
   })
 
+  it('groups agregado a mano queda aunque el replay lo saque por baja confianza; otro lugar lo pierde', () => {
+    const only = (id: string): id is 'cozy' | 'kids_friendly' | 'groups' => ['cozy', 'kids_friendly', 'groups'].includes(id)
+    const withGroups = row({ ...matute, tags: ['picada', 'groups'] })
+    expect(planTagsChange({ ...withGroups, manualOverrides: { tags: { add: ['groups'], remove: [] } } }, { tags: ['picada'] }, only)).toBeNull()
+    expect(planTagsChange(withGroups, { tags: ['picada'] }, only)).toMatchObject({ removed: ['groups'], values: { tags: ['picada'] } })
+  })
+
   it('un tag agregado a mano queda aunque el replay no lo deduzca; si sólo cambiaría eso, null', () => {
     const edited = row({ ...matute, manualOverrides: { tags: { add: ['date'], remove: [] } } })
     expect(planMomentsChange(edited, { tags: ['picada', 'craft_beer'] })).toBeNull()

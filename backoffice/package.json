@@ -24,7 +24,9 @@
     "brands:backfill": "tsx server/scripts/brand-keys-backfill.ts",
     "chains:backfill": "tsx server/scripts/chains-backfill.ts",
     "websites:check": "tsx server/scripts/websites-check.ts",
-    "places:clear-review-reasons": "tsx server/scripts/review-reasons-cleanup.ts"
+    "places:clear-review-reasons": "tsx server/scripts/review-reasons-cleanup.ts",
+    "places:check-status": "tsx server/scripts/places-status-check.ts",
+    "prices:suggest": "tsx server/scripts/prices-suggest.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1152.0",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PlaceReview } from '../../src/types/places.ts'
-import { googleRatingOf, instagramActivity, instagramOperating, reviewReasonsFor, soundsNotOpenYet } from './review-reasons.ts'
+import { googleBusinessStatusOf, googleRatingOf, instagramActivity, instagramOperating, reviewReasonsFor, soundsNotOpenYet } from './review-reasons.ts'
 
 const fact = (text: string) => ({ id: 'F1', text, kind: 'other' as const, sourceId: 'S1', sourceUrl: 'https://lugar.example/', trust: 'official' as const, supports: [] })
 const review = (overrides: Partial<Pick<PlaceReview, 'doubts' | 'anomalies'>> = {}) => ({ doubts: [], anomalies: [], ...overrides })
@@ -99,6 +99,23 @@ describe('reviewReasonsFor', () => {
     expect(googleRatingOf({ data: { rating: '3.7', userRatingCount: null } })).toEqual({ rating: null, userRatingCount: null })
     expect(googleRatingOf({ data: [] })).toEqual({ rating: null, userRatingCount: null })
     expect(googleRatingOf(null)).toEqual({ rating: null, userRatingCount: null })
+  })
+
+  it('cerrado según Google (businessStatus del Place Details): suma closed_permanently o closed_temporarily', () => {
+    expect(reviewReasonsFor({ placeFacts: OPEN }, review(), { businessStatus: 'OPERATIONAL' })).toEqual([])
+    expect(reviewReasonsFor({ placeFacts: OPEN }, review(), { businessStatus: 'CLOSED_TEMPORARILY' })).toEqual(['closed_temporarily'])
+    expect(reviewReasonsFor({ placeFacts: OPEN }, review(), { businessStatus: 'CLOSED_PERMANENTLY' })).toEqual(['closed_permanently'])
+    expect(reviewReasonsFor({ placeFacts: OPEN }, review(), { businessStatus: null })).toEqual([])
+    expect(reviewReasonsFor({ placeFacts: [] }, review(), { businessStatus: 'CLOSED_PERMANENTLY', googleRating: { rating: 3, userRatingCount: 40 } }))
+      .toEqual(['no_place_facts', 'low_rating', 'closed_permanently'])
+  })
+
+  it('googleBusinessStatusOf lee businessStatus del Place Details; sin dato, null', () => {
+    expect(googleBusinessStatusOf({ data: { businessStatus: 'CLOSED_TEMPORARILY', rating: 4 } })).toBe('CLOSED_TEMPORARILY')
+    expect(googleBusinessStatusOf({ data: { businessStatus: 'OPERATIONAL' } })).toBe('OPERATIONAL')
+    expect(googleBusinessStatusOf({ data: { businessStatus: 3 } })).toBeNull()
+    expect(googleBusinessStatusOf({ data: {} })).toBeNull()
+    expect(googleBusinessStatusOf(null)).toBeNull()
   })
 })
 

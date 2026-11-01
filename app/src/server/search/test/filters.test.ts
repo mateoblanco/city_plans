@@ -9,6 +9,7 @@ describe('parseFilters', () => {
       opensToday: true,
       diet: ['vegan'],
       neighborhoods: ['CORDON'],
+      price: [],
       section: null,
     })
     // Las categorías ya no son filtros de la barra: van por la intención.
@@ -17,6 +18,7 @@ describe('parseFilters', () => {
       opensToday: false,
       diet: [],
       neighborhoods: [],
+      price: [],
       section: null,
     })
     expect(parseFilters(null)).toEqual(parseFilters(''))
@@ -25,6 +27,12 @@ describe('parseFilters', () => {
   it('varios barrios: sin repetir y descartando los que no existen', () => {
     expect(parseFilters('neighborhood:CORDON,neighborhood:POCITOS,neighborhood:CORDON,neighborhood:NARNIA').neighborhoods).toEqual(['CORDON', 'POCITOS'])
     expect([...filterChipKeys(parseFilters('neighborhood:CORDON,neighborhood:POCITOS'))]).toEqual(['neighborhood:CORDON', 'neighborhood:POCITOS'])
+  })
+
+  it('varios precios: sin repetir y descartando los que no existen', () => {
+    expect(parseFilters('price:low,price:moderate,price:low,price:free,price:').price).toEqual(['low', 'moderate'])
+    // very_high ya no existe (tres niveles): un link viejo lo descarta.
+    expect([...filterChipKeys(parseFilters('price:high,price:very_high'))]).toEqual(['price:high'])
   })
 
   it('section: el "Ver todos" de un grupo del catálogo, uno solo y nunca discover', () => {
@@ -62,6 +70,7 @@ describe('applyFilters', () => {
     value.must.categories = ['pizzeria']
     value.must.diet = { vegetarian: true }
     value.must.neighborhoods = ['POCITOS']
+    value.must.price = ['moderate', 'high']
     value.must.openAt = { day: 6, time: '21:00' }
     return value
   }
@@ -71,6 +80,7 @@ describe('applyFilters', () => {
     expect(value.must.categories).toEqual(['pizzeria'])
     expect(value.must.diet).toEqual({ vegetarian: true, vegan: true })
     expect(value.must.neighborhoods).toEqual(['POCITOS'])
+    expect(value.must.price).toEqual(['moderate', 'high'])
   })
 
   it('si contradicen al texto, ganan el barrio y "abre hoy" del filtro', () => {
@@ -81,6 +91,10 @@ describe('applyFilters', () => {
 
   it('varios barrios de la barra reemplazan a los del texto', () => {
     expect(applyFilters(fromText(), parseFilters('neighborhood:CORDON,neighborhood:PARQUE RODO')).must.neighborhoods).toEqual(['CORDON', 'PARQUE RODO'])
+  })
+
+  it('los precios de la barra reemplazan a los del texto', () => {
+    expect(applyFilters(fromText(), parseFilters('price:low,price:moderate')).must.price).toEqual(['low', 'moderate'])
   })
 
   it('no modifica la interpretación original (la cacheada por q)', () => {

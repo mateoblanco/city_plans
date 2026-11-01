@@ -5,7 +5,7 @@ import { isIntentId, type IntentId } from '@shared/intents.ts'
 import { isSectionId, type SectionId } from '@shared/sections.ts'
 import { canonicalOf } from './dishes'
 
-export const PRICES = ['low', 'moderate', 'high', 'very_high'] as const
+export const PRICES = ['low', 'moderate', 'high'] as const
 export type Price = (typeof PRICES)[number]
 export const DIET_KEYS = ['vegan', 'vegetarian', 'glutenFree'] as const
 export type DietKey = (typeof DIET_KEYS)[number]

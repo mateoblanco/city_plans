@@ -50,7 +50,7 @@ const logoStorage = new R2LogoStorage()
 // Neon es opcional: sin DATABASE_URL el server arranca igual y /api/places responde 503.
 const database = process.env.DATABASE_URL?.trim()
   ? await (async () => {
-      const [{ db }, { drizzlePlacesStore, gatewayEmbedder, placesSaver }, { drizzleBrandSiblings, drizzleInstagramOwners, drizzleManualInstagram, drizzlePlaceIds, drizzlePlacesReader }, { drizzleEditStore, placeEditor }] = await Promise.all([
+      const [{ db }, { drizzlePlacesStore, gatewayEmbedder, placesSaver }, { drizzleBrandSiblings, drizzleInstagramOwners, drizzleManualCategories, drizzleManualInstagram, drizzlePlaceIds, drizzlePlacesReader }, { drizzleEditStore, placeEditor }] = await Promise.all([
         import('./db/index.ts'),
         import('./places/save.ts'),
         import('./places/list.ts'),
@@ -75,6 +75,7 @@ const database = process.env.DATABASE_URL?.trim()
         placeIds: drizzlePlaceIds(db),
         instagramOwners: drizzleInstagramOwners(db),
         manualInstagram: drizzleManualInstagram(db),
+        manualCategories: drizzleManualCategories(db),
         brandSiblings: drizzleBrandSiblings(db),
       }
     })()
@@ -94,6 +95,7 @@ const extractor = provider
       instagramOwners: database?.instagramOwners,
       // El Instagram cargado a mano en un procesamiento anterior gana al reprocesar.
       manualInstagram: database?.manualInstagram,
+      manualCategories: database?.manualCategories,
       brandSiblings: database?.brandSiblings,
     })
   : undefined

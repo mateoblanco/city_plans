@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { postProcess, type PlaceExtraction, type Source } from './place-extraction-service.ts'
 import { MOMENT_SIGNALS, signalsIn, sufficientSignals } from './moment-signals.ts'
-import { EXA_SUMMARY_URL } from './source-hosts.ts'
+import { EXA_SUMMARY_URL, isLowTrustSource } from './source-hosts.ts'
 
 const target = {
   name: 'Bar de Prueba',
@@ -146,6 +146,88 @@ describe('postProcess: cozy', () => {
   })
 })
 
+describe('postProcess: fuentes de plantilla para cozy, kids_friendly y groups', () => {
+  const opina = (text: string): Source => ({ id: 'S2', kind: 'exa', trust: 'third_party', url: 'https://www.opina.com.uy/montevideo/bar-de-prueba', text })
+  const instagram = (text: string): Source => ({ id: 'S3', kind: 'instagram', trust: 'official', url: 'https://www.instagram.com/bardeprueba/', text })
+  /** Facts [texto, fuente] y los tags que los citan a todos. */
+  function runFrom(entries: [string, string][], sources: Source[], tags: PlaceExtraction['tags'], extra: Partial<PlaceExtraction> = {}) {
+    const facts = entries.map(([text, sourceId], index) => ({ id: `F${index + 1}`, text, sourceId, kind: 'other' as const, proposedTag: null }))
+    return postProcess(target, { ...base, ...extra, facts, tags: [...base.tags, ...tags, ...(extra.tags ?? [])] }, { sources })
+  }
+  const cozy = (count: number): PlaceExtraction['tags'] => [{ group: 'atmosphere', id: 'cozy', facts: allFacts(count) }]
+  const kids = (count: number): PlaceExtraction['tags'] => [{ group: 'goodFor', id: 'kids_friendly', facts: allFacts(count) }]
+
+  it('cozy: opina sola no alcanza; con Instagram que lo dice, queda', () => {
+    expect(runFrom([['Ambiente informal y acogedor', 'S2']], [web('Bar'), opina('Ambiente informal y acogedor')], cozy(1)).tags).not.toContain('cozy')
+    const both = runFrom([['Ambiente informal y acogedor', 'S2'], ['Un rincón acogedor', 'S3']], [web('Bar'), opina('Ambiente informal y acogedor'), instagram('Un rincón acogedor')], cozy(2))
+    expect(both.tags).toContain('cozy')
+    expect(both.tagEvidence).toContainEqual(expect.objectContaining({ tag: 'cozy', mode: 'explicit', factIds: ['F2'] }))
+    // El texto de opina tampoco sirve de respaldo (sin facts propios que lo citen).
+    expect(runFrom([['Ambiente informal', 'S1']], [web('Ambiente informal'), opina('Ambiente informal y acogedor')], cozy(1)).tags).not.toContain('cozy')
+  })
+
+  it('kids_friendly: de plantilla, ni explícito ni fuerte alcanza solo', () => {
+    expect(runFrom([['Ideal para ir con niños', 'S2']], [web('Bar'), opina('Ideal para ir con niños')], kids(1)).tags).not.toContain('kids_friendly')
+    expect(runFrom([['Tiene menú infantil', 'S2']], [web('Bar'), opina('Tiene menú infantil')], kids(1)).tags).not.toContain('kids_friendly')
+    // Con una débil de fuente propia, la de plantilla suma como débil.
+    expect(runFrom([['Tiene menú infantil', 'S2'], ['Tiene un patio', 'S1']], [web('Tiene un patio'), opina('Tiene menú infantil')], kids(2)).tags).toContain('kids_friendly')
+    // No se deduce de opina sola.
+    expect(runFrom([['Tiene menú infantil', 'S2']], [web('Bar'), opina('Tiene menú infantil')], []).tags).not.toContain('kids_friendly')
+  })
+
+  it('groups: de plantilla, ni explícito ni fuerte ni deducido alcanza solo', () => {
+    const groups = (count: number): PlaceExtraction['tags'] => [{ group: 'goodFor', id: 'groups', facts: allFacts(count) }]
+    expect(runFrom([['Ideal para ir con amigos', 'S2']], [web('Bar'), opina('Ideal para ir con amigos')], groups(1)).tags).not.toContain('groups')
+    expect(runFrom([['Tablas para compartir', 'S2']], [web('Bar'), opina('Tablas para compartir')], groups(1)).tags).not.toContain('groups')
+    expect(runFrom([['Tablas para compartir', 'S2']], [web('Bar'), opina('Tablas para compartir')], []).tags).not.toContain('groups')
+    // Con fuente propia se queda; una señal de plantilla suma como débil a una propia.
+    expect(runFrom([['Ideal para ir con amigos', 'S3']], [web('Bar'), instagram('Ideal para ir con amigos')], groups(1)).tags).toContain('groups')
+    expect(runFrom([['Tablas para compartir', 'S2'], ['Tienen cerveza tirada', 'S1']], [web('Tienen cerveza tirada'), opina('Tablas para compartir')], groups(2)).tags).toContain('groups')
+  })
+
+  it('wanderboat y bocadium cuentan como fuentes de baja confianza, con o sin subdominio', () => {
+    expect(isLowTrustSource('https://www.wanderboat.ai/places/bar')).toBe(true)
+    expect(isLowTrustSource('https://bocadium.com/bar')).toBe(true)
+    expect(isLowTrustSource('https://es.bocadium.com/bar')).toBe(true)
+    expect(isLowTrustSource('https://bar.example/')).toBe(false)
+  })
+
+  it('picada o kids_area de baja confianza no agregan groups ni kids_friendly', () => {
+    const picada: PlaceExtraction['tags'] = [{ group: 'foods', id: 'picada', facts: ['F1'] }]
+    const kidsArea: PlaceExtraction['tags'] = [{ group: 'features', id: 'kids_area', facts: ['F1'] }]
+    const fromOpina = runFrom([['Tiene picadas', 'S2']], [web('Bar'), opina('Tiene picadas')], picada)
+    expect(fromOpina.tags).toContain('picada')
+    expect(fromOpina.tags).not.toContain('groups')
+    expect(runFrom([['Tiene picadas', 'S3']], [web('Bar'), instagram('Tiene picadas')], picada).tags).toContain('groups')
+    const summary: Source = { id: 'S2', kind: 'exa', trust: 'third_party', url: EXA_SUMMARY_URL, text: 'Tiene picadas' }
+    expect(runFrom([['Tiene picadas', 'S2']], [web('Bar'), summary], picada).tags).not.toContain('groups')
+    expect(runFrom([['Tiene espacio para niños', 'S2']], [web('Bar'), opina('Tiene espacio para niños')], kidsArea).tags).not.toContain('kids_friendly')
+    expect(runFrom([['Tiene espacio para niños', 'S3']], [web('Bar'), instagram('Tiene espacio para niños')], kidsArea).tags).toContain('kids_friendly')
+  })
+
+  it('sillas altas es débil y en un lugar de noche no cuenta', () => {
+    expect(run(['Tiene sillas altas'], kids(1)).tags).not.toContain('kids_friendly')
+    expect(run(['Tiene sillas altas'], []).tags).not.toContain('kids_friendly')
+    expect(run(['Tiene sillas altas', 'Tiene un patio'], kids(2)).tags).toContain('kids_friendly')
+    const dj: PlaceExtraction['tags'] = [{ group: 'features', id: 'dj', facts: ['F3'] }]
+    expect(run(['Tiene sillas altas', 'Tiene un patio', 'Los sábados hay dj'], [...kids(2), ...dj]).tags).not.toContain('kids_friendly')
+    expect(run(['Tiene sillas altas', 'Tiene un patio', 'Los sábados hay dj'], dj).tags).not.toContain('kids_friendly')
+    // Con menú infantil (fuerte) sigue siendo apto aunque haya dj.
+    expect(run(['Tiene menú infantil', 'Los sábados hay dj'], [...kids(1), ...dj]).tags).toContain('kids_friendly')
+  })
+
+  it('trasnoche por horario también es de noche', () => {
+    const hours = { raw: 'Viernes 20 a 3', display: null, blocks: [{ days: [5], opens: '20:00', closes: '03:00' }] } as unknown as PlaceExtraction['hours']
+    const support = [{ field: 'hours', facts: ['F3'] }]
+    const place = run(['Tiene sillas altas', 'Tiene un patio', 'Viernes de 20 a 3'], [], 'Tiene sillas altas. Tiene un patio. Viernes de 20 a 3')
+    expect(place.tags).toContain('kids_friendly')
+    const facts = ['Tiene sillas altas', 'Tiene un patio', 'Viernes de 20 a 3'].map((text, index) => ({ id: `F${index + 1}`, text, sourceId: 'S1', kind: 'other' as const, proposedTag: null }))
+    const late = postProcess(target, { ...base, facts, hours, support }, { sources: [web('Tiene sillas altas. Tiene un patio. Viernes de 20 a 3')] })
+    expect(late.tags).toContain('late_night')
+    expect(late.tags).not.toContain('kids_friendly')
+  })
+})
+
 describe('postProcess: de barrio (neighborhood_spot)', () => {
   const spot = (place: ReturnType<typeof run>) => place.tags.includes('neighborhood_spot')
 
@@ -273,11 +355,10 @@ describe('postProcess: style', () => {
     expect(styleOf(withPrice('low'))).toEqual(['casual', 'price'])
     expect(styleOf(withPrice('moderate'))).toEqual(['intermedio', 'price'])
     expect(styleOf(withPrice('high'))).toEqual(['cuidado', 'price'])
-    expect(styleOf(withPrice('very_high'))).toEqual(['cuidado', 'price'])
     expect(withPrice('low').tagEvidence).toContainEqual({ tag: 'casual', mode: 'inferred', basis: 'price', signals: ['precio: low'], factIds: ['F1'] })
     // Las señales ganan al precio.
     const signals = postProcess(target, {
-      ...base, price: 'very_high', facts: [{ id: 'F1', text: 'Ambiente informal', sourceId: 'S1', kind: 'other', proposedTag: null }],
+      ...base, price: 'high', facts: [{ id: 'F1', text: 'Ambiente informal', sourceId: 'S1', kind: 'other', proposedTag: null }],
     }, { sources: [web('Ambiente informal')] })
     expect(styleOf(signals)).toEqual(['casual', 'signals'])
     const icon = (iconCategory: PlaceExtraction['iconCategory']) => postProcess(target, { ...base, iconCategory }, { sources: [web('Bar')] })

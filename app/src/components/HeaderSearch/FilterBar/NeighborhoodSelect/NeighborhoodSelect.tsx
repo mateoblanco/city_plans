@@ -4,6 +4,7 @@ import { Select } from "@base-ui/react/select";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { nearHref, nearParam, setNeighborhoodsHref, type ChipRef, type SearchUrl } from "@/components/pages/SearchPage/utils/search-href";
+import { CaretDownIcon, CaretUpDownIcon, CaretUpIcon, CheckIcon } from "../SelectIcons";
 import styles from "./NeighborhoodSelect.module.scss";
 
 const ALL = "Todos los barrios";
@@ -26,30 +27,6 @@ const firstAutoAsk = () => {
     return false;
   }
 };
-
-const CaretUpDownIcon = () => (
-  <svg className={styles.icon} width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-    <path d="M11 10H5l3 3.5zm0-4H5l3-3.5z" />
-  </svg>
-);
-
-const CheckIcon = () => (
-  <svg className={styles.icon} width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true">
-    <path d="m2.5 8.5 4 4 7-9" />
-  </svg>
-);
-
-const CaretUpIcon = () => (
-  <svg className={styles.icon} width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-    <path d="M12 10H4l4-4.5z" />
-  </svg>
-);
-
-const CaretDownIcon = () => (
-  <svg className={styles.icon} width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-    <path d="M12 6H4l4 4.5z" />
-  </svg>
-);
 
 type Props = {
   options: { id: string; label: string }[];

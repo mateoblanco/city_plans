@@ -1,5 +1,5 @@
 import type { ExtractionRow } from '@/hooks/use-extraction-batch'
-import { CLOSED_REASONS, REVIEW_REASONS, isClosedReason, type ClosedReason, type ReviewReason } from '@/data/review-reasons'
+import { REVIEW_REASONS, type ReviewReason } from '@/data/review-reasons'
 import type { NeighborhoodSweepPlace } from '@/types/places'
 
 export type ReviewSummary = {
@@ -9,7 +9,8 @@ export type ReviewSummary = {
   places: number
 }
 
-export type ClosedSummary = Record<ClosedReason, string[]>
+/** Los temporales se procesan y salen por motivo en ReviewSummary: acá sólo los definitivos, que no se procesan. */
+export type ClosedSummary = { closed_permanently: string[] }
 
 const MISSING_NAME = 'Sin nombre confirmado'
 
@@ -27,11 +28,8 @@ export function reviewSummary(rows: readonly ExtractionRow[]): ReviewSummary {
   return { byReason, places }
 }
 
-/** Cerrados según Google detectados en el barrido (dentro del barrio), por estado. */
+/** Cerrados definitivamente según Google detectados en el barrido (dentro del barrio). */
 export function closedSummary(places: readonly NeighborhoodSweepPlace[]): ClosedSummary {
-  const closed = Object.fromEntries(Object.keys(CLOSED_REASONS).map((id) => [id, []])) as unknown as ClosedSummary
-  for (const place of places) {
-    if (place.insideNeighborhood !== false && isClosedReason(place.reason)) closed[place.reason].push(place.name)
-  }
-  return closed
+  const names = places.filter((place) => place.insideNeighborhood !== false && place.reason === 'closed_permanently').map((place) => place.name)
+  return { closed_permanently: names }
 }

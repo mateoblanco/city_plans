@@ -73,12 +73,17 @@ describe('savePlaces', () => {
   it('guarda en review los lugares con motivos, con los motivos, y publica los demás', async () => {
     const { store, inserted } = fakeStore()
 
-    await savePlaces([ok({ reviewReasons: ['not_open_yet'] }), ok({ googlePlaceId: 'place-2' }), ok({ googlePlaceId: 'place-3', reviewReasons: ['low_rating'] })], { store, embed: vectors })
+    await savePlaces([
+      ok({ reviewReasons: ['not_open_yet'] }), ok({ googlePlaceId: 'place-2' }), ok({ googlePlaceId: 'place-3', reviewReasons: ['low_rating'] }),
+      ok({ googlePlaceId: 'place-4', reviewReasons: ['closed_permanently'] }), ok({ googlePlaceId: 'place-5', reviewReasons: ['closed_temporarily'] }),
+    ], { store, embed: vectors })
 
     expect(inserted.map((row) => [row.googlePlaceId, row.status, row.reviewReasons])).toEqual([
       ['place-1', 'review', ['not_open_yet']],
       ['place-2', 'published', []],
       ['place-3', 'review', ['low_rating']],
+      ['place-4', 'review', ['closed_permanently']],
+      ['place-5', 'review', ['closed_temporarily']],
     ])
   })
 
@@ -162,6 +167,40 @@ describe('savePlaces', () => {
     for (const key of ['manualOverrides', 'googlePlaceId', 'slug', 'status', 'embedding', 'embeddingTextHash']) {
       expect(updated[0].values).not.toHaveProperty(key)
     }
+  })
+
+  it('re-extracción con platos, signature, categorías, barrio, "dentro de", reservas y destacados editados a mano', async () => {
+    const manualOverrides = {
+      dishes: { add: ['milanesa napolitana'], remove: ['chivito'] },
+      signature: ['terrace' as const],
+      categories: ['restaurant' as const, 'pizzeria' as const],
+      neighborhood_id: 'Pocitos' as const,
+      located_in: null,
+      reservations: 'recommended' as const,
+      highlights: [{ es: 'Fainá', en: '' }],
+    }
+    const existing = { id: 'uuid-1', googlePlaceId: 'place-1', embeddingTextHash: null, manualOverrides, status: 'published' as const }
+    const { store, updated } = fakeStore([existing])
+
+    // El pipeline trae un plato nuevo (ñoquis) y el sacado (chivito), y sus propios valores en lo demás.
+    await savePlaces([ok({ dishes: ['pulpo a la gallega', 'chivito', 'ñoquis'], tags: ['seafood', 'terrace'], signature: ['seafood'] })], { store, embed: vi.fn(vectors) })
+
+    const values = updated[0].values
+    expect(values).toMatchObject({
+      dishes: ['pulpo a la gallega', 'ñoquis', 'milanesa napolitana'],
+      signature: ['terrace'],
+      categories: ['restaurant', 'pizzeria'],
+      neighborhoodId: 'Pocitos',
+      locatedIn: null,
+      reservations: 'recommended',
+      highlights: [{ es: 'Fainá', en: '' }],
+    })
+    // Los textos de búsqueda salen de los valores finales.
+    expect(values.keywordText).toContain('milanesa napolitana')
+    expect(values.keywordText).not.toContain('chivito')
+    expect(values.keywordText).toContain('Pocitos')
+    expect(values.keywordText).not.toContain('Mercado del Puerto')
+    expect(values.embeddingText).toContain('Pizzería')
   })
 
   it('un Instagram cargado a mano queda como override con su valor y pisa al anterior; uno del pipeline, no', async () => {

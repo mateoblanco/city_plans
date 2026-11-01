@@ -119,7 +119,7 @@ export type PlaceEnrichmentDraft = {
     vegetarian: 'unknown' | 'no' | 'has_options' | 'fully'
     glutenFree: 'unknown' | 'no' | 'has_options' | 'fully'
   }
-  price: 'unknown' | 'low' | 'moderate' | 'high' | 'very_high'
+  price: 'unknown' | 'low' | 'moderate' | 'high'
   reservations: 'unknown' | 'no_reservations' | 'accepts' | 'recommended'
   hours: {
     raw: string | null
@@ -346,6 +346,17 @@ export type PlaceListItem = {
   reviewReasons: ReviewReason[]
   /** Campos editados a mano (manual_overrides), sin Publicar. */
   editedFields: EditField[]
+  /** El precio sugerido (`yarn prices:suggest`), sólo si difiere del precio actual; null si no hay o coincide. */
+  priceSuggestion: PriceSuggestion | null
+}
+
+/** Precio sugerido por la carta, frases o tags de las fuentes (server/places/price-suggestion.ts). */
+export type PriceSuggestion = {
+  price: Exclude<PriceLevel, 'unknown'>
+  signal: 'menu' | 'phrase' | 'tags'
+  reason: string
+  snippet: string | null
+  sourceUrl: string | null
 }
 
 export const PLACE_LIST_CATEGORIES = ['restaurant', 'bar', 'cafe'] as const
@@ -361,10 +372,14 @@ export type PlaceListQuery = {
   category?: (typeof PLACE_LIST_CATEGORIES)[number]
   status?: 'published' | 'review'
   edited?: boolean
+  /** Con este nivel de precio (unknown: sin precio). */
+  price?: PriceLevel
   /** Le falta alguno de estos datos (O entre ellos). Un "sin precio" o "No tiene Instagram" a mano también cuenta. */
   missing?: PlaceListMissing[]
   /** Con este motivo de revisión (el filtro de la pestaña "A revisar"). */
   reason?: ReviewReason
+  /** Con un precio sugerido distinto del actual. */
+  priceSuggestion?: boolean
   /** Sólo estos lugares (hasta 100), en este orden: la página del orden por puntaje de Google, que se arma en el cliente. */
   ids?: string[]
   sort: (typeof PLACE_LIST_SORTS)[number]
@@ -436,6 +451,14 @@ export type PlaceDetail = {
   editedFields: EditField[]
   /** brand_key de todos los lugares guardados, para sugerir en el modal. */
   brandKeys: string[]
+  dishes: string[]
+  /** Hasta 3 de los tags: por qué es conocido. */
+  signature: TagId[]
+  highlights: { es: string; en: string }[]
+  locatedIn: string | null
+  reservations: PlaceEnrichmentDraft['reservations']
+  /** located_in distintos de los lugares guardados, para sugerir en el modal. */
+  locatedInValues: string[]
 }
 
 export type PriceLevel = (typeof PRICE_LEVELS)[number]
@@ -449,7 +472,7 @@ export type PlaceEditPlan = {
   /** Campos que cambian respecto de lo guardado. */
   changed: (keyof PlaceEdit)[]
   /** Pasos del recálculo, en el orden en que corren, con su costo (0 = sin llamadas pagas). */
-  steps: { id: 'hours' | 'late_night' | 'search_texts' | 'embedding' | 'instagram_profile' | 'logo_classification' | 'prominence' | 'brand_keys' | 'column_only'; label: string; costUsd: number }[]
+  steps: { id: 'hours' | 'late_night' | 'search_texts' | 'embedding' | 'instagram_profile' | 'logo_classification' | 'prominence' | 'brand_keys' | 'price_kind' | 'column_only'; label: string; costUsd: number }[]
   totalUsd: number
   /** Otros lugares con el Instagram nuevo: hay que confirmar (puede ser otra sucursal). */
   instagramOwners: InstagramOwner[]

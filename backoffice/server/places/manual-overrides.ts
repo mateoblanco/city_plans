@@ -1,5 +1,5 @@
 import { buildEmbeddingText, buildKeywordText, type StyleId, type TagId } from '../../src/data/tags.ts'
-import type { ManualOverrides, PlaceEdit } from '../../src/data/manual-overrides.ts'
+import { normalizeDish, textKey, type ManualOverrides, type PlaceEdit } from '../../src/data/manual-overrides.ts'
 import { sameSlots, sortedSlots, type ManualSlot } from '../../src/data/hours-edit.ts'
 import { displayFromSlots, lateNightFromSlots, searchTextInput } from '../providers/place-extraction-service.ts'
 import type { Hours, NewPlace, Place } from '../db/schema.ts'
@@ -20,6 +20,11 @@ const SCALAR_COLUMNS = {
   website: 'website',
   brand_key: 'brandKey',
   chain_branch: 'chainBranch',
+  categories: 'categories',
+  neighborhood_id: 'neighborhoodId',
+  located_in: 'locatedIn',
+  reservations: 'reservations',
+  highlights: 'highlights',
 } as const satisfies Partial<Record<keyof ManualOverrides, keyof NewPlace>>
 
 const LOGO_COLUMNS = ['logoKey', 'logoKind', 'logoBgColor', 'logoColor', 'logoSource', 'logoFetchedAt'] as const
@@ -44,11 +49,27 @@ export function applyTagDiff(auto: readonly string[], diff: ManualOverrides['tag
   return [...new Set([...auto.filter((id) => !removed.has(id)), ...diff.add])]
 }
 
+/** Platos finales: los automáticos sin los sacados a mano, más los agregados (comparados en minúscula). */
+export function applyDishDiff(auto: readonly string[], diff: ManualOverrides['dishes']): string[] {
+  if (!diff) return [...auto]
+  const removed = new Set(diff.remove.map(normalizeDish))
+  const kept = auto.filter((dish) => !removed.has(normalizeDish(dish)))
+  const seen = new Set(kept.map(normalizeDish))
+  return [...kept, ...diff.add.filter((dish) => !seen.has(normalizeDish(dish)) && seen.add(normalizeDish(dish)))]
+}
+
+/** Destacados del modal (sólo es): el en se conserva del que quedó igual; los nuevos van sin en. */
+export function highlightsFromEdit(current: readonly { es: string; en: string }[], edited: readonly string[]): { es: string; en: string }[] {
+  const previous = new Map(current.map((highlight) => [textKey(highlight.es), highlight.en]))
+  return edited.map((es) => ({ es, en: previous.get(textKey(es)) ?? '' }))
+}
+
 /**
  * Pone los overrides manuales encima de valores automáticos. Única función que lo hace: la usan la re-extracción
  * (savePlaces), extraction:replay, signals:refresh, prominence:recompute y brands:backfill. Sólo toca las claves que
  * vienen en `auto`, así un camino que escribe tres columnas sigue escribiendo esas tres. Con tags, también saca de
- * signature los tags que se sacaron a mano. Con el horario a mano, late_night sale de esos turnos (antes del diff de tags,
+ * signature los tags que se sacaron a mano; un signature a mano manda, sin los tags que ya no están. Los platos, como
+ * los tags, con la diferencia. Con el horario a mano, late_night sale de esos turnos (antes del diff de tags,
  * así un late_night sacado o agregado a mano sigue mandando). Con chain_branch a mano, la prominence que viene se recalcula con ese valor
  * (si hay seguidores): el ×0,85 sigue al override.
  */
@@ -73,6 +94,11 @@ export function applyOverrides<T extends Partial<NewPlace>>(auto: T, overrides: 
     result.tags = tags
     if (auto.signature) result.signature = auto.signature.filter((id) => tags.includes(id))
   }
+  if (overrides.signature && Object.hasOwn(auto, 'signature')) {
+    const tags = result.tags ?? auto.tags
+    result.signature = tags ? overrides.signature.filter((id) => tags.includes(id)) : [...overrides.signature]
+  }
+  if (overrides.dishes && auto.dishes) result.dishes = applyDishDiff(auto.dishes, overrides.dishes)
   return result as T
 }
 
@@ -103,7 +129,8 @@ export function placeSearchTexts(values: SearchTextValues): { keywordText: strin
 /** Valores de los campos editables tal como están guardados (los finales). */
 export type EditableValues = Pick<Place,
   'name' | 'tags' | 'style' | 'iconCategory' | 'price' | 'dietVegan' | 'dietVegetarian' | 'dietGlutenFree' |
-  'instagram' | 'website' | 'brandKey' | 'chainBranch' | 'hours'>
+  'instagram' | 'website' | 'brandKey' | 'chainBranch' | 'hours' | 'dishes' | 'signature' | 'highlights' | 'categories' |
+  'neighborhoodId' | 'locatedIn' | 'reservations'>
 
 // Campo del modal → clave de manual_overrides.
 const EDIT_TO_OVERRIDE = {
@@ -118,6 +145,11 @@ const EDIT_TO_OVERRIDE = {
   website: 'website',
   brandKey: 'brand_key',
   chainBranch: 'chain_branch',
+  signature: 'signature',
+  categories: 'categories',
+  neighborhoodId: 'neighborhood_id',
+  locatedIn: 'located_in',
+  reservations: 'reservations',
 } as const satisfies Partial<Record<keyof PlaceEdit, keyof ManualOverrides>>
 
 const sameTags = (left: readonly string[], right: readonly string[]) =>
@@ -132,8 +164,13 @@ export function changedEditFields(current: EditableValues, edit: PlaceEdit): (ke
   for (const key of Object.keys(edit) as (keyof PlaceEdit)[]) {
     const value = edit[key]
     if (value === undefined) continue
-    if (key === 'tags') {
-      if (!sameTags(current.tags, value as string[])) changed.push(key)
+    if (key === 'tags' || key === 'signature' || key === 'categories') {
+      if (!sameTags(current[key], value as string[])) changed.push(key)
+    } else if (key === 'dishes') {
+      if (!sameTags(current.dishes.map(normalizeDish), edit.dishes!.map(normalizeDish))) changed.push(key)
+    } else if (key === 'highlights') {
+      const before = current.highlights.map((highlight) => highlight.es)
+      if (before.length !== edit.highlights!.length || before.some((es, index) => es !== edit.highlights![index])) changed.push(key)
     } else if (key === 'instagram') {
       if (handleOf(current.instagram) !== value) changed.push(key)
     } else if (key === 'hours') {
@@ -150,7 +187,8 @@ export function changedEditFields(current: EditableValues, edit: PlaceEdit): (ke
 /**
  * manual_overrides después de una edición. Los campos de un valor que cambiaron guardan el valor nuevo. Los tags
  * guardan la diferencia: los agregados entran en add y salen de remove, y los sacados al revés; volver a poner un
- * tag automático que se había sacado lo quita de remove. featured no va: ningún camino automático lo escribe.
+ * tag automático que se había sacado lo quita de remove; los platos igual. Un tag sacado sale también del signature
+ * guardado. featured no va: ningún camino automático lo escribe.
  */
 export function mergeEdit(overrides: ManualOverrides, current: EditableValues, edit: PlaceEdit): ManualOverrides {
   const next: ManualOverrides = { ...overrides }
@@ -168,6 +206,19 @@ export function mergeEdit(overrides: ManualOverrides, current: EditableValues, e
     const remove = [...new Set([...previous.remove.filter((id) => !added.includes(id)), ...removed])]
     if (add.length > 0 || remove.length > 0) next.tags = { add, remove }
     else delete next.tags
+    if (next.signature) next.signature = next.signature.filter((id) => edit.tags!.includes(id))
   }
+  if (edit.dishes && changed.has('dishes')) {
+    const before = new Set(current.dishes.map(normalizeDish))
+    const after = new Set(edit.dishes.map(normalizeDish))
+    const added = [...after].filter((dish) => !before.has(dish))
+    const removed = [...before].filter((dish) => !after.has(dish))
+    const previous = overrides.dishes ?? { add: [], remove: [] }
+    const add = [...new Set([...previous.add.filter((dish) => !removed.includes(dish)), ...added])]
+    const remove = [...new Set([...previous.remove.filter((dish) => !added.includes(dish)), ...removed])]
+    if (add.length > 0 || remove.length > 0) next.dishes = { add, remove }
+    else delete next.dishes
+  }
+  if (edit.highlights && changed.has('highlights')) next.highlights = highlightsFromEdit(current.highlights, edit.highlights)
   return next
 }

@@ -42,6 +42,7 @@ import {
   officialWebsiteHome,
   PlaceExtraction,
   type Source,
+  type ManualCategoriesLookup,
 } from './place-extraction-service.ts'
 import { groupOf } from '../../src/data/tags.ts'
 import type { GooglePlaceDetailsResponse } from '../../src/types/places.ts'
@@ -427,6 +428,29 @@ describe('PlaceExtractionService', () => {
       if (result.status !== 'ok') throw new Error('se esperaba ok')
       expect(result.place.reviewReasons, JSON.stringify(data)).not.toContain('low_rating')
     }
+  })
+
+  it('cerrado según Google en el Place Details: a revisión con closed_*, sin guardar el businessStatus', async () => {
+    const saved: ExtractionSnapshot[] = []
+    const extractWith = (data: GooglePlaceDetailsResponse['data']) => new PlaceExtractionService({
+      apiKey: 'test-key',
+      details: { getDetails: async () => ({ ...googleDetails, data }) },
+      exa: { configured: true, searchPlace: async () => exaResponse('@cafebrasilero') },
+      instagram: { configured: true, scrapeMany: async () => [{ url: 'https://www.instagram.com/cafebrasilero/', name: target.name, bio: 'Montevideo, Uruguay', links: [] }] },
+      generate: async () => extraction,
+      snapshots: { save: async (snapshot) => { saved.push(snapshot) } },
+    }).extract('place-1', { seedCategories: ['cafe'] })
+
+    for (const [businessStatus, reason] of [['CLOSED_PERMANENTLY', 'closed_permanently'], ['CLOSED_TEMPORARILY', 'closed_temporarily']] as const) {
+      const result = await extractWith({ businessStatus })
+      if (result.status !== 'ok') throw new Error('se esperaba ok')
+      expect(result.place.reviewReasons).toContain(reason)
+      expect(JSON.stringify(result)).not.toContain('businessStatus')
+    }
+    expect(JSON.stringify(saved)).not.toContain('businessStatus')
+    const open = await extractWith({ businessStatus: 'OPERATIONAL' })
+    if (open.status !== 'ok') throw new Error('se esperaba ok')
+    expect(open.place.reviewReasons?.filter((reason) => reason.startsWith('closed_'))).toEqual([])
   })
 
   it('El Sótano: marca + sufijo no alcanza si el perfil es de otro rubro o publica otra dirección', () => {
@@ -837,39 +861,48 @@ describe('PlaceExtractionService', () => {
     log.mockRestore()
   })
 
-  it('prioriza precios determinísticos por persona y respeta sus límites', () => {
-    const priceFrom = (sources: { id: string; kind: 'web'; trust: 'official' | 'third_party'; url: string; text: string }[]) => postProcess(target, {
+  it('prioriza precios determinísticos por persona con los cortes del tipo de lugar', () => {
+    const priceFrom = (iconCategory: PlaceExtraction['iconCategory'], text: string) => postProcess(target, {
       ...extraction,
-      price: 'very_high',
+      iconCategory,
+      price: 'unknown',
       support: [],
-    }, { sources })
+    }, { sources: [{ id: 'S1', kind: 'web', trust: 'official', url: 'https://local.example/', text }] }).price
 
-    expect(priceFrom([{
-      id: 'S1', kind: 'web', trust: 'official', url: 'https://local.example/',
-      text: 'El gasto es de $700 a $1.100 por persona.',
-    }]).price).toBe('moderate')
-    expect(priceFrom([{
-      id: 'S1', kind: 'web', trust: 'official', url: 'https://local.example/',
-      text: 'Precio promedio $ 599 por persona.',
-    }]).price).toBe('low')
-    expect(priceFrom([{
-      id: 'S1', kind: 'web', trust: 'official', url: 'https://local.example/',
-      text: 'Precio promedio $1.200 por persona.',
-    }]).price).toBe('high')
-    expect(priceFrom([{
-      id: 'S1', kind: 'web', trust: 'official', url: 'https://local.example/',
-      text: 'Precio promedio $2.500 por persona.',
-    }]).price).toBe('high')
-    expect(priceFrom([{
-      id: 'S1', kind: 'web', trust: 'official', url: 'https://local.example/',
-      text: 'Precio promedio $2.501 por persona.',
-    }]).price).toBe('very_high')
+    // Restaurante: < 600 low, > 1.500 high.
+    expect(priceFrom('pasta', 'El gasto es de $700 a $1.100 por persona.')).toBe('moderate')
+    expect(priceFrom('pasta', 'Precio promedio $ 599 por persona.')).toBe('low')
+    expect(priceFrom('pasta', 'Precio promedio $1.500 por persona.')).toBe('moderate')
+    expect(priceFrom('pasta', 'Precio promedio $1.501 por persona.')).toBe('high')
+    // Bar: < 500 / > 1.300.
+    expect(priceFrom('cocktails', 'Precio promedio $499 por persona.')).toBe('low')
+    expect(priceFrom('cocktails', 'Precio promedio $1.301 por persona.')).toBe('high')
+    // Café: < 350 / > 800.
+    expect(priceFrom('coffee', 'Precio promedio $349 por persona.')).toBe('low')
+    expect(priceFrom('coffee', 'Precio promedio $800 por persona.')).toBe('moderate')
+    expect(priceFrom('coffee', 'Precio promedio $801 por persona.')).toBe('high')
+  })
+
+  it('categorías editadas a mano: reemplazan las del modelo y las semilla, sin la implicación de restaurante, y deciden el tipo de precio', () => {
+    const sources = [{ id: 'S1', kind: 'web' as const, trust: 'official' as const, url: 'https://local.example/', text: 'Precio promedio $801 por persona.' }]
+    const auto = postProcess(target, { ...extraction, price: 'unknown', support: [] }, { sources, seedCategories: ['cafe'] })
+    expect(auto.categories).toEqual(['cafe'])
+    // Café: > 800 es caro.
+    expect(auto.price).toBe('high')
+
+    const manual = postProcess(target, { ...extraction, price: 'unknown', support: [] }, { sources, seedCategories: ['cafe'], manualCategories: ['pizzeria'] })
+    expect(manual.categories).toEqual(['pizzeria'])
+    // Los tags implícitos salen de las categorías a mano.
+    expect(manual.tags).toContain('pizza')
+    // Pizzería usa los cortes de restaurante: $801 es normal.
+    expect(manual.price).toBe('moderate')
   })
 
   it('usa la mediana de precios oficiales e ignora importes ajenos o en otra moneda', () => {
     const place = postProcess(target, {
       ...extraction,
-      price: 'very_high',
+      iconCategory: 'pasta',
+      price: 'high',
       support: [],
     }, { sources: [
       {
@@ -1283,6 +1316,11 @@ describe('PlaceExtractionService', () => {
     expect(place.tags).toEqual(expect.arrayContaining(['delivery', 'dinner']))
     expect(place.signature).toEqual(['pizza', 'live_music'])
     expect(SYSTEM_PROMPT).toContain('Nunca servicios o logística (delivery, takeaway, wifi, outlets, accessible, pet_friendly, menu_of_the_day)')
+  })
+
+  it('el prompt dice que cozy, kids_friendly y groups no se sostienen sólo con fuentes de plantilla', () => {
+    expect(SYSTEM_PROMPT).toContain('- cozy, kids_friendly, groups: ni el RESUMEN ESTRUCTURADO DE EXA ni las fuentes de plantilla (')
+    for (const host of ['opina.com.uy', 'smartservices.uy', 'guiacomercial.uy', 'wanderlog.com', 'wanderboat.ai', 'bocadium.com']) expect(SYSTEM_PROMPT).toContain(host)
   })
 
   it('lista atmosphere y bodegon entre los ids permitidos y pide cocinas sólo por el estilo principal', () => {
@@ -1710,7 +1748,7 @@ describe('PlaceExtractionService', () => {
     expect(SYSTEM_PROMPT).toContain('- Si las fuentes dicen que el local está dentro de otro lugar (shopping, mercado, galería, hotel, museo, polo gastronómico), completá locatedIn con el nombre de ese lugar. Si no lo dicen claramente, null. No lo deduzcas solo de la dirección.')
     expect(SYSTEM_PROMPT).toContain('- Si completás locatedIn, citá en support los facts que lo dicen, con field locatedIn.')
     expect(SYSTEM_PROMPT).toContain('- Si una fuente dice que solo se paga en efectivo, usá cash_only.')
-    expect(SYSTEM_PROMPT).toContain('kids_friendly: fuertes: menú infantil, sillas altas, juegos o espacio para niños.')
+    expect(SYSTEM_PROMPT).toContain('kids_friendly: fuertes: menú infantil, juegos o espacio para niños. Débiles: sillas altas')
     for (const example of ['Oriundo', 'Culto', 'Namasté', 'Palenque', 'Berracos', 'Oviedo', 'Galician', 'Feira', 'Padrón', 'polenta', 'canilla', ['can', 'elones'].join('')]) {
       expect(SYSTEM_PROMPT.toLowerCase()).not.toContain(example.toLowerCase())
     }
@@ -2678,7 +2716,7 @@ describe('validación del Instagram en la primera pasada', () => {
 describe('procesamiento en dos pasos con revisión del Instagram', () => {
   const official = { url: 'https://www.instagram.com/cafebrasilero', name: 'Café Brasilero', bio: 'Café · Ituzaingó 1447 · Montevideo', links: [], category: 'Cafe', followers: 5000 }
   const corrected = { url: 'https://www.instagram.com/cafe.brasilero.uy', name: 'Café Brasilero', bio: 'Desde 1877', links: [], followers: 1200 }
-  const build = (options: { generate?: () => Promise<PlaceExtraction>; manualInstagram?: (id: string) => Promise<{ handle: string | null } | null>; discoveries?: DiscoveryStore } = {}) => {
+  const build = (options: { generate?: () => Promise<PlaceExtraction>; manualInstagram?: (id: string) => Promise<{ handle: string | null } | null>; manualCategories?: ManualCategoriesLookup; discoveries?: DiscoveryStore } = {}) => {
     const searchPlace = vi.fn(async () => exaResponse('@cafebrasilero', [{ title: 'Café Brasilero', url: 'https://guia.example.com/brasilero', highlights: ['Café Brasilero'] }]))
     const scrapeMany = vi.fn(async (urls: string[]) => [official, corrected].filter((profile) => urls.some((url) => url.includes(profile.url.split('/').at(-1)!))))
     const service = new PlaceExtractionService({
@@ -2688,6 +2726,7 @@ describe('procesamiento en dos pasos con revisión del Instagram', () => {
       instagram: { configured: true, scrapeMany },
       generate: options.generate ?? (async () => extraction),
       manualInstagram: options.manualInstagram,
+      manualCategories: options.manualCategories,
       discoveries: options.discoveries,
     })
     return { service, searchPlace, scrapeMany }
@@ -2785,6 +2824,26 @@ describe('procesamiento en dos pasos con revisión del Instagram', () => {
     const fallback = await broken.service.extract('place-1', { seedCategories: ['cafe'] })
     if (fallback.status !== 'ok') throw new Error('se esperaba ok')
     expect(fallback.place.contact.instagram).toBe('cafebrasilero')
+  })
+
+  it('las categorías editadas a mano (manual_overrides) las usa la re-extracción, en uno y en dos pasos; si la base falla, las del modelo', async () => {
+    const lookup = vi.fn(async () => ['bar' as const])
+    const saved = build({ manualCategories: lookup })
+    const oneStep = await saved.service.extract('place-1', { seedCategories: ['cafe'] })
+    if (oneStep.status !== 'ok') throw new Error('se esperaba ok')
+    expect(oneStep.place.categories).toEqual(['bar'])
+    expect(lookup).toHaveBeenCalledWith('place-1')
+    await saved.service.discoverPlace('place-1', { seedCategories: ['cafe'] })
+    const twoSteps = await saved.service.completePlace('place-1', { mode: 'auto' })
+    if (twoSteps.status !== 'ok') throw new Error('se esperaba ok')
+    expect(twoSteps.place.categories).toEqual(['bar'])
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const broken = build({ manualCategories: async () => { throw new Error('Neon caído') } })
+    const fallback = await broken.service.extract('place-1', { seedCategories: ['cafe'] })
+    if (fallback.status !== 'ok') throw new Error('se esperaba ok')
+    expect(fallback.place.categories).toEqual(['cafe'])
+    warn.mockRestore()
   })
 
   describe('resumen del paso 1', () => {

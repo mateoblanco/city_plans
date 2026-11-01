@@ -127,6 +127,27 @@
       "when": 1793295035548,
       "tag": "0017_low_rating_reason",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1793310327704,
+      "tag": "0018_closed_reasons",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1793382714368,
+      "tag": "0019_three_price_levels",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1793383871424,
+      "tag": "0020_price_suggestion_dismissed",
+      "breakpoints": true
     }
   ]
 }
