@@ -57,8 +57,9 @@ const FilterBar = async (props: Props) => {
 
   return (
     <nav className={styles.filterBar} aria-label="Filtros">
-      <div className={styles.filterRow}>
+      <div className={`${styles.filterRow} ${styles.selectRow}`}>
         <NeighborhoodSelect options={neighborhoods} chips={neighborhoodChips} state={props.state} autoNear={props.needsLocation} />
+        <PriceSelect options={prices} chips={priceChips} state={props.state} />
         <Toggle {...toggle} kind="openAt" id="today" text="Abre hoy" />
         {/* <details className={styles.more}>
           <summary className={chipStyles.chip} data-active={activeDiets > 0 || undefined}>
@@ -71,6 +72,7 @@ const FilterBar = async (props: Props) => {
           </div>
         </details> */}
       </div>
+      <hr className={`${styles.divider} ${styles.intentDivider}`} />
       <div className={styles.filterRow} role="group" aria-label="Qué querés hacer">
         {INTENT_IDS.map((id) => {
           const active = id === activeIntent;
@@ -85,7 +87,6 @@ const FilterBar = async (props: Props) => {
           );
         })}
       </div>
-      <PriceSelect options={prices} chips={priceChips} state={props.state} />
       {showSubs && (
         <div className={`${styles.filterRow} ${styles.subRow}`} role="group" aria-label="Sub-filtros">
           {props.bar.subs.map((sub) => (

@@ -48,6 +48,8 @@ export type ScoreInputs = {
   embedding: number[] | null
   /** Palabras ya normalizadas que van unidas con | en to_tsquery. */
   keywords: string[]
+  /** Consulta to_tsquery que tiene que cumplir el lugar para puntuar por keyword (keywords.ts keywordFilter); null: sin condición. */
+  keywordFilter?: string | null
   /** Consulta de nombre ya normalizada (minúscula, sin acentos). */
   name: string | null
   /** Desde dónde se mide la distancia: la ubicación de la persona o los centros de barrio al relajarlo. */
@@ -227,7 +229,11 @@ export function candidatesQuery(filters: CandidateFilters, scores: ScoreInputs):
   const nameExpression = sql`f_unaccent(lower(name))`
 
   const semantic = vector ? sql`1 - (embedding <=> ${vector})` : sql`null::float`
-  const keyword = tsQuery ? sql`ts_rank(search_tsv, to_tsquery('simple', ${tsQuery}))` : sql`0::real`
+  const rank = sql`ts_rank(search_tsv, to_tsquery('simple', ${tsQuery}))`
+  // ts_rank no mira los "!": el filtro va aparte y sin cumplirlo el lugar no puntúa.
+  const keyword = !tsQuery ? sql`0::real`
+    : scores.keywordFilter ? sql`case when search_tsv @@ to_tsquery('simple', ${scores.keywordFilter}) then ${rank} else 0::real end`
+    : rank
   const nameScore = scores.name
     ? sql`greatest(similarity(${nameExpression}, ${scores.name}), word_similarity(${scores.name}, ${nameExpression}))`
     : sql`0::real`

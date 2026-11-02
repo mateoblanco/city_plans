@@ -924,8 +924,13 @@ describe('encaje con la intención y la sección', () => {
       expect(boostsFor(row({ id: icon, iconCategory: icon }), context({ intent: 'eat' }), null).eatFit).toBe(eatFit)
     }
     for (const icon of ['coffee', 'breakfast', 'pancakes', 'ice_cream', 'beer_pub'] as const) {
-      expect(boostsFor(row({ id: icon, iconCategory: icon }), context({ intent: 'eat' }), null)).toEqual({})
+      expect(boostsFor(row({ id: icon, categories: ['cafe'], iconCategory: icon }), context({ intent: 'eat' }), null)).toEqual({})
     }
+    // Restaurante o bodegón con ícono de café o bar: la mitad, para seguir por debajo del ícono de comida.
+    for (const categories of [['restaurant'], ['bodegon', 'bar']]) {
+      expect(boostsFor(row({ id: 'savarin', categories, iconCategory: 'coffee' }), context({ intent: 'eat' }), null).eatFit).toBe(eatFit / 2)
+    }
+    expect(boostsFor(row({ id: 'parrilla', categories: ['restaurant'], iconCategory: 'grill' }), context({ intent: 'eat' }), null).eatFit).toBe(eatFit)
     expect(boostsFor(yuzu, context({ intent: 'bars' }), null).eatFit).toBeUndefined()
     expect(boostsFor(yuzu, context(), null).eatFit).toBeUndefined()
     expect(eatFit).toBe(barFit)

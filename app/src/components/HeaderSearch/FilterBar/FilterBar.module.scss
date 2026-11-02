@@ -34,6 +34,18 @@
   justify-content: center;
 }
 
+// Barrio, precio y abre hoy: en un teléfono no entran los tres en una línea.
+.selectRow {
+  flex-wrap: wrap;
+}
+
+// Entre "Abre hoy" y las intenciones: cuando las intenciones bajan de línea, quedaría colgando en un costado.
+@media (max-width: 799px) {
+  .intentDivider {
+    display: none;
+  }
+}
+
 // "Más filtros": el panel se abre debajo, sobre la lista.
 .more {
   position: relative;

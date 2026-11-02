@@ -29,6 +29,11 @@ export const SEARCH_CONFIG = {
     minStrongLength: 4,
     /** Por debajo de esto el lugar no entra al ranking de nombre. */
     minForRanking: 0.3,
+    /**
+     * Palabras que no distinguen un nombre: solas no fijan un lugar ni cuentan para el ranking de nombre
+     * ("restaurante" no empuja a Restaurante Palermo Viejo). Sus plurales también (singularForms).
+     */
+    genericWords: ['cafe', 'bar', 'restaurante', 'restaurant', 'bodegon', 'cerveceria'],
   },
 
   /** Empujones que se suman al puntaje RRF (un primer puesto en un ranking vale 1/61 ≈ 0.016). */
@@ -39,6 +44,12 @@ export const SEARCH_CONFIG = {
     signatureBest: 0.02,
     maxSignatureMatches: 2,
     preferTag: 0.006,
+    /**
+     * Tag de prefer que no es un momento y lo tienen rareTagMaxPlaces candidatos o menos (fuse.ts rareTagsOf): una vez por
+     * lugar. Con preferTag da 0.026, más que signature + primer puesto de nombre (0.008 + 1/61 = 0.0244).
+     */
+    rareTag: 0.02,
+    rareTagMaxPlaces: 15,
     /** El style pedido ("descontracturado" → casual), como una preferencia más. */
     preferStyle: 0.006,
     exactDish: 0.02,
@@ -65,8 +76,9 @@ export const SEARCH_CONFIG = {
      */
     barFit: 0.015,
     /**
-     * Intención Comer y el lugar es conocido por un plato (su ícono es de comida de plato: parrilla, pasta, sushi…).
-     * Separa al restaurante del café o la heladería. Lo mismo que barFit.
+     * Intención Comer y el lugar es para comer. Entero si su ícono es de comida de plato (parrilla, pasta, sushi…); la mitad
+     * si no lo es pero su categoría es restaurant o bodegon (Savarin, bodegones con ícono de bar). Entero para todos dejaba
+     * de separar al restaurante del café que también tiene esa categoría. Lo mismo que barFit.
      */
     eatFit: 0.015,
     /**
@@ -212,9 +224,10 @@ export const SEARCH_CONFIG = {
    * de trabajo (lunch + menú del día + algo rápido), no work. 4: un lugar que no es barrio (mercado, shopping) va a
    * unrecognized, no a neighborhoods. 5: cocinas paraguas (asian, latin_american). 6: "sin carne" es exclude de grilled_meat,
    * no vegetariano, y las cocinas del texto se suman a lo del modelo. 8: más frases de groups ("con amigas", "para un
-   * grupo", "juntada"…), en el prompt y en el diccionario.
+   * grupo", "juntada"…), en el prompt y en el diccionario. 9: "con mis viejos" no es kids_friendly, "atardecer" pide vista
+   * o terraza, y sin una etiqueta que corresponda de verdad no se inventa un mapeo aproximado ("bohemia", "escondido").
    */
-  interpretationCacheVersion: 8,
+  interpretationCacheVersion: 9,
 
   timeZone: 'America/Montevideo',
   /** Faltando esto o menos para el cierre o la apertura, la card dice "Cierra pronto" / "Abre pronto". */

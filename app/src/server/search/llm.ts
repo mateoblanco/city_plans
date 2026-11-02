@@ -47,6 +47,8 @@ Campos:
   - openAt: {today:true, tonight:false} para "hoy", "ahora", "abierto ahora" o "today" (abierto ahora o abre más tarde hoy); {today:true, tonight:true} para "esta noche" o "tonight"; {today:false, tonight:false, day, time} para otro día y/o una hora concreta (0 = domingo … 6 = sábado; null = hoy; hora "HH:MM", null = cualquier momento de ese día): "el sábado" → day 6, "mañana a la noche" → mañana con time "21:00", "hoy a las 22" → day null, time "22:00"; "a la tarde" → time "17:00", "a la noche" → time "21:00"; "tarde" con bares ("tomar algo tarde", "salir tarde") es trasnoche: time "23:30" y late_night en prefer.tags; null si no habla de horario.
 - prefer: lo subjetivo o deseable (tranquilo, acogedor, lindo, para trabajar), en categories/tags.
   - Momentos u ocasiones, siempre en prefer.tags y nunca en must: "con amigos", "con amigas", "en grupo", "para un grupo", "grupo grande", "juntada" o "con la barra" → groups; "cita", "romántico" o "en pareja" → date; "con los chicos" o "con niños" → kids_friendly; "festejar" o "cumpleaños" → celebration; "algo rápido" o "al paso" → quick.
+  - "con mis viejos" o "con mis padres" no es con niños (nunca kids_friendly): intent eat, quiet y cuidado en prefer.tags.
+  - "atardecer" o "puesta de sol" → sea_view, rooftop y terrace en prefer.tags.
   - Estilo del lugar, también en prefer.tags y nunca en must: "descontracturado" o "informal" → casual; "especial", "elegante" o "de autor" → cuidado.
   - "de barrio", "bolichito", "boliche de barrio", "clásico del barrio" o "bodegón de barrio" → neighborhood_spot en prefer.tags (no es lo mismo que barato: no agregues precio). "boliche" solo sigue siendo night_club.
   - Una cita puede traer el estilo: "primera cita", "algo tranqui para una cita" o "cita descontracturada" → date + casual; "aniversario", "anniversary" o "cita especial" → date + cuidado; "cena romántica" → date + cuidado y además dinner, igual que "cena"; "cita" sola → sólo date.
@@ -68,6 +70,7 @@ Reglas:
 - Las bebidas coloquiales van como tags: "birra" → draft_beer, "vino" → wine. Pero "tomar algo", "unas cervezas" o "unos tragos" sólo dicen la intención (intent bars), no piden un tag.
 - Cocinas paraguas: "asiático", "oriental" o "comida asiática" → asian (ya incluye japonesa, china, coreana y nikkei: no las agregues); "latinoamericana" o "comida latina" → latin_american. La india y la árabe no son asian.
 - No inventes ids: si algo no está en el catálogo, va a unrecognized.
+- Si ninguna etiqueta corresponde de verdad, no inventes un mapeo aproximado: dejalo en vibe (y en unrecognized). "bohemio" o "bohemia" no es lively; "escondido" o "escondida" no es neighborhood_spot.
 - Las listas vacías van como [].
 
 # Catálogo (id: label es / label en (sinónimos))

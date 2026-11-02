@@ -1,4 +1,4 @@
-import { CUISINES, FOODS, normalize } from '@shared/tags.ts'
+import { CUISINES, FOODS, isOccasionTag, normalize } from '@shared/tags.ts'
 import type { IconCategory } from '@shared/icon-categories.ts'
 import type { IntentId } from '@shared/intents.ts'
 import type { SectionId } from '@shared/sections.ts'
@@ -25,6 +25,8 @@ export type FuseContext = {
   /** Tags pedidos (must + prefer + tags de los platos), para comparar con signature. */
   requestedTags: string[]
   preferTags: string[]
+  /** Tags de prefer que tienen pocos candidatos (rareTagsOf): pesan más que signature + nombre. */
+  rareTags?: string[]
   /** Momentos pedidos como preferencia (moments.ts momentsOf): ordenan como un plato y suman momentFit. */
   moments: string[]
   /** Cocinas pedidas (must + prefer, cuisines.ts requestedCuisines): los que no la tienen como principal son maybe. */
@@ -43,6 +45,8 @@ export type FuseContext = {
   wantsBest: boolean
   /** La consulta pide bailar (boliche, dancing, dj o el sub-filtro Para bailar): los boliches no bajan. */
   wantsDancing: boolean
+  /** Lo de la noche baja aunque no se pidan niños: "con mis viejos" (dictionary.ts mentionsParents). */
+  avoidNight?: boolean
   /**
    * Intención de la búsqueda (URL o texto): con Bares, los bares de verdad suman barFit; con Comer, eatFit. Una bebida
    * pedida (requestedTags) también da barFit, aunque no haya intención.
@@ -92,13 +96,18 @@ const nameWords = (name: string) => new Set(normalize(name).split(/[^a-z0-9]+/).
 
 /**
  * withQuality: búsqueda sin texto, donde el orden sale de la calidad (featured primero, después prominence).
- * wholeWords: si la consulta no es un nombre, el ranking de nombre sólo cuenta los nombres que tienen alguna de sus
- * palabras entera ("milanesa" → "El Club de la Milanesa"; "comer" no → "Misión Comedor"). null con un nombre del
- * modelo o fijado, que se busca difuso. Un nombre casi idéntico igual se fija por strongNameMatch.
+ * wholeWords: si la consulta no es un nombre, sus palabras distintivas (search.ts distinctiveNameWords). El ranking de
+ * nombre sólo cuenta los nombres que las tienen todas enteras ("milanesa" → "El Club de la Milanesa"; "comer" no →
+ * "Misión Comedor"; "café lindo con plantas" no → "Planta Baja"); sin ninguna, nadie entra. null con un nombre del modelo
+ * o fijado, que se busca difuso. Un nombre casi idéntico igual se fija por strongNameMatch.
  */
 export function buildRankings(rows: CandidateRow[], { withQuality = false, wholeWords = null }: { withQuality?: boolean; wholeWords?: string[] | null } = {}): Rankings {
-  const wanted = wholeWords && new Set(wholeWords.flatMap(singularForms))
-  const nameOk = (row: CandidateRow) => !wanted || [...nameWords(row.name)].some((word) => wanted.has(word))
+  const nameOk = (row: CandidateRow) => {
+    if (!wholeWords) return true
+    if (wholeWords.length === 0) return false
+    const words = nameWords(row.name)
+    return wholeWords.every((word) => singularForms(word).some((form) => words.has(form)))
+  }
   return {
     semantic: ranked(rows, (row) => row.semantic, 'desc'),
     keyword: ranked(rows, (row) => (row.keyword > 0 ? row.keyword : null), 'desc'),
@@ -190,6 +199,15 @@ export const EAT_ICONS = new Set<IconCategory>([
   'octopus', 'tapas', 'sushi', 'ramen', 'wok', 'dumplings', 'curry', 'falafel', 'kebab', 'salad',
 ])
 
+/** Categorías que dan la mitad de eatFit aunque el ícono sea de café o bar (Savarin, bodegones con ícono de bar). */
+const EAT_CATEGORIES = new Set(['restaurant', 'bodegon'])
+
+/** Tags de prefer, sin momentos, que tienen rareTagMaxPlaces lugares o menos entre los que cumplen los filtros. */
+export function rareTagsOf(rows: Pick<CandidateRow, 'tags' | 'matchesFilters'>[], preferTags: string[]): string[] {
+  const matching = rows.filter((row) => row.matchesFilters)
+  return preferTags.filter((id) => !isOccasionTag(id) && matching.filter((row) => row.tags.includes(id)).length <= SEARCH_CONFIG.boosts.rareTagMaxPlaces)
+}
+
 const FOOD_TAGS = new Set<string>([...Object.keys(FOODS), ...Object.keys(CUISINES)])
 const FOOD_CATEGORIES = new Set(['restaurant', 'grill', 'pizzeria', 'chiviteria', 'bodegon'])
 
@@ -220,6 +238,7 @@ export function boostsFor(row: CandidateRow, context: FuseContext, open: OpenSta
   if (signature > 0) result.signature = signature * (context.wantsBest ? boosts.signatureBest : boosts.signature)
   const prefer = count(row.tags, context.preferTags)
   if (prefer > 0) result.preferTag = prefer * boosts.preferTag
+  if (context.rareTags && count(row.tags, context.rareTags) > 0) result.rareTag = boosts.rareTag
   if (context.preferStyle && row.style === context.preferStyle) result.preferStyle = boosts.preferStyle
   if (row.dishExact.some(Boolean)) result.exactDish = boosts.exactDish
   const knownFor = context.dishes.some((target) =>
@@ -231,7 +250,10 @@ export function boostsFor(row: CandidateRow, context: FuseContext, open: OpenSta
   if (preferDiet > 0) result.preferDiet = preferDiet * boosts.preferDiet
   const barFit = barFitOf(row, context)
   if (barFit > 0) result.barFit = barFit
-  if (context.intent === 'eat' && row.iconCategory !== null && EAT_ICONS.has(row.iconCategory)) result.eatFit = boosts.eatFit
+  if (context.intent === 'eat') {
+    if (row.iconCategory !== null && EAT_ICONS.has(row.iconCategory)) result.eatFit = boosts.eatFit
+    else if (row.categories.some((id) => EAT_CATEGORIES.has(id))) result.eatFit = boosts.eatFit / 2
+  }
   const signals = context.section ? sectionSignals(context.section, row) : 0
   if (signals > 0) result.sectionFit = signals * boosts.sectionFit
   const moment = momentSignals(context.moments, row)
@@ -241,10 +263,9 @@ export function boostsFor(row: CandidateRow, context: FuseContext, open: OpenSta
   // "Abre hoy" no empuja a los abiertos: ordena la relevancia y la card dice si abre más tarde.
   if (!context.openAt?.today && open?.state === 'open' && hoursConfirmed(row.hours)) result.confirmedOpen = boosts.confirmedOpen
   if (!context.wantsDancing && isDanceOnly(row)) result.danceOnly = boosts.danceOnly
-  if (context.requestedTags.includes('kids_friendly')) {
-    if (row.tags.includes('kids_area')) result.kidsArea = boosts.kidsArea
-    if (isKidsNight(row)) result.kidsNight = boosts.kidsNight
-  }
+  const kids = context.requestedTags.includes('kids_friendly')
+  if (kids && row.tags.includes('kids_area')) result.kidsArea = boosts.kidsArea
+  if ((kids || context.avoidNight) && isKidsNight(row)) result.kidsNight = boosts.kidsNight
   return result
 }
 

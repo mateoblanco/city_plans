@@ -54,6 +54,24 @@ const GROUP_PHRASES = new Map<string, 'es' | 'en'>([
   ['big group', 'en'],
 ])
 
+// Ir con los padres: no es kids_friendly. Comer, tranquilo y cuidado, y lo de la noche baja (fuse.ts avoidNight).
+const PARENT_PHRASES = new Set(['con mis viejos', 'con mis padres', 'mis viejos', 'mis padres', 'para ir con mis viejos', 'para ir con mis padres'])
+
+// Atardecer: lugares con vista o al aire libre, siempre como preferencia.
+const SUNSET_PHRASES = new Set([
+  'atardecer', 'el atardecer', 'al atardecer', 'ver el atardecer', 'para ver el atardecer',
+  'puesta de sol', 'la puesta de sol', 'ver la puesta de sol', 'para ver la puesta de sol',
+])
+const SUNSET_TAGS = ['sea_view', 'rooftop', 'terrace']
+
+const hasPhrase = (phrases: Set<string>, normalized: string) => {
+  const text = ` ${normalized} `
+  return [...phrases].some((phrase) => text.includes(` ${phrase} `))
+}
+
+/** La consulta habla de ir con los padres ("algo para ir con mis viejos"). */
+export const mentionsParents = (normalized: string) => hasPhrase(PARENT_PHRASES, normalized)
+
 // Verbos que piden una intención sin nombrar un tag ("comer", "tomar algo"). Se miran antes que el catálogo, así
 // "tomar algo" es sólo Bares y no exige el tag drinks; una frase más larga del catálogo ("comer de noche") gana igual.
 const VERBS = new Map<string, [IntentId, 'es' | 'en']>(INTENT_VERBS.map(([phrase, id, lang]) => [normalize(phrase), [id, lang]]))
@@ -153,6 +171,14 @@ export function interpretWithDictionary(normalized: string, { partial = false }:
       if (groupPhrase) {
         target.prefer.tags.push('groups')
         votes[groupPhrase]++
+      } else if (PARENT_PHRASES.has(phrase)) {
+        target.intent ??= 'eat'
+        target.prefer.tags.push('quiet')
+        target.prefer.style ??= 'cuidado'
+        votes.es++
+      } else if (SUNSET_PHRASES.has(phrase)) {
+        target.prefer.tags.push(...SUNSET_TAGS)
+        votes.es++
       } else if (MEATLESS_PHRASES.has(phrase)) {
         target.exclude.tags.push(MEAT_TAG)
         votes.es++
@@ -285,5 +311,18 @@ export function applyDictionary(value: Interpretation, normalized: string): Inte
     merge(next, whole)
     return false
   })
+  // Con los padres, lo que el modelo leyó como niños no vale, salvo que el texto también los nombre.
+  if (mentionsParents(normalized)) {
+    next.prefer.tags.push('quiet')
+    if (!read.prefer.tags.includes('kids_friendly')) {
+      next.must.tags = next.must.tags.filter((id) => id !== 'kids_friendly')
+      next.prefer.tags = next.prefer.tags.filter((id) => id !== 'kids_friendly')
+    }
+  }
+  // Con el atardecer, la vista y el aire libre ordenan: nunca filtran.
+  if (hasPhrase(SUNSET_PHRASES, normalized)) {
+    next.must.tags = next.must.tags.filter((id) => !SUNSET_TAGS.includes(id))
+    next.prefer.tags.push(...SUNSET_TAGS)
+  }
   return tidy(next)
 }

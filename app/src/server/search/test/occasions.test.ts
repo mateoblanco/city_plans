@@ -3,12 +3,12 @@ import { findDef, OCCASION_TAGS } from '@shared/tags.ts'
 import { SEARCH_CONFIG } from '../config'
 import { applyDictionary, interpretWithDictionary } from '../dictionary'
 import { dishTarget } from '../dishes'
-import { boostsFor, matchLevelOf, type Fused, type FuseContext } from '../fuse'
+import { boostsFor, buildRankings, matchLevelOf, rareTagsOf, type Fused, type FuseContext } from '../fuse'
 import { groupSignals, momentSignals, momentsOf } from '../moments'
 import { applyRemove, emptyInterpretation, validateInterpretation } from '../interpretation'
 import { normalizeQuery } from '../normalize'
 import { buildReasons } from '../reasons'
-import { runSearch } from '../search'
+import { distinctiveNameWords, runSearch, strongNameMatch } from '../search'
 import { removeChipHref } from '../../../components/pages/SearchPage/utils/search-href'
 import { everyDay, fakeCache, fakeStore, llmOutput, row } from './fixtures'
 
@@ -440,9 +440,49 @@ describe('ranking por nombre', () => {
       row({ id: 'milano', name: 'Milano', categories: ['restaurant'], tags: ['milanesa'], nameScore: 0.4 }),
     ]
     const { store, calls } = fakeStore(milanesas)
-    const response = await runSearch('una milanesa al pan', { store, cache: fakeCache().cache }, { now, debug: true })
+    const response = await runSearch('una milanesa', { store, cache: fakeCache().cache }, { now, debug: true })
     expect(response.debug!.rankings.name.map((entry) => entry.id)).toEqual(['club'])
-    expect(calls[0].scores.name).toBe('milanesa pan')
+    expect(calls[0].scores.name).toBe('milanesa')
+  })
+
+  it('el nombre tiene que tener todas las palabras distintivas de la consulta', () => {
+    const rows = [
+      row({ id: 'plaza', name: 'Plaza Café', categories: ['cafe'], nameScore: 0.6 }),
+      row({ id: 'planta', name: 'Planta Baja', categories: ['cafe'], nameScore: 0.5 }),
+      row({ id: 'club', name: 'El Club de la Milanesa', categories: ['restaurant'], nameScore: 0.5 }),
+    ]
+    const ids = (wholeWords: string[]) => buildRankings(rows, { wholeWords }).name.map((entry) => entry.id)
+    expect(ids(['lindo', 'plantas'])).toEqual([])
+    expect(ids(['plantas'])).toEqual(['planta'])
+    expect(ids(['milanesas'])).toEqual(['club'])
+    expect(ids(['milanesa', 'pan'])).toEqual([])
+    // Sin palabras distintivas ("restaurante" solo) no entra nadie; null (nombre del modelo) los deja a todos.
+    expect(ids([])).toEqual([])
+    expect(buildRankings(rows).name).toHaveLength(3)
+  })
+
+  it('las palabras distintivas no incluyen las genéricas ni las del barrio pedido', () => {
+    expect(distinctiveNameWords(['cafe', 'lindo', 'plantas'], [])).toEqual(['lindo', 'plantas'])
+    expect(distinctiveNameWords(['restaurantes', 'bares', 'cafes', 'bodegones', 'cervecerias'], [])).toEqual([])
+    expect(distinctiveNameWords(['milanesa', 'pocitos'], ['POCITOS'])).toEqual(['milanesa'])
+    expect(distinctiveNameWords(['pocitos'], [])).toEqual(['pocitos'])
+  })
+
+  it('las palabras genéricas solas no fijan un lugar; el nombre entero sí', () => {
+    const match = (name: string) => [{ id: 'a', name, similarity: 1, wordSimilarity: 1 }]
+    expect(strongNameMatch(match('Bar'), 'el bar', false)).toBeNull()
+    expect(strongNameMatch(match('Restaurante Palermo Viejo'), 'restaurante', false)).toBeNull()
+    expect(strongNameMatch(match('Bar Tasende'), 'bar tasende', false)?.id).toBe('a')
+    expect(strongNameMatch(match('La Latina Café'), 'la latina cafe', true)?.id).toBe('a')
+  })
+
+  it('una consulta con el nombre entero fija el lugar aunque el diccionario la resuelva', async () => {
+    const latina = row({ id: 'latina', name: 'La Latina Café', categories: ['cafe'] })
+    const other = row({ id: 'other', name: 'Otro Café', categories: ['cafe'] })
+    const { store } = fakeStore([other, latina], [{ id: 'latina', name: 'La Latina Café', similarity: 1, wordSimilarity: 1 }])
+    const response = await runSearch('La Latina Café', { store, cache: fakeCache().cache }, { now, debug: true })
+    expect(response.results[0].id).toBe('latina')
+    expect(response.debug!.results[0].pinned).toBe(true)
   })
 
   it('si no queda ninguna palabra, no busca por nombre', async () => {
@@ -469,9 +509,82 @@ describe('ranking por nombre', () => {
   })
 
   it('se usa si la consulta pasó por el modelo', async () => {
-    const response = await runSearch('mision comedr', { store: fakeStore(places).store, cache: fakeCache().cache }, { now, debug: true })
+    const response = await runSearch('mision comedr', { store: fakeStore(places).store, cache: fakeCache(llmOutput({ nameQuery: 'mision comedr' })).cache }, { now, debug: true })
     expect(response.debug!.source).toBe('llm')
     expect(response.debug!.rankings.name.map((entry) => entry.id)).toEqual(['comedor'])
+  })
+})
+
+describe('con los padres', () => {
+  const kidsFromModel = llmOutput({ prefer: { categories: [], tags: ['kids_friendly'] } })
+
+  it('el atajo pide comer, tranquilo y cuidado, sin kids_friendly', () => {
+    for (const query of ['con mis viejos', 'con mis padres']) {
+      const value = dictionary(query)!
+      expect(value.intent).toBe('eat')
+      expect(value.prefer.tags).toEqual(['quiet'])
+      expect(value.prefer.style).toBe('cuidado')
+    }
+  })
+
+  it('saca el kids_friendly del modelo y suma lo mismo, salvo que el texto nombre niños', async () => {
+    const search = (query: string) => runSearch(query, { store: fakeStore([row({ id: 'a' })]).store, cache: fakeCache(kidsFromModel).cache }, { now, debug: true })
+    const viejos = (await search('algo para ir con mis viejos')).debug!.interpretation
+    expect(viejos.prefer.tags).toEqual(['quiet'])
+    expect(viejos.prefer.style).toBe('cuidado')
+    expect(viejos.intent).toBe('eat')
+    const both = (await search('algo con mis viejos y con niños')).debug!.interpretation
+    expect(both.prefer.tags).toContain('kids_friendly')
+    expect(both.prefer.tags).toContain('quiet')
+    // Sin los padres, el modelo manda.
+    expect((await search('algo con los abuelos')).debug!.interpretation.prefer.tags).toEqual(['kids_friendly'])
+  })
+
+  it('lo de la noche baja igual que con niños, sin sumar el espacio para niños', () => {
+    const { kidsNight } = SEARCH_CONFIG.boosts
+    const parents = context({ avoidNight: true })
+    expect(boostsFor(row({ id: 'bar', categories: ['bar'], tags: ['late_night'] }), parents, null).kidsNight).toBe(kidsNight)
+    expect(boostsFor(row({ id: 'dj', categories: ['restaurant'], tags: ['dj'] }), parents, null).kidsNight).toBe(kidsNight)
+    expect(boostsFor(row({ id: 'resto', categories: ['restaurant'], tags: ['late_night'] }), parents, null).kidsNight).toBeUndefined()
+    expect(boostsFor(row({ id: 'kids', tags: ['kids_area'] }), parents, null).kidsArea).toBeUndefined()
+    expect(boostsFor(row({ id: 'bar', categories: ['bar'], tags: ['late_night'] }), context(), null).kidsNight).toBeUndefined()
+  })
+})
+
+describe('atardecer', () => {
+  it('el atajo prefiere vista, azotea y terraza', () => {
+    for (const query of ['atardecer', 'ver el atardecer', 'puesta de sol', 'para ver la puesta de sol']) {
+      expect(dictionary(query)!.prefer.tags.toSorted()).toEqual(['rooftop', 'sea_view', 'terrace'])
+      expect(dictionary(query)!.must.tags).toEqual([])
+    }
+  })
+
+  it('se suma a lo del modelo y lo que exigió pasa a preferencia', () => {
+    const value = emptyInterpretation()
+    value.must.tags = ['terrace', 'wine']
+    const applied = applyDictionary(value, 'lugar para ver el atardecer con vino')
+    expect(applied.must.tags).toEqual(['wine'])
+    expect(applied.prefer.tags.toSorted()).toEqual(['rooftop', 'sea_view', 'terrace'])
+  })
+})
+
+describe('tags pedidos que tienen pocos lugares', () => {
+  const { rareTag, rareTagMaxPlaces, preferTag, signature } = SEARCH_CONFIG.boosts
+  const withTag = (count: number, tag: string) => Array.from({ length: count }, (_, index) => row({ id: `${tag}-${index}`, tags: [tag] }))
+
+  it('cuentan hasta el límite, entre los que cumplen los filtros, y sin momentos', () => {
+    expect(rareTagsOf(withTag(rareTagMaxPlaces, 'elegant'), ['elegant'])).toEqual(['elegant'])
+    expect(rareTagsOf(withTag(rareTagMaxPlaces + 1, 'cozy'), ['cozy'])).toEqual([])
+    const outside = withTag(rareTagMaxPlaces + 1, 'rooftop').map((place, index) => ({ ...place, matchesFilters: index === 0 }))
+    expect(rareTagsOf(outside, ['rooftop'])).toEqual(['rooftop'])
+    expect(rareTagsOf(withTag(2, 'date'), ['date'])).toEqual([])
+  })
+
+  it('suman una vez por lugar y pesan más que signature más un primer puesto de nombre', () => {
+    const rare = context({ preferTags: ['elegant', 'rooftop'], rareTags: ['elegant', 'rooftop'] })
+    expect(boostsFor(row({ id: 'a', tags: ['elegant', 'rooftop'] }), rare, null).rareTag).toBe(rareTag)
+    expect(boostsFor(row({ id: 'b', tags: ['cozy'] }), rare, null).rareTag).toBeUndefined()
+    expect(rareTag + preferTag).toBeGreaterThan(signature + 1 / (SEARCH_CONFIG.rrf.k + 1))
   })
 })
 

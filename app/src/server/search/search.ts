@@ -11,13 +11,15 @@ import { summarizeCost, type CostEntry, type SearchCost } from './cost'
 import { collapseBranches } from './branches'
 import { requestedCuisines } from './cuisines'
 import { buildChips, type Chip } from './chips'
-import { applyDictionary, interpretWithDictionary, NEGATIONS } from './dictionary'
+import { applyDictionary, interpretWithDictionary, mentionsParents, NEGATIONS } from './dictionary'
 import { applyWhen, TIME_WORDS } from './when'
 import { checkMust, intendedDiscards, reportMust, type Discard, type MustCheck } from './invariant'
 import { dishTargetFor, excludedIcons, preferredDiets, type DishTarget } from './dishes'
 import { applyFilters, filterChipKeys, parseFilters, parseNear, type LatLng } from './filters'
 import { buildBar, intentGroups, parseIntent, resolveIntent, type IntentBar } from './intents'
-import { buildRankings, fuse, type Fused, type MatchLevel, type Rankings } from './fuse'
+import { buildRankings, fuse, rareTagsOf, type Fused, type MatchLevel, type Rankings } from './fuse'
+import { keywordFilter } from './keywords'
+import { singularForms } from './dishes'
 import { montevideoNow, nextOpening, openStatus, resolveOpenAt, type OpenFilter, type OpenState } from './hours'
 import {
   applyRemove,
@@ -183,7 +185,7 @@ export type SearchResponse = {
 }
 
 const STOPWORDS = new Set([
-  'en', 'de', 'del', 'el', 'la', 'los', 'las', 'un', 'una', 'uno', 'unos', 'unas', 'y', 'o', 'con', 'para', 'por', 'a', 'al', 'que', 'algo', 'lugar', 'no', 'sea', 'mejor', 'mejores', 'top',
+  'en', 'de', 'del', 'el', 'la', 'los', 'las', 'un', 'una', 'uno', 'unos', 'unas', 'y', 'o', 'con', 'para', 'por', 'a', 'al', 'que', 'algo', 'lugar', 'no', 'sea', 'mejor', 'mejores', 'top', 'mis',
   // Palabras que no describen nada ("comida peruana", "un lugar para…"): ni keyword ni nombre (Panza Comida Casera).
   'comida', 'comidas', 'lugares', 'sitio', 'sitios', 'local', 'locales', 'opcion', 'opciones',
   'in', 'at', 'near', 'the', 'an', 'with', 'for', 'and', 'or', 'of', 'to', 'best', 'place', 'places', 'spot', 'food', 'something', 'somewhere', 'me',
@@ -234,6 +236,18 @@ export function keywordsFor(normalized: string, value: Interpretation, edits: Te
 export function nameWordsFor(normalized: string, removedWords: Set<string>): string[] {
   return [...new Set(queryWords(normalized))].filter((word) =>
     !STOPWORDS.has(word) && !NEGATIONS.has(word) && !INTENT_VERB_WORDS.has(word) && !TIME_WORDS.has(word) && !removedWords.has(word))
+}
+
+const GENERIC_NAME_WORDS = new Set<string>(SEARCH_CONFIG.name.genericWords)
+const isGenericNameWord = (word: string) => singularForms(word).some((form) => GENERIC_NAME_WORDS.has(form))
+
+/**
+ * Las palabras que tiene que tener entero un nombre para contar en el ranking de nombre: sin las genéricas ("café", "bar")
+ * y sin las del barrio pedido ("milanesa en pocitos" sigue empujando a El Club de la Milanesa).
+ */
+export function distinctiveNameWords(words: string[], neighborhoods: string[]): string[] {
+  const place = new Set(neighborhoods.flatMap((id) => queryWords(normalize(neighborhoodDisplayName(id) ?? id))))
+  return words.filter((word) => !isGenericNameWord(word) && !place.has(word))
 }
 
 /**
@@ -288,10 +302,15 @@ export function filtersFor(
   }
 }
 
-/** Lugar que va primero por nombre. Con la consulta resuelta por el diccionario hace falta casi el nombre exacto. */
+/**
+ * Lugar que va primero por nombre. Con la consulta resuelta por el diccionario hace falta casi el nombre exacto. Las
+ * palabras genéricas solas ("café", "el bar") nunca fijan un lugar.
+ */
 export function strongNameMatch(matches: NameMatch[], query: string, structured: boolean): NameMatch | null {
   const { name } = SEARCH_CONFIG
   if (query.length < name.minStrongLength) return null
+  const words = queryWords(query).filter((word) => !STOPWORDS.has(word))
+  if (words.length > 0 && words.every(isGenericNameWord)) return null
   const best = matches[0]
   if (!best) return null
   if (structured) return best.similarity >= name.strongSimilarityWhenStructured ? best : null
@@ -459,6 +478,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   const scores: ScoreInputs = {
     embedding,
     keywords,
+    keywordFilter: keywordFilter(keywords, normalized),
     // Un nombre (del modelo o fijado) se busca difuso, con errores de tipeo; si no, sólo las palabras que quedan.
     name: nameQuery ?? (nameWords.length ? nameWords.join(' ') : null),
     // Con cerca mío, la distancia se mide desde la persona y entra al ranking desde el primer intento.
@@ -528,7 +548,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     const wanted = value.interpretation
     const openAt = openFilterOf(wanted)
     const relatedTags = value.dishMode === 'related' ? dishes.flatMap((target) => target.related.tags) : dishes.flatMap((target) => (target.tag ? [target.tag] : []))
-    const rankings = buildRankings(candidates, { withQuality: textless, wholeWords: nameQuery ? null : nameWords })
+    const rankings = buildRankings(candidates, { withQuality: textless, wholeWords: nameQuery ? null : distinctiveNameWords(nameWords, interpretation.must.neighborhoods) })
     const requestedCategories = [...wanted.must.categories, ...wanted.prefer.categories]
     // Una cocina paraguas cuenta con sus hijas: un japonés con japanese en signature es asiático.
     const requestedTags = [...new Set([...wanted.must.tags, ...wanted.prefer.tags, ...relatedTags].flatMap(withSubcuisines))]
@@ -541,6 +561,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       categories: requestedCategories,
       requestedTags,
       preferTags: wanted.prefer.tags,
+      rareTags: rareTagsOf(candidates, wanted.prefer.tags),
       moments: momentsOf(wanted.prefer.tags),
       cuisines: requestedCuisines([...wanted.must.tags, ...wanted.prefer.tags]),
       preferStyle: wanted.prefer.style,
@@ -550,6 +571,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       openAt,
       wantsBest: wanted.wantsBest,
       wantsDancing,
+      avoidNight: mentionsParents(normalized),
       intent: value.intent,
       section: filters.section,
     })

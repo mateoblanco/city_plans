@@ -84,7 +84,48 @@ const isMeat = (place: Place) => place.categories.includes("grill") || place.tag
 
 const isBar = (place: Place) => place.categories.includes("bar") || place.categories.includes("brewery");
 
+const isFirst = (placeName: string): Check => ({
+  description: `${placeName} primero`,
+  test: (places) => (places[0]?.name === placeName ? [] : [`#1: ${places[0]?.name ?? "—"}; ${placeName}: #${places.findIndex((place) => place.name === placeName) + 1 || "—"}`]),
+});
+
+const SUNSET_TAGS = ["sea_view", "rooftop", "terrace"];
+
 export const CHECKS: Record<string, Check[]> = {
+  "Bar Tasende": [isFirst("Bar Tasende")],
+  Jacinto: [isFirst("Jacinto")],
+  Abasto: [isFirst("Abasto")],
+  "La Latina Café": [isFirst("La Latina Café")],
+  "algo para ir con mis viejos": [
+    nonEmpty,
+    {
+      description: "sin kids_friendly en la interpretación",
+      test: (_, response) => {
+        const { must, prefer } = response.debug!.interpretation;
+        return [...must.tags, ...prefer.tags].includes("kids_friendly") ? [`must: ${must.tags.join(", ") || "—"}; prefer: ${prefer.tags.join(", ") || "—"}`] : [];
+      },
+    },
+    noneInTop(10, "ninguno con dj o dancing ni bar nocturno (late_night sin restaurant)", isKidsNight),
+  ],
+  "lugar para ver el atardecer": [
+    nonEmpty,
+    {
+      description: "ningún watch_football en los primeros 5 por keyword",
+      test: (_, response) => {
+        const debug = response.debug!;
+        return debug.rankings.keyword.slice(0, 5).filter((entry) => debug.results.find((place) => place.id === entry.id)?.tags.includes("watch_football")).map((entry) => entry.name);
+      },
+    },
+    {
+      description: "al menos 3 de los primeros 10 con vista al mar, azotea o terraza",
+      test: (places) => {
+        const top = places.slice(0, 10);
+        const fit = top.filter((place) => place.tags.some((tag) => SUNSET_TAGS.includes(tag)));
+        return fit.length >= 3 ? [] : [`${fit.length} de ${top.length}: ${fit.map(name).join("; ") || "—"}`];
+      },
+    },
+  ],
+  "café lindo con plantas": [nonEmpty, noneInTop(3, "ni Plaza Café ni Planta Baja", (place) => place.name === "Plaza Café" || place.name === "Planta Baja")],
   "para ir con amigos": [
     nonEmpty,
     {
