@@ -17,7 +17,7 @@
 // Separa los sub-filtros de la intención de lo que pidió el texto (extras): línea vertical del gris del borde del header.
 .divider {
   align-self: stretch;
-  background-color: #E4E4E7;
+  background-color: var(--color-border);
   border: none;
   flex-shrink: 0;
   // El reset le pone height: 0 a los hr, y con alto fijo el stretch no aplica.
@@ -59,8 +59,8 @@
   }
 
   > div {
-    background-color: #ffffff;
-    border: 1px solid #E4E4E7;
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
     left: 0;
     padding: 8px;
     position: absolute;

@@ -4,9 +4,9 @@
   left: 16px;
   bottom: 16px;
   z-index: 2;
-  background-color: #ffffff;
-  border: 1px solid #cccccc;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border-debug);
+  box-shadow: var(--shadow-panel);
   font-size: 12px;
   padding: 8px 12px;
 
@@ -21,7 +21,7 @@
   }
 
   pre {
-    background-color: #f5f5f5;
+    background-color: var(--color-surface-muted);
     font-family: var(--font-geist-mono), monospace;
     overflow-x: auto;
     padding: 8px;
@@ -44,6 +44,6 @@
   }
 
   dt {
-    color: #555555;
+    color: var(--color-text-muted);
   }
 }

@@ -1,0 +1,82 @@
+// Tokens semánticos: nombres por uso, no por valor. Los componentes usan sólo estos (`var(--color-*)`, `var(--shadow-*)`).
+// Para un theme nuevo (p. ej. `[data-theme='dark']`), se redefinen estas mismas propiedades en otro selector.
+@use 'sass:color';
+@use 'palette';
+
+@function shade($alpha) {
+	@return color.change(palette.get(black), $alpha: $alpha);
+}
+
+@mixin light-theme {
+	// Fondos
+	--color-bg: #{palette.get(white)};
+	--color-bg-page: #{palette.get(gray-25)};
+	--color-surface: #{palette.get(white)};
+	--color-surface-hover: #{palette.get(gray-75)};
+	--color-surface-muted: #{palette.get(gray-50)};
+	--color-surface-hero: #{palette.get(gray-40)};
+	--color-skeleton: #{palette.get(gray-100)};
+
+	// Texto
+	--color-text: #{palette.get(black)};
+	--color-text-muted: #{palette.get(gray-700)};
+	--color-text-subtle: #{palette.get(gray-600)};
+	--color-text-inverse: #{palette.get(white)};
+
+	// Bordes
+	--color-border: #{palette.get(gray-175)};
+	--color-border-input: #{palette.get(gray-200)};
+	--color-border-card: #{palette.get(gray-150)};
+	--color-border-popover: #{palette.get(gray-250)};
+	--color-border-debug: #{palette.get(gray-300)};
+
+	// Interacción
+	--color-selected: #{palette.get(black)};
+	--color-focus-ring: #{palette.get(black)};
+
+	// Estado de apertura del lugar
+	--color-status-open: #{palette.get(green-700)};
+	--color-status-closing-soon: #{palette.get(orange-600)};
+	--color-status-closed: #{palette.get(red-600)};
+
+	--color-like: #{palette.get(red-600)};
+	--color-map-user: #{palette.get(blue-600)};
+
+	// Controles base (Button, input de Search)
+	--color-control-bg: #{palette.get(white)};
+	--color-control-bg-hover: #{palette.get(neutral-50)};
+	--color-control-bg-active: #{palette.get(neutral-200)};
+	--color-control-text: #{palette.get(neutral-950)};
+	--color-control-input-text: #{palette.get(black)};
+	--color-control-text-muted: #{palette.get(neutral-500)};
+	--color-control-border: #{palette.get(neutral-950)};
+	--color-control-focus: #{palette.get(neutral-950)};
+
+	// Sombras
+	--shadow-card: 0 4px 4px 0 #{shade(0.05)};
+	--shadow-popover: 4px 4px 0 #{shade(0.12)};
+	--shadow-panel: 0 4px 16px #{shade(0.12)};
+	--shadow-marker: 0 1px 4px #{shade(0.3)};
+}
+
+// Hoy sólo los controles base siguen el modo oscuro del sistema; el resto de la app queda claro.
+@mixin dark-controls {
+	--color-control-bg: #{palette.get(neutral-950)};
+	--color-control-bg-hover: #{palette.get(neutral-800)};
+	--color-control-bg-active: #{palette.get(neutral-700)};
+	--color-control-text: #{palette.get(white)};
+	--color-control-input-text: #{palette.get(white)};
+	--color-control-text-muted: #{palette.get(neutral-400)};
+	--color-control-border: #{palette.get(white)};
+	--color-control-focus: #{palette.get(white)};
+}
+
+:root {
+	@include light-theme;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		@include dark-controls;
+	}
+}

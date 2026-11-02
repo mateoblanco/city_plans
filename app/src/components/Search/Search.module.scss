@@ -4,37 +4,36 @@
     justify-content: space-between;
     gap: 16px;
     padding:8px 8px;
-    border: 1px solid #DFDFE1;
-    background-color: #FFFFFF;
+    border: 1px solid var(--color-border-input);
+    background-color: var(--color-surface);
 }
 
 .input {
     box-sizing: border-box;
     margin: 0;
     border-radius: 0;
-    border: 1px solid oklch(14.5% 0 0deg);
+    border: 1px solid var(--color-control-border);
     width: 400px;
     height: 2rem;
     font-family: inherit;
     line-height: 1.25rem;
     font-weight: 400;
-    background-color: white;
+    background-color: var(--color-control-bg);
     border: none;
     outline: none;
     // padding: 16px;
     font-size: 16px;
     font-weight: 400;
-    color: #000000;
+    color: var(--color-control-input-text);
   
     @media (any-pointer: coarse) {
       font-size: 1rem;
       line-height: 1.5rem;
     }
-  
+
+    // En modo oscuro el input lleva borde; los colores salen de los tokens de control.
     @media (prefers-color-scheme: dark) {
-      border: 1px solid white;
-      background-color: oklch(14.5% 0 0deg);
-      color: white;
+      border: 1px solid var(--color-control-border);
     }
   
     &::-webkit-search-cancel-button,
@@ -47,19 +46,11 @@
     }
 
     &::placeholder {
-      color: oklch(55.6% 0 0deg);
-  
-      @media (prefers-color-scheme: dark) {
-        color: oklch(70.8% 0 0deg);
-      }
+      color: var(--color-control-text-muted);
     }
   
     // &:focus {
-    //   outline: 2px solid oklch(14.5% 0 0deg);
+    //   outline: 2px solid var(--color-control-focus);
     //   outline-offset: -1px;
-  
-    //   @media (prefers-color-scheme: dark) {
-    //     outline-color: white;
-    //   }
     // }
   }

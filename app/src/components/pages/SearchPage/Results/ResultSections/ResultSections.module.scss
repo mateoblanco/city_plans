@@ -15,7 +15,7 @@
 .header {
   position: sticky;
   top: var(--header-offset);
-  background-color: #fbfbfb;
+  background-color: var(--color-bg-page);
   padding: 16px 0;
   z-index: 2;
   margin: -8px 0;
@@ -33,7 +33,7 @@
 
 .viewAll {
   flex-shrink: 0;
-  color: #555555;
+  color: var(--color-text-muted);
   font-size: 14px;
   text-decoration: underline;
   white-space: nowrap;

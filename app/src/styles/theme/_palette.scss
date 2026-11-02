@@ -1,0 +1,42 @@
+// Paleta base: valores crudos. Sólo la usa _tokens.scss; los componentes usan los tokens (`var(--color-*)`).
+@use 'sass:map';
+
+$palette: (
+	white: #ffffff,
+	black: #000000,
+
+	// Grises hex usados en la app (de más claro a más oscuro).
+	gray-25: #fbfbfb,
+	gray-40: #f7f7f7,
+	gray-50: #f5f5f5,
+	gray-75: #f2f2f2,
+	gray-100: #eeeeee,
+	gray-150: #e7e7e7,
+	gray-175: #e4e4e7,
+	gray-200: #dfdfe1,
+	gray-250: #dddddd,
+	gray-300: #cccccc,
+	gray-600: #666666,
+	gray-700: #555555,
+
+	// Grises oklch de los controles base (Button, input de Search).
+	neutral-50: oklch(97% 0 0deg),
+	neutral-200: oklch(92.2% 0 0deg),
+	neutral-400: oklch(70.8% 0 0deg),
+	neutral-500: oklch(55.6% 0 0deg),
+	neutral-700: oklch(37.1% 0 0deg),
+	neutral-800: oklch(26.9% 0 0deg),
+	neutral-950: oklch(14.5% 0 0deg),
+
+	green-700: #137e45,
+	orange-600: #e56500,
+	red-600: #ef0017,
+	blue-600: #1a73e8,
+);
+
+@function get($name) {
+	@if not map.has-key($palette, $name) {
+		@error 'Color "#{$name}" no está en la paleta.';
+	}
+	@return map.get($palette, $name);
+}

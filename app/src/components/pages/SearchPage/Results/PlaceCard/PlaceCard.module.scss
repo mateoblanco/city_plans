@@ -1,6 +1,6 @@
 .card {
   position: relative;
-  border: 1px solid #E7E7E7;
+  border: 1px solid var(--color-border-card);
   outline: 2px solid transparent;
   display: flex;
   padding:16px;
@@ -8,13 +8,13 @@
   align-items: center;
   border-radius: 16px;
   transition: background-color 0.15s ease-out;
-  box-shadow: 0 4px 4px 0 rgba(0, 0, 0, 0.05);
-  background-color: #ffffff;
+  box-shadow: var(--shadow-card);
+  background-color: var(--color-surface);
   // flex-direction: column;
 
   &[data-active] {
-    // background-color: #DFDFE1;
-    border-color: #000000;
+    // background-color: var(--color-border-input);
+    border-color: var(--color-selected);
   }
 }
 
@@ -46,44 +46,44 @@
     outline: none;
 
     &::after {
-      outline: 2px solid #000000;
+      outline: 2px solid var(--color-focus-ring);
     }
   }
 }
 
 .meta {
   font-size: 14px;
-  color: #666666;
+  color: var(--color-text-subtle);
 }
 
 .openStatus {
   font-size: 14px;
-  color: #666666;
+  color: var(--color-text-subtle);
 }
 
 .openTone {
   font-weight: 500;
   &[data-tone="open"] {
-    color: #137E45;
+    color: var(--color-status-open);
   }
 
   &[data-tone="closing_soon"] {
-    color: #E56500;
+    color: var(--color-status-closing-soon);
   }
 
   &[data-tone="closed"] {
-    color: #EF0017;
+    color: var(--color-status-closed);
   }
 }
 
 .reasons {
   font-size: 13px;
-  color: #555555;
+  color: var(--color-text-muted);
   padding-left: 16px;
 }
 
 .debug {
   font-family: var(--font-geist-mono), monospace;
   font-size: 12px;
-  color: #555555;
+  color: var(--color-text-muted);
 }

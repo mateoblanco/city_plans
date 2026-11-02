@@ -4,7 +4,7 @@
 .trigger {
   align-items: center;
   background: none;
-  border: 1px solid #E4E4E7;
+  border: 1px solid var(--color-border);
   border-radius: 999px;
   color: inherit;
   cursor: pointer;
@@ -22,17 +22,17 @@
 
   &:hover,
   &[data-popup-open] {
-    background-color: #f2f2f2;
+    background-color: var(--color-surface-hover);
   }
 
   &[data-active] {
-    background-color: #000000;
-    border-color: #000000;
-    color: #ffffff;
+    background-color: var(--color-selected);
+    border-color: var(--color-selected);
+    color: var(--color-text-inverse);
   }
 
   &:focus-visible {
-    outline: 2px solid #000000;
+    outline: 2px solid var(--color-focus-ring);
     outline-offset: 2px;
   }
 }
@@ -54,11 +54,11 @@
 
 .popup {
   background-clip: padding-box;
-  background-color: #ffffff;
-  border: 1px solid #dddddd;
-  box-shadow: 4px 4px 0 rgb(0 0 0 / 12%);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border-popover);
+  box-shadow: var(--shadow-popover);
   box-sizing: border-box;
-  color: #000000;
+  color: var(--color-text);
   min-width: var(--anchor-width);
   outline: 0;
   transform-origin: var(--transform-origin);
@@ -99,13 +99,13 @@
   -webkit-user-select: none;
 
   &[data-highlighted] {
-    background-color: #000000;
-    color: #ffffff;
+    background-color: var(--color-selected);
+    color: var(--color-text-inverse);
   }
 }
 
 .separator {
-  background-color: #dddddd;
+  background-color: var(--color-border-popover);
   height: 1px;
   margin: 4px 10px;
 }
@@ -120,7 +120,7 @@
 
 .scrollArrow {
   align-items: center;
-  background-color: #ffffff;
+  background-color: var(--color-surface);
   cursor: default;
   display: flex;
   font-size: 12px;
@@ -149,8 +149,8 @@
 
 // Aviso de "Cerca mío" (permiso de ubicación denegado o sin soporte).
 .notice {
-  background-color: #f5f5f5;
-  color: #555555;
+  background-color: var(--color-surface-muted);
+  color: var(--color-text-muted);
   font-size: 14px;
   padding: 8px 12px;
 }

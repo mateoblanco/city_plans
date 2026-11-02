@@ -1,11 +1,11 @@
 // // Sin logo: después va un color de la paleta; se cambia sólo acá.
-// $fallback-bg: #ffffff;
-// $fallback-border: #000000;
-// $fallback-text: #000000;
+// $fallback-bg: var(--color-surface);
+// $fallback-border: var(--color-selected);
+// $fallback-text: var(--color-text);
 
 .image {
   align-items: center;
-  background-color: var(--banner-bg, #ffffff);
+  background-color: var(--banner-bg, var(--color-surface));
   box-sizing: border-box;
   display: flex;
   flex-shrink: 0;
@@ -14,7 +14,7 @@
   overflow: hidden;
   width:70px;
   border-radius:8px;
-  border: 1px solid #E4E4E7;
+  border: 1px solid var(--color-border);
 
   // &[data-fallback] {
   //   background-color: $fallback-bg;

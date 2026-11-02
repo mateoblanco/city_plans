@@ -1,3 +1,4 @@
+@use 'theme';
 
 *,
 *::after,
@@ -21,9 +22,9 @@ html {
 	// Alto real del header, medido por HeaderOffset: lo fijo debajo (el mapa de /search) arranca acá.
 	--header-offset: var(--header-height);
 
-	background-color: #ffffff;
+	background-color: var(--color-bg);
 	box-sizing: border-box;
-	color: #000000;
+	color: var(--color-text);
 	min-height: 100%;
 	position: relative;
 	text-size-adjust: 100%;
@@ -38,8 +39,8 @@ html:focus-within {
 }
 
 body {
-	background-color: #fbfbfb;
-	color: #000000;
+	background-color: var(--color-bg-page);
+	color: var(--color-text);
 	font-feature-settings: 'liga' 1, 'calt' 1;
 	font-family: var(--font-geist), 'sans-serif';
 	-webkit-font-smoothing: antialiased;

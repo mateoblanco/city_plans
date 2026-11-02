@@ -1,5 +1,5 @@
 .mapMessage {
-  color: #555555;
+  color: var(--color-text-muted);
   font-size: 14px;
   padding: 16px;
 }
@@ -9,9 +9,9 @@ $marker-active-scale: 1.5;
 
 .marker {
   align-items: center;
-  background-color: #ffffff;
+  background-color: var(--color-surface);
   border-radius: 50%;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-marker);
   display: flex;
   justify-content: center;
   // padding: 1px;
@@ -24,8 +24,8 @@ $marker-active-scale: 1.5;
   &[data-active] {
     // Anillo negro como box-shadow: no agranda la caja (el ancla no se mueve) y escala con el transform.
     box-shadow:
-      0 0 0 1px #000000,
-      0 1px 4px rgba(0, 0, 0, 0.3);
+      0 0 0 1px var(--color-selected),
+      var(--shadow-marker);
     transform: scale($marker-active-scale);
   }
 }
@@ -40,10 +40,10 @@ $marker-active-scale: 1.5;
 }
 
 .userMarker {
-  background-color: #1a73e8;
-  border: 3px solid #ffffff;
+  background-color: var(--color-map-user);
+  border: 3px solid var(--color-surface);
   border-radius: 50%;
-  box-shadow: 0 0 0 1px #1a73e8;
+  box-shadow: 0 0 0 1px var(--color-map-user);
   height: 16px;
   width: 16px;
 }

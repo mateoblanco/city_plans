@@ -15,22 +15,22 @@
   border: none;
   border-radius: 16px;
   background: none;
-  color: #666666;
+  color: var(--color-text-subtle);
   cursor: pointer;
 
   @media (hover: hover) {
     &:hover {
-      background-color: #F2F2F2;
+      background-color: var(--color-surface-hover);
     }
   }
 
   &:focus-visible {
-    outline: 2px solid #000000;
+    outline: 2px solid var(--color-focus-ring);
     outline-offset: 2px;
   }
 
   &[data-pressed] {
-    color: #EF0017;
+    color: var(--color-like);
   }
 }
 

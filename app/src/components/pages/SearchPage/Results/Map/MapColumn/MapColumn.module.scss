@@ -1,5 +1,5 @@
 .map {
-  // background-color: #e8e8e8;
+  // background-color: var(--color-skeleton);
   height: calc(100vh - var(--header-offset));
   position: fixed;
   right: 0;

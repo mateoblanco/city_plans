@@ -16,7 +16,7 @@
 .skeletonCard,
 .skeletonMap {
   animation: pulse 1.2s ease-in-out infinite;
-  background-color: #eeeeee;
+  background-color: var(--color-skeleton);
   border-radius: 16px;
 
   @media (prefers-reduced-motion: reduce) {
