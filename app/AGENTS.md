@@ -49,7 +49,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # Ficha de lugar
 
-- `/lugar/[slug]` (`components/pages/PlacePage`): sólo lugares `published`; si no, `notFound()`. Por ahora muestra dos JSON en `<pre>`: la fila de `places` sin `embedding`, `embedding_text`, `keyword_text` ni `search_tsv` (`server/places/place.ts`, `cache()` de React compartido con `generateMetadata`) y Place Details (New) con `GOOGLE_PLACES_API_KEY` y el field mask `DETAILS_FIELD_MASK` (`server/places/google.ts`). La respuesta de Google se pide en cada request y nunca se guarda ni se cachea (términos de Google); si falla, va un aviso en su lugar. El field mask usa el SKU Place Details Enterprise (≈ USD 0,02 por vista).
+- `/place/[slug]` (`components/pages/PlacePage`): sólo lugares `published`; si no, `notFound()`. Por ahora muestra dos JSON en `<pre>`: la fila de `places` sin `embedding`, `embedding_text`, `keyword_text` ni `search_tsv` (`server/places/place.ts`, `cache()` de React compartido con `generateMetadata`) y Place Details (New) con `GOOGLE_PLACES_API_KEY` y el field mask `DETAILS_FIELD_MASK` (`server/places/google.ts`). La respuesta de Google se pide en cada request y nunca se guarda ni se cachea (términos de Google); si falla, va un aviso en su lugar. El field mask usa el SKU Place Details Enterprise (≈ USD 0,02 por vista).
 - Las cards de `/search` linkean a la ficha: el `::after` del link del nombre cubre la card y el corazón queda arriba (`z-index`), así no navega.
 
 # Convenciones de React

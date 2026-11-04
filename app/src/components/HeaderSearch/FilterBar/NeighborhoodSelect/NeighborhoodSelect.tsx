@@ -1,10 +1,9 @@
 "use client";
 
-import { Select } from "@base-ui/react/select";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
+import Select from "@/components/base/Select/Select";
 import { nearHref, nearParam, setNeighborhoodsHref, type ChipRef, type SearchUrl } from "@/components/pages/SearchPage/utils/search-href";
-import { CaretDownIcon, CaretUpDownIcon, CaretUpIcon, CheckIcon } from "../SelectIcons";
 import styles from "./NeighborhoodSelect.module.scss";
 
 const ALL = "Todos los barrios";
@@ -159,39 +158,18 @@ const NeighborhoodSelect = (props: Props) => {
 
   return (
     <>
-      <Select.Root multiple items={items} value={value} onValueChange={onValueChange} open={open} onOpenChange={onOpenChange}>
-        <Select.Trigger className={styles.trigger} aria-label="Dónde" data-active={selected.length ? "" : undefined}>
-          <Select.Value>{triggerLabel}</Select.Value>
-          <Select.Icon className={styles.triggerIcon}>
-            <CaretUpDownIcon />
-          </Select.Icon>
-        </Select.Trigger>
-        <Select.Portal>
-          {/* alignItemWithTrigger={false}: se abre debajo, como "Más filtros", en vez de encima del botón. */}
-          <Select.Positioner className={styles.positioner} sideOffset={4} alignItemWithTrigger={false}>
-            <Select.Popup className={styles.popup}>
-              <Select.ScrollUpArrow className={styles.scrollArrow}>
-                <CaretUpIcon />
-              </Select.ScrollUpArrow>
-              <Select.List className={styles.list}>
-                {items.map((item) => [
-                  <Select.Item key={item.value} value={item.value} className={styles.item}>
-                    <Select.ItemIndicator className={styles.itemIndicator}>
-                      <CheckIcon />
-                    </Select.ItemIndicator>
-                    <Select.ItemText className={styles.itemText}>{item.label}</Select.ItemText>
-                  </Select.Item>,
-                  // "Todos" y "Cerca mío" arriba, separados de la lista de barrios.
-                  item.value === NEAR && <Select.Separator key="separator" className={styles.separator} />,
-                ])}
-              </Select.List>
-              <Select.ScrollDownArrow className={styles.scrollArrow}>
-                <CaretDownIcon />
-              </Select.ScrollDownArrow>
-            </Select.Popup>
-          </Select.Positioner>
-        </Select.Portal>
-      </Select.Root>
+      {/* "Todos" y "Cerca mío" arriba, separados de la lista de barrios. */}
+      <Select
+        label="Dónde"
+        items={items}
+        value={value}
+        onValueChange={onValueChange}
+        open={open}
+        onOpenChange={onOpenChange}
+        triggerLabel={triggerLabel}
+        active={selected.length > 0}
+        separatorAfter={NEAR}
+      />
       {failed && (
         <p className={styles.notice} role="status">
           No pudimos obtener tu ubicación.

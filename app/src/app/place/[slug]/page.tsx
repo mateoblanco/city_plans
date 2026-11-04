@@ -4,7 +4,7 @@ import { neighborhoodDisplayName } from "@shared/neighborhood-names.ts";
 import PlacePage from "@/components/pages/PlacePage/PlacePage";
 import { getPublishedPlace, metaDescription } from "@/server/places/place";
 
-export async function generateMetadata({ params }: PageProps<"/lugar/[slug]">): Promise<Metadata> {
+export async function generateMetadata({ params }: PageProps<"/place/[slug]">): Promise<Metadata> {
   const { slug } = await params;
   const place = await getPublishedPlace(slug);
   if (!place) notFound();
@@ -13,10 +13,10 @@ export async function generateMetadata({ params }: PageProps<"/lugar/[slug]">): 
   return {
     title: `${place.name} · ${neighborhood}`,
     description: metaDescription(place.description_es),
-    alternates: { canonical: `/lugar/${place.slug}` },
+    alternates: { canonical: `/place/${place.slug}` },
   };
 }
 
-export default function Place({ params }: PageProps<"/lugar/[slug]">) {
+export default function Place({ params }: PageProps<"/place/[slug]">) {
   return <PlacePage params={params} />;
 }

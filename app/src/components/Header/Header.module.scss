@@ -25,10 +25,12 @@
 }
 
 .logo{
-    font-size:18px;
-    font-weight: 700;
-    justify-self: start;
+    display: flex;
+    align-items: center;
     text-decoration: none;
+    gap: 8px;
+    font-size:18px;
+    font-weight: 600;
 }
 
 .center{

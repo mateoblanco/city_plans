@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import Link from 'next/link';
 import HeaderOffset from './HeaderOffset';
 import styles from './Header.module.scss';
+import Logo from "@/assets/logo.svg";
 
 type Props = {
   /** Centro de la primera fila (en /search, el input). */
@@ -16,7 +17,10 @@ const Header = (props: Props) => {
       <header className={styles.header}>
         <HeaderOffset />
         <div className={styles.top}>
-          <Link href="/" className={styles.logo}>SALIMOS</Link>
+          <Link href="/" className={styles.logo}>
+            <Logo width={40} height={40} />
+            Montevideo
+          </Link>
           <div className={styles.center}>{props.children}</div>
           <div/>
           {/* <UserButton /> */}

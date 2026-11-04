@@ -6,18 +6,14 @@ $palette: (
 	black: #000000,
 
 	// Grises hex usados en la app (de más claro a más oscuro).
-	gray-25: #fbfbfb,
-	gray-40: #f7f7f7,
-	gray-50: #f5f5f5,
-	gray-75: #f2f2f2,
+	gray-50: #FBFBFB,
 	gray-100: #eeeeee,
-	gray-150: #e7e7e7,
 	gray-175: #e4e4e7,
 	gray-200: #dfdfe1,
-	gray-250: #dddddd,
 	gray-300: #cccccc,
 	gray-600: #666666,
 	gray-700: #555555,
+	gray-900: #171717,
 
 	// Grises oklch de los controles base (Button, input de Search).
 	neutral-50: oklch(97% 0 0deg),
@@ -31,6 +27,7 @@ $palette: (
 	green-700: #137e45,
 	orange-600: #e56500,
 	red-600: #ef0017,
+	blue-500: #0469f8, // azul de marca (también en assets/logo.svg)
 	blue-600: #1a73e8,
 );
 

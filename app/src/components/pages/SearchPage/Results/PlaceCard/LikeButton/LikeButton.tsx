@@ -1,6 +1,8 @@
 "use client";
 
-import { Toggle } from "@base-ui/react/toggle";
+import Button from "@/components/base/Button/Button";
+import Heart from "@/assets/heart.svg";
+import HeartFill from "@/assets/heart_fill.svg";
 import styles from "./LikeButton.module.scss";
 import { toggleLike, useLikes } from "../../../utils/likes";
 
@@ -19,16 +21,18 @@ const LikeButton = (props: Props) => {
   const liked = likes.ids.includes(props.placeId);
 
   return (
-    <Toggle
-      className={styles.like}
-      pressed={liked}
-      onPressedChange={() => toggleLike(props.placeId)}
-      aria-label={liked ? `Quitar me gusta de ${props.name}` : `Me gusta ${props.name}`}
-    >
-      <svg className={styles.heart} viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M12 20.5s-7.5-4.6-9.4-9.3C1.3 7.9 3.4 4.5 6.9 4.5c2 0 3.6 1.1 5.1 3 1.5-1.9 3.1-3 5.1-3 3.5 0 5.6 3.4 4.3 6.7-1.9 4.7-9.4 9.3-9.4 9.3z" />
-      </svg>
-    </Toggle>
+    <span className={styles.like} data-liked={liked || undefined}>
+      <Button
+        type="button"
+        variant="secondary"
+        size="sm"
+        onlyIcon
+        label={liked ? `Quitar me gusta de ${props.name}` : `Me gusta ${props.name}`}
+        pressed={liked}
+        icon={liked ? <HeartFill className={styles.heartLiked} aria-hidden /> : <Heart aria-hidden />}
+        onClick={() => toggleLike(props.placeId)}
+      />
+    </span>
   );
 };
 

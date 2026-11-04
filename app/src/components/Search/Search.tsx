@@ -24,7 +24,7 @@ const Search = (props: Props) => {
         <Input type="search" name="q" defaultValue={props.defaultValue} onValueChange={(value) => setEmpty(!value.trim())} autoComplete="off" aria-label="Buscar lugares" className={styles.input} placeholder="Bar para salir a tomar algo con amigos" />
         {props.filters && <input type="hidden" name="f" value={props.filters} />}
         {props.near && <input type="hidden" name="near" value={props.near} />}
-        <Button label="Buscar" type="submit" disabled={empty} />
+        <Button label="Buscar" type="submit" disabled={empty} variant="primary" size="md" />
       </div>
     </Form>
   );

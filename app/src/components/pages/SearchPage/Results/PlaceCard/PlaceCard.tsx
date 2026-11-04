@@ -62,7 +62,7 @@ const PlaceCard = (props: Props) => {
 
         {/* El ::after del link cubre la card; el corazón queda arriba (z-index) y no navega. */}
         <h3 className={styles.name}>
-          <Link href={`/lugar/${props.place.slug}`} className={styles.link}>{props.place.name}</Link>
+          <Link href={`/place/${props.place.slug}`} className={styles.link}>{props.place.name}</Link>
         </h3>
 
         <p className={styles.meta}>

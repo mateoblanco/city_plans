@@ -3,9 +3,21 @@
     align-items: center;
     justify-content: space-between;
     gap: 16px;
-    padding:8px 8px;
+    padding:12px 16px;
     border: 1px solid var(--color-border-input);
     background-color: var(--color-surface);
+    border-radius:40px;
+    transition: border-color 0.2s ease-in-out ;
+
+    &:has(.input:hover){
+      border-color: var(--color-focus-ring);
+    }
+
+    &:has(.input:active),
+    &:focus-within {
+      border-color: var(--color-focus-ring);
+      outline: 4px solid var(--color-border-input);
+    }
 }
 
 .input {
@@ -21,20 +33,9 @@
     background-color: var(--color-control-bg);
     border: none;
     outline: none;
-    // padding: 16px;
     font-size: 16px;
     font-weight: 400;
     color: var(--color-control-input-text);
-  
-    @media (any-pointer: coarse) {
-      font-size: 1rem;
-      line-height: 1.5rem;
-    }
-
-    // En modo oscuro el input lleva borde; los colores salen de los tokens de control.
-    @media (prefers-color-scheme: dark) {
-      border: 1px solid var(--color-control-border);
-    }
   
     &::-webkit-search-cancel-button,
     &::-webkit-search-decoration,
@@ -48,9 +49,4 @@
     &::placeholder {
       color: var(--color-control-text-muted);
     }
-  
-    // &:focus {
-    //   outline: 2px solid var(--color-control-focus);
-    //   outline-offset: -1px;
-    // }
   }

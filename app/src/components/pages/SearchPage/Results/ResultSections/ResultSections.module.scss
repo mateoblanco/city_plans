@@ -1,28 +1,34 @@
 .sections {
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: 48px;
 }
 
 .section {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
 }
 
 // Queda pegado debajo del header mientras se scrollea su sección; el padding con margen negativo le da fondo
-// alrededor del texto sin cambiar el espaciado.
+// alrededor del texto sin cambiar el espaciado. El borde inferior sólo se ve mientras está pegado (data-stuck).
 .header {
   position: sticky;
   top: var(--header-offset);
   background-color: var(--color-bg-page);
-  padding: 16px 0;
+  padding: 24px 0 16px 0;
   z-index: 2;
   margin: -8px 0;
   display: flex;
   align-items: center;
   // justify-content: space-between;
   gap: 12px;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.15s ease-out;
+
+  &[data-stuck] {
+    border-bottom-color: var(--color-border);
+  }
 }
 
 .title {
@@ -31,10 +37,7 @@
   margin: 0;
 }
 
-.viewAll {
-  flex-shrink: 0;
-  color: var(--color-text-muted);
-  font-size: 14px;
-  text-decoration: underline;
-  white-space: nowrap;
+.titleLink {
+  color: inherit;
+  text-decoration: none;
 }

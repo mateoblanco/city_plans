@@ -18,7 +18,15 @@ const nextConfig: NextConfig = {
     root: repoRoot,
     rules: {
       "*.svg": {
-        loaders: ["@svgr/webpack"],
+        loaders: [
+          {
+            loader: "@svgr/webpack",
+            // Sin viewBox, achicar el ícono con CSS lo recorta en vez de escalarlo.
+            options: {
+              svgoConfig: { plugins: [{ name: "preset-default", params: { overrides: { removeViewBox: false } } }] },
+            },
+          },
+        ],
         as: "*.js",
         // Los íconos de los marcadores (shared/icons) quedan como imágenes estáticas: URL con hash y caché.
         condition: { all: [{ not: "foreign" }, { not: { path: /shared\/icons\// } }] },

@@ -6,43 +6,20 @@
   margin-left: auto;
   align-self: flex-start;
   flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: none;
-  border-radius: 16px;
-  background: none;
-  color: var(--color-text-subtle);
-  cursor: pointer;
 
+  // Con mouse aparece sólo al pasar por la card (o con foco de teclado); con like o en touch, siempre visible.
   @media (hover: hover) {
-    &:hover {
-      background-color: var(--color-surface-hover);
+    opacity: 0;
+    transition: opacity 120ms ease;
+
+    :hover > &,
+    &:focus-within,
+    &[data-liked] {
+      opacity: 1;
     }
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--color-focus-ring);
-    outline-offset: 2px;
-  }
-
-  &[data-pressed] {
-    color: var(--color-like);
   }
 }
 
-.heart {
-  width: 20px;
-  height: 20px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2px;
-  stroke-linejoin: round;
-
-  [data-pressed] & {
-    fill: currentColor;
-  }
+.heartLiked {
+  color: var(--color-like);
 }
