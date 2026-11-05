@@ -1,4 +1,6 @@
+import Image from "next/image";
 import Search from "@/components/Search/Search";
+import heroImage from "@/assets/hero_image.png";
 import FilterChip from "@/components/HeaderSearch/FilterBar/FilterChip/FilterChip";
 import { searchHref } from "@/components/pages/SearchPage/utils/search-href";
 import styles from './HeroSearch.module.scss';
@@ -20,6 +22,7 @@ const SHORTCUTS = [
 const HeroSearch = () => {
   return (
     <div className={styles.hero}>
+      <Image src={heroImage} alt="" fill priority sizes="100vw" className={styles.backdrop} />
       <h1 className={styles.heading}>Descubrí lugares para salir hoy</h1>
       <div className={styles.search}>
         <Search />

@@ -20,7 +20,7 @@
 	--color-surface: #{palette.get(white)};
 	--color-surface-hover: #{palette.get(gray-50)}; // Header, FilterChip, Select
 	--color-surface-muted: #{palette.get(gray-50)}; // NeighborhoodSelect, DebugPanel, ResultsView, PlaceHours (hoy)
-	--color-surface-hero: #{palette.get(white)}; // HeroSearch
+	--color-surface-hero: #{palette.get(blue-500)}; // HeroSearch
 	--color-surface-chip: #{palette.get(gray-50)}; // FilterChip, Select (trigger), PlaceTags
 	--color-skeleton: #{palette.get(gray-100)}; // MapColumn, ResultsSkeleton, PlaceMap
 
@@ -30,6 +30,7 @@
 	--color-text-muted: #{palette.get(gray-700)};
 	--color-text-subtle: #{palette.get(gray-600)}; // PlaceCard, BranchCard, PlaceSummary, PlaceTags
 	--color-text-inverse: #{palette.get(white)}; // BackButton (sobre una barra oscura)
+	--color-text-hero: #{palette.get(white)}; // HeroSearch (heading sobre el fondo azul)
 
 	// Bordes
 	// Button, Select, Header, FilterBar, FilterChip, PlaceImage, ResultSections, PlaceTags

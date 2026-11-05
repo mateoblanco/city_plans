@@ -64,9 +64,10 @@
       width: 24px;
       height: 24px;
 
+      // Par, como el botón: con 11px el ícono caía a 6,5px y en pantallas 1x se corría medio píxel.
       svg {
-        width: 11px;
-        height: 11px;
+        width: 12px;
+        height: 12px;
       }
     }
 
