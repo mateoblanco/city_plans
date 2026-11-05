@@ -173,6 +173,8 @@ export const SEARCH_CONFIG = {
     minPlaces: 3,
     maxPlaces: 6,
     forYou: { min: 3, max: 4 },
+    /** "Para vos" de la home: una fila propia, con el perfil con más likes (no el de una búsqueda). */
+    home: { min: 4, max: 8 },
     /** Con menos resultados "has" que esto no hay bloques personales: con pocos, la fila se lleva casi todo. */
     minHas: 12,
     profileThreshold: 0.72,

@@ -1,0 +1,52 @@
+// La fila no puede ensanchar la página: el scroll queda adentro de .scroller.
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  padding: 0 48px;
+}
+
+.title {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.titleLink {
+  color: inherit;
+  text-decoration: none;
+}
+
+// De borde a borde: el padding lateral alinea la primera card con el título. El padding vertical deja ver la sombra
+// de la card (overflow corta los dos ejes).
+.scroller {
+  display: flex;
+  gap: 16px;
+  list-style: none;
+  margin: 0;
+  overflow-x: auto;
+  padding: 4px 48px 12px;
+  // Sin barra visible: se sigue scrolleando con trackpad o Shift + rueda.
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.item {
+  flex: 0 0 360px;
+  min-width: 0;
+
+  > * {
+    height: 100%;
+  }
+}

@@ -12,7 +12,8 @@ export type { LatLng } from './filters'
 export type { IntentBar } from './intents'
 
 // Los venues cambian sólo al publicar: van cacheados como los barrios de la barra.
-const deps = () => ({ store: { ...neonPlacesStore(getDb()), venues: publishedVenues }, cache: nextSearchCache })
+export const searchDeps = () => ({ store: { ...neonPlacesStore(getDb()), venues: publishedVenues }, cache: nextSearchCache })
+const deps = searchDeps
 
 // cache de React compara los argumentos por identidad: van como primitivos para que la barra de filtros y los
 // resultados compartan una sola búsqueda por request. Dura sólo el request; los likes y el perfil van en la clave.

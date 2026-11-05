@@ -173,7 +173,7 @@ function matcher(items: Fused[]) {
 }
 
 /**
- * Con una sola dieta pedida, el grupo "100 % …": los aptos enteros (vegano fully cuenta como vegetariano) que no tomaron
+ * Con una sola dieta pedida, el grupo de los 100 % ("Recomendados"): los aptos enteros (vegano fully cuenta como vegetariano) que no tomaron
  * los personales, en orden de ranking, hasta maxPlaces. Sale desde dietMinPlaces; uno solo (lone) va primero en el
  * primer grupo del catálogo.
  */
@@ -197,7 +197,7 @@ function dietGroup(available: Fused[], diet: DietKey | null) {
  * llegan, o el más chico) y sus lugares se reparten de nuevo. "Descubrí" se arma después, con su propio criterio entre
  * los que no tomó ningún grupo: los candidatos ("has" primero) por similitud con la consulta, hasta maxPlaces; con menos
  * de minPlaces no sale y nunca le saca lugares a otro grupo. Sin ningún grupo que llegue, null: la lista de siempre.
- * Con una sola dieta pedida, el grupo "100 % …" va primero y no cuenta para el tope de grupos; con un solo apto, ese
+ * Con una sola dieta pedida, el grupo de los 100 % ("Recomendados") va primero y no cuenta para el tope de grupos; con un solo apto, ese
  * lugar va primero en el primer grupo del catálogo (nunca en "Más opciones"). Orden: la dieta, el primer grupo del
  * catálogo, los personales, el resto del catálogo y "Más opciones". "Descubrí" nunca es el primero del catálogo: el
  * primero es el de mejor puntaje sin contarlo.
@@ -288,7 +288,7 @@ export function buildSections(items: Fused[], requested: SectionId[], lang: Lang
   // los personales ("Parecido a", "Porque te gustan…") y el resto del catálogo.
   const sections: Section[] = [
     // Sin "Ver todos": total null.
-    ...(fully && dietItems.length ? [{ id: 'diet' as const, title: dietGroupTitle(fully.key, lang), placeIds: ids(dietItems), total: null }] : []),
+    ...(fully && dietItems.length ? [{ id: 'diet' as const, title: dietGroupTitle(lang), placeIds: ids(dietItems), total: null }] : []),
     ...(lead ? [section(lead)] : []),
     ...personal.map((group) => ({ id: group.id, title: group.title, placeIds: ids(group.items), total: null })),
     ...chosen.filter((group) => group !== lead).map(section),

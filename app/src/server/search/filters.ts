@@ -1,5 +1,6 @@
 import { NEIGHBORHOOD_NAMES } from '@shared/neighborhood-names.ts'
 import { isSectionId, type SectionId } from '@shared/sections.ts'
+import { isOccasionTag, TAG_IDS, type TagId } from '@shared/tags.ts'
 import { roundCoord } from './coords'
 import { DIET_KEYS, PRICES, type DietKey, type Interpretation, type Price } from './interpretation'
 
@@ -20,14 +21,21 @@ export type SearchFilters = {
    * no tiene regla fija, así que no es un filtro.
    */
   section: Exclude<SectionId, 'discover'> | null
+  /**
+   * Tags exigidos sin texto (`tag:afternoon_snack`, las filas de la home y su "Ver todos"): se suman a los del texto.
+   * Los momentos no: son siempre preferencia.
+   */
+  tags: TagId[]
 }
 
 export type LatLng = { lat: number; lng: number }
 
-export const emptyFilters = (): SearchFilters => ({ opensToday: false, diet: [], neighborhoods: [], price: [], section: null })
+export const emptyFilters = (): SearchFilters => ({ opensToday: false, diet: [], neighborhoods: [], price: [], section: null, tags: [] })
 
 export const hasFilters = (filters: SearchFilters) =>
-  filters.opensToday || filters.diet.length > 0 || filters.neighborhoods.length > 0 || filters.price.length > 0 || filters.section !== null
+  filters.opensToday || filters.diet.length > 0 || filters.neighborhoods.length > 0 || filters.price.length > 0 || filters.section !== null || filters.tags.length > 0
+
+const FILTER_TAGS = new Set<string>(TAG_IDS.filter((id) => !isOccasionTag(id)))
 
 /** Parsea `f`; descarta lo que no está en los catálogos. */
 export function parseFilters(raw: string | null | undefined): SearchFilters {
@@ -42,6 +50,7 @@ export function parseFilters(raw: string | null | undefined): SearchFilters {
     else if (kind === 'neighborhood' && id in NEIGHBORHOOD_NAMES && !filters.neighborhoods.includes(id)) filters.neighborhoods.push(id)
     else if (kind === 'price' && (PRICES as readonly string[]).includes(id) && !filters.price.includes(id as Price)) filters.price.push(id as Price)
     else if (kind === 'section' && isSectionId(id) && id !== 'discover') filters.section = id
+    else if (kind === 'tag' && FILTER_TAGS.has(id) && !filters.tags.includes(id as TagId)) filters.tags.push(id as TagId)
   }
   return filters
 }
@@ -58,7 +67,7 @@ export function parseNear(raw: string | null | undefined): LatLng | null {
 }
 
 /**
- * Suma los filtros a lo interpretado. La dieta se suma; "abre hoy", los barrios y el precio reemplazan lo del texto:
+ * Suma los filtros a lo interpretado. La dieta y los tags se suman; "abre hoy", los barrios y el precio reemplazan lo del texto:
  * si se contradicen, gana el filtro.
  */
 export function applyFilters(value: Interpretation, filters: SearchFilters): Interpretation {
@@ -68,6 +77,7 @@ export function applyFilters(value: Interpretation, filters: SearchFilters): Int
   if (filters.opensToday && must.openAt !== 'tonight') must.openAt = 'today'
   if (filters.neighborhoods.length) must.neighborhoods = [...filters.neighborhoods]
   if (filters.price.length) must.price = [...filters.price]
+  if (filters.tags.length) must.tags = [...new Set([...must.tags, ...filters.tags])]
   return { ...value, must }
 }
 
@@ -79,5 +89,6 @@ export function filterChipKeys(filters: SearchFilters): Set<string> {
     ...filters.neighborhoods.map((id) => `neighborhood:${id}`),
     ...filters.price.map((id) => `price:${id}`),
     ...(filters.section ? [`section:${filters.section}`] : []),
+    ...filters.tags.map((id) => `tag:${id}`),
   ])
 }

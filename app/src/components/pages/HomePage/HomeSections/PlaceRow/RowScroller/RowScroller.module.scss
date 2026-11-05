@@ -1,0 +1,20 @@
+.wrapper {
+  min-width: 0;
+  position: relative;
+}
+
+// Sobre el borde derecho, con el color del fondo de la página (body). No recibe clicks ni scroll.
+.fade {
+  background: linear-gradient(to right, transparent, var(--color-bg-page));
+  bottom: 0;
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+  top: 0;
+  transition: opacity 150ms ease-out;
+  width: 120px;
+
+  .wrapper[data-at-end] & {
+    opacity: 0;
+  }
+}

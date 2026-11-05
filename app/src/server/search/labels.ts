@@ -50,13 +50,12 @@ export function dietLevelLabel(key: DietKey, level: string, lang: Lang): string 
   return null
 }
 
-/** Título del grupo de los 100 % aptos: "100 % sin TACC". */
-export function dietGroupTitle(key: DietKey, lang: Lang): string {
-  const texts: Record<Lang, Record<DietKey, string>> = {
-    es: { vegan: '100 % vegano', vegetarian: '100 % vegetariano', glutenFree: '100 % sin TACC' },
-    en: { vegan: 'Fully vegan', vegetarian: 'Fully vegetarian', glutenFree: 'Fully gluten-free' },
-  }
-  return texts[lang][key]
+/**
+ * Título del grupo de los 100 % aptos para la dieta pedida: "Recomendados" (la búsqueda ya dice la dieta; los demás grupos
+ * son lugares con opciones de esa dieta).
+ */
+export function dietGroupTitle(lang: Lang): string {
+  return lang === 'es' ? 'Recomendados' : 'Recommended'
 }
 
 // Las categorías excluidas se leen en plural: "Excepto restaurantes".

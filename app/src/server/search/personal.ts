@@ -306,6 +306,17 @@ export function activeKind(fused: Collapsed[], intent: IntentId | null): Persona
 }
 
 /**
+ * Tipo de "Para vos" en la home (sin búsqueda que lo elija): el perfil con más likes; si empatan, el del like más
+ * reciente (likeIds va del más reciente al más viejo).
+ */
+export function mostLikedKind(profiles: { kind: PlaceKind; likes: { id: string }[] }[], likeIds: string[]): PersonalDebug['active'] {
+  const recency = (profile: (typeof profiles)[number]) => Math.min(...profile.likes.map((like) => (likeIds.indexOf(like.id) + 1 || Infinity)))
+  const best = [...profiles].sort((a, b) => b.likes.length - a.likes.length || recency(a) - recency(b))[0]
+  if (!best) return { kind: null, reason: 'home: ningún tipo con perfil' }
+  return { kind: best.kind, reason: `home: el perfil con más likes (${best.kind}, ${best.likes.length})` }
+}
+
+/**
  * Bloques personales de una búsqueda ya rankeada (fused, en orden). grouped: la búsqueda se agrupa y hay como mucho un
  * grupo personal, "Parecido a" o, si no sale, "Porque te gustan…" (en la página va después del primer grupo del
  * catálogo); si no, la fila "Para vos". Los dos últimos usan el perfil del tipo de la búsqueda (activeKind) y sólo
@@ -313,7 +324,12 @@ export function activeKind(fused: Collapsed[], intent: IntentId | null): Persona
  * ningún lugar que te gustó (como card o sucursal escondida) ni ninguna cadena entra en un bloque y ningún lugar se
  * repite entre bloques.
  */
-export function personalize(fused: Collapsed[], data: LikeSimilarities, likeIds: string[], context: { grouped: boolean; lang: Lang; intent?: IntentId | null }) {
+export function personalize(
+  fused: Collapsed[],
+  data: LikeSimilarities,
+  likeIds: string[],
+  context: { grouped: boolean; lang: Lang; intent?: IntentId | null; home?: boolean },
+) {
   const config = SEARCH_CONFIG.personal
   const debug = emptyPersonalDebug('')
   debug.skipped = null
@@ -336,7 +352,8 @@ export function personalize(fused: Collapsed[], data: LikeSimilarities, likeIds:
     debug.profiles.push({ kind, likes: likes.map((place) => place.name), enough, traits })
     if (enough) profiles.set(kind, { kind, likes, traits })
   }
-  const active = activeKind(fused, context.intent ?? null)
+  // En la home no hay búsqueda que elija el tipo: va el perfil con más likes.
+  const active = context.home ? mostLikedKind([...profiles.values()], likeIds) : activeKind(fused, context.intent ?? null)
   debug.active = active
 
   const sims = new Map<string, LikeSimilarity>(data.rows.map((row) => [row.id, row]))
@@ -401,8 +418,8 @@ export function personalize(fused: Collapsed[], data: LikeSimilarities, likeIds:
     return pickGroup(id, entries, { limits, diverse: true, skipped, title })
   }
 
-  if (!context.grouped) {
-    const forYou = take(profileGroup('for_you', pool, config.forYou))
+  if (!context.grouped || context.home) {
+    const forYou = take(profileGroup('for_you', pool, context.home ? config.home : config.forYou))
     return { groups: [] as PersonalGroup[], forYou, debug }
   }
 

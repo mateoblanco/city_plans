@@ -11,17 +11,29 @@ describe('parseFilters', () => {
       neighborhoods: ['CORDON'],
       price: [],
       section: null,
+      tags: [],
     })
     // Las categorías ya no son filtros de la barra: van por la intención.
     // open:now era el filtro viejo ("Abierto ahora"): ya no existe.
-    expect(parseFilters('open:now,category:cafe,diet:keto,neighborhood:NARNIA,tag:terrace,basura')).toEqual({
+    expect(parseFilters('open:now,category:cafe,diet:keto,neighborhood:NARNIA,tag:nada,basura')).toEqual({
       opensToday: false,
       diet: [],
       neighborhoods: [],
       price: [],
       section: null,
+      tags: [],
     })
     expect(parseFilters(null)).toEqual(parseFilters(''))
+  })
+
+  it('tag: los del catálogo (cocinas incluidas), sin repetir y nunca un momento', () => {
+    expect(parseFilters('tag:afternoon_snack,tag:japanese,tag:afternoon_snack,tag:nada').tags).toEqual(['afternoon_snack', 'japanese'])
+    // Los momentos son siempre preferencia: no pueden ser un filtro.
+    expect(parseFilters('tag:groups,tag:date').tags).toEqual([])
+    expect([...filterChipKeys(parseFilters('tag:afternoon_snack'))]).toEqual(['tag:afternoon_snack'])
+    const value = emptyInterpretation()
+    value.must.tags = ['terrace']
+    expect(applyFilters(value, parseFilters('tag:afternoon_snack,tag:terrace')).must.tags).toEqual(['terrace', 'afternoon_snack'])
   })
 
   it('varios barrios: sin repetir y descartando los que no existen', () => {

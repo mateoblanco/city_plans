@@ -34,7 +34,7 @@
   justify-content: center;
 }
 
-// Barrio, precio y abre hoy: en un teléfono no entran los tres en una línea.
+// Barrio, precio, dieta y abre hoy: en un teléfono no entran todos en una línea.
 .selectRow {
   flex-wrap: wrap;
 }
@@ -43,29 +43,5 @@
 @media (max-width: 799px) {
   .intentDivider {
     display: none;
-  }
-}
-
-// "Más filtros": el panel se abre debajo, sobre la lista.
-.more {
-  position: relative;
-
-  > summary {
-    list-style: none;
-
-    &::-webkit-details-marker {
-      display: none;
-    }
-  }
-
-  > div {
-    background-color: var(--color-surface);
-    border: 1px solid var(--color-border);
-    left: 0;
-    padding: 8px;
-    position: absolute;
-    top: calc(100% + 4px);
-    white-space: nowrap;
-    z-index: 2;
   }
 }

@@ -6,7 +6,7 @@ import type { Fused } from '../fuse'
 import type { IntentId } from '@shared/intents.ts'
 import { ALL_GROUPS } from '@shared/tags.ts'
 import { profileReasonTitle, traitPhrase } from '../labels'
-import { concreteMismatch, personalize, placeKind, profileTraits } from '../personal'
+import { concreteMismatch, mostLikedKind, personalize, placeKind, profileTraits } from '../personal'
 import { runSearch, type SearchOptions } from '../search'
 import { buildSections } from '../sections'
 import { fakeCache, fakeStore, row } from './fixtures'
@@ -426,7 +426,7 @@ describe('tope de grupos', () => {
       const result = buildSections(items, [...requested], 'es', personal, 'glutenFree')
       expect(result.sections?.map((section) => section.id)).toEqual(['diet', 'live_music', 'profile', 'share', 'outdoor', 'world', 'more'])
       // p1 ya está en el personal.
-      expect(result.sections?.[0]).toEqual({ id: 'diet', title: '100 % sin TACC', placeIds: ['p19', 'p20', 'p21'], total: null })
+      expect(result.sections?.[0]).toEqual({ id: 'diet', title: 'Recomendados', placeIds: ['p19', 'p20', 'p21'], total: null })
       expect(result.diet).toEqual({ key: 'glutenFree', count: 3, shown: true, placedIn: null })
       const all = result.sections!.flatMap((section) => section.placeIds)
       expect(new Set(all).size).toBe(all.length)
@@ -450,7 +450,7 @@ describe('tope de grupos', () => {
 
     it('con 2 ya sale', () => {
       const result = buildSections(build([19, 20]), [...requested], 'es', [], 'glutenFree')
-      expect(result.sections?.[0]).toEqual({ id: 'diet', title: '100 % sin TACC', placeIds: ['p19', 'p20'], total: null })
+      expect(result.sections?.[0]).toEqual({ id: 'diet', title: 'Recomendados', placeIds: ['p19', 'p20'], total: null })
     })
 
     it('con uno solo, va primero en el primer grupo del catálogo y nunca en "Más opciones"', () => {
@@ -477,7 +477,7 @@ describe('tope de grupos', () => {
 
     it('vegano fully entra en el grupo vegetariano', () => {
       const result = buildSections(build([19, 20, 21], vegan), [...requested], 'es', [], 'vegetarian')
-      expect(result.sections?.[0]).toMatchObject({ id: 'diet', title: '100 % vegetariano', placeIds: ['p19', 'p20', 'p21'] })
+      expect(result.sections?.[0]).toMatchObject({ id: 'diet', title: 'Recomendados', placeIds: ['p19', 'p20', 'p21'] })
     })
 
     it('sin dieta (o con más de una) no hay grupo', () => {
@@ -503,7 +503,7 @@ describe('perfiles por tipo, afinidad, motivo y variedad', () => {
     items: Collapsed[],
     likes: LikedPlace[],
     similarity: (id: string, like: LikedPlace) => number,
-    context: { intent?: IntentId | null; grouped?: boolean; df?: Record<string, number> } = {},
+    context: { intent?: IntentId | null; grouped?: boolean; home?: boolean; df?: Record<string, number> } = {},
   ) =>
     personalize(items, {
       liked: likes,
@@ -511,7 +511,7 @@ describe('perfiles por tipo, afinidad, motivo y variedad', () => {
       df: context.df ?? {},
       total: 1000,
       rows: items.map((entry) => ({ id: entry.row.id, byLike: Object.fromEntries(likes.map((like) => [like.id, similarity(entry.row.id, like)])) })),
-    }, likes.map((like) => like.id), { grouped: context.grouped ?? true, lang: 'es', intent: context.intent ?? null })
+    }, likes.map((like) => like.id), { grouped: context.grouped ?? true, lang: 'es', intent: context.intent ?? null, home: context.home })
   const groupOf = (result: ReturnType<typeof run>, id = 'profile') => result.groups.find((group) => group.id === id) ?? null
   const ids = (result: ReturnType<typeof run>, id = 'profile') => groupOf(result, id)?.items.map((entry) => entry.row.id) ?? null
   const groupDebug = (result: ReturnType<typeof run>, id = 'profile') => result.debug.groups.find((group) => group.id === id)!
@@ -568,6 +568,32 @@ describe('perfiles por tipo, afinidad, motivo y variedad', () => {
     const result = run(mixed(), mixedLikes, byKind, { intent: 'bars', grouped: false })
     expect(result.forYou?.title).toBe('Para vos')
     expect(result.forYou?.items.map((entry) => entry.row.id)).toEqual(['b0', 'b1', 'b2', 'b3'])
+  })
+
+  it('home: "Para vos" con el perfil con más likes, de 4 a 8 lugares y sin grupos', () => {
+    // 3 likes de bares y 2 de cafés: bares, aunque la "búsqueda" (sin texto) no elija tipo.
+    const likes = [cafeLike('lc0'), cafeLike('lc1'), barLike('lb0'), barLike('lb1'), barLike('lb2')]
+    const many = [...mixed(), ...Array.from({ length: 6 }, (_, index) => item(`b${index + 6}`, { iconCategory: 'beer', categories: ['bar'] }))]
+    const result = run(many, likes, byKind, { home: true })
+    expect(result.debug.active).toEqual({ kind: 'bars', reason: 'home: el perfil con más likes (bars, 3)' })
+    expect(result.groups).toEqual([])
+    expect(result.forYou?.title).toBe('Para vos')
+    // Como mucho 3 por barrio: cada bar está en su barrio, así que llega a 8.
+    expect(result.forYou?.items).toHaveLength(8)
+    expect(result.forYou?.items.every((entry) => entry.row.id.startsWith('b'))).toBe(true)
+    // Con menos de 4 por encima del umbral, no hay fila.
+    const few = run([...mixed().slice(0, 6), ...mixed().slice(6, 9)], likes, byKind, { home: true })
+    expect(few.forYou).toBeNull()
+  })
+
+  it('home: si empatan, el tipo del like más reciente; sin perfil, nada', () => {
+    const profiles = [
+      { kind: 'cafes' as const, likes: [{ id: 'c1' }, { id: 'c2' }] },
+      { kind: 'bars' as const, likes: [{ id: 'b1' }, { id: 'b2' }] },
+    ]
+    expect(mostLikedKind(profiles, ['b2', 'c1', 'c2', 'b1']).kind).toBe('bars')
+    expect(mostLikedKind(profiles, ['c2', 'b2', 'c1', 'b1']).kind).toBe('cafes')
+    expect(mostLikedKind([], ['x']).kind).toBeNull()
   })
 
   describe('variedad', () => {

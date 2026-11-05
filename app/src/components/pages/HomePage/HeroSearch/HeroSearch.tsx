@@ -3,15 +3,18 @@ import FilterChip from "@/components/HeaderSearch/FilterBar/FilterChip/FilterChi
 import { searchHref } from "@/components/pages/SearchPage/utils/search-href";
 import styles from './HeroSearch.module.scss';
 
-/** Accesos directos de la home: cada uno busca su texto. Todos se resuelven por el diccionario, sin pasar por el modelo. */
+/**
+ * Accesos directos de la home. Los de texto se resuelven por el diccionario, sin pasar por el modelo; los de dieta van
+ * sin texto, con el filtro de la barra (se ven activos en el select de Dieta).
+ */
 const SHORTCUTS = [
-  { text: "Comer", q: "comer" },
-  { text: "Tomar algo", q: "tomar algo" },
-  { text: "Cafés", q: "cafés" },
-  { text: "Brunch", q: "brunch" },
-  { text: "Vegetariano", q: "vegetariano" },
-  { text: "Vegano", q: "vegano" },
-  { text: "Sin TACC", q: "sin tacc" },
+  { text: "Comer", href: searchHref({ q: "comer" }) },
+  { text: "Tomar algo", href: searchHref({ q: "tomar algo" }) },
+  { text: "Cafés", href: searchHref({ q: "cafés" }) },
+  { text: "Brunch", href: searchHref({ q: "brunch" }) },
+  { text: "Vegetariano", href: searchHref({ q: "", f: "diet:vegetarian" }) },
+  { text: "Vegano", href: searchHref({ q: "", f: "diet:vegan" }) },
+  { text: "Sin TACC", href: searchHref({ q: "", f: "diet:glutenFree" }) },
 ];
 
 const HeroSearch = () => {
@@ -22,7 +25,7 @@ const HeroSearch = () => {
         <Search />
         <nav aria-label="Accesos directos" className={styles.shortcuts}>
           {SHORTCUTS.map((shortcut) => (
-            <FilterChip key={shortcut.q} href={searchHref({ q: shortcut.q })} text={shortcut.text} />
+            <FilterChip key={shortcut.text} href={shortcut.href} text={shortcut.text} />
           ))}
         </nav>
       </div>

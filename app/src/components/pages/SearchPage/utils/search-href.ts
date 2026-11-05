@@ -33,10 +33,13 @@ const list = (raw: string | null | undefined) =>
     .map((part) => part.trim())
     .filter(Boolean);
 
-/** Clave del chip en `f`; null si ese chip no es un filtro de la barra. section es el "Ver todos" de un grupo. */
+/**
+ * Clave del chip en `f`; null si ese chip no es un filtro de la barra. section es el "Ver todos" de un grupo y tag, el
+ * de una fila de la home (Merienda).
+ */
 export function filterKey({ kind, id }: { kind: string; id: string }): string | null {
   if (kind === "openAt") return id === "today" ? "open:today" : null;
-  return kind === "diet" || kind === "neighborhood" || kind === "price" || kind === "section" ? `${kind}:${id}` : null;
+  return kind === "diet" || kind === "neighborhood" || kind === "price" || kind === "section" || kind === "tag" ? `${kind}:${id}` : null;
 }
 
 /** URL de /search. `add` suma un chip a remove (lo que hacía antes quitar un chip). */
@@ -103,6 +106,11 @@ export function setNeighborhoodsHref(state: SearchUrl, ids: string[], chips: Chi
 /** Precios del select de la barra. [] = "Cualquier precio". */
 export function setPricesHref(state: SearchUrl, ids: string[], chips: ChipRef[]): string {
   return searchHref(replaceFilter(state, "price", ids, chips));
+}
+
+/** Dietas del select de la barra. [] = "Cualquier dieta". */
+export function setDietsHref(state: SearchUrl, ids: string[], chips: ChipRef[]): string {
+  return searchHref(replaceFilter(state, "diet", ids, chips));
 }
 
 /** Cerca mío: las coordenadas van redondeadas a 3 decimales (unos 100 m). */

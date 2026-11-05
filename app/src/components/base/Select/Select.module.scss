@@ -90,12 +90,12 @@
   display: grid;
   font-size: 13px;
   gap: 8px;
-  grid-template-columns: 16px 1fr;
+  grid-template-columns: 1fr 16px;
   line-height: 20px;
   outline: 0;
   padding-block: 6px;
-  padding-left: 10px;
-  padding-right: 16px;
+  padding-left: 16px;
+  padding-right: 10px;
   user-select: none;
   -webkit-user-select: none;
 
@@ -121,11 +121,12 @@
 }
 
 .itemIndicator {
-  grid-column-start: 1;
+  grid-column-start: 2;
 }
 
 .itemText {
-  grid-column-start: 2;
+  grid-column-start: 1;
+  grid-row-start: 1;
 }
 
 .scrollArrow {

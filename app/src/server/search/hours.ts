@@ -18,6 +18,11 @@ export function montevideoNow(date = new Date()): { day: number; time: string } 
   return { day: WEEKDAYS[parts.weekday], time: `${parts.hour}:${parts.minute}` }
 }
 
+/** Fecha de Montevideo (YYYY-MM-DD): cambia a la medianoche de allá, no a la del servidor. */
+export function montevideoDate(date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: SEARCH_CONFIG.timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date)
+}
+
 /**
  * today: "Abre hoy", con el momento actual (abierto ahora o abre más tarde hoy).
  * night: a la noche ("esta noche" o cenar): tiene que estar abierto en algún momento desde SEARCH_CONFIG.night.from.

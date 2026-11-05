@@ -1,0 +1,62 @@
+// El mismo layout que HomeSections y PlaceRow, para que el skeleton ocupe lo mismo.
+.sections {
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+  margin: 0 auto;
+  max-width: 1200px;
+  padding: 40px 0 64px;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.scroller {
+  display: flex;
+  gap: 16px;
+  overflow: hidden;
+  padding: 4px 48px 12px;
+}
+
+.title,
+.card {
+  animation: pulse 1.2s ease-in-out infinite;
+  background-color: var(--color-skeleton);
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+.title {
+  border-radius: 8px;
+  height: 24px;
+  margin: 0 48px;
+  width: 160px;
+}
+
+// El alto de PlaceCard: imagen 100 + padding 2×16 + borde 2×1.
+.card {
+  border-radius: 16px;
+  flex: 0 0 360px;
+  height: 134px;
+}
+
+.visuallyHidden {
+  clip: rect(0 0 0 0);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.5;
+  }
+}

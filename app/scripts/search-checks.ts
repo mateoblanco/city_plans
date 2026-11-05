@@ -91,6 +91,27 @@ const isFirst = (placeName: string): Check => ({
 
 const SUNSET_TAGS = ["sea_view", "rooftop", "terrace"];
 
+/** Chip con su origen: del texto, de la barra (f) o de los dos. */
+const chipFrom = (kind: string, id: string, from: { fromText: boolean; fromFilter: boolean }): Check => ({
+  description: `chip ${kind}:${id} ${from.fromText ? "del texto" : ""}${from.fromText && from.fromFilter ? " y " : ""}${from.fromFilter ? "de la barra" : ""}`.trim(),
+  test: (_, response) => {
+    const chip = response.interpreted.chips.find((item) => item.kind === kind && item.id === id);
+    if (!chip) return [`chips: ${response.interpreted.chips.map((item) => `${item.kind}:${item.id}`).join(", ") || "—"}`];
+    return Boolean(chip.fromText) === from.fromText && Boolean(chip.fromFilter) === from.fromFilter ? [] : [`fromText ${chip.fromText}, fromFilter ${chip.fromFilter}`];
+  },
+});
+
+/**
+ * Clave de CHECKS: el texto y, opcional, los parámetros de la URL después de " ?" ("cafés ?f=diet:glutenFree",
+ * " ?f=diet:vegan" sin texto). Pisan los --f, --intent y --sub de la línea de comandos.
+ */
+export function parseCheckKey(key: string): { query: string; filters?: string | null; intent?: string | null; sub?: string | null } {
+  const index = key.indexOf(" ?");
+  if (index === -1) return { query: key };
+  const params = new URLSearchParams(key.slice(index + 2));
+  return { query: key.slice(0, index).trim(), filters: params.get("f"), intent: params.get("intent"), sub: params.get("sub") };
+}
+
 export const CHECKS: Record<string, Check[]> = {
   "Bar Tasende": [isFirst("Bar Tasende")],
   Jacinto: [isFirst("Jacinto")],
@@ -150,6 +171,11 @@ export const CHECKS: Record<string, Check[]> = {
   pizza: [topHaveCategory(3, "pizzeria"), notGrouped],
   vegano: [nonEmpty, every("todos con opciones veganas", veganOk)],
   "sin tacc": [nonEmpty, every("todos con opciones sin TACC", glutenFreeOk)],
+  // Dieta del select de la barra, sin texto: la misma búsqueda que el chip "Vegano" de la home.
+  " ?f=diet:vegan": [nonEmpty, chipFrom("diet", "vegan", { fromText: false, fromFilter: true }), every("todos con opciones veganas", veganOk)],
+  // Dieta desde el texto: el select la muestra activa por el chip del texto.
+  "sin gluten": [nonEmpty, chipFrom("diet", "glutenFree", { fromText: true, fromFilter: false }), every("todos con opciones sin TACC", glutenFreeOk)],
+  "cafés ?f=diet:glutenFree": [nonEmpty, allInIntent("cafes"), chipFrom("diet", "glutenFree", { fromText: false, fromFilter: true }), every("todos con opciones sin TACC", glutenFreeOk)],
   "algo que no sea pizza": [nonEmpty, every("ninguna pizzería", (place) => !place.categories.includes("pizzeria"))],
   "cafés en pocitos": [nonEmpty, allInIntent("cafes")],
   "almorzar en Ciudad Vieja": [nonEmpty, subFromText("lunch"), hasChip("neighborhood", "CIUDAD VIEJA"), topHaveCategory(5, "restaurant")],

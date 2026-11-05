@@ -15,12 +15,12 @@
 @mixin light-theme {
 	// Fondos
 	--color-bg: #{palette.get(white)}; // html (global.scss)
-	--color-bg-page: #{palette.get(gray-50)}; // body (global.scss), ResultSections
+	--color-bg-page: #{palette.get(gray-50)}; // body (global.scss), ResultSections, RowScroller
 	// Header, FilterBar, FilterChip, Select, Search, PlaceCard, PlaceImage, SearchMap, DebugPanel, CopyResponse
 	--color-surface: #{palette.get(white)};
 	--color-surface-hover: #{palette.get(gray-50)}; // Header, FilterChip, Select
 	--color-surface-muted: #{palette.get(gray-50)}; // NeighborhoodSelect, DebugPanel, ResultsView
-	--color-surface-hero: #{palette.get(gray-50)}; // HeroSearch
+	--color-surface-hero: #{palette.get(white)}; // HeroSearch
 	--color-surface-chip: #{palette.get(gray-50)}; // FilterChip, Select (trigger)
 	--color-skeleton: #{palette.get(gray-100)}; // MapColumn, ResultsSkeleton
 

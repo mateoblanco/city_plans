@@ -58,6 +58,8 @@ export type SearchOptions = {
   likes?: string[]
   /** false (`profile=off`): la misma búsqueda sin perfil, igual que sin likes. */
   profile?: boolean
+  /** "Para vos" de la home: sin grupos, con el perfil con más likes y de 4 a 8 lugares (SEARCH_CONFIG.personal.home). */
+  home?: boolean
   now?: Date
 }
 
@@ -686,7 +688,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   step = performance.now()
   const likeData = personalSkipped ? null : await deps.store.likeSimilarities(likes, fused.map((item) => item.row.id), 1 - SEARCH_CONFIG.personal.similar.topShare).catch(() => null)
   if (!personalSkipped) timings.personal = elapsed(step)
-  const personal = likeData ? personalize(fused, likeData, likes, { grouped: catalogOnly?.sections != null, lang: DISPLAY_LANG, intent: state.intent }) : null
+  const personal = likeData ? personalize(fused, likeData, likes, { grouped: catalogOnly?.sections != null, lang: DISPLAY_LANG, intent: state.intent, home: options.home }) : null
   const personalDebug = personal?.debug ?? emptyPersonalDebug(personalSkipped ?? 'falló la consulta de likes')
   const grouped = sectionChoice && catalogOnly?.sections && personal?.groups.length
     ? buildSections(fused, sectionChoice.requested, DISPLAY_LANG, personal.groups, dietGroup)
@@ -739,8 +741,11 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   const chips = chipsOf(buildChips(interpretation, today, near !== null))
   const subKeys = new Set(resolved.subs.flatMap((sub) => sub.removeKeys))
   const shownPreference = (chip: Chip) => chip.kind === 'prefer' && (isOccasionTag(chip.id) || isStyleId(chip.id)) && !subKeys.has(`prefer:${chip.id}`)
+  // Un tag de f (las filas de la home: `tag:afternoon_snack`) también se ve y se apaga como extra.
   const extras = chips.filter(
-    (chip) => chip.fromText && (chip.kind === 'category' || chip.kind === 'tag' || chip.kind === 'venue' || shownPreference(chip) || (chip.kind === 'dish' && !resolved.absorbedDishes.includes(chip.id))),
+    (chip) =>
+      (chip.fromText && (chip.kind === 'category' || chip.kind === 'tag' || chip.kind === 'venue' || shownPreference(chip) || (chip.kind === 'dish' && !resolved.absorbedDishes.includes(chip.id)))) ||
+      (chip.kind === 'tag' && chip.fromFilter),
   )
   // El "Ver todos" de un grupo se ve activo en la barra y se apaga sacándolo de f.
   if (filters.section) {

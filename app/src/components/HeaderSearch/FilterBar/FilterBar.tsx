@@ -1,13 +1,14 @@
 import { INTENT_IDS, INTENTS } from "@shared/intents.ts";
 import { neighborhoodDisplayName } from "@shared/neighborhood-names.ts";
 import { publishedNeighborhoods, type Chip, type IntentBar } from "@/server/search";
-import { DIET_KEYS, PRICES } from "@/server/search/interpretation";
+import { PRICES, type DietKey } from "@/server/search/interpretation";
 import { dietLabel, PRICE_FILTER_LABELS } from "@/server/search/labels";
 import FilterChip from "./FilterChip/FilterChip";
 import NeighborhoodSelect from "./NeighborhoodSelect/NeighborhoodSelect";
 import PriceSelect from "./PriceSelect/PriceSelect";
-import { addFilterHref, extraHref, intentHref, removeChipHref, searchHref, subHref, type SearchUrl } from "@/components/pages/SearchPage/utils/search-href";
-import chipStyles from "./FilterChip/FilterChip.module.scss";
+import DietSelect from "./DietSelect/DietSelect";
+import { DIET_OPTIONS } from "./DietSelect/utils/diet-selection";
+import { addFilterHref, extraHref, intentHref, removeChipHref, subHref, type SearchUrl } from "@/components/pages/SearchPage/utils/search-href";
 import styles from "./FilterBar.module.scss";
 
 type ToggleProps = {
@@ -50,8 +51,11 @@ const FilterBar = async (props: Props) => {
     .filter((chip) => chip.kind === "price")
     .map(({ kind, id, fromText, fromFilter }) => ({ kind, id, fromText, fromFilter }));
   const prices = PRICES.map((id) => ({ id, label: PRICE_FILTER_LABELS[id] }));
+  const dietChips = props.chips
+    .filter((chip) => chip.kind === "diet")
+    .map(({ kind, id, fromText, fromFilter }) => ({ kind, id, fromText, fromFilter }));
+  const diets = DIET_OPTIONS.map((id) => ({ id, label: dietLabel(id as DietKey, "es") }));
   const toggle = { state: props.state, chips: props.chips };
-  const activeDiets = props.chips.filter((chip) => chip.kind === "diet").length;
   const activeIntent = props.bar.intent?.id ?? null;
   const showSubs = props.bar.subs.length > 0 || props.bar.extras.length > 0;
 
@@ -60,17 +64,8 @@ const FilterBar = async (props: Props) => {
       <div className={`${styles.filterRow} ${styles.selectRow}`}>
         <NeighborhoodSelect options={neighborhoods} chips={neighborhoodChips} state={props.state} autoNear={props.needsLocation} />
         <PriceSelect options={prices} chips={priceChips} state={props.state} />
+        <DietSelect options={diets} chips={dietChips} state={props.state} />
         <Toggle {...toggle} kind="openAt" id="today" text="Abre hoy" />
-        {/* <details className={styles.more}>
-          <summary className={chipStyles.chip} data-active={activeDiets > 0 || undefined}>
-            Más filtros{activeDiets > 0 ? ` · ${activeDiets}` : ""}
-          </summary>
-          <div className={styles.filterRow}>
-            {DIET_KEYS.map((key) => (
-              <Toggle key={key} {...toggle} kind="diet" id={key} text={dietLabel(key, "es")} />
-            ))}
-          </div>
-        </details> */}
       </div>
       <hr className={`${styles.divider} ${styles.intentDivider}`} />
       <div className={styles.filterRow} role="group" aria-label="Qué querés hacer">

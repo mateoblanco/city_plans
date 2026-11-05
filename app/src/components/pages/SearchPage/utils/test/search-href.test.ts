@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addFilterHref, extraHref, intentHref, nearHref, removeChipHref, searchHref, sectionHref, setNeighborhoodsHref, setPricesHref, subHref, widenUrl, type BarRef } from "../search-href";
+import { addFilterHref, extraHref, intentHref, nearHref, removeChipHref, searchHref, sectionHref, setDietsHref, setNeighborhoodsHref, setPricesHref, subHref, widenUrl, type BarRef } from "../search-href";
 
 describe("searchHref", () => {
   it("suma el chip a los remove que ya estaban, sin duplicar", () => {
@@ -93,6 +93,22 @@ describe("chips y barra de filtros", () => {
     expect(read(setPricesHref({ q: "bar no muy caro" }, [], noMuyCaro))).toEqual({ q: "bar no muy caro", remove: "price:low,price:moderate" });
     // Volver a elegir uno quitado del texto lo saca de remove.
     expect(read(setPricesHref({ q: "bar no muy caro", remove: "price:low" }, ["low"], noMuyCaro))).toEqual({ q: "bar no muy caro", remove: "price:moderate", f: "price:low" });
+  });
+
+  it("dietas: reemplazan las de f y sacar del select la del texto la quita de la búsqueda", () => {
+    expect(read(setDietsHref({ q: "", f: "price:low,diet:vegetarian" }, ["vegan", "glutenFree"], []))).toEqual({ f: "price:low,diet:vegan,diet:glutenFree" });
+    expect(read(setDietsHref({ q: "", f: "diet:vegan" }, [], []))).toEqual({});
+    // "algo vegano": el select la muestra activa; sacarla la suma a remove, cambiarla por vegetariano también.
+    const vegano = [{ kind: "diet", id: "vegan", fromText: true, fromFilter: false }];
+    expect(read(setDietsHref({ q: "algo vegano" }, [], vegano))).toEqual({ q: "algo vegano", remove: "diet:vegan" });
+    expect(read(setDietsHref({ q: "algo vegano" }, ["vegetarian"], vegano))).toEqual({ q: "algo vegano", remove: "diet:vegan", f: "diet:vegetarian" });
+    // Sumar Sin TACC a la del texto la conserva.
+    expect(read(setDietsHref({ q: "algo vegano" }, ["vegan", "glutenFree"], vegano))).toEqual({ q: "algo vegano", f: "diet:vegan,diet:glutenFree" });
+  });
+
+  it("tag de f (fila de la home): se apaga sacándolo de f", () => {
+    const chip = { kind: "tag", id: "afternoon_snack", fromText: false, fromFilter: true };
+    expect(read(removeChipHref({ q: "", f: "tag:afternoon_snack,diet:vegan" }, chip))).toEqual({ f: "diet:vegan" });
   });
 
   it("cerca mío redondea las coordenadas a 3 decimales", () => {

@@ -15,7 +15,7 @@ import { formatUsd } from "../src/server/search/cost";
 import { runSearch } from "../src/server/search/search";
 import { hasViewAll, visiblePage } from "../src/components/pages/SearchPage/utils/pagination";
 import { neonPlacesStore } from "../src/server/search/store";
-import { CHECKS, runChecks } from "./search-checks";
+import { CHECKS, parseCheckKey, runChecks } from "./search-checks";
 
 const QUERIES = [
   "la pasiva",
@@ -175,7 +175,14 @@ const compact = (value: unknown) => JSON.stringify(value, (_key, item) => (Array
 
 const failures: string[] = [];
 for (const query of queries.length ? queries : checkOnly ? Object.keys(CHECKS) : QUERIES) {
-  const response = await runSearch(query, { store, cache }, { debug: true, filters, intent, sub, widen: !checkOnly, likes });
+  // Una clave con parámetros ("cafés ?f=diet:glutenFree") busca su texto con esos filtros.
+  const key = parseCheckKey(query);
+  const params = {
+    filters: key.filters !== undefined ? key.filters : filters,
+    intent: key.intent !== undefined ? key.intent : intent,
+    sub: key.sub !== undefined ? key.sub : sub,
+  };
+  const response = await runSearch(key.query, { store, cache }, { debug: true, ...params, widen: !checkOnly, likes });
   const info = response.debug!;
   const checks = runChecks(query, response);
   failures.push(...checks.failed.map((failure) => `${query} → ${failure}`));
@@ -266,7 +273,7 @@ for (const query of queries.length ? queries : checkOnly ? Object.keys(CHECKS) :
     for (const section of page.sections ?? []) {
       if (!hasViewAll(section)) continue;
       // La misma búsqueda con la regla del grupo (sin llamadas pagas: interpretación y embedding en cache).
-      const all = await runSearch(query, { store, cache }, { filters: [filters, `section:${section.id}`].filter(Boolean).join(","), intent, sub });
+      const all = await runSearch(key.query, { store, cache }, { ...params, filters: [params.filters, `section:${section.id}`].filter(Boolean).join(",") });
       console.log(`  Ver todos en ${section.title} (${section.total} en la regla) → muestra ${all.results.length}`);
     }
     const widen = response.widen ?? [];
