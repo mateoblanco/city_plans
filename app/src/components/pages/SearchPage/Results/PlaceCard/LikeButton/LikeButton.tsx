@@ -1,8 +1,8 @@
 "use client";
 
-import Button from "@/components/base/Button/Button";
 import Heart from "@/assets/heart.svg";
 import HeartFill from "@/assets/heart_fill.svg";
+import CardToggle from "../CardToggle/CardToggle";
 import styles from "./LikeButton.module.scss";
 import { toggleLike, useLikes } from "../../../utils/likes";
 
@@ -21,18 +21,12 @@ const LikeButton = (props: Props) => {
   const liked = likes.ids.includes(props.placeId);
 
   return (
-    <span className={styles.like} data-liked={liked || undefined}>
-      <Button
-        type="button"
-        variant="secondary"
-        size="sm"
-        onlyIcon
-        label={liked ? `Quitar me gusta de ${props.name}` : `Me gusta ${props.name}`}
-        pressed={liked}
-        icon={liked ? <HeartFill className={styles.heartLiked} aria-hidden /> : <Heart aria-hidden />}
-        onClick={() => toggleLike(props.placeId)}
-      />
-    </span>
+    <CardToggle
+      active={liked}
+      label={liked ? `Quitar me gusta de ${props.name}` : `Me gusta ${props.name}`}
+      icon={liked ? <HeartFill className={styles.heartLiked} aria-hidden /> : <Heart aria-hidden />}
+      onToggle={() => toggleLike(props.placeId)}
+    />
   );
 };
 

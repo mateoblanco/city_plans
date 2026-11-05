@@ -25,3 +25,11 @@ export function assembleHome(rows: HomeRow[], limits: { min: number; max: number
   }
   return result
 }
+
+/**
+ * La home completa: "Guardados" (si hay) primero y sin tocar, después assembleHome con el resto. Los guardados no
+ * entran en la regla de no repetir: sus lugares pueden salir también en "Para vos" y en las filas siguientes.
+ */
+export function assembleHomeWithSaved(saved: HomeRow | null, rows: HomeRow[]): HomeRow[] {
+  return [...(saved ? [saved] : []), ...assembleHome(rows)]
+}

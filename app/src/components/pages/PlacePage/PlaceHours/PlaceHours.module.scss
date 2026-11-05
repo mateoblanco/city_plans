@@ -1,0 +1,54 @@
+.card {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border-card);
+  border-radius: 16px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 20px 24px;
+}
+
+// Dentro de PlaceInfoCard: sin tarjeta propia, la pone el contenedor.
+.card[data-bare] {
+  background-color: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0;
+}
+
+.title {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 28px;
+}
+
+.days {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.day {
+  color: var(--color-text-muted);
+  display: flex;
+  font-size: 16px;
+  gap: 16px;
+  justify-content: space-between;
+  line-height: 24px;
+
+  dd {
+    text-align: right;
+  }
+
+  &[data-today] {
+    background-color: var(--color-surface-muted);
+    border-radius: 6px;
+    color: var(--color-text);
+    font-weight: 600;
+    // El fondo sale un poco a los costados; el texto queda alineado con el título.
+    margin: -2px -8px;
+    padding: 2px 8px;
+  }
+}

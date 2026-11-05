@@ -9,7 +9,7 @@ const HomePage = () => {
     <section>
       <Header />
       <HeroSearch />
-      {/* Lee la cookie de likes ("Para vos"): el resto de la home no espera por ella. */}
+      {/* Lee las cookies de guardados y likes ("Guardados", "Para vos"): el resto de la home no espera por ellas. */}
       <Suspense fallback={<HomeSectionsSkeleton />}>
         <HomeSections />
       </Suspense>

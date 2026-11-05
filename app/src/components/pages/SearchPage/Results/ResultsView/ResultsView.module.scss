@@ -24,3 +24,8 @@
   flex-direction: column;
   gap: 12px;
 }
+
+// Sin grupos no hay StickyHeader que ponga el aire de arriba.
+.ungrouped {
+  padding-top: 24px;
+}

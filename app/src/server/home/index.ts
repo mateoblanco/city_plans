@@ -1,9 +1,12 @@
 import 'server-only'
 import { cacheLife, cacheTag } from 'next/cache'
+import { getDb } from '../db'
+import type { CardRow } from '../places/similar'
 import { searchDeps } from '../search'
 import { montevideoDate } from '../search/hours'
-import { assembleHome, type HomeRow } from './assemble'
+import { assembleHomeWithSaved, type HomeRow } from './assemble'
 import { homeForYouRow, homeSectionRows } from './rows'
+import { homeSavedRow, savedPlacesQuery, type SavedDeps } from './saved'
 
 export type { HomeRow } from './assemble'
 
@@ -20,10 +23,25 @@ async function cachedSectionRows(day: string): Promise<HomeRow[]> {
   return homeSectionRows(searchDeps())
 }
 
-/** Las filas de la home: "Para vos" (si hay perfil) y las del config, sin repetir lugares y sin las de menos de 4. */
-export async function homeRows(likes: string[]): Promise<HomeRow[]> {
+const savedDeps = (): SavedDeps => ({
+  async savedPlaces(ids) {
+    const { rows } = await getDb().execute(savedPlacesQuery(ids))
+    return rows as CardRow[]
+  },
+})
+
+/**
+ * Las filas de la home: "Guardados" (los de la cookie, sin caché: es de cada persona), "Para vos" (si hay perfil, sólo
+ * con los likes) y las del config, sin repetir lugares entre estas dos y sin las de menos de 4.
+ */
+export async function homeRows(likes: string[], saved: string[] = []): Promise<HomeRow[]> {
   const deps = searchDeps()
-  const [forYou, sections] = await Promise.all([
+  const [savedRow, forYou, sections] = await Promise.all([
+    homeSavedRow(savedDeps(), saved).catch((error: unknown) => {
+      // Sin "Guardados" la home sigue.
+      console.error('Falló "Guardados" de la home', error)
+      return null
+    }),
     homeForYouRow(deps, likes).catch((error: unknown) => {
       // Sin "Para vos" la home sigue.
       console.error('Falló "Para vos" de la home', error)
@@ -31,5 +49,5 @@ export async function homeRows(likes: string[]): Promise<HomeRow[]> {
     }),
     cachedSectionRows(montevideoDate()),
   ])
-  return assembleHome([...(forYou ? [forYou] : []), ...sections])
+  return assembleHomeWithSaved(savedRow, [...(forYou ? [forYou] : []), ...sections])
 }

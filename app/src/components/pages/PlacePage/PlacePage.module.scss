@@ -1,0 +1,41 @@
+// La página ocupa todo el ancho (la barra de color del header llega a los bordes); el contenido va en `.content`.
+.page {
+  --place-max-width: 1480px;
+  --place-gutter: 48px;
+
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 96px;
+}
+
+// Ancho máximo del contenido, centrado. El header lo usa por dentro de la barra con las mismas variables.
+.content {
+  margin: 0 auto;
+  max-width: var(--place-max-width);
+  padding: 0 var(--place-gutter);
+  width: 100%;
+}
+
+.columns {
+  align-items: flex-start;
+  display: grid;
+  gap: 48px;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  padding: 24px 48px 0;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  gap: 48px;
+  min-width: 0;
+}
+
+// Horarios y mapa quedan a la vista mientras se baja por las secciones.
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  position: sticky;
+  top: calc(var(--header-offset) + 24px);
+}

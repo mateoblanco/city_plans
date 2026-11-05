@@ -1,0 +1,159 @@
+// Bloques del skeleton; el layout (.page, .content, .columns, .main, .side) viene de PlacePage.module.scss.
+// Las medidas copian las de PlaceHeader (sin barra), PlaceSummary y PlaceMap para que no salte al cargar.
+
+%block {
+  animation: pulse 1.2s ease-in-out infinite;
+  background-color: var(--color-skeleton);
+  border-radius: 8px;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+// PlaceHeader sin barra: padding-top 32px, "Volver", y la fila con el logo y las acciones.
+.header {
+  display: flex;
+  flex-direction: column;
+  padding-top: 32px;
+}
+
+.back {
+  @extend %block;
+  height: 20px;
+  margin: 0 48px;
+  width: 80px;
+}
+
+.row {
+  align-items: flex-end;
+  display: flex;
+  justify-content: space-between;
+  padding: 16px 48px 0;
+}
+
+// PlaceImage size="lg".
+.logo {
+  @extend %block;
+  border-radius: 16px;
+  height: 130px;
+  width: 130px;
+}
+
+.actions {
+  display: flex;
+  gap: 16px;
+}
+
+.action {
+  @extend %block;
+  border-radius: 999px;
+  height: 40px;
+  width: 40px;
+}
+
+.summary {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.name {
+  @extend %block;
+  height: 56px;
+  width: 45%;
+}
+
+.facts {
+  @extend %block;
+  height: 26px;
+  width: 35%;
+}
+
+.description {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 720px;
+}
+
+.line,
+.lineShort {
+  @extend %block;
+  height: 16px;
+}
+
+.lineShort {
+  width: 60%;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip {
+  @extend %block;
+  border-radius: 999px;
+  height: 32px;
+  width: 90px;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sectionTitle {
+  @extend %block;
+  height: 28px;
+  width: 30%;
+}
+
+.cards {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.card {
+  @extend %block;
+  border-radius: 16px;
+  height: 134px;
+}
+
+.infoCard {
+  @extend %block;
+  border-radius: 16px;
+  height: 220px;
+}
+
+// PlaceMap .map.
+.map {
+  @extend %block;
+  border-radius: 16px;
+  height: 280px;
+}
+
+.location {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.visuallyHidden {
+  clip: rect(0 0 0 0);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.5;
+  }
+}

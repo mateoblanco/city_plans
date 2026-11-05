@@ -30,7 +30,7 @@ const PlaceRow = (props: Props) => (
         <Button
           href={props.href}
           prefetch={false}
-          variant="secondary"
+          variant="tertiary"
           size="sm"
           onlyIcon
           label={`Ver todos: ${props.title}`}

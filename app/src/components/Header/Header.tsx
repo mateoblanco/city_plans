@@ -1,6 +1,7 @@
-import type { ReactNode } from 'react';
+import { Suspense, type ReactNode } from 'react';
 import Link from 'next/link';
 import HeaderOffset from './HeaderOffset';
+import NavigationTracker from './NavigationTracker';
 import styles from './Header.module.scss';
 import Logo from "@/assets/logo.svg";
 
@@ -16,6 +17,10 @@ const Header = (props: Props) => {
     <>
       <header className={styles.header}>
         <HeaderOffset />
+        {/* En una ruta dinámica el pathname es dato de request: no bloquea el resto del header. */}
+        <Suspense fallback={null}>
+          <NavigationTracker />
+        </Suspense>
         <div className={styles.top}>
           <Link href="/" className={styles.logo}>
             <Logo width={40} height={40} />

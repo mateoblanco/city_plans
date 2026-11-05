@@ -1,0 +1,32 @@
+// La card es flex en fila: los botones van últimos, arriba a la derecha.
+.toggle {
+  // Arriba del link que cubre la card: el click acá no navega.
+  position: relative;
+  z-index: 1;
+  margin-left: auto;
+  align-self: flex-start;
+  flex-shrink: 0;
+
+  // El segundo va pegado al primero (el gap de la card es de 16px).
+  & + & {
+    margin-left: -8px;
+  }
+
+  // Con mouse aparece sólo al pasar por la card (o con foco de teclado); activo o en touch, siempre visible.
+  @media (hover: hover) {
+    opacity: 0;
+    transition: opacity 120ms ease;
+
+    :hover > &,
+    &:focus-within,
+    &[data-active] {
+      opacity: 1;
+    }
+
+    // Sólo con me gusta, guardar (apagado e invisible) no ocupa lugar: el corazón queda a la derecha, donde iría guardar.
+    // Al pasar el mouse (o con foco en la card) vuelven los dos en su lugar.
+    :not(:hover, :focus-within) > &[data-active] + &:not([data-active]) {
+      display: none;
+    }
+  }
+}

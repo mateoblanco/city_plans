@@ -12,7 +12,7 @@ const ClearLikes = () => {
   return (
     <Button
       type="button"
-      variant="secondary"
+      variant="tertiary"
       size="sm"
       label={`Borrar likes (${likes.ids.length})`}
       disabled={likes.ids.length === 0}

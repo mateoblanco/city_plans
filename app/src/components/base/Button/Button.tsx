@@ -7,9 +7,11 @@ type Props = {
     /** Texto del botón; con onlyIcon pasa a ser su nombre accesible (aria-label). */
     label: string;
     disabled?: boolean;
-    variant: 'primary' | 'secondary';
+    variant: 'primary' | 'secondary' | 'tertiary';
     size: 'sm' | 'md';
     icon?: React.ReactNode;
+    /** Ícono después del texto (p. ej. la flecha de un link externo); no se muestra con onlyIcon. */
+    iconEnd?: React.ReactNode;
     onlyIcon?: boolean;
     /** Botón que alterna (aria-pressed), p. ej. el me gusta. */
     pressed?: boolean;
@@ -17,7 +19,8 @@ type Props = {
         | { type: 'button'; onClick: () => void }
         | { type: 'submit' }
         // Navega: un <a> de Next con el estilo del botón (no un <button> dentro de un link).
-        | { type?: undefined; href: string; prefetch?: boolean }
+        // external: un <a> común que abre en otra pestaña (Instagram, Google Maps).
+        | { type?: undefined; href: string; prefetch?: boolean; external?: boolean }
     )
 
 const Button = (props: Props) => {
@@ -38,10 +41,13 @@ const Button = (props: Props) => {
             aria-label={props.onlyIcon ? props.label : undefined}
             aria-pressed={props.pressed}
             nativeButton={!isLink}
-            render={isLink ? <Link href={props.href} prefetch={props.prefetch} /> : undefined}
+            render={!isLink ? undefined
+                : props.external ? <a href={props.href} target="_blank" rel="noopener noreferrer" />
+                : <Link href={props.href} prefetch={props.prefetch} />}
         >
             {props.icon && props.icon}
             {!props.onlyIcon && props.label}
+            {!props.onlyIcon && props.iconEnd}
         </ButtonBase>
     );
 }

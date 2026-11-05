@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import clsx from "clsx";
 import type { LatLng, SearchResponse } from "@/server/search";
 import type { CardDebug } from "../PlaceCard/PlaceCard";
 import PlacesGrid from "../PlacesGrid/PlacesGrid";
@@ -32,10 +33,12 @@ type Props = {
 const ResultsView = (props: Props) => {
   const [pages, setPages] = useState(1);
   const page = visiblePage(props, pages);
+  // Con grupos, el StickyHeader pone el aire de arriba; sin ellos lo pone el contenedor.
+  const grouped = props.results.length > 0 && Boolean(page.sections ?? page.forYou);
 
   return (
     <MapSync places={mapPlaces(page.places)} userLocation={props.near}>
-      <div className={styles.results}>
+      <div className={clsx(styles.results, !grouped && styles.ungrouped)}>
         {props.notices.length > 0 && (
           <div className={styles.notices}>
             {props.notices.map((message) => (

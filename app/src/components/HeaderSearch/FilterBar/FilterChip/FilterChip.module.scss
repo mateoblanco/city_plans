@@ -16,6 +16,7 @@
   transition: transform 0.1s ease-in-out, background-color 0.1s ease-in-out;
   &:hover {
     background-color: var(--color-surface-hover);
+    border-color: var(--color-selected);
 
   }
 

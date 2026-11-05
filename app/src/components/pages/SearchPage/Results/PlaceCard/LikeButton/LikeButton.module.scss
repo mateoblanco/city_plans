@@ -1,25 +1,4 @@
-// La card es flex en fila: el corazón va último, arriba a la derecha.
-.like {
-  // Arriba del link que cubre la card: el click acá no navega.
-  position: relative;
-  z-index: 1;
-  margin-left: auto;
-  align-self: flex-start;
-  flex-shrink: 0;
-
-  // Con mouse aparece sólo al pasar por la card (o con foco de teclado); con like o en touch, siempre visible.
-  @media (hover: hover) {
-    opacity: 0;
-    transition: opacity 120ms ease;
-
-    :hover > &,
-    &:focus-within,
-    &[data-liked] {
-      opacity: 1;
-    }
-  }
-}
-
+// La visibilidad y la posición en la card son de CardToggle.
 .heartLiked {
   color: var(--color-like);
 }

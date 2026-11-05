@@ -6,6 +6,7 @@ import type { SearchResult } from "@/server/search";
 import type { KeptBy } from "@/server/search/relevance";
 import PlaceImage from "./PlaceImage/PlaceImage";
 import LikeButton from "./LikeButton/LikeButton";
+import SaveButton from "./SaveButton/SaveButton";
 import { cardId, useHoveredPlace } from "../Map/MapSync/MapSync";
 import styles from "./PlaceCard.module.scss";
 
@@ -60,7 +61,7 @@ const PlaceCard = (props: Props) => {
 
       <div className={styles.body}>
 
-        {/* El ::after del link cubre la card; el corazón queda arriba (z-index) y no navega. */}
+        {/* El ::after del link cubre la card; el corazón y guardar quedan arriba (z-index) y no navegan. */}
         <h3 className={styles.name}>
           <Link href={`/place/${props.place.slug}`} className={styles.link}>{props.place.name}</Link>
         </h3>
@@ -92,6 +93,7 @@ const PlaceCard = (props: Props) => {
       </div>
 
       <LikeButton placeId={props.place.id} name={props.place.name} />
+      <SaveButton placeId={props.place.id} name={props.place.name} />
     </article>
   );
 };

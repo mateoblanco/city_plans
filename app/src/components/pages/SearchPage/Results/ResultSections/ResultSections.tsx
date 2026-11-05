@@ -37,7 +37,7 @@ const ResultSections = (props: Props) => (
             <Button
               href={sectionHref(props.state, section.id)}
               prefetch={false}
-              variant="secondary"
+              variant="tertiary"
               size="sm"
               onlyIcon
               label={`Ver todos: ${section.title}`}

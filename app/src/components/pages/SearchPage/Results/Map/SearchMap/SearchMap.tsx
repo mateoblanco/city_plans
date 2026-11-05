@@ -3,8 +3,7 @@
 import { AdvancedMarker, APIProvider, Map, useMap } from "@vis.gl/react-google-maps";
 import { useEffect, useMemo } from "react";
 import type { IconCategory } from "@shared/icon-categories.ts";
-import PlaceIcon from "@/components/PlaceIcon/PlaceIcon";
-import { MARKER_ICONS } from "./marker-icons";
+import MapMarker from "@/components/MapMarker/MapMarker";
 import styles from "./SearchMap.module.scss";
 
 export type LatLng = { lat: number; lng: number };
@@ -42,19 +41,6 @@ const FitBounds = (props: FitBoundsProps) => {
   return null;
 };
 
-type MarkerIconProps = {
-  category: IconCategory | null;
-};
-
-/** SVG de la categoría; sin categoría o sin archivo, el emoji de PlaceIcon. El nombre accesible es el title del marcador. */
-const MarkerIcon = (props: MarkerIconProps) => {
-  const icon = props.category ? MARKER_ICONS[props.category] : undefined;
-  if (!icon) return <PlaceIcon category={props.category} />;
-  // <img> y no next/image: un SVG no se optimiza y la misma URL con hash la cachea el navegador.
-  // eslint-disable-next-line @next/next/no-img-element
-  return <img className={styles.markerIcon} src={icon.src} alt="" width={20} height={20} draggable={false} decoding="async" />;
-};
-
 type Props = {
   places: MapPlace[];
   userLocation: LatLng | null;
@@ -86,9 +72,7 @@ const SearchMap = (props: Props) => {
               onMouseEnter={() => props.onHover(place.cardId)}
               onMouseLeave={() => props.onHover(null)}
             >
-              <div className={styles.marker} data-active={active || undefined}>
-                <MarkerIcon category={place.iconCategory} />
-              </div>
+              <MapMarker category={place.iconCategory} active={active} />
             </AdvancedMarker>
           );
         })}

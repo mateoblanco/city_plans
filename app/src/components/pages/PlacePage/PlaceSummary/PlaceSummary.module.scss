@@ -1,0 +1,97 @@
+.main{
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.summary {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.name {
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 56px;
+}
+
+.facts {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 16px;
+  gap: 0 8px;
+  line-height: 26px;
+}
+
+.fact {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.separator {
+  color: var(--color-text-subtle);
+}
+
+.status {
+  color: var(--color-status-closed);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+
+  
+
+  &::before{
+    content: '';
+    display: block;
+    width: 8px;
+    height: 8px;
+    background-color: var(--color-status-closed);
+    border-radius: 50%;
+  }
+
+  &[data-tone="open"] {
+    color: var(--color-status-open);
+
+    &::before{
+      background-color: var(--color-status-open);
+    }
+  }
+
+  &[data-tone="closing_soon"] {
+    color: var(--color-status-closing-soon);
+
+    &::before{
+      background-color: var(--color-status-closing-soon);
+    }
+  }
+
+  // Abre pronto: sin color propio, como en la card.
+  &[data-tone="opening_soon"] {
+    color: inherit;
+
+    &::before{
+      background-color: currentColor;
+    }
+  }
+}
+
+.star {
+  color: var(--color-rating);
+  vertical-align: -1px;
+}
+
+.description {
+  font-size: 16px;
+  line-height: 28px;
+  max-width: 720px;
+}
+
+.links {
+  display: flex;
+  gap: 12px;
+}

@@ -4,41 +4,6 @@
   padding: 16px;
 }
 
-// Mismo scale para el hover del marcador y para la card resaltada en la lista (hoveredId de MapSync).
-$marker-active-scale: 1.5;
-
-.marker {
-  align-items: center;
-  background-color: var(--color-surface);
-  border-radius: 50%;
-  box-shadow: var(--shadow-marker);
-  display: flex;
-  justify-content: center;
-  // padding: 1px;
-  width:30px;
-  height:30px;
-  transition:
-    transform 0.15s ease-out,
-    box-shadow 0.15s ease-out;
-
-  &[data-active] {
-    // Anillo negro como box-shadow: no agranda la caja (el ancla no se mueve) y escala con el transform.
-    box-shadow:
-      0 0 0 1px var(--color-selected),
-      var(--shadow-marker);
-    transform: scale($marker-active-scale);
-  }
-}
-
-.markerIcon {
-  display: block;
-  height: 20px;
-  pointer-events: none;
-  user-select: none;
-  -webkit-user-drag: none;
-  width: 20px;
-}
-
 .userMarker {
   background-color: var(--color-map-user);
   border: 3px solid var(--color-surface);

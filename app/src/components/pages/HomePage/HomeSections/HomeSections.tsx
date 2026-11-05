@@ -1,18 +1,21 @@
 import { cookies } from "next/headers";
 import { homeRows, type HomeRow } from "@/server/home";
 import { LIKES_COOKIE, parseLikesCookie } from "@/components/pages/SearchPage/utils/likes-cookie";
+import { SAVED_COOKIE, parseSavedCookie } from "@/components/pages/SearchPage/utils/saved-cookie";
 import PlaceRow from "./PlaceRow/PlaceRow";
 import styles from "./HomeSections.module.scss";
 
 /**
- * Filas de la home debajo del buscador: "Para vos" (con los likes de la cookie, si hay perfil) y las del config, que
- * vienen de la caché. Si falla, la home queda sin filas.
+ * Filas de la home debajo del buscador: "Guardados" (con la cookie de guardados, si hay), "Para vos" (con los likes de
+ * la cookie, si hay perfil) y las del config, que vienen de la caché. Si falla, la home queda sin filas.
  */
 const HomeSections = async () => {
-  const likes = parseLikesCookie((await cookies()).get(LIKES_COOKIE)?.value);
+  const jar = await cookies();
+  const likes = parseLikesCookie(jar.get(LIKES_COOKIE)?.value);
+  const saved = parseSavedCookie(jar.get(SAVED_COOKIE)?.value);
   let rows: HomeRow[];
   try {
-    rows = await homeRows(likes);
+    rows = await homeRows(likes, saved);
   } catch (error) {
     console.error("Fallaron las secciones de la home", error);
     return null;

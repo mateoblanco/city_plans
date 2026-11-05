@@ -10,6 +10,12 @@
   gap: 16px;
 }
 
+// El header del primer grupo arranca justo en el `top` del sticky (con el margen negativo, incluso más arriba), así
+// que sin este aire ya aparece pegado al cargar la búsqueda.
+.section:first-child {
+  padding-top: 24px;
+}
+
 // Queda pegado debajo del header mientras se scrollea su sección; el padding con margen negativo le da fondo
 // alrededor del texto sin cambiar el espaciado. El borde inferior sólo se ve mientras está pegado (data-stuck).
 .header {

@@ -1,0 +1,63 @@
+// Alto de la barra y cuánto del logo queda encima de ella.
+$bar-height: 180px;
+$logo-overlap: 96px;
+
+.header {
+  display: flex;
+  flex-direction: column;
+}
+
+.bar {
+  display: flex;
+  flex-direction: column;
+  padding: 32px 0 0;
+
+  // El padding lateral de la barra va por dentro del ancho máximo, para que "Volver" quede alineado con el logo.
+  .content {
+    padding: 0 calc(var(--place-gutter) + 48px);
+  }
+
+  .header[data-bar] & {
+    background-color: var(--bar-bg);
+    height: $bar-height;
+    padding-top: 48px;
+  }
+}
+
+// La barra ocupa todo el ancho; lo de adentro (volver, logo, acciones) respeta el ancho máximo de la ficha
+// (variables de `.page` en PlacePage.module.scss).
+.content {
+  display: flex;
+  flex-direction: column;
+  margin: 0 auto;
+  max-width: var(--place-max-width);
+  padding: 0 var(--place-gutter);
+  width: 100%;
+}
+
+.row {
+  align-items: flex-end;
+  display: flex;
+  justify-content: space-between;
+  padding: 16px 48px 0;
+
+  .header[data-bar] & {
+    margin-top: -$logo-overlap;
+    padding-top: 0;
+  }
+}
+
+.logo {
+  position: relative;
+}
+
+// Con barra, me gusta y guardar van debajo de ella, no encima del color.
+.like {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+
+  .header[data-bar] & {
+    padding-top: $logo-overlap + 16px;
+  }
+}
