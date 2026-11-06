@@ -895,3 +895,78 @@ describe('POST /api/neighborhoods/:neighborhoodId/sweep', () => {
     ])
   })
 })
+
+describe('descuentos', () => {
+  const ourPlace = '00000000-0000-4000-8000-000000000001'
+  const otherPlace = '00000000-0000-4000-8000-000000000002'
+
+  async function service(options: { start?: () => string | null } = {}) {
+    const { memoryDiscountStore } = await import('./discounts/memory-store.ts')
+    const ours = [
+      { id: ourPlace, name: 'Es Mercat', neighborhoodId: 'CIUDAD VIEJA', brandKey: null, instagram: null },
+      { id: otherPlace, name: 'El Otro Es Mercat', neighborhoodId: 'CIUDAD VIEJA', brandKey: null, instagram: null },
+    ]
+    const store = memoryDiscountStore(ours)
+    const { planDiscountWrites } = await import('./discounts/persist.ts')
+    const sourcePlace = {
+      id: 'bbva:es-mercat', providerId: 'bbva', sourceName: 'Es Mercat', category: null, city: 'Ciudad Vieja, Montevideo', departments: ['Montevideo'], montevideo: true,
+      locations: [], website: null, instagram: null, sourceUrl: 'https://bank.test/es-mercat', logoUrl: null, description: null, sourceTags: [],
+      campaign: { validFrom: null, validTo: null, text: null }, benefits: [],
+    }
+    await store.apply(planDiscountWrites({ providerId: 'bbva', runId: 'r1', now: new Date(), result: { places: [sourcePlace], unread: [] }, existing: [], candidates: ours }))
+    const runner = { start: options.start ?? (() => 'r2'), status: () => ({ status: 'idle' }) }
+    const discounts = { runner, store, candidates: async () => ours } as unknown as NonNullable<Parameters<typeof createApp>[0]>['discounts']
+    return { app: createApp({ discounts }), store }
+  }
+  const json = (body: unknown) => ({ headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  const at = '/api/discounts/places/bbva%3Aes-mercat'
+
+  it('sin base responde 503', async () => {
+    expect((await createApp().request('/api/discounts')).status).toBe(503)
+    expect((await createApp().request('/api/discounts/runs', { method: 'POST' })).status).toBe(503)
+  })
+
+  it('GET /api/discounts devuelve lo guardado y la última corrida', async () => {
+    const { app } = await service()
+    const body = await (await app.request('/api/discounts')).json()
+    expect(body.run).toBeNull()
+    expect(body.places).toEqual([expect.objectContaining({ id: 'bbva:es-mercat', match: expect.objectContaining({ status: 'found', origin: 'auto' }) })])
+  })
+
+  it('POST /api/discounts/runs arranca la corrida (202) o avisa que ya hay una (409)', async () => {
+    expect((await (await service()).app.request('/api/discounts/runs', { method: 'POST' })).status).toBe(202)
+    const busy = await (await service({ start: () => null })).app.request('/api/discounts/runs', { method: 'POST' })
+    expect(busy.status).toBe(409)
+    expect((await busy.json()).error.code).toBe('DISCOUNT_RUN_IN_PROGRESS')
+  })
+
+  it('confirmar pasa el cruce a manual; sin vínculos es 409', async () => {
+    const { app } = await service()
+    const confirmed = await app.request(`${at}/confirm`, { method: 'POST' })
+    expect((await confirmed.json()).place.match).toMatchObject({ origin: 'manual', links: [expect.objectContaining({ origin: 'manual' })] })
+    await app.request(`${at}/links`, { method: 'PUT', ...json({ links: [] }) })
+    expect((await app.request(`${at}/confirm`, { method: 'POST' })).status).toBe(409)
+  })
+
+  it('PUT links: uno o varios, valida uuid y que existan; vacío desvincula', async () => {
+    const { app } = await service()
+    const linked = await app.request(`${at}/links`, { method: 'PUT', ...json({ links: [{ placeId: ourPlace }, { placeId: otherPlace, wholeBrand: true }] }) })
+    expect(linked.status).toBe(200)
+    expect((await linked.json()).place.match).toMatchObject({ status: 'found', origin: 'manual', links: [expect.objectContaining({ placeId: ourPlace, wholeBrand: false }), expect.objectContaining({ placeId: otherPlace, wholeBrand: true })] })
+    expect((await app.request(`${at}/links`, { method: 'PUT', ...json({ links: [{ placeId: 'nope' }] }) })).status).toBe(400)
+    expect((await app.request(`${at}/links`, { method: 'PUT', ...json({ links: [{ placeId: '00000000-0000-4000-8000-00000000ffff' }] }) })).status).toBe(400)
+    const cleared = await app.request(`${at}/links`, { method: 'PUT', ...json({ links: [] }) })
+    expect((await cleared.json()).place.match).toMatchObject({ status: 'missing', origin: 'manual', links: [] })
+    expect((await app.request('/api/discounts/places/bbva%3Anada/links', { method: 'PUT', ...json({ links: [] }) })).status).toBe(404)
+  })
+
+  it('ignorar y volver a automático', async () => {
+    const { app } = await service()
+    const ignored = await app.request(`${at}/ignored`, { method: 'PATCH', ...json({ ignored: true }) })
+    expect((await ignored.json()).place.ignored).toBe(true)
+    expect((await app.request(`${at}/ignored`, { method: 'PATCH', ...json({ ignored: 'sí' }) })).status).toBe(400)
+    await app.request(`${at}/links`, { method: 'PUT', ...json({ links: [{ placeId: otherPlace }] }) })
+    const auto = await app.request(`${at}/auto`, { method: 'POST' })
+    expect((await auto.json()).place.match).toMatchObject({ origin: 'auto', status: 'found', links: [expect.objectContaining({ placeId: ourPlace, origin: 'auto' })] })
+  })
+})

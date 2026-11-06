@@ -136,6 +136,26 @@ La aplicación hace una consulta por interacción, mantiene una sola consulta OS
 - Cada fila procesada tiene **Ver resultado**, que abre un modal con el JSON final (la misma vista que la pestaña Info del diálogo) o el error, sin volver a llamar al pipeline. Al terminar el lote se muestran el tiempo total, el promedio por lugar, el promedio por paso y la cantidad de listos y con error.
 - Los resultados viven sólo en el estado de React: se pierden al salir de la pantalla. Cada lugar procesado consume Google Details (`*`), Exa, Apify y el LLM; el costo estimado viene en `performance.costUsd`.
 
+## Descuentos
+
+Pantalla **Descuentos** (`#/descuentos`): descuentos gastronómicos de bancos (después billeteras, financieras y clubes), leídos de los sitios de cada proveedor, guardados en Neon y cruzados con los lugares guardados. Por ahora BBVA y Santander (Ruta Gourmet, Montevideo).
+
+- **Actualizar descuentos** corre en el servidor todos los proveedores de `server/discounts/providers.ts` (un pedido a la vez, 1,5 s de pausa, respetando `robots.txt`, user-agent genérico); la pantalla consulta el progreso cada 1,5 s. BBVA: ~90 pedidos, ~3 min; Santander: ~58 pedidos, ~2 min.
+- Tablas (`drizzle/0021_discounts.sql`): `discount_places`, `discount_place_links` (uno a muchos con `places`), `discount_benefits` y `discount_runs`. Cada corrida hace upsert por id estable; lo que no aparece queda inactivo (no se borra) y se reactiva si vuelve. Un beneficio vencido cuenta como inactivo. Un proveedor que falla entero no toca nada.
+- El cruce automático se recalcula en cada corrida; lo corregido a mano (Confirmar, elegir candidatos, buscar y vincular, desvincular) y lo ignorado no se toca nunca. **Volver a automático** deshace lo manual.
+- El HTML crudo de cada corrida queda en `cache/discounts/raw/<id>/<proveedor>/` (fuera de git) y las respuestas del modelo en `cache/discounts/llm/`.
+- Desde la terminal: `yarn discounts:run` (lo mismo que el botón) y `yarn discounts:reparse` (reprocesa el HTML crudo más reciente de cada proveedor y escribe en la base, 0 pedidos; `yarn discounts:run --from <id>` para otra corrida). `--only santander` corre un proveedor y `--dry-run` no escribe en la base (imprime el resumen).
+- Santander da coordenadas de cada local: el cruce las usa (≤ 150 m y nombre parecido). BBVA no (sus links a Maps son cortos), y se cruza por barrio.
+- El modelo (`DISCOUNTS_MODEL`, por defecto `anthropic/claude-haiku-5.5` por el AI Gateway) sólo se usa para texto que las reglas no leen; con el formato actual de BBVA, ninguna llamada.
+
+Para probarlo, en este orden:
+
+1. `yarn db:migrate` (crea las tablas de `0021_discounts.sql`).
+2. `yarn discounts:reparse`: llena la base desde el HTML ya guardado, sin pedirle nada al banco.
+3. `yarn dev` y abrir `#/descuentos`.
+
+Los tests: `yarn vitest run server/discounts server/app.test.ts src/pages/discounts-page.test.tsx src/lib/discounts.test.ts`.
+
 ## Validación
 
 ```bash

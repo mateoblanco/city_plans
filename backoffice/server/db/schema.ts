@@ -3,10 +3,13 @@ import {
   boolean,
   check,
   customType,
+  date,
   index,
   integer,
   jsonb,
+  numeric,
   pgTable,
+  primaryKey,
   real,
   text,
   timestamp,
@@ -17,6 +20,19 @@ import { ICON_CATEGORY_KEYS } from "../../src/data/icon-categories.ts";
 import { STYLE_IDS } from "../../src/data/tags.ts";
 import { REVIEW_REASON_IDS } from "../../src/data/review-reasons.ts";
 import type { ManualOverrides } from "../../src/data/manual-overrides.ts";
+import {
+  BENEFIT_MODES,
+  CAP_CURRENCIES,
+  CAP_PERIODS,
+  CARD_TYPES,
+  MATCH_ORIGINS,
+  MATCH_STATUSES,
+  WEEKDAYS,
+  type DiscountRunError,
+  type DiscountRunProvider,
+  type MatchCandidate,
+  type ProviderPlaceLocation,
+} from "../../src/types/discounts.ts";
 
 // ── Tipos auxiliares ──
 
@@ -227,6 +243,136 @@ export const priceSuggestions = pgTable(
     check("price_suggestions_signal_check", sql`${t.signal} in (${inList(PRICE_SUGGESTION_SIGNAL)})`),
   ]
 );
+
+// ── Descuentos (server/discounts/) ──
+// Los proveedores están en código (server/discounts/providers.ts). Cada corrida hace upsert por id estable: lo que no
+// aparece queda inactivo (no se borra) y vuelve a activarse si reaparece. Un proveedor que falla entero no toca nada.
+
+export const DAYS_KINDS = ["all", "list", "unknown"] as const;
+export const PARSED_BY = ["html", "llm"] as const;
+
+// Un lugar de un proveedor (banco, billetera…), con id `${proveedor}:${slug de la fuente}`.
+export const discountPlaces = pgTable(
+  "discount_places",
+  {
+    id: text("id").primaryKey(),
+    providerId: text("provider_id").notNull(),
+    sourceName: text("source_name").notNull(),
+    category: text("category"),
+    city: text("city"),
+    departments: text("departments").array().notNull().default(sql`'{}'`),
+    montevideo: boolean("montevideo").notNull().default(false),
+    locations: jsonb("locations").$type<ProviderPlaceLocation[]>().notNull().default([]),
+    website: text("website"),
+    instagram: text("instagram"),
+    sourceUrl: text("source_url").notNull(),
+    logoUrl: text("logo_url"),
+    description: text("description"),
+    sourceTags: text("source_tags").array().notNull().default(sql`'{}'`),
+    campaignValidFrom: date("campaign_valid_from", { mode: "string" }),
+    campaignValidTo: date("campaign_valid_to", { mode: "string" }),
+    campaignText: text("campaign_text"),
+
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
+    // Apareció en la última corrida del proveedor que terminó bien.
+    active: boolean("active").notNull().default(true),
+    // Ignorado a mano: no se vuelve a cruzar ni se muestra por defecto.
+    ignored: boolean("ignored").notNull().default(false),
+
+    // Cruce: manual = lo corrigió alguien y ninguna corrida lo toca. Los vínculos están en discount_place_links.
+    matchStatus: text("match_status", { enum: MATCH_STATUSES }).notNull().default("missing"),
+    matchOrigin: text("match_origin", { enum: MATCH_ORIGINS }).notNull().default("auto"),
+    matchCandidates: jsonb("match_candidates").$type<MatchCandidate[]>().notNull().default([]),
+    matchedAt: timestamp("matched_at", { withTimezone: true }),
+
+    lastRunId: text("last_run_id"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("discount_places_match_status_check", sql`${t.matchStatus} in (${inList(MATCH_STATUSES)})`),
+    check("discount_places_match_origin_check", sql`${t.matchOrigin} in (${inList(MATCH_ORIGINS)})`),
+    index("discount_places_provider_idx").on(t.providerId),
+    index("discount_places_match_status_idx").on(t.matchStatus),
+  ]
+);
+
+// Vínculo lugar del proveedor ↔ lugar nuestro: uno a muchos (un lugar del banco puede ser varias sucursales nuestras).
+export const discountPlaceLinks = pgTable(
+  "discount_place_links",
+  {
+    discountPlaceId: text("discount_place_id").notNull().references(() => discountPlaces.id, { onDelete: "cascade" }),
+    placeId: uuid("place_id").notNull().references(() => places.id, { onDelete: "cascade" }),
+    origin: text("origin", { enum: MATCH_ORIGINS }).notNull(),
+    // Vinculado por ser de la marca (la fuente no dice la sucursal), no por una dirección.
+    wholeBrand: boolean("whole_brand").notNull().default(false),
+    score: real("score"),
+    reasons: text("reasons").array().notNull().default(sql`'{}'`),
+    // Qué dirección de discount_places.locations cruzó (índice); null si no salió de una dirección.
+    locationIndex: integer("location_index"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.discountPlaceId, t.placeId] }),
+    check("discount_place_links_origin_check", sql`${t.origin} in (${inList(MATCH_ORIGINS)})`),
+    index("discount_place_links_place_idx").on(t.placeId),
+  ]
+);
+
+// Un beneficio, con id estable (lugar, tipo de tarjeta, niveles y programa; sin el porcentaje).
+export const discountBenefits = pgTable(
+  "discount_benefits",
+  {
+    id: text("id").primaryKey(),
+    discountPlaceId: text("discount_place_id").notNull().references(() => discountPlaces.id, { onDelete: "cascade" }),
+    percent: real("percent").notNull(),
+    cardType: text("card_type", { enum: CARD_TYPES }).notNull(),
+    cardTiers: text("card_tiers").array().notNull().default(sql`'{}'`),
+    // Sólo con esa tarjeta co-branded ("Nacional"); null = cualquiera del tipo.
+    cardProgram: text("card_program"),
+    // all: sin restricción; list: los de days; unknown: no se pudo determinar (ver days_text).
+    daysKind: text("days_kind", { enum: DAYS_KINDS }).notNull(),
+    days: text("days").array().notNull().default(sql`'{}'`),
+    daysText: text("days_text"),
+    mode: text("mode", { enum: BENEFIT_MODES }).notNull(),
+    instantPercent: real("instant_percent"),
+    refundPercent: real("refund_percent"),
+    capText: text("cap_text"),
+    capAmount: numeric("cap_amount", { precision: 12, scale: 2, mode: "number" }),
+    capCurrency: text("cap_currency", { enum: CAP_CURRENCIES }),
+    capPeriod: text("cap_period", { enum: CAP_PERIODS }),
+    validFrom: date("valid_from", { mode: "string" }),
+    validTo: date("valid_to", { mode: "string" }),
+    conditions: text("conditions"),
+    sourceText: text("source_text").notNull(),
+    parsedBy: text("parsed_by", { enum: PARSED_BY }).notNull(),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
+    // Apareció en la última lectura de su detalle y no estaba vencido. Al leer, además, valid_to < hoy cuenta como inactivo.
+    active: boolean("active").notNull().default(true),
+  },
+  (t) => [
+    check("discount_benefits_card_type_check", sql`${t.cardType} in (${inList(CARD_TYPES)})`),
+    check("discount_benefits_days_kind_check", sql`${t.daysKind} in (${inList(DAYS_KINDS)})`),
+    check("discount_benefits_days_check", sql`${t.days} <@ array[${inList(WEEKDAYS)}]::text[]`),
+    check("discount_benefits_mode_check", sql`${t.mode} in (${inList(BENEFIT_MODES)})`),
+    check("discount_benefits_cap_currency_check", sql`${t.capCurrency} in (${inList(CAP_CURRENCIES)})`),
+    check("discount_benefits_cap_period_check", sql`${t.capPeriod} in (${inList(CAP_PERIODS)})`),
+    check("discount_benefits_parsed_by_check", sql`${t.parsedBy} in (${inList(PARSED_BY)})`),
+    index("discount_benefits_place_idx").on(t.discountPlaceId),
+  ]
+);
+
+// Cada corrida: resumen por proveedor (lugares, pedidos, costo del modelo), errores parciales y avisos.
+export const discountRuns = pgTable("discount_runs", {
+  id: text("id").primaryKey(),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }).notNull(),
+  reparsedFrom: text("reparsed_from"),
+  providers: jsonb("providers").$type<DiscountRunProvider[]>().notNull(),
+  errors: jsonb("errors").$type<DiscountRunError[]>().notNull().default([]),
+  warnings: jsonb("warnings").$type<string[]>().notNull().default([]),
+});
 
 export type Place = typeof places.$inferSelect;
 export type NewPlace = typeof places.$inferInsert;

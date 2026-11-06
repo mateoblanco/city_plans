@@ -26,7 +26,9 @@
     "websites:check": "tsx server/scripts/websites-check.ts",
     "places:clear-review-reasons": "tsx server/scripts/review-reasons-cleanup.ts",
     "places:check-status": "tsx server/scripts/places-status-check.ts",
-    "prices:suggest": "tsx server/scripts/prices-suggest.ts"
+    "prices:suggest": "tsx server/scripts/prices-suggest.ts",
+    "discounts:run": "tsx server/scripts/discounts-run.ts",
+    "discounts:reparse": "tsx server/scripts/discounts-run.ts --from latest"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1152.0",
@@ -43,6 +45,7 @@
     "@turf/helpers": "^7.4.0",
     "@vis.gl/react-google-maps": "^1.10.1",
     "ai": "^7.0.124",
+    "cheerio": "^1.2.0",
     "class-variance-authority": "^0.7.1",
     "cmdk": "^1.1.1",
     "cn": "^0.3.0",

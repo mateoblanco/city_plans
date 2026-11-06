@@ -16,6 +16,8 @@ import { withServiceLimit } from './providers/service-limits.ts'
 import { MontevideoBusProvider } from './providers/montevideo-bus-provider.ts'
 import { OpenStreetMapProvider } from './providers/openstreetmap-provider.ts'
 import { PlaywrightWebsiteScraper } from './providers/website-scraper.ts'
+import { DiscountRunner } from './discounts/run.ts'
+import { discountRunDependencies } from './discounts/setup.ts'
 
 config({ path: '.env', quiet: true })
 config({ path: '.env.local', override: true, quiet: true })
@@ -50,12 +52,13 @@ const logoStorage = new R2LogoStorage()
 // Neon es opcional: sin DATABASE_URL el server arranca igual y /api/places responde 503.
 const database = process.env.DATABASE_URL?.trim()
   ? await (async () => {
-      const [{ db }, { drizzlePlacesStore, gatewayEmbedder, placesSaver }, { drizzleBrandSiblings, drizzleInstagramOwners, drizzleManualCategories, drizzleManualInstagram, drizzlePlaceIds, drizzlePlacesReader }, { drizzleEditStore, placeEditor }] = await Promise.all([
+      const [{ db }, { drizzlePlacesStore, gatewayEmbedder, placesSaver }, { drizzleBrandSiblings, drizzleDiscountCandidates, drizzleInstagramOwners, drizzleManualCategories, drizzleManualInstagram, drizzlePlaceIds, drizzlePlacesReader }, { drizzleEditStore, placeEditor }] = await Promise.all([
         import('./db/index.ts'),
         import('./places/save.ts'),
         import('./places/list.ts'),
         import('./places/edit.ts'),
       ])
+      const { drizzleDiscountStore } = await import('./discounts/drizzle-store.ts')
       return {
         placesSaver: placesSaver(drizzlePlacesStore(db)),
         placeEditor: placeEditor({
@@ -77,6 +80,8 @@ const database = process.env.DATABASE_URL?.trim()
         manualInstagram: drizzleManualInstagram(db),
         manualCategories: drizzleManualCategories(db),
         brandSiblings: drizzleBrandSiblings(db),
+        discountCandidates: drizzleDiscountCandidates(db),
+        discountStore: drizzleDiscountStore(db),
       }
     })()
   : undefined
@@ -99,6 +104,13 @@ const extractor = provider
       brandSiblings: database?.brandSiblings,
     })
   : undefined
+// Descuentos: se guardan en la base (discount_*); el HTML crudo de cada corrida queda en cache/discounts/raw.
+const discounts = database
+  ? (() => {
+      const deps = discountRunDependencies({ store: database.discountStore, candidates: database.discountCandidates })
+      return { runner: new DiscountRunner(deps), store: database.discountStore, candidates: database.discountCandidates }
+    })()
+  : undefined
 const apiPort = Number(process.env.BACKOFFICE_API_PORT ?? 8787)
 
 serve(
@@ -115,6 +127,7 @@ serve(
       placesReader: database?.placesReader,
       placeIds: database?.placeIds,
       placeEditor: database?.placeEditor,
+      discounts,
     }).fetch,
     hostname: '127.0.0.1',
     port: apiPort,

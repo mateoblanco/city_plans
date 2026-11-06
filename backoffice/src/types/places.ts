@@ -713,6 +713,8 @@ export type ApiErrorCode =
   | 'INSTAGRAM_IN_USE'
   /** El logo subido no sirve (no es imagen, es muy chico, es el avatar genérico). */
   | 'LOGO_INVALID'
+  /** Ya hay una corrida de descuentos en curso. */
+  | 'DISCOUNT_RUN_IN_PROGRESS'
   | 'UNKNOWN_ERROR'
 
 export type ApiErrorResponse = {

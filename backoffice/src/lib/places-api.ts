@@ -73,7 +73,7 @@ export async function searchPlaces(
   return payload as PlacesSearchResponse
 }
 
-async function parseApiResponse<T>(response: Response): Promise<T> {
+export async function parseApiResponse<T>(response: Response): Promise<T> {
   const payload = (await response.json().catch(() => null)) as
     | T
     | ApiErrorResponse

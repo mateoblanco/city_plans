@@ -9,6 +9,7 @@ import { brandSlug, instagramKey } from './brand-key.ts'
 import { medianIgTerm } from './prominence.ts'
 import type { InstagramOwners, ManualInstagramLookup } from '../providers/instagram-candidate-registry.ts'
 import type { BrandSiblings, ManualCategoriesLookup } from '../providers/place-extraction-service.ts'
+import type { MatchablePlace } from '../discounts/match.ts'
 
 export type { PlaceListItem }
 
@@ -260,4 +261,11 @@ export function drizzleManualCategories(db: NeonHttpDatabase<typeof schema>): Ma
       .limit(1)
     return parseManualOverrides(row?.manualOverrides).categories ?? null
   }
+}
+
+/** Lo que lee el cruce de descuentos (server/discounts/match.ts), de todos los lugares. Sólo lectura, una consulta. */
+export function drizzleDiscountCandidates(db: NeonHttpDatabase<typeof schema>): () => Promise<MatchablePlace[]> {
+  return () => db
+    .select({ id: places.id, name: places.name, neighborhoodId: places.neighborhoodId, brandKey: places.brandKey, instagram: places.instagram, location: places.location })
+    .from(places)
 }

@@ -35,6 +35,8 @@ import {
   type ExtractionReportWriter,
 } from './providers/extraction-report.ts'
 import { NEIGHBORHOOD_IDS } from '../src/lib/getNeighborhood.ts'
+import type { DiscountsService } from './discounts/run.ts'
+import { registerDiscountRoutes } from './discounts/routes.ts'
 
 const pageTokenSchema = z.string().trim().min(1).max(2048).optional()
 const requestSchema = z.discriminatedUnion('mode', [
@@ -110,6 +112,7 @@ type AppDependencies = {
   placesReader?: PlacesReader
   placeIds?: PlaceIdsReader
   placeEditor?: PlaceEditor
+  discounts?: DiscountsService
 }
 
 const MAX_SAVE_PLACES = 500
@@ -209,8 +212,10 @@ function editError(error: EditError) {
   }
 }
 
-export function createApp({ provider, exaProvider, matchProviders = {}, instagramConfigured = false, extractor, sweeper, reportWriter, placesSaver, placesReader, placeIds, placeEditor }: AppDependencies = {}) {
+export function createApp({ provider, exaProvider, matchProviders = {}, instagramConfigured = false, extractor, sweeper, reportWriter, placesSaver, placesReader, placeIds, placeEditor, discounts }: AppDependencies = {}) {
   const app = new Hono()
+
+  registerDiscountRoutes(app, discounts)
 
   app.get('/api/health', (context) =>
     context.json({
