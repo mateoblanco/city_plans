@@ -18,11 +18,28 @@
   }
 }
 
+// Me gusta y guardar: dos botones de 24px separados 8px.
+$actions-width: 24px * 2 + 8px;
+
 .body {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
+  // Lugar fijo para los botones (estén visibles o no), así el hover nunca cambia el ancho del texto.
+  padding-right: $actions-width + 16px;
   // padding: 12px;
+}
+
+// Arriba a la derecha, por encima del contenido; la visibilidad de cada botón es de CardToggle.
+.actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  position: absolute;
+  right: 16px;
+  top: 16px;
 }
 
 .name {

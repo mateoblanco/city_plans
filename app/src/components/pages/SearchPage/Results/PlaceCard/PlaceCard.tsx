@@ -94,8 +94,11 @@ const PlaceCard = (props: Props) => {
         {props.debug && <p className={styles.debug}>{debugLine(props.debug)}</p>}
       </div>
 
-      <LikeButton placeId={props.place.id} name={props.place.name} />
-      <SaveButton placeId={props.place.id} name={props.place.name} />
+      {/* Fuera del flujo: que aparezcan con el hover no reacomoda el texto ni los chips. */}
+      <div className={styles.actions}>
+        <LikeButton placeId={props.place.id} name={props.place.name} />
+        <SaveButton placeId={props.place.id} name={props.place.name} />
+      </div>
     </article>
   );
 };
