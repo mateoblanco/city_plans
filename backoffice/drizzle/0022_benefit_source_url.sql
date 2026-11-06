@@ -1,0 +1,1 @@
+ALTER TABLE "discount_benefits" ADD COLUMN "source_url" text;

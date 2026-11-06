@@ -1,0 +1,21 @@
+.provider {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+// El nombre del banco, en su chip de color (BankChip).
+.name {
+  align-self: flex-start;
+  font-size: inherit;
+  margin: 0;
+}
+
+.benefits {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}

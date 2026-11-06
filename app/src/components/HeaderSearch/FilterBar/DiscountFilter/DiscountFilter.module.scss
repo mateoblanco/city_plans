@@ -1,0 +1,49 @@
+// Panel de Descuentos: una fila por proveedor con sus chips (como los de la barra, FilterChip).
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  min-width: 280px;
+  padding: 0;
+}
+
+.row {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.cards {
+  display: flex;
+  gap: 6px;
+}
+
+.chip {
+  background-color: var(--color-surface-chip);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 10px;
+
+  &:hover {
+    background-color: var(--color-surface-hover);
+  }
+
+  &[data-pressed] {
+    background-color: var(--color-surface-hover);
+    border-color: var(--color-selected);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+}
+

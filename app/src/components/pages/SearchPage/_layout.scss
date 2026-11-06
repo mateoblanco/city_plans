@@ -1,0 +1,63 @@
+// Layout dividido de /search (sólo desktop): lista a la izquierda y mapa fijo a la derecha. Los anchos de
+// ambas columnas tienen que sumar 100%, así que se definen sólo acá y los usan ResultsView, MapColumn,
+// PlacesGrid y ResultsSkeleton.
+//
+// ≥ 1500: 55/45, 48px de margen, 2 columnas.
+// 1300–1499: el mapa cede ancho (62/38) y el margen baja a 32px, para que las 2 columnas no se rompan.
+// < 1300: 1 columna; con una sola card por fila la lista sobra, así que el mapa recupera su 45%.
+
+$bp-compact: 1500px;
+$bp-single: 1300px;
+
+@mixin compact {
+  @media (max-width: #{$bp-compact - 1px}) {
+    @content;
+  }
+}
+
+@mixin single {
+  @media (max-width: #{$bp-single - 1px}) {
+    @content;
+  }
+}
+
+// Ancho y margen lateral de la lista (el vertical lo pone cada uno).
+@mixin results-column {
+  width: 55%;
+  padding-left: 48px;
+  padding-right: 48px;
+
+  @include compact {
+    width: 62%;
+    padding-left: 32px;
+    padding-right: 32px;
+  }
+
+  @include single {
+    width: 55%;
+  }
+}
+
+// Ancho y margen derecho del mapa: lo que deja la lista.
+@mixin map-column {
+  width: 45%;
+  padding-right: 48px;
+
+  @include compact {
+    width: 38%;
+    padding-right: 32px;
+  }
+
+  @include single {
+    width: 45%;
+  }
+}
+
+// Grilla de cards: 2 columnas, 1 debajo de $bp-single.
+@mixin places-grid {
+  grid-template-columns: repeat(2, 1fr);
+
+  @include single {
+    grid-template-columns: 1fr;
+  }
+}

@@ -11,6 +11,23 @@ export type ExistingDiscountPlace = {
 
 export type BenefitUpsert = DiscountBenefit & { discountPlaceId: string; active: boolean }
 
+/** Un cruce manual (vinculado o confirmado a mano) o un lugar ignorado, para copiarlo a otro proveedor. */
+export type ManualMatch = {
+  id: string
+  status: MatchStatus
+  ignored: boolean
+  links: { placeId: string; wholeBrand: boolean; locationIndex: number | null }[]
+}
+
+/**
+ * Los lugares de una página (`label`, en sourceTags) heredan el cruce manual del mismo logo en otro proveedor
+ * (`itau:montevideo:x` ← `itau-personal-bank:montevideo:x`): DiscountProviderPage.manualMatchFrom.
+ */
+export type InheritedMatches = { fromProviderId: string; label: string; sources: ManualMatch[] }
+
+/** Un cruce manual copiado: el store lo escribe como manual sólo si el lugar sigue automático y no ignorado. */
+export type MatchCopy = { discountPlaceId: string; fromId: string; status: MatchStatus; ignored: boolean; links: ManualMatch['links'] }
+
 /** Todo lo que escribe una corrida de un proveedor. El store lo aplica en una transacción. */
 export type DiscountWrites = {
   providerId: string
@@ -27,6 +44,8 @@ export type DiscountWrites = {
   seenBenefitIds: string[]
   /** Cruces automáticos: sólo lugares con origen auto y no ignorados (el store vuelve a chequearlo al escribir). */
   matches: { discountPlaceId: string; status: MatchStatus; candidates: MatchCandidate[]; links: DiscountLink[] }[]
+  /** Cruces manuales heredados de otro proveedor (mismas reglas que matches: sólo sobre lugares auto y no ignorados). */
+  copies: MatchCopy[]
 }
 
 /** YYYY-MM-DD en Montevideo: un beneficio que vence hoy sigue vigente hoy. */
@@ -48,21 +67,36 @@ export function planDiscountWrites(input: {
   result: Pick<ReaderResult, 'places' | 'unread'>
   existing: ExistingDiscountPlace[]
   candidates: MatchablePlace[]
+  inherited?: InheritedMatches[]
 }): DiscountWrites {
-  const today = montevideoToday(input.now)
   const unread = new Set(input.result.unread)
   const existing = new Map(input.existing.map((place) => [place.id, place]))
   const readPlaces = input.result.places.filter((place) => !unread.has(place.id))
   const benefits = readPlaces.flatMap((place) => place.benefits.map((benefit) => ({
     ...benefit,
     discountPlaceId: place.id,
-    active: !isExpired(benefit.validTo, today),
+    // Publicado en la fuente = activo, aunque la fecha haya pasado (muchas fuentes renuevan sin actualizar el texto):
+    // al leer, `expired` lo marca como "vigencia desactualizada en la fuente".
+    active: true,
   })))
+  // Sólo lo nuevo o automático y no ignorado se cruza (o hereda): lo manual y lo ignorado no se toca nunca.
+  const isAuto = (id: string) => {
+    const saved = existing.get(id)
+    return !saved || (saved.matchOrigin === 'auto' && !saved.ignored)
+  }
+  const copies: MatchCopy[] = []
+  for (const inherit of input.inherited ?? []) {
+    const sources = new Map(inherit.sources.map((source) => [source.id, source]))
+    for (const place of input.result.places) {
+      if (!place.sourceTags.includes(inherit.label) || !isAuto(place.id) || copies.some((copy) => copy.discountPlaceId === place.id)) continue
+      const fromId = `${inherit.fromProviderId}:${place.id.slice(input.providerId.length + 1)}`
+      const source = sources.get(fromId)
+      if (source) copies.push({ discountPlaceId: place.id, fromId, status: source.status, ignored: source.ignored, links: source.links })
+    }
+  }
+  const copied = new Set(copies.map((copy) => copy.discountPlaceId))
   const matches = input.result.places
-    .filter((place) => {
-      const saved = existing.get(place.id)
-      return !saved || (saved.matchOrigin === 'auto' && !saved.ignored)
-    })
+    .filter((place) => isAuto(place.id) && !copied.has(place.id))
     .map((place) => {
       const match: AutoMatch = matchPlace(place, input.candidates)
       return { discountPlaceId: place.id, status: match.status, candidates: match.candidates, links: match.links }
@@ -77,6 +111,7 @@ export function planDiscountWrites(input: {
     readPlaceIds: readPlaces.map((place) => place.id),
     seenBenefitIds: benefits.map((benefit) => benefit.id),
     matches,
+    copies,
   }
 }
 
@@ -86,6 +121,8 @@ export type ManualLink = { placeId: string; wholeBrand: boolean }
 export type DiscountStore = {
   /** Los lugares guardados del proveedor, con su origen de cruce y si están ignorados. */
   existing(providerId: string): Promise<ExistingDiscountPlace[]>
+  /** Los lugares del proveedor con cruce manual o ignorados, con sus vínculos (para heredarlos a otro proveedor). */
+  manualMatches(providerId: string): Promise<ManualMatch[]>
   /** Aplica las escrituras de una corrida de un proveedor, en una transacción. */
   apply(writes: DiscountWrites): Promise<void>
   saveRun(run: DiscountRun): Promise<void>

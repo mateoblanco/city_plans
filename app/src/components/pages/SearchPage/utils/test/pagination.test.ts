@@ -79,3 +79,16 @@ it("el mapa tiene un punto por card y por cada sucursal, apuntando a su card", (
   const points = mapPlaces([place("a", [{ id: "a2", lat: -34.8, lng: -56.1 }]), place("b")]);
   expect(points.map(({ id, cardId }) => [id, cardId])).toEqual([["a", "a"], ["a2", "a"], ["b", "b"]]);
 });
+
+describe("grupos por proveedor de descuento", () => {
+  it("un lugar en dos grupos sale en los dos, pero en el mapa una sola vez", () => {
+    const results = places(3);
+    const sections: SearchResponse["sections"] = [
+      { id: "discount:itau", title: "Con descuento Itaú", placeIds: ["p0", "p1"], total: 2 },
+      { id: "discount:bbva", title: "Con descuento BBVA", placeIds: ["p0", "p2"], total: 2 },
+    ];
+    const page = visiblePage({ results, sections, forYou: null }, 1);
+    expect(page.sections?.map((section) => ids(section.places))).toEqual([["p0", "p1"], ["p0", "p2"]]);
+    expect(ids(page.places)).toEqual(["p0", "p1", "p2"]);
+  });
+});

@@ -1,6 +1,7 @@
 import { NEIGHBORHOOD_NAMES } from '@shared/neighborhood-names.ts'
 import { isSectionId, type SectionId } from '@shared/sections.ts'
 import { isOccasionTag, TAG_IDS, type TagId } from '@shared/tags.ts'
+import { parseChoice, type DiscountChoice } from '../discounts/selection'
 import { roundCoord } from './coords'
 import { DIET_KEYS, PRICES, type DietKey, type Interpretation, type Price } from './interpretation'
 
@@ -26,14 +27,19 @@ export type SearchFilters = {
    * Los momentos no: son siempre preferencia.
    */
   tags: TagId[]
+  /**
+   * Descuentos (`discount:itau.credit`): lugares con un beneficio de cualquiera de estos proveedor y tipo de tarjeta. No
+   * es parte de la interpretación ni un chip: es sólo filtro y nunca se relaja.
+   */
+  discounts: DiscountChoice[]
 }
 
 export type LatLng = { lat: number; lng: number }
 
-export const emptyFilters = (): SearchFilters => ({ opensToday: false, diet: [], neighborhoods: [], price: [], section: null, tags: [] })
+export const emptyFilters = (): SearchFilters => ({ opensToday: false, diet: [], neighborhoods: [], price: [], section: null, tags: [], discounts: [] })
 
 export const hasFilters = (filters: SearchFilters) =>
-  filters.opensToday || filters.diet.length > 0 || filters.neighborhoods.length > 0 || filters.price.length > 0 || filters.section !== null || filters.tags.length > 0
+  filters.opensToday || filters.diet.length > 0 || filters.neighborhoods.length > 0 || filters.price.length > 0 || filters.section !== null || filters.tags.length > 0 || filters.discounts.length > 0
 
 const FILTER_TAGS = new Set<string>(TAG_IDS.filter((id) => !isOccasionTag(id)))
 
@@ -51,6 +57,10 @@ export function parseFilters(raw: string | null | undefined): SearchFilters {
     else if (kind === 'price' && (PRICES as readonly string[]).includes(id) && !filters.price.includes(id as Price)) filters.price.push(id as Price)
     else if (kind === 'section' && isSectionId(id) && id !== 'discover') filters.section = id
     else if (kind === 'tag' && FILTER_TAGS.has(id) && !filters.tags.includes(id as TagId)) filters.tags.push(id as TagId)
+    else if (kind === 'discount') {
+      const choice = parseChoice(id)
+      if (choice && !filters.discounts.some((item) => item.provider === choice.provider && item.card === choice.card)) filters.discounts.push(choice)
+    }
   }
   return filters
 }

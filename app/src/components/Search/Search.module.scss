@@ -16,7 +16,8 @@
     &:has(.input:active),
     &:focus-within {
       border-color: var(--color-focus-ring);
-      outline: 4px solid var(--color-border-input);
+      // outline: 4px solid var(--color-border-input);
+      outline: 4px solid rgba(0, 0, 0, 0.2);
     }
 }
 

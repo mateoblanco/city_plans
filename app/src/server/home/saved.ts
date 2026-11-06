@@ -1,5 +1,6 @@
 import { sql, type SQL } from 'drizzle-orm'
 import { similarCard, type CardRow } from '../places/similar'
+import { placeDiscountsColumn } from '../discounts/queries'
 import type { HomeRow } from './assemble'
 
 export const SAVED_ROW = { id: 'saved', title: 'Guardados' } as const
@@ -11,7 +12,8 @@ export function savedPlacesQuery(ids: string[]): SQL {
       p.icon_category as "iconCategory", p.logo_key as "logoKey", p.logo_bg_color as "logoBgColor", p.located_in as "locatedIn",
       case when p.brand_key is null then 1
         else (select count(*)::int from places b where b.brand_key = p.brand_key and b.status = 'published') end as "brandCount",
-      ST_Y(p.location::geometry) as lat, ST_X(p.location::geometry) as lng
+      ST_Y(p.location::geometry) as lat, ST_X(p.location::geometry) as lng,
+      ${placeDiscountsColumn(sql`p.id`)} as discounts
     from places p
     where p.status = 'published' and p.id::text = any(${sql.param(ids)}::text[])`
 }

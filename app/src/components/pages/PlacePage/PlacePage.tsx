@@ -6,6 +6,7 @@ import { montevideoNow } from "@/server/search/hours";
 import PlaceContact from "./PlaceContact/PlaceContact";
 import PlaceInfoCard from "./PlaceInfoCard/PlaceInfoCard";
 import PlaceBranches from "./PlaceBranches/PlaceBranches";
+import PlaceDiscounts from "./PlaceDiscounts/PlaceDiscounts";
 import PlaceHeader from "./PlaceHeader/PlaceHeader";
 import PlaceHours from "./PlaceHours/PlaceHours";
 import PlaceLocation from "./PlaceLocation/PlaceLocation";
@@ -50,6 +51,7 @@ const Details = async (props: DetailsProps) => {
               chips={placeChips(place)}
               instagram={place.instagram}
             />
+            <PlaceDiscounts providers={data.discounts} />
             <PlaceBranches branches={data.branches} />
             <SimilarPlaces name={place.name} places={data.similar} />
           </div>

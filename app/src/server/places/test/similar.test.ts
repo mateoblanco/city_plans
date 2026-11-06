@@ -5,6 +5,7 @@ const place = { id: 'p', brand_key: 'marlon', icon_category: 'cocktails' as cons
 
 const row = (id: string, similarity: number, overrides: Partial<SimilarRow> = {}): SimilarRow => ({
   id,
+  discounts: [],
   slug: id,
   name: id,
   neighborhoodId: 'POCITOS',

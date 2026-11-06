@@ -4,7 +4,7 @@ import { benefitSummary, capLabel, daysLabel, modeLabel, validityLabel } from '.
 
 const benefit = (patch: Partial<DiscountBenefit>): DiscountBenefit => ({
   id: 'b', percent: 20, cardType: 'debit', cardTiers: [], cardProgram: null, days: 'all', daysText: null, mode: 'mixed', instantPercent: 10, refundPercent: 10,
-  cap: null, validFrom: null, validTo: null, conditions: null, sourceText: '', parsedBy: 'html', ...patch,
+  cap: null, validFrom: null, validTo: null, conditions: null, sourceText: '', sourceUrl: null, parsedBy: 'html', ...patch,
 })
 
 describe('presentación de descuentos', () => {

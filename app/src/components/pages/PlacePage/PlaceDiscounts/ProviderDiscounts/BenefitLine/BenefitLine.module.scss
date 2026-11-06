@@ -1,0 +1,9 @@
+// Todo en una línea (pasa a la siguiente sólo si no entra): texto, tope y "Ver más info".
+.benefit {
+  align-items: baseline;
+  column-gap: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 14px;
+  line-height: 20px;
+}

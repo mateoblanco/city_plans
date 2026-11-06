@@ -5,12 +5,14 @@ import { isDietFully, type Fused } from './fuse'
 import type { DietKey, Interpretation, Lang } from './interpretation'
 import { dietGroupTitle } from './labels'
 import type { PersonalGroup, PersonalId } from './personal'
+import type { DiscountSectionId } from '../discounts/sections'
 
 /**
  * Una sección de la página de resultados: un grupo del catálogo o more = "Más opciones". total: cuántos resultados
  * cumplen la regla del grupo: si supera lo que muestra, tiene "Ver todos" (busca con `f=section:<id>`); null en discover y more.
+ * discount:<proveedor>: un grupo por proveedor de descuento (server/discounts/sections.ts), que no arma buildSections.
  */
-export type Section = { id: SectionId | PersonalId | 'diet' | 'more'; title: string; placeIds: string[]; total: number | null }
+export type Section = { id: SectionId | PersonalId | 'diet' | 'more' | DiscountSectionId; title: string; placeIds: string[]; total: number | null }
 
 export type SectionsDebug = {
   /** null si la búsqueda se agrupó (o pudo agruparse); si no, por qué no. */

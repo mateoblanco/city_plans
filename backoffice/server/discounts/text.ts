@@ -12,7 +12,8 @@ const MONTHS: Record<string, number> = {
 }
 const MONTH_NAMES = Object.keys(MONTHS).join('|')
 // "31de mayo" (sin espacio) también aparece en los legales.
-const DATE = `(\\d{1,2})\\s*de\\s+(${MONTH_NAMES})(?:\\s+de)?\\s+(\\d{4})`
+// "30 de setiembre del 2026" también.
+const DATE = `(\\d{1,2})\\s*de\\s+(${MONTH_NAMES})(?:\\s+del?)?\\s+(\\d{4})`
 
 function isoDate(day: string, month: string, year: string): string | null {
   const d = Number(day)
@@ -108,4 +109,28 @@ export function parseCap(text: string | null): BenefitCap | null {
     : /por (?:compra|transaccion|factura|ticket)/.test(folded) ? 'purchase'
     : null
   return { text: clean, amount, currency, period }
+}
+
+/** "01/12/2026" → 2026-12-01 (día/mes/año, como se escribe en Uruguay). */
+export function numericDate(text: string): string | null {
+  const match = /\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/.exec(text)
+  if (!match) return null
+  const [day, month, year] = [Number(match[1]), Number(match[2]), Number(match[3])]
+  const date = new Date(Date.UTC(year, month - 1, day))
+  if (date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
+
+/**
+ * Vigencia de un texto de bases: "del X al Y"; si no, "hasta el X" / "vigente hasta el 01/12/2026" / "válido hasta…"
+ * (sólo fin). null si no dice nada.
+ */
+export function validityOf(text: string): { validFrom: string | null; validTo: string | null } | null {
+  const range = validityRange(text)
+  if (range) return range
+  const folded = fold(text)
+  const until = /hasta el\s+(.{0,40})/.exec(folded)
+  if (!until) return null
+  const validTo = spanishDates(until[1])[0] ?? numericDate(until[1])
+  return validTo ? { validFrom: null, validTo } : null
 }

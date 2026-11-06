@@ -1,0 +1,9 @@
+// Los chips de los bancos, en fila, debajo del horario de la card.
+.discounts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}

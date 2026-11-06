@@ -950,3 +950,62 @@ describe('encaje con la intención y la sección', () => {
     expect(boostsFor(row({ id: 'todo', tags: ['picada', 'tapas', 'groups'] }), context(), null).sectionFit).toBeUndefined()
   })
 })
+
+describe('descuentos', () => {
+  const itau = { provider: 'itau', cardType: 'credit' } as const
+  const bbvaDebit = { provider: 'bbva', cardType: 'debit' } as const
+  const santanderOther = { provider: 'santander', cardType: 'other' } as const
+  const places = [
+    row({ id: 'both', prominence: 0.9, discounts: [bbvaDebit, itau] }),
+    row({ id: 'itau-only', prominence: 0.8, discounts: [itau] }),
+    row({ id: 'bbva-only', prominence: 0.7, discounts: [bbvaDebit] }),
+    row({ id: 'santander-other', prominence: 0.6, discounts: [santanderOther] }),
+    row({ id: 'none', prominence: 0.5 }),
+  ]
+  const search = (filters: string | null) => runSearch('', { store: fakeStore(places).store, cache: fakeCache().cache }, { now, filters, debug: true })
+  const ids = (response: Awaited<ReturnType<typeof search>>) => response.results.map((result) => result.id).sort()
+
+  it('sin filtro, la card muestra todos los proveedores del lugar en el orden de la config', async () => {
+    const response = await search(null)
+    expect(Object.fromEntries(response.results.map((result) => [result.id, result.discounts.map((provider) => provider.name)]))).toEqual({
+      both: ['Itaú', 'BBVA'],
+      'itau-only': ['Itaú'],
+      'bbva-only': ['BBVA'],
+      'santander-other': ['Santander'],
+      none: [],
+    })
+  })
+
+  it('un proveedor y crédito: sólo esos lugares, la card dice sólo ese proveedor y no hay grupos por descuento', async () => {
+    const { store, calls } = fakeStore(places)
+    const response = await runSearch('', { store, cache: fakeCache().cache }, { now, filters: 'discount:itau.credit', debug: true })
+    expect(calls[0].filters.discounts).toEqual([{ provider: 'itau', card: 'credit' }])
+    expect(response.debug?.source).toBe('filters')
+    expect(response.results.map((result) => result.id)).toEqual(['both', 'itau-only'])
+    expect(response.results.every((result) => result.discounts.map((provider) => provider.id).join() === 'itau')).toBe(true)
+    expect(response.sections?.some((section) => section.id.startsWith('discount:')) ?? false).toBe(false)
+  })
+
+  it('"other" (sin especificar) cumple débito y crédito de su proveedor', async () => {
+    expect(ids(await search('discount:santander.debit'))).toEqual(['santander-other'])
+    expect(ids(await search('discount:santander.credit'))).toEqual(['santander-other'])
+  })
+
+  it('varios: OR entre elecciones; con dos proveedores se agrupa por proveedor y un lugar con los dos va en ambos', async () => {
+    const response = await search('discount:bbva.debit,discount:itau.credit')
+    expect(ids(response)).toEqual(['bbva-only', 'both', 'itau-only'])
+    expect(response.sections).toEqual([
+      { id: 'discount:itau', title: 'Con descuento Itaú', placeIds: ['both', 'itau-only'], total: 2 },
+      { id: 'discount:bbva', title: 'Con descuento BBVA', placeIds: ['both', 'bbva-only'], total: 2 },
+    ])
+    expect(response.forYou).toBeNull()
+    expect(response.debug?.sections.notGrouped).toBe('agrupado por descuento')
+    expect(response.results.find((result) => result.id === 'both')?.discounts).toEqual([{ id: 'itau', name: 'Itaú' }, { id: 'bbva', name: 'BBVA' }])
+  })
+
+  it('nunca se relaja: sin lugares que cumplan, cero resultados; no cambia el orden', async () => {
+    expect((await search('discount:itau.debit')).results).toEqual([])
+    const all = (await search(null)).results.map((result) => result.id).filter((id) => ['both', 'itau-only'].includes(id))
+    expect((await search('discount:itau.credit')).results.map((result) => result.id)).toEqual(all)
+  })
+})

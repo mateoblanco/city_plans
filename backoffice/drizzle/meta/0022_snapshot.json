@@ -1,0 +1,1333 @@
+{
+  "id": "8ef748ba-46d6-41aa-892d-6a5edcb9a381",
+  "prevId": "02c0a515-7f5e-4eda-8103-22a43b353add",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.discount_benefits": {
+      "name": "discount_benefits",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "discount_place_id": {
+          "name": "discount_place_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "percent": {
+          "name": "percent",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "card_type": {
+          "name": "card_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "card_tiers": {
+          "name": "card_tiers",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'"
+        },
+        "card_program": {
+          "name": "card_program",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "days_kind": {
+          "name": "days_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "days": {
+          "name": "days",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'"
+        },
+        "days_text": {
+          "name": "days_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "mode": {
+          "name": "mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "instant_percent": {
+          "name": "instant_percent",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "refund_percent": {
+          "name": "refund_percent",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cap_text": {
+          "name": "cap_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cap_amount": {
+          "name": "cap_amount",
+          "type": "numeric(12, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cap_currency": {
+          "name": "cap_currency",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cap_period": {
+          "name": "cap_period",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "valid_from": {
+          "name": "valid_from",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "valid_to": {
+          "name": "valid_to",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "conditions": {
+          "name": "conditions",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source_text": {
+          "name": "source_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_url": {
+          "name": "source_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "parsed_by": {
+          "name": "parsed_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "first_seen_at": {
+          "name": "first_seen_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_seen_at": {
+          "name": "last_seen_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "active": {
+          "name": "active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        }
+      },
+      "indexes": {
+        "discount_benefits_place_idx": {
+          "name": "discount_benefits_place_idx",
+          "columns": [
+            {
+              "expression": "discount_place_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "discount_benefits_discount_place_id_discount_places_id_fk": {
+          "name": "discount_benefits_discount_place_id_discount_places_id_fk",
+          "tableFrom": "discount_benefits",
+          "tableTo": "discount_places",
+          "columnsFrom": [
+            "discount_place_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "discount_benefits_card_type_check": {
+          "name": "discount_benefits_card_type_check",
+          "value": "\"discount_benefits\".\"card_type\" in ('debit', 'credit', 'other')"
+        },
+        "discount_benefits_days_kind_check": {
+          "name": "discount_benefits_days_kind_check",
+          "value": "\"discount_benefits\".\"days_kind\" in ('all', 'list', 'unknown')"
+        },
+        "discount_benefits_days_check": {
+          "name": "discount_benefits_days_check",
+          "value": "\"discount_benefits\".\"days\" <@ array['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']::text[]"
+        },
+        "discount_benefits_mode_check": {
+          "name": "discount_benefits_mode_check",
+          "value": "\"discount_benefits\".\"mode\" in ('instant', 'refund', 'mixed', 'unknown')"
+        },
+        "discount_benefits_cap_currency_check": {
+          "name": "discount_benefits_cap_currency_check",
+          "value": "\"discount_benefits\".\"cap_currency\" in ('UYU', 'USD')"
+        },
+        "discount_benefits_cap_period_check": {
+          "name": "discount_benefits_cap_period_check",
+          "value": "\"discount_benefits\".\"cap_period\" in ('statement', 'month', 'week', 'day', 'purchase')"
+        },
+        "discount_benefits_parsed_by_check": {
+          "name": "discount_benefits_parsed_by_check",
+          "value": "\"discount_benefits\".\"parsed_by\" in ('html', 'llm')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.discount_place_links": {
+      "name": "discount_place_links",
+      "schema": "",
+      "columns": {
+        "discount_place_id": {
+          "name": "discount_place_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "place_id": {
+          "name": "place_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "origin": {
+          "name": "origin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "whole_brand": {
+          "name": "whole_brand",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "score": {
+          "name": "score",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reasons": {
+          "name": "reasons",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'"
+        },
+        "location_index": {
+          "name": "location_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "discount_place_links_place_idx": {
+          "name": "discount_place_links_place_idx",
+          "columns": [
+            {
+              "expression": "place_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "discount_place_links_discount_place_id_discount_places_id_fk": {
+          "name": "discount_place_links_discount_place_id_discount_places_id_fk",
+          "tableFrom": "discount_place_links",
+          "tableTo": "discount_places",
+          "columnsFrom": [
+            "discount_place_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "discount_place_links_place_id_places_id_fk": {
+          "name": "discount_place_links_place_id_places_id_fk",
+          "tableFrom": "discount_place_links",
+          "tableTo": "places",
+          "columnsFrom": [
+            "place_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "discount_place_links_discount_place_id_place_id_pk": {
+          "name": "discount_place_links_discount_place_id_place_id_pk",
+          "columns": [
+            "discount_place_id",
+            "place_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "discount_place_links_origin_check": {
+          "name": "discount_place_links_origin_check",
+          "value": "\"discount_place_links\".\"origin\" in ('auto', 'manual')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.discount_places": {
+      "name": "discount_places",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "provider_id": {
+          "name": "provider_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_name": {
+          "name": "source_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "city": {
+          "name": "city",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "departments": {
+          "name": "departments",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'"
+        },
+        "montevideo": {
+          "name": "montevideo",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "locations": {
+          "name": "locations",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "website": {
+          "name": "website",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "instagram": {
+          "name": "instagram",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source_url": {
+          "name": "source_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "logo_url": {
+          "name": "logo_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source_tags": {
+          "name": "source_tags",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'"
+        },
+        "campaign_valid_from": {
+          "name": "campaign_valid_from",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "campaign_valid_to": {
+          "name": "campaign_valid_to",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "campaign_text": {
+          "name": "campaign_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "first_seen_at": {
+          "name": "first_seen_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_seen_at": {
+          "name": "last_seen_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "active": {
+          "name": "active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "ignored": {
+          "name": "ignored",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "match_status": {
+          "name": "match_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'missing'"
+        },
+        "match_origin": {
+          "name": "match_origin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'auto'"
+        },
+        "match_candidates": {
+          "name": "match_candidates",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "matched_at": {
+          "name": "matched_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_run_id": {
+          "name": "last_run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "discount_places_provider_idx": {
+          "name": "discount_places_provider_idx",
+          "columns": [
+            {
+              "expression": "provider_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "discount_places_match_status_idx": {
+          "name": "discount_places_match_status_idx",
+          "columns": [
+            {
+              "expression": "match_status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "discount_places_match_status_check": {
+          "name": "discount_places_match_status_check",
+          "value": "\"discount_places\".\"match_status\" in ('found', 'doubtful', 'missing', 'not_matched')"
+        },
+        "discount_places_match_origin_check": {
+          "name": "discount_places_match_origin_check",
+          "value": "\"discount_places\".\"match_origin\" in ('auto', 'manual')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.discount_runs": {
+      "name": "discount_runs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reparsed_from": {
+          "name": "reparsed_from",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "providers": {
+          "name": "providers",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "errors": {
+          "name": "errors",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "warnings": {
+          "name": "warnings",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.places": {
+      "name": "places",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "google_place_id": {
+          "name": "google_place_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'draft'"
+        },
+        "review_reasons": {
+          "name": "review_reasons",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'"
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "located_in": {
+          "name": "located_in",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "neighborhood_id": {
+          "name": "neighborhood_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "city": {
+          "name": "city",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'Montevideo'"
+        },
+        "location": {
+          "name": "location",
+          "type": "geography",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "coordinates_source": {
+          "name": "coordinates_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'google'"
+        },
+        "coordinates_fetched_at": {
+          "name": "coordinates_fetched_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "categories": {
+          "name": "categories",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'"
+        },
+        "tags": {
+          "name": "tags",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'"
+        },
+        "signature": {
+          "name": "signature",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'"
+        },
+        "dishes": {
+          "name": "dishes",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'"
+        },
+        "diet_vegan": {
+          "name": "diet_vegan",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'unknown'"
+        },
+        "diet_vegetarian": {
+          "name": "diet_vegetarian",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'unknown'"
+        },
+        "diet_gluten_free": {
+          "name": "diet_gluten_free",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'unknown'"
+        },
+        "price": {
+          "name": "price",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'unknown'"
+        },
+        "reservations": {
+          "name": "reservations",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'unknown'"
+        },
+        "hours": {
+          "name": "hours",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{\"slots\":[],\"status\":\"none\"}'::jsonb"
+        },
+        "instagram": {
+          "name": "instagram",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "website": {
+          "name": "website",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "description_es": {
+          "name": "description_es",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "description_en": {
+          "name": "description_en",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "highlights": {
+          "name": "highlights",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "transit_lines": {
+          "name": "transit_lines",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "ig_followers": {
+          "name": "ig_followers",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "chain_branch": {
+          "name": "chain_branch",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "brand_key": {
+          "name": "brand_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "prominence": {
+          "name": "prominence",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "featured": {
+          "name": "featured",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "logo_key": {
+          "name": "logo_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "logo_kind": {
+          "name": "logo_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "logo_bg_color": {
+          "name": "logo_bg_color",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "logo_color": {
+          "name": "logo_color",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "logo_source": {
+          "name": "logo_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "logo_fetched_at": {
+          "name": "logo_fetched_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "icon_category": {
+          "name": "icon_category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "style": {
+          "name": "style",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "embedding_text": {
+          "name": "embedding_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "keyword_text": {
+          "name": "keyword_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "search_tsv": {
+          "name": "search_tsv",
+          "type": "tsvector",
+          "primaryKey": false,
+          "notNull": false,
+          "generated": {
+            "as": "setweight(to_tsvector('simple', f_unaccent(coalesce(name, ''))), 'A') || setweight(to_tsvector('simple', f_unaccent(coalesce(keyword_text, ''))), 'B')",
+            "type": "stored"
+          }
+        },
+        "embedding": {
+          "name": "embedding",
+          "type": "vector(1536)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "embedding_model": {
+          "name": "embedding_model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "embedding_text_hash": {
+          "name": "embedding_text_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "embedded_at": {
+          "name": "embedded_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "manual_overrides": {
+          "name": "manual_overrides",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "last_extraction_id": {
+          "name": "last_extraction_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "places_location_idx": {
+          "name": "places_location_idx",
+          "columns": [
+            {
+              "expression": "location",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gist",
+          "with": {}
+        },
+        "places_tags_idx": {
+          "name": "places_tags_idx",
+          "columns": [
+            {
+              "expression": "tags",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
+          "with": {}
+        },
+        "places_categories_idx": {
+          "name": "places_categories_idx",
+          "columns": [
+            {
+              "expression": "categories",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
+          "with": {}
+        },
+        "places_signature_idx": {
+          "name": "places_signature_idx",
+          "columns": [
+            {
+              "expression": "signature",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
+          "with": {}
+        },
+        "places_dishes_idx": {
+          "name": "places_dishes_idx",
+          "columns": [
+            {
+              "expression": "dishes",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
+          "with": {}
+        },
+        "places_name_trgm_idx": {
+          "name": "places_name_trgm_idx",
+          "columns": [
+            {
+              "expression": "f_unaccent(lower(\"name\")) gin_trgm_ops",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
+          "with": {}
+        },
+        "places_search_tsv_idx": {
+          "name": "places_search_tsv_idx",
+          "columns": [
+            {
+              "expression": "search_tsv",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
+          "with": {}
+        },
+        "places_embedding_idx": {
+          "name": "places_embedding_idx",
+          "columns": [
+            {
+              "expression": "embedding",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "vector_cosine_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "hnsw",
+          "with": {}
+        },
+        "places_neighborhood_idx": {
+          "name": "places_neighborhood_idx",
+          "columns": [
+            {
+              "expression": "neighborhood_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "places_status_idx": {
+          "name": "places_status_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "places_prominence_idx": {
+          "name": "places_prominence_idx",
+          "columns": [
+            {
+              "expression": "prominence",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "places_brand_key_idx": {
+          "name": "places_brand_key_idx",
+          "columns": [
+            {
+              "expression": "brand_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "places_google_place_id_unique": {
+          "name": "places_google_place_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "google_place_id"
+          ]
+        },
+        "places_slug_unique": {
+          "name": "places_slug_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "slug"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "places_status_check": {
+          "name": "places_status_check",
+          "value": "\"places\".\"status\" in ('draft', 'published', 'review', 'hidden')"
+        },
+        "places_diet_vegan_check": {
+          "name": "places_diet_vegan_check",
+          "value": "\"places\".\"diet_vegan\" in ('unknown', 'no', 'has_options', 'fully')"
+        },
+        "places_diet_vegetarian_check": {
+          "name": "places_diet_vegetarian_check",
+          "value": "\"places\".\"diet_vegetarian\" in ('unknown', 'no', 'has_options', 'fully')"
+        },
+        "places_diet_gluten_free_check": {
+          "name": "places_diet_gluten_free_check",
+          "value": "\"places\".\"diet_gluten_free\" in ('unknown', 'no', 'has_options', 'fully')"
+        },
+        "places_price_check": {
+          "name": "places_price_check",
+          "value": "\"places\".\"price\" in ('unknown', 'low', 'moderate', 'high')"
+        },
+        "places_reservations_check": {
+          "name": "places_reservations_check",
+          "value": "\"places\".\"reservations\" in ('unknown', 'no_reservations', 'accepts', 'recommended')"
+        },
+        "places_logo_kind_check": {
+          "name": "places_logo_kind_check",
+          "value": "\"places\".\"logo_kind\" in ('logo', 'local', 'food', 'person', 'other')"
+        },
+        "places_logo_source_check": {
+          "name": "places_logo_source_check",
+          "value": "\"places\".\"logo_source\" in ('instagram', 'owner', 'manual')"
+        },
+        "places_logo_bg_color_check": {
+          "name": "places_logo_bg_color_check",
+          "value": "\"places\".\"logo_bg_color\" ~ '^#[0-9a-f]{6}$'"
+        },
+        "places_logo_color_check": {
+          "name": "places_logo_color_check",
+          "value": "\"places\".\"logo_color\" ~ '^#[0-9a-f]{6}$'"
+        },
+        "places_icon_category_check": {
+          "name": "places_icon_category_check",
+          "value": "\"places\".\"icon_category\" in ('wine', 'beer', 'beer_pub', 'cocktails', 'tropical_drinks', 'classic_bar', 'coffee', 'tea', 'croissant', 'bread', 'bakery', 'pancakes', 'breakfast', 'cake', 'cupcake', 'pie', 'birthday_cake', 'donut', 'cookie', 'chocolate', 'ice_cream', 'grill', 'meat', 'pasta', 'pizza', 'burger', 'fries', 'sandwich', 'hot_dog', 'taco', 'burrito', 'tamale', 'seafood', 'fish', 'octopus', 'tapas', 'sushi', 'ramen', 'wok', 'dumplings', 'curry', 'falafel', 'kebab', 'salad', 'bookstore')"
+        },
+        "places_style_check": {
+          "name": "places_style_check",
+          "value": "\"places\".\"style\" in ('casual', 'intermedio', 'cuidado')"
+        },
+        "places_review_reasons_check": {
+          "name": "places_review_reasons_check",
+          "value": "\"places\".\"review_reasons\" <@ array['not_open_yet', 'no_place_facts', 'unconfirmed_place', 'restaurant_without_food', 'bar_without_drinks', 'low_rating', 'closed_permanently', 'closed_temporarily']::text[]"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.price_suggestions": {
+      "name": "price_suggestions",
+      "schema": "",
+      "columns": {
+        "place_id": {
+          "name": "place_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "price": {
+          "name": "price",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "signal": {
+          "name": "signal",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "snippet": {
+          "name": "snippet",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source_url": {
+          "name": "source_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "computed_at": {
+          "name": "computed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "dismissed_at": {
+          "name": "dismissed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "price_suggestions_place_id_places_id_fk": {
+          "name": "price_suggestions_place_id_places_id_fk",
+          "tableFrom": "price_suggestions",
+          "tableTo": "places",
+          "columnsFrom": [
+            "place_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "price_suggestions_price_check": {
+          "name": "price_suggestions_price_check",
+          "value": "\"price_suggestions\".\"price\" in ('low', 'moderate', 'high')"
+        },
+        "price_suggestions_signal_check": {
+          "name": "price_suggestions_signal_check",
+          "value": "\"price_suggestions\".\"signal\" in ('menu', 'phrase', 'tags')"
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

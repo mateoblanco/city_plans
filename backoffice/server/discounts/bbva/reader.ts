@@ -81,6 +81,7 @@ export async function benefitsOf(
       conditions,
       sourceText: [line.text, clause?.text].filter(Boolean).join('\n'),
       parsedBy: 'html',
+      sourceUrl: null,
     })
     if (!clause) issues.push(`Sin párrafo legal para «${line.text}»: modalidad y tope sin dato.`)
     else if (clause.percent !== null && clause.percent !== line.percent) issues.push(`«${line.text}» dice ${line.percent}% y el legal ${clause.percent}%.`)
@@ -119,6 +120,7 @@ export async function benefitsOf(
           conditions,
           sourceText: text,
           parsedBy: 'llm',
+          sourceUrl: null,
         }
         // Completa el beneficio que ya leyeron las reglas (mismo tipo, porcentaje y algún nivel en común), o se suma.
         const existing = benefits.findIndex((item) => item.cardType === raw.cardType && item.percent === raw.percent
@@ -201,7 +203,8 @@ export const readBbva: ProviderReader = async ({ provider, fetcher, structure, o
     if (detail) {
       try {
         const { benefits, issues } = await benefitsOf(place.id, detail, structure, llm)
-        place.benefits = benefits
+        // Todos salen del detalle del lugar.
+        place.benefits = benefits.map((benefit) => ({ ...benefit, sourceUrl: card.detailUrl }))
         for (const issue of issues) warnings.push(`${place.sourceName}: ${issue}`)
         for (const section of detail.unknownSections) warnings.push(`${place.sourceName}: sección sin leer «${section.slice(0, 120)}»`)
       } catch (error) {

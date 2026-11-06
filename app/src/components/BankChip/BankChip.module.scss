@@ -1,0 +1,46 @@
+// Fondo con el color de marca del banco (tokens --color-bank-*) y texto blanco. Un proveedor sin color, fondo oscuro.
+.chip {
+  background-color: var(--color-selected);
+  border-radius: 8px;
+  color: var(--color-text-inverse);
+  align-items: center;
+  display: inline-flex;
+  gap: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  padding: 4px 12px;
+  white-space: nowrap;
+
+  &[data-size="sm"] {
+    border-radius: 6px;
+    font-size: 12px;
+    line-height: 16px;
+    padding: 2px 8px;
+  }
+
+  .icon {
+    flex-shrink: 0;
+    height: 12px;
+    width: 12px;
+  }
+
+  &[data-provider="itau"] {
+    background-color: var(--color-bank-itau);
+  }
+  &[data-provider="itau-personal-bank"] {
+    background-color: var(--color-bank-itau-personal-bank);
+  }
+  &[data-provider="santander"] {
+    background-color: var(--color-bank-santander);
+  }
+  &[data-provider="scotiabank"] {
+    background-color: var(--color-bank-scotiabank);
+  }
+  &[data-provider="bbva"] {
+    background-color: var(--color-bank-bbva);
+  }
+  &[data-provider="brou"] {
+    background-color: var(--color-bank-brou);
+  }
+}

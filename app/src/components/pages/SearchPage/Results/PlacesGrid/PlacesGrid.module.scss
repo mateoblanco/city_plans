@@ -1,6 +1,12 @@
+@use '../../layout';
+
 .grid {
   display: grid;
   gap: 24px;
-  grid-template-columns: repeat(2, 1fr);
   padding: 0 2px;
+  @include layout.places-grid;
+
+  &[data-columns="1"] {
+    grid-template-columns: 1fr;
+  }
 }

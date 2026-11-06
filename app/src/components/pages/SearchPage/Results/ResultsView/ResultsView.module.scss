@@ -1,9 +1,11 @@
+@use '../../layout';
+
 .results {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding: 0px 48px 24px 48px;
-  width: 55%;
+  padding-bottom: 24px;
+  @include layout.results-column;
 }
 
 .notices {

@@ -194,20 +194,32 @@ export function politeFetcher(options: LiveOptions): PageFetcher {
   }
 }
 
-/** Lee del HTML crudo de una corrida anterior, sin red. Una URL que no se bajó entonces es un error de esa página. */
-export async function rawFetcher(dir: string): Promise<PageFetcher> {
-  let index: RawIndex
+/**
+ * Lee del HTML crudo de una corrida anterior, sin red. Una URL que no se bajó entonces es un error de esa página. Con
+ * varias carpetas, la primera es la del proveedor (tiene que existir) y las demás se miran en orden para las URLs que
+ * no tiene: la página de Personal Bank también la lee Itaú, y en una corrida vieja sólo la bajó Itaú Personal Bank.
+ */
+export async function rawFetcher(dirs: string | string[]): Promise<PageFetcher> {
+  const [first, ...rest] = typeof dirs === 'string' ? [dirs] : dirs
+  const readIndex = async (dir: string) => JSON.parse(await readFile(join(dir, 'index.json'), 'utf8')) as RawIndex
+  let own: RawIndex
   try {
-    index = JSON.parse(await readFile(join(dir, 'index.json'), 'utf8')) as RawIndex
+    own = await readIndex(first)
   } catch {
-    throw new FetchPageError(dir, `No hay HTML crudo en ${dir}.`)
+    throw new FetchPageError(first, `No hay HTML crudo en ${first}.`)
+  }
+  const indexes: { dir: string; index: RawIndex }[] = [{ dir: first, index: own }]
+  for (const dir of rest) {
+    const index = await readIndex(dir).catch(() => null)
+    if (index) indexes.push({ dir, index })
   }
   return {
     async get(url) {
-      const entry = index[url]
-      if (!entry) throw new FetchPageError(url, `${url} no está en el HTML crudo de esa corrida.`)
+      const found = indexes.find(({ index }) => index[url])
+      if (!found) throw new FetchPageError(url, `${url} no está en el HTML crudo de esa corrida.`)
+      const entry = found.index[url]
       if (entry.status !== 200) throw new FetchPageError(url, `${url} había respondido ${entry.status}.`)
-      return readFile(join(dir, entry.file), 'utf8')
+      return readFile(join(found.dir, entry.file), 'utf8')
     },
     requests: 0,
   }

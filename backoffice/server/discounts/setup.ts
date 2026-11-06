@@ -22,7 +22,9 @@ export function discountRunDependencies(options: { store: DiscountStore; candida
       if (!options.fromRun) return politeFetcher({ dir: rawDir(root, runId, providerId) })
       const from = options.fromRun === 'latest' ? await latestRawRun(root, providerId) : options.fromRun
       if (!from) throw new Error(`No hay HTML crudo guardado de ${providerId} en ${join(root, 'raw')}.`)
-      return rawFetcher(rawDir(root, from, providerId))
+      // Primero lo del proveedor; si le falta una página (otro proveedor la comparte), la de los demás de esa corrida.
+      const others = DISCOUNT_PROVIDERS.filter((provider) => provider.id !== providerId).map((provider) => rawDir(root, from, provider.id))
+      return rawFetcher([rawDir(root, from, providerId), ...others])
     },
     candidates: options.candidates,
     structure: process.env.AI_GATEWAY_API_KEY?.trim() ? llmBenefitStructurer({ cacheDir: join(root, 'llm') }) : undefined,

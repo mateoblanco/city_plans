@@ -9,6 +9,7 @@ const now = new Date('2026-10-12T16:00:00Z')
 
 const card = (id: string, overrides: Partial<CardRow> = {}): CardRow => ({
   id,
+  discounts: [],
   slug: id,
   name: id,
   neighborhoodId: 'POCITOS',

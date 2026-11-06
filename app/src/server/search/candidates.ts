@@ -7,6 +7,8 @@ import type { DietKey, Price } from './interpretation'
 import type { IntentMatch } from '@shared/intents.ts'
 import type { IconCategory } from '@shared/icon-categories.ts'
 import type { Venue } from './venues'
+import { discountFilterSql, placeDiscountsColumn } from '../discounts/queries'
+import type { DiscountChoice, PlaceDiscount } from '../discounts/selection'
 
 /** Filtros duros: lo que un lugar tiene que cumplir para ser candidato. */
 export type CandidateFilters = {
@@ -36,6 +38,8 @@ export type CandidateFilters = {
    * style); entre grupos, "y".
    */
   groups: FilterGroup[]
+  /** Descuentos de la barra: algún beneficio de cualquiera de estas elecciones (sólo filtro; nunca se relaja). Sin esto, ninguno. */
+  discounts?: DiscountChoice[]
 }
 
 /** Un grupo de filtros: el match de una intención o sub-filtro, o la regla de una sección (que puede pedir style o íconos). */
@@ -92,6 +96,8 @@ export type CandidateRow = {
   brandCount: number
   lat: number
   lng: number
+  /** Proveedor y tipo de tarjeta de cada beneficio que cuenta (server/discounts/queries.ts), sin repetir. */
+  discounts: PlaceDiscount[]
   matchesFilters: boolean
   semantic: number | null
   keyword: number
@@ -191,6 +197,7 @@ export function filterConditions(filters: CandidateFilters): SQL[] {
   }
   if (filters.near) conditions.push(sql`ST_DWithin(location, ${pointSql(filters.near)}, ${filters.near.radiusM})`)
   for (const group of filters.groups) conditions.push(groupSql(group))
+  if (filters.discounts?.length) conditions.push(discountFilterSql(sql`places.id`, filters.discounts))
   if (filters.excludeCategories.length) conditions.push(sql`not (categories && ${textArray(filters.excludeCategories)})`)
   if (filters.excludeTags.length) conditions.push(sql`not (tags && ${textArray(filters.excludeTags.flatMap(withSubcuisines))})`)
   if (filters.excludeIcons.length) conditions.push(sql`(icon_category is null or not (icon_category = any(${textArray(filters.excludeIcons)})))`)
@@ -256,6 +263,7 @@ export function candidatesQuery(filters: CandidateFilters, scores: ScoreInputs):
       case when brand_key is null then 1
         else (select count(*)::int from places b where b.brand_key = places.brand_key and b.status = 'published') end as "brandCount",
       ST_Y(location::geometry) as lat, ST_X(location::geometry) as lng,
+      ${placeDiscountsColumn(sql`places.id`)} as discounts,
       (${matches}) as "matchesFilters",
       ${semantic} as semantic,
       ${keyword} as keyword,

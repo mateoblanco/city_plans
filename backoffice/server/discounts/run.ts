@@ -1,6 +1,7 @@
 import type { DiscountProvider, DiscountRun, DiscountRunProgress, DiscountRunProvider } from '../../src/types/discounts.ts'
 import type { MatchablePlace } from './match.ts'
 import { planDiscountWrites, type DiscountStore } from './persist.ts'
+import { discountProvider } from './providers.ts'
 import type { PageFetcher } from './polite-fetch.ts'
 import type { ProviderReader } from './reader.ts'
 import type { BenefitStructurer } from './structure-benefits.ts'
@@ -51,11 +52,23 @@ export async function runDiscounts(deps: RunDependencies, options: { runId?: str
       deps.onProgress?.({ status: 'running', runId, startedAt: started.toISOString(), providerId: provider.id, phase: 'matching', done: 0, total: result.places.length })
       // Sin la lista de nuestros lugares no se puede cruzar: mejor no escribir que dejar todo en "no está".
       candidates ??= await deps.candidates()
-      const writes = planDiscountWrites({ providerId: provider.id, runId, now: started, result, existing: await deps.store.existing(provider.id), candidates })
+      // Páginas que heredan el cruce manual del mismo logo en otro proveedor (Itaú ← Itaú Personal Bank).
+      const inherited = await Promise.all((provider.pages ?? []).filter((page) => page.manualMatchFrom).map(async (page) => ({
+        fromProviderId: page.manualMatchFrom!,
+        label: page.label,
+        sources: await deps.store.manualMatches(page.manualMatchFrom!),
+      })))
+      const writes = planDiscountWrites({ providerId: provider.id, runId, now: started, result, existing: await deps.store.existing(provider.id), candidates, inherited })
       await deps.store.apply(writes)
+      const notes = [...(result.notes ?? [])]
+      for (const inherit of inherited) {
+        // Con --only el otro proveedor puede no estar en esta corrida: el nombre sale del catálogo.
+        const from = (deps.providers.find((item) => item.id === inherit.fromProviderId) ?? discountProvider(inherit.fromProviderId))?.name ?? inherit.fromProviderId
+        notes.push(`${writes.copies.filter((copy) => copy.fromId.startsWith(`${inherit.fromProviderId}:`)).length} cruces manuales copiados de ${from} (${inherit.label}).`)
+      }
       errors.push(...result.errors)
       warnings.push(...result.warnings)
-      providers.push({ ...base, status: result.errors.length ? 'partial' : 'ok', places: result.places.length, requests: fetcher.requests, llm: result.llm, ...(result.notes?.length ? { notes: result.notes } : {}) })
+      providers.push({ ...base, status: result.errors.length ? 'partial' : 'ok', places: result.places.length, requests: fetcher.requests, llm: result.llm, ...(notes.length ? { notes } : {}) })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       providers.push({ ...base, status: 'error', places: 0, error: message, requests: fetcher?.requests ?? 0, llm: { calls: 0, costUsd: 0 } })

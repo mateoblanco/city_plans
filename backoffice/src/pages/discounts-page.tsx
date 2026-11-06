@@ -24,6 +24,7 @@ import {
   DEFAULT_DISCOUNT_FILTERS,
   discountSummary,
   filterDiscountPlaces,
+  hasStaleValidity,
   isBenefitCurrent,
   isPlaceCurrent,
   MATCH_LABELS,
@@ -75,6 +76,14 @@ const plural = (count: number, one: string, many: string) => `${count} ${count =
 function capsTooltip(benefits: StoredBenefit[]): string | undefined {
   const lines = [...new Set(benefits.flatMap((benefit) => (benefit.cap ? [`${CARD_TYPE_LABELS[benefit.cardType]} ${benefit.percent}%: tope ${benefit.cap.amount === null ? benefit.cap.text : capLabel(benefit.cap)}`] : [])))]
   return lines.length ? lines.join('\n') : undefined
+}
+/** "…/inst/restaurantesplatinum.html" → "restaurantesplatinum.html". */
+const pageName = (url: string) => {
+  try {
+    return new URL(url).pathname.split('/').filter(Boolean).pop() ?? url
+  } catch {
+    return url
+  }
 }
 const message = (error: unknown) => (error instanceof Error ? error.message : 'No se pudo completar la consulta.')
 const neighborhood = (id: string) => neighborhoodDisplayName(id) ?? id
@@ -389,7 +398,8 @@ function BenefitCard({ benefit }: { benefit: StoredBenefit }) {
         {benefit.percent}% · {CARD_TYPE_LABELS[benefit.cardType]}
         {benefit.cardTiers.length > 0 ? ` ${benefit.cardTiers.join(', ')}` : ''}
         {benefit.cardProgram ? ` · sólo ${benefit.cardProgram}` : ''}
-        {benefit.expired ? <Tag>Vencido</Tag> : !benefit.active && <Tag>Inactivo</Tag>}
+        {hasStaleValidity(benefit) && <Tag className="bg-amber-50 text-amber-800 ring-amber-200">Vigencia desactualizada en la fuente</Tag>}
+        {!benefit.active && <Tag>{benefit.expired ? 'Vencido' : 'Inactivo'}</Tag>}
       </p>
       <dl className="mt-1">
         <Field label="Modalidad">{modeLabel(benefit)}</Field>
@@ -397,6 +407,11 @@ function BenefitCard({ benefit }: { benefit: StoredBenefit }) {
         <Field label="Días">{daysLabel(benefit.days)}{benefit.daysText ? ` («${benefit.daysText}»)` : ''}</Field>
         <Field label="Vigencia">{validityLabel(benefit.validFrom, benefit.validTo)}</Field>
         <Field label="Visto">{dateTime(benefit.firstSeenAt)} – {dateTime(benefit.lastSeenAt)}</Field>
+        {benefit.sourceUrl && (
+          <Field label="Página">
+            <a className="underline" href={benefit.sourceUrl} target="_blank" rel="noreferrer">{pageName(benefit.sourceUrl)}</a>
+          </Field>
+        )}
         <Field label="Leído con">{benefit.parsedBy === 'html' ? 'Reglas sobre el HTML' : 'Modelo'}</Field>
         <Field label="Condiciones"><span className="whitespace-pre-line">{benefit.conditions ?? '—'}</span></Field>
       </dl>
@@ -754,7 +769,14 @@ export function DiscountsPage() {
                               </div>
                             </TableCell>
                             <TableCell className="px-4 py-3 text-sm sm:px-5" title={capsTooltip(place.benefits.filter(isBenefitCurrent))}>{place.benefits.some(isBenefitCurrent) ? benefitSummary(place.benefits.filter(isBenefitCurrent)) : <span className="text-muted-foreground">Sin vigentes</span>}</TableCell>
-                            <TableCell className="px-4 py-3 text-sm whitespace-nowrap sm:px-5">{placeValidity(place)}</TableCell>
+                            <TableCell className="px-4 py-3 text-sm whitespace-nowrap sm:px-5">
+                              {placeValidity(place)}
+                              {place.benefits.some(hasStaleValidity) && (
+                                <span className="mt-1 block" title="La fecha de fin ya pasó, pero el lugar sigue publicado en la fuente.">
+                                  <Tag className="bg-amber-50 text-amber-800 ring-amber-200">Vigencia desactualizada en la fuente</Tag>
+                                </span>
+                              )}
+                            </TableCell>
                             <TableCell className="px-4 py-3 sm:px-5">
                               <a className="inline-flex items-center gap-1 text-sm underline" href={place.sourceUrl} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>
                                 Ver <ArrowUpRight className="size-3.5" aria-hidden="true" />

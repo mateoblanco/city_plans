@@ -24,6 +24,11 @@
     border: 6px solid var(--color-surface);
     box-shadow: var(--shadow-card);
 
+    // Sobre una barra blanca o casi blanca, el borde de superficie no se distingue.
+    &.onLightBar {
+      border-color: var(--color-border);
+    }
+
     .logo {
       max-width: 100px;
     }

@@ -18,31 +18,31 @@
 	--color-bg-page: #{palette.get(gray-50)}; // body (global.scss), ResultSections, RowScroller
 	// Header, FilterBar, FilterChip, Select, Search, PlaceCard, PlaceImage, MapMarker, DebugPanel, CopyResponse, BranchCard, PlaceHours
 	--color-surface: #{palette.get(white)};
-	--color-surface-hover: #{palette.get(gray-50)}; // Header, FilterChip, Select
+	--color-surface-hover: #{palette.get(gray-50)}; // Header, FilterChip, Select, Popover, DiscountFilter
 	--color-surface-muted: #{palette.get(gray-50)}; // NeighborhoodSelect, DebugPanel, ResultsView, PlaceHours (hoy)
 	--color-surface-hero: #{palette.get(blue-500)}; // HeroSearch
-	--color-surface-chip: #{palette.get(gray-50)}; // FilterChip, Select (trigger), PlaceTags
+	--color-surface-chip: #{palette.get(gray-50)}; // FilterChip, Select (trigger), Popover (trigger), DiscountFilter, PlaceTags
 	--color-skeleton: #{palette.get(gray-100)}; // MapColumn, ResultsSkeleton, PlaceMap
 
 	// Texto
 	--color-text: #{palette.get(black)}; // html y body (global.scss), Select, PlaceImage, BackButton, PlaceHours
 	// NeighborhoodSelect, DebugPanel, EndOfResults, SearchMap, PlaceCard, ResultsView, PlaceHours, MapView, PlaceLocation, PlacePage
 	--color-text-muted: #{palette.get(gray-700)};
-	--color-text-subtle: #{palette.get(gray-600)}; // PlaceCard, BranchCard, PlaceSummary, PlaceTags
-	--color-text-inverse: #{palette.get(white)}; // BackButton (sobre una barra oscura)
+	--color-text-subtle: #{palette.get(gray-600)}; // PlaceCard, CardDiscounts, BranchCard, PlaceSummary, PlaceTags, Link
+	--color-text-inverse: #{palette.get(white)}; // BackButton (sobre una barra oscura), ProviderDiscounts (nombre del banco)
 	--color-text-hero: #{palette.get(white)}; // HeroSearch (heading sobre el fondo azul)
 
 	// Bordes
 	// Button, Select, Header, FilterBar, FilterChip, PlaceImage, ResultSections, PlaceTags
 	--color-border: #{palette.get(gray-175)};
 	--color-border-input: #{palette.get(gray-200)}; // Header, Search, PlaceCard, SearchMap, MapView
-	--color-border-card: #{palette.get(gray-175)}; // PlaceCard, BranchCard, PlaceHours
-	--color-border-popover: #{palette.get(gray-200)}; // Select (popup)
+	--color-border-card: #{palette.get(gray-175)}; // PlaceCard, BranchCard, PlaceHours, PlaceDiscounts
+	--color-border-popover: #{palette.get(gray-200)}; // Select (popup), Popover, Tooltip
 	--color-border-debug: #{palette.get(gray-300)}; // DebugPanel
 
 	// Interacción
-	--color-selected: #{palette.get(black)}; // Select, FilterChip, CopyResponse, MapMarker, PlaceCard, PlaceImage, BranchCard
-	--color-focus-ring: #{palette.get(black)}; // Select, Search, PlaceCard, BranchCard, BackButton
+	--color-selected: #{palette.get(black)}; // Select, Popover, DiscountFilter, FilterChip, CopyResponse, MapMarker, PlaceCard, PlaceImage, BranchCard, ProviderDiscounts (nombre de un banco sin color)
+	--color-focus-ring: #{palette.get(black)}; // Select, Popover, DiscountFilter, Tooltip, Link, Search, PlaceCard, BranchCard, BackButton
 
 	// Estado de apertura del lugar
 	--color-status-open: #{palette.get(green-700)}; // PlaceCard, PlaceSummary
@@ -52,6 +52,15 @@
 
 	--color-like: #{palette.get(red-600)}; // LikeButton
 	--color-map-user: #{palette.get(blue-600)}; // SearchMap (punto de la ubicación del usuario)
+
+	// Fondo del nombre de cada banco (BankChip: descuentos de la ficha y filtro de Descuentos), por id de proveedor; el texto va en
+	// --color-text-inverse. Scotiabank y BROU todavía no tienen lector. BankChip
+	--color-bank-itau: #{palette.get(bank-itau)};
+	--color-bank-itau-personal-bank: #{palette.get(bank-itau-personal-bank)};
+	--color-bank-santander: #{palette.get(bank-santander)};
+	--color-bank-scotiabank: #{palette.get(bank-scotiabank)};
+	--color-bank-bbva: #{palette.get(bank-bbva)};
+	--color-bank-brou: #{palette.get(bank-brou)};
 
 	// Botones (variantes con brillo de Button)
 	--color-button-primary: #{palette.get(blue-500)}; // Button .variant-primary (fondo)
@@ -70,8 +79,8 @@
 	--color-control-focus: #{palette.get(neutral-950)}; // Button
 
 	// Sombras
-	--shadow-card: 0 4px 4px 0 #{shade(0.05)}; // PlaceCard, PlaceImage (lg), BranchCard, PlaceHours
-	--shadow-popover: 2px 2px 4px #{shade(0.12)}; // Select (popup)
+	--shadow-card: 0 4px 4px 0 #{shade(0.05)}; // PlaceCard, PlaceImage (lg), BranchCard, PlaceHours, PlaceDiscounts
+	--shadow-popover: 2px 2px 4px #{shade(0.12)}; // Select (popup), Popover, Tooltip
 	--shadow-panel: 0 4px 16px #{shade(0.12)}; // DebugPanel
 	--shadow-marker: 0 1px 4px #{shade(0.3)}; // MapMarker (marcadores de /search y de la ficha)
 	// Button .variant-primary y .variant-secondary (el anillo de color lo agrega el componente)

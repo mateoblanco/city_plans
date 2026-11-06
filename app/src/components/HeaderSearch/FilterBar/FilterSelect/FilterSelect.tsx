@@ -1,12 +1,8 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, useTransition } from "react";
 import Select from "@/components/base/Select/Select";
 import type { ChipRef } from "@/components/pages/SearchPage/utils/search-href";
-
-/** Cuánto espera después del último clic para buscar: marcar varias opciones seguidas es una sola búsqueda. */
-const APPLY_DELAY_MS = 400;
+import { useDelayedApply } from "../utils/use-delayed-apply";
 
 type Props = {
   /** Nombre accesible del botón. */
@@ -24,67 +20,17 @@ type Props = {
   normalize?: (values: string[], added: string | undefined) => string[];
 };
 
-const sameValues = (a: string[], b: string[]) => a.length === b.length && a.every((id) => b.includes(id));
-
 /**
  * Select de un filtro de la barra (precio, dieta): "Cualquier…" o varias opciones. Se aplica como el de barrios: solo al
- * dejar de elegir (APPLY_DELAY_MS), con el popup abierto; cerrarlo aplica enseguida lo pendiente. Cada apertura suma una
+ * dejar de elegir, con el popup abierto; cerrarlo aplica enseguida lo pendiente (useDelayedApply). Cada apertura suma una
  * sola entrada al historial.
  */
 const FilterSelect = (props: Props) => {
-  const router = useRouter();
   // En el orden de las opciones, no en el de los chips.
   const active = props.options.map((option) => option.id).filter((id) => props.chips.some((chip) => chip.id === id));
-  const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(active);
-  const [navigating, startNavigation] = useTransition();
-  /** El temporizador de la búsqueda pendiente y la elección que va a aplicar. */
-  const pending = useRef<{ timer: ReturnType<typeof setTimeout>; values: string[] } | null>(null);
-  /** Lo último aplicado en esta apertura (arranca en lo activo), para no buscar dos veces lo mismo. */
-  const applied = useRef(active);
-  /** Si esta apertura ya sumó una entrada al historial: las siguientes la reemplazan. */
-  const pushed = useRef(false);
-  // Mientras carga la búsqueda nueva, el botón ya muestra lo elegido.
-  const selected = open || navigating ? draft : active;
+  const { open, selected, onOpenChange, change } = useDelayedApply(active, (values) => props.hrefFor(values, props.chips));
   const labels = new Map(props.options.map((option): [string, string] => [option.id, option.label]));
   const items = [{ value: "", label: props.anyLabel }, ...props.options.map((option) => ({ value: option.id, label: option.label }))];
-
-  useEffect(() => () => clearTimeout(pending.current?.timer), []);
-
-  const apply = (values: string[]) => {
-    if (sameValues(values, applied.current)) return;
-    applied.current = values;
-    const href = props.hrefFor(values, props.chips);
-    const navigate = pushed.current ? router.replace : router.push;
-    pushed.current = true;
-    startNavigation(() => navigate(href));
-  };
-
-  const schedule = (values: string[]) => {
-    clearTimeout(pending.current?.timer);
-    const timer = setTimeout(() => {
-      pending.current = null;
-      apply(values);
-    }, APPLY_DELAY_MS);
-    pending.current = { timer, values };
-  };
-
-  const onOpenChange = (next: boolean) => {
-    setOpen(next);
-    if (next) {
-      setDraft(active);
-      applied.current = active;
-      pushed.current = false;
-      return;
-    }
-    // Cerrar no espera: aplica ya lo que estaba por salir.
-    if (pending.current) {
-      clearTimeout(pending.current.timer);
-      const { values } = pending.current;
-      pending.current = null;
-      apply(values);
-    }
-  };
 
   // "Cualquier…" ("") va marcado con la elección vacía y la vacía al elegirlo.
   const value = selected.length ? selected : [""];
@@ -94,9 +40,7 @@ const FilterSelect = (props: Props) => {
     const chosen = added === "" ? [] : next.filter((item) => item !== "");
     const normalized = props.normalize ? props.normalize(chosen, added) : chosen;
     // En el orden de las opciones, así el botón dice "Bajo y Alto" sin importar el orden de los clics.
-    const values = props.options.map((option) => option.id).filter((id) => normalized.includes(id));
-    setDraft(values);
-    schedule(values);
+    change(props.options.map((option) => option.id).filter((id) => normalized.includes(id)));
   };
 
   const triggerLabel = () => {

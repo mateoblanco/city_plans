@@ -7,6 +7,7 @@ import type { KeptBy } from "@/server/search/relevance";
 import PlaceImage from "./PlaceImage/PlaceImage";
 import LikeButton from "./LikeButton/LikeButton";
 import SaveButton from "./SaveButton/SaveButton";
+import CardDiscounts from "./CardDiscounts/CardDiscounts";
 import { cardId, useHoveredPlace } from "../Map/MapSync/MapSync";
 import styles from "./PlaceCard.module.scss";
 
@@ -69,7 +70,6 @@ const PlaceCard = (props: Props) => {
         <p className={styles.meta}>
           {[
             props.place.neighborhood,
-            props.place.locatedIn ? `Dentro de ${props.place.locatedIn}` : null,
             ...props.place.categories.map((id) => label(id, "es")),
           ]
             .filter(Boolean)
@@ -81,6 +81,8 @@ const PlaceCard = (props: Props) => {
           <span className={styles.openTone} data-tone={props.place.openStatus.tone}>{props.place.openStatus.status}</span>
           {props.place.openStatus.detail && ` · ${props.place.openStatus.detail}`}
         </p>
+
+        <CardDiscounts providers={props.place.discounts} />
         
         {/* {props.place.reasons.length > 0 && (
           <ul className={styles.reasons}>

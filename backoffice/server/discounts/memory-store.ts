@@ -12,13 +12,19 @@ type Row = Omit<DiscountPlace, 'benefits' | 'match'> & {
  * DiscountStore en memoria, con las mismas reglas que el de Drizzle (drizzle-store.ts): para los tests de las corridas
  * y de los endpoints. `places` son nuestros lugares (para validar vínculos y poner el nombre).
  */
-export function memoryDiscountStore(places: MatchablePlace[] = [], options: { today?: () => string } = {}) {
+export function memoryDiscountStore(places: MatchablePlace[] = [], options: { today?: () => string; seed?: DiscountPlace[] } = {}) {
   const rows = new Map<string, Row>()
   const benefits = new Map<string, StoredBenefit & { discountPlaceId: string }>()
   let links: (Omit<DiscountLink, 'name' | 'neighborhoodId'> & { discountPlaceId: string })[] = []
   const runs: DiscountRun[] = []
   const today = options.today ?? (() => montevideoToday(new Date()))
   const placeOf = (id: string) => places.find((place) => place.id === id)
+  // Arranca con lo guardado (--dry-run sobre la base actual): lugares, beneficios y vínculos tal cual.
+  for (const { benefits: seedBenefits, match, ...place } of options.seed ?? []) {
+    rows.set(place.id, { ...place, matchStatus: match.status, matchOrigin: match.origin, candidates: match.candidates })
+    for (const { expired: _expired, ...benefit } of seedBenefits) benefits.set(benefit.id, { ...benefit, expired: false, discountPlaceId: place.id })
+    for (const { name: _name, neighborhoodId: _neighborhood, ...link } of match.links) links.push({ ...link, discountPlaceId: place.id })
+  }
 
   function view(row: Row): DiscountPlace {
     const { matchStatus, matchOrigin, candidates, ...rest } = row
@@ -44,6 +50,16 @@ export function memoryDiscountStore(places: MatchablePlace[] = [], options: { to
     runs,
     async existing(providerId) {
       return [...rows.values()].filter((row) => row.providerId === providerId).map((row) => ({ id: row.id, ignored: row.ignored, matchOrigin: row.matchOrigin }))
+    },
+    async manualMatches(providerId) {
+      return [...rows.values()]
+        .filter((row) => row.providerId === providerId && (row.matchOrigin === 'manual' || row.ignored))
+        .map((row) => ({
+          id: row.id,
+          status: row.matchStatus,
+          ignored: row.ignored,
+          links: links.filter((item) => item.discountPlaceId === row.id).map((item) => ({ placeId: item.placeId, wholeBrand: item.wholeBrand, locationIndex: item.locationIndex })),
+        }))
     },
     async apply(writes: DiscountWrites) {
       for (const { benefits: _benefits, ...place } of writes.places) {
@@ -71,6 +87,16 @@ export function memoryDiscountStore(places: MatchablePlace[] = [], options: { to
           if (!placeOf(item.placeId) || links.some((other) => other.discountPlaceId === row.id && other.placeId === item.placeId)) continue
           const { name: _name, neighborhoodId: _neighborhood, ...rest } = item
           links.push({ ...rest, discountPlaceId: row.id })
+        }
+      }
+      for (const copy of writes.copies ?? []) {
+        const row = rows.get(copy.discountPlaceId)
+        if (!row || row.matchOrigin !== 'auto' || row.ignored) continue
+        Object.assign(row, { matchStatus: copy.status, matchOrigin: 'manual', ignored: copy.ignored, candidates: [], matchedAt: writes.now })
+        links = links.filter((item) => item.discountPlaceId !== row.id)
+        for (const item of copy.links) {
+          if (!placeOf(item.placeId)) continue
+          links.push({ ...item, discountPlaceId: row.id, origin: 'manual', score: null, reasons: [`copiado de ${copy.fromId}`] })
         }
       }
     },

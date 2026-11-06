@@ -53,6 +53,7 @@ export async function santanderBenefits(
     ...instantRefund(rule.percent),
     sourceText: rule.sourceText,
     parsedBy: 'html',
+    sourceUrl: null,
   }))
   stats.byRules += benefits.length
 
@@ -87,6 +88,7 @@ export async function santanderBenefits(
         ...instantRefund(raw.percent),
         sourceText: sentence,
         parsedBy: 'llm',
+        sourceUrl: null,
       })
       stats.byModel += 1
     }
@@ -142,7 +144,8 @@ export const readSantander: ProviderReader = async ({ provider, fetcher, structu
     let points = false
     try {
       const result = await santanderBenefits(id, card, detail, structure, llm, stats)
-      benefits = result.benefits
+      // El texto sale de la card del listado; la modalidad y el tope, del detalle del lugar.
+      benefits = result.benefits.map((benefit) => ({ ...benefit, sourceUrl: card.detailUrl }))
       points = result.points
       for (const issue of result.issues) warnings.push(`${card.name}: ${issue}`)
     } catch (error) {

@@ -30,6 +30,14 @@ $palette: (
 	yellow-500: #f5b301,
 	blue-500: #0469f8, // azul de marca (también en assets/logo.svg)
 	blue-600: #1a73e8,
+
+	// Colores de marca de los bancos (fondo del nombre en la ficha, PlaceDiscounts).
+	bank-itau: #FE6600,
+	bank-itau-personal-bank: #000D3E,
+	bank-santander: #FF0000,
+	bank-scotiabank: #FF0000,
+	bank-bbva: #0075BE,
+	bank-brou: #005DAD,
 );
 
 @function get($name) {

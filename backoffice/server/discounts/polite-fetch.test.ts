@@ -64,6 +64,20 @@ describe('politeFetcher', () => {
     expect(JSON.parse(await readFile(join(dir, 'index.json'), 'utf8'))['https://bank.test/a.html'].status).toBe(200)
   })
 
+  it('el HTML crudo en varias carpetas: primero la del proveedor, después las otras (una página compartida)', async () => {
+    const own = join(dir, 'own')
+    const other = join(dir, 'other')
+    const site = fakeSite({ 'https://bank.test/robots.txt': { body: '' }, 'https://bank.test/a.html': { body: '<p>propia</p>' }, 'https://bank.test/shared.html': { body: '<p>compartida</p>' } })
+    await politeFetcher({ dir: own, fetch: site.fetch, delayMs: 0, sleep: async () => {} }).get('https://bank.test/a.html')
+    const fromOther = politeFetcher({ dir: other, fetch: site.fetch, delayMs: 0, sleep: async () => {} })
+    await fromOther.get('https://bank.test/a.html')
+    await fromOther.get('https://bank.test/shared.html')
+    const raw = await rawFetcher([own, other, join(dir, 'missing')])
+    expect(await raw.get('https://bank.test/shared.html')).toBe('<p>compartida</p>')
+    expect(await raw.get('https://bank.test/a.html')).toBe('<p>propia</p>')
+    await expect(rawFetcher([join(dir, 'missing'), own])).rejects.toThrow('No hay HTML crudo')
+  })
+
   it('no baja lo que robots.txt no permite', async () => {
     const site = fakeSite({ 'https://bank.test/robots.txt': { body: ROBOTS } })
     const fetcher = politeFetcher({ dir, fetch: site.fetch, delayMs: 0, sleep: async () => {} })

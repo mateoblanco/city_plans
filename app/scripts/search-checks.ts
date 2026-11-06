@@ -3,6 +3,7 @@ import { isDanceOnly, isKidsNight } from "../src/server/search/fuse";
 import { intentGroups, matchesGroup } from "../src/server/search/intents";
 import { fitsGroup } from "../src/server/search/moments";
 import type { SearchDebug, SearchResponse } from "../src/server/search/search";
+import { matchesChoice, type DiscountChoice } from "../src/server/discounts/selection";
 
 type Place = SearchDebug["results"][number];
 type Check = { description: string; test: (places: Place[], response: SearchResponse) => string[] };
@@ -90,6 +91,45 @@ const isFirst = (placeName: string): Check => ({
 });
 
 const SUNSET_TAGS = ["sea_view", "rooftop", "terrace"];
+
+const hasDiscount = (place: Place, choices: DiscountChoice[]) => place.discounts.some((discount) => choices.some((choice) => matchesChoice(discount, choice)));
+
+/** Filtro de descuentos: todos cumplen alguna elección (un beneficio "other" cumple débito y crédito). */
+const allWithDiscount = (choices: DiscountChoice[]): Check =>
+  every(`todos con descuento ${choices.map((choice) => `${choice.provider} ${choice.card}`).join(" o ")}`, (place) => hasDiscount(place, choices));
+
+/** La línea "Descuento: …" de cada card dice sólo lo elegido. */
+const cardDiscountsAre = (names: string[]): Check => ({
+  description: `la card dice "Descuento: ${names.join(", ")}"`,
+  test: (_, response) => response.results.filter((result) => result.discounts.join() !== names.join()).map((result) => `${result.name}: ${result.discounts.join(", ") || "—"}`),
+});
+
+const noDiscountGroups: Check = {
+  description: "sin grupos por proveedor de descuento",
+  test: (_, response) => (response.sections ?? []).filter((section) => section.id.startsWith("discount:")).map((section) => section.title),
+};
+
+/** Con 2 o más proveedores: un grupo por proveedor, en este orden, cada lugar cumple su proveedor y un lugar con varios va en cada uno. */
+const discountGroups = (choices: DiscountChoice[], order: string[]): Check => ({
+  description: `agrupada por proveedor: ${order.join(", ")}; un lugar con varios en cada grupo`,
+  test: (places, response) => {
+    const sections = response.sections ?? [];
+    const byId = new Map(places.map((place) => [place.id, place]));
+    const problems = sections.map((section) => section.id).join() === order.map((id) => `discount:${id}`).join() ? [] : [`grupos: ${sections.map((section) => section.id).join(", ") || "—"}`];
+    for (const section of sections) {
+      const own = choices.filter((choice) => `discount:${choice.provider}` === section.id);
+      for (const id of section.placeIds) if (!hasDiscount(byId.get(id)!, own)) problems.push(`${section.id}: ${byId.get(id)?.name}`);
+      const expected = places.filter((place) => hasDiscount(place, own)).slice(0, section.placeIds.length).map((place) => place.id);
+      if (expected.join() !== section.placeIds.join()) problems.push(`${section.id}: no son los primeros que cumplen`);
+    }
+    return problems;
+  },
+});
+
+const includesPlace = (placeName: string): Check => ({
+  description: `${placeName} está`,
+  test: (places) => (places.some((place) => place.name === placeName) ? [] : ["no está"]),
+});
 
 /** Chip con su origen: del texto, de la barra (f) o de los dos. */
 const chipFrom = (kind: string, id: string, from: { fromText: boolean; fromFilter: boolean }): Check => ({
@@ -199,6 +239,25 @@ export const CHECKS: Record<string, Check[]> = {
     { description: "los primeros 5 son de parrilla o carne", test: (places) => places.slice(0, 5).filter((place) => !isMeat(place)).map(name) },
   ],
   "algo sin carne": [nonEmpty, noneInTop(10, "ninguna parrilla ni carne", isMeat)],
+  // Descuentos de la barra, sin texto: un proveedor y crédito; dos proveedores (grupos); "other" cumple débito y crédito.
+  " ?f=discount:itau.credit": [nonEmpty, allWithDiscount([{ provider: "itau", card: "credit" }]), cardDiscountsAre(["Itaú"]), noDiscountGroups],
+  " ?f=discount:itau.credit,discount:itau-personal-bank.debit": [
+    nonEmpty,
+    allWithDiscount([{ provider: "itau", card: "credit" }, { provider: "itau-personal-bank", card: "debit" }]),
+    discountGroups([{ provider: "itau", card: "credit" }, { provider: "itau-personal-bank", card: "debit" }], ["itau", "itau-personal-bank"]),
+    // La Perdiz tiene Itaú crédito e Itaú Personal Bank débito: cuenta para los dos grupos (discountGroups verifica que
+    // cada grupo tome los primeros que cumplen, así que va en cada uno si le alcanza el puesto).
+    {
+      description: "La Perdiz está y cumple los dos proveedores",
+      test: (places) => {
+        const perdiz = places.find((place) => place.name === "La Perdiz");
+        if (!perdiz) return ["no está"];
+        return hasDiscount(perdiz, [{ provider: "itau", card: "credit" }]) && hasDiscount(perdiz, [{ provider: "itau-personal-bank", card: "debit" }]) ? [] : ["no cumple los dos"];
+      },
+    },
+  ],
+  " ?f=discount:santander.debit": [nonEmpty, allWithDiscount([{ provider: "santander", card: "debit" }]), includesPlace("Café Butiá")],
+  " ?f=discount:santander.credit": [nonEmpty, allWithDiscount([{ provider: "santander", card: "credit" }]), includesPlace("Café Butiá")],
   "Mercado del Puerto": [
     nonEmpty,
     hasChip("venue", "Mercado del Puerto"),

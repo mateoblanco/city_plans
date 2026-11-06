@@ -113,6 +113,11 @@ export function setDietsHref(state: SearchUrl, ids: string[], chips: ChipRef[]):
   return searchHref(replaceFilter(state, "diet", ids, chips));
 }
 
+/** Descuentos del panel de la barra (`itau.credit`, sin `discount:`). [] = sin filtro. No vienen del texto. */
+export function setDiscountsHref(state: SearchUrl, ids: string[]): string {
+  return searchHref(replaceFilter(state, "discount", ids, []));
+}
+
 /** Cerca mío: las coordenadas van redondeadas a 3 decimales (unos 100 m). */
 export const nearParam = (lat: number, lng: number) => `${roundCoord(lat)},${roundCoord(lng)}`;
 

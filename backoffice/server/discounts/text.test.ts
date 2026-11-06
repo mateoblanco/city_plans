@@ -51,3 +51,14 @@ describe('parseCap', () => {
     expect(parseCap(null)).toBeNull()
   })
 })
+
+describe('vigencias de Itaú', () => {
+  it('"setiembre del 2026", dd/mm/yyyy y "hasta el …"', async () => {
+    const { numericDate, validityOf } = await import('./text.ts')
+    expect(validityOf('Del 1 de setiembre 2026 al 30 de setiembre del 2026.')).toEqual({ validFrom: '2026-09-01', validTo: '2026-09-30' })
+    expect(validityOf('Campaña vigente hasta el 01/12/2026')).toEqual({ validFrom: null, validTo: '2026-12-01' })
+    expect(validityOf('Válido hasta el 1 de diciembre de 2026.')).toEqual({ validFrom: null, validTo: '2026-12-01' })
+    expect(numericDate('31/02/2026')).toBeNull()
+    expect(validityOf('Sin fecha')).toBeNull()
+  })
+})

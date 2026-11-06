@@ -78,6 +78,7 @@ export function drizzleDiscountStore(db: Db): DiscountStore {
         validTo: benefit.validTo,
         conditions: benefit.conditions,
         sourceText: benefit.sourceText,
+        sourceUrl: benefit.sourceUrl,
         parsedBy: benefit.parsedBy,
         firstSeenAt: benefit.firstSeenAt.toISOString(),
         lastSeenAt: benefit.lastSeenAt.toISOString(),
@@ -106,6 +107,18 @@ export function drizzleDiscountStore(db: Db): DiscountStore {
     async existing(providerId) {
       return db.select({ id: discountPlaces.id, ignored: discountPlaces.ignored, matchOrigin: discountPlaces.matchOrigin })
         .from(discountPlaces).where(eq(discountPlaces.providerId, providerId))
+    },
+
+    async manualMatches(providerId) {
+      const rows = await db.select({ id: discountPlaces.id, status: discountPlaces.matchStatus, ignored: discountPlaces.ignored }).from(discountPlaces)
+        .where(and(eq(discountPlaces.providerId, providerId), sql`(${discountPlaces.matchOrigin} = 'manual' or ${discountPlaces.ignored})`))
+      if (!rows.length) return []
+      const linkRows = await db.select({ dp: discountPlaceLinks.discountPlaceId, placeId: discountPlaceLinks.placeId, wholeBrand: discountPlaceLinks.wholeBrand, locationIndex: discountPlaceLinks.locationIndex })
+        .from(discountPlaceLinks).where(inArray(discountPlaceLinks.discountPlaceId, rows.map((row) => row.id)))
+      return rows.map((row) => ({
+        ...row,
+        links: linkRows.filter((link) => link.dp === row.id).map(({ dp: _dp, ...link }) => link),
+      }))
     },
 
     async apply(writes: DiscountWrites) {
@@ -154,6 +167,7 @@ export function drizzleDiscountStore(db: Db): DiscountStore {
         validTo: benefit.validTo,
         conditions: benefit.conditions,
         sourceText: benefit.sourceText,
+        sourceUrl: benefit.sourceUrl,
         parsedBy: benefit.parsedBy,
         firstSeenAt: now,
         lastSeenAt: now,
@@ -183,7 +197,7 @@ export function drizzleDiscountStore(db: Db): DiscountStore {
           set: Object.fromEntries([
             'discount_place_id', 'percent', 'card_type', 'card_tiers', 'card_program', 'days_kind', 'days', 'days_text', 'mode',
             'instant_percent', 'refund_percent', 'cap_text', 'cap_amount', 'cap_currency', 'cap_period', 'valid_from', 'valid_to',
-            'conditions', 'source_text', 'parsed_by', 'last_seen_at', 'active',
+            'conditions', 'source_text', 'source_url', 'parsed_by', 'last_seen_at', 'active',
           ].map((column) => [column.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase()), excluded(column)])),
         })] : []),
         // De los detalles que se leyeron bien, los beneficios que no aparecieron, inactivos.
@@ -211,6 +225,28 @@ export function drizzleDiscountStore(db: Db): DiscountStore {
           where ${stillAuto(sql`l.dp`)} and exists (select 1 from ${places} where ${places.id} = l.pid::uuid)
           on conflict do nothing`)] : []),
       ]
+      // Cruces manuales heredados de otro proveedor: sólo sobre lugares que siguen automáticos y no ignorados. El lugar
+      // pasa a manual al final, así los vínculos se escriben con el mismo chequeo.
+      const copies = writes.copies ?? []
+      if (copies.length) {
+        const copyIds = copies.map((copy) => copy.discountPlaceId)
+        const copyLinks = copies.flatMap((copy) => copy.links.map((link) => ({ dp: copy.discountPlaceId, pid: link.placeId, wb: link.wholeBrand, li: link.locationIndex, rs: [`copiado de ${copy.fromId}`] })))
+        const copyRows = copies.map((copy) => ({ id: copy.discountPlaceId, status: copy.status, ignored: copy.ignored }))
+        statements.push(
+          db.delete(discountPlaceLinks).where(and(inArray(discountPlaceLinks.discountPlaceId, copyIds), stillAuto(sql`${discountPlaceLinks.discountPlaceId}`))),
+          ...(copyLinks.length ? [db.execute(sql`
+            insert into ${discountPlaceLinks} (discount_place_id, place_id, origin, whole_brand, score, reasons, location_index)
+            select l.dp, l.pid::uuid, 'manual', l.wb, null, l.rs, l.li
+            from jsonb_to_recordset(${JSON.stringify(copyLinks)}::jsonb) as l(dp text, pid text, wb boolean, li integer, rs text[])
+            where ${stillAuto(sql`l.dp`)} and exists (select 1 from ${places} where ${places.id} = l.pid::uuid)
+            on conflict do nothing`)] : []),
+          db.execute(sql`
+            update ${discountPlaces} set match_status = v.status, match_origin = 'manual', ignored = v.ignored, match_candidates = '[]'::jsonb,
+              matched_at = ${writes.now}::timestamptz, updated_at = ${writes.now}::timestamptz
+            from jsonb_to_recordset(${JSON.stringify(copyRows)}::jsonb) as v(id text, status text, ignored boolean)
+            where ${discountPlaces.id} = v.id and ${discountPlaces.matchOrigin} = 'auto' and not ${discountPlaces.ignored}`),
+        )
+      }
       await db.batch(statements as unknown as Parameters<typeof db.batch>[0])
     },
 

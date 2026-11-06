@@ -1,0 +1,43 @@
+// Basado en el demo de Tooltip de Base UI (v1.9.0, css-modules), en px.
+
+.trigger {
+  background: none;
+  border: 0;
+  color: inherit;
+  cursor: help;
+  font: inherit;
+  padding: 0;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+}
+
+.positioner {
+  z-index: 20;
+}
+
+.popup {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border-popover);
+  border-radius: 8px;
+  box-shadow: var(--shadow-popover);
+  color: var(--color-text);
+  font-size: 13px;
+  line-height: 18px;
+  max-width: 320px;
+  padding: 8px 12px;
+  transform-origin: var(--transform-origin);
+  transition:
+    transform 100ms ease-out,
+    opacity 100ms ease-out;
+
+  &[data-starting-style],
+  &[data-ending-style] {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}

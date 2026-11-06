@@ -55,8 +55,14 @@ export function capLabel(cap: BenefitCap | null): string {
   return [cap.amount.toLocaleString('es-UY'), cap.currency, cap.period ? PERIOD_LABELS[cap.period] : null].filter(Boolean).join(' ')
 }
 
-/** Beneficio vigente: apareció en la última lectura y no venció. */
-export const isBenefitCurrent = (benefit: StoredBenefit) => benefit.active && !benefit.expired
+/**
+ * Beneficio vigente: apareció en la última lectura. Con la fecha vencida sigue vigente ("vigencia desactualizada en la
+ * fuente"); vencido de verdad es cuando además dejó de aparecer.
+ */
+export const isBenefitCurrent = (benefit: StoredBenefit) => benefit.active
+
+/** Publicado en la fuente pero con la fecha de fin ya pasada. */
+export const hasStaleValidity = (benefit: StoredBenefit) => benefit.active && benefit.expired
 
 /** Lugar vigente: apareció en la última corrida y tiene algún beneficio vigente. */
 export const isPlaceCurrent = (place: DiscountPlace) => place.active && place.benefits.some(isBenefitCurrent)

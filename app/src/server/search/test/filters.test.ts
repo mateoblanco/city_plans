@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyFilters, filterChipKeys, parseFilters, parseNear, roundCoord } from '../filters'
+import { applyFilters, filterChipKeys, hasFilters, parseFilters, parseNear, roundCoord } from '../filters'
 import { emptyInterpretation } from '../interpretation'
 import { distanceLabel } from '../labels'
 
@@ -12,6 +12,7 @@ describe('parseFilters', () => {
       price: [],
       section: null,
       tags: [],
+      discounts: [],
     })
     // Las categorías ya no son filtros de la barra: van por la intención.
     // open:now era el filtro viejo ("Abierto ahora"): ya no existe.
@@ -22,8 +23,22 @@ describe('parseFilters', () => {
       price: [],
       section: null,
       tags: [],
+      discounts: [],
     })
     expect(parseFilters(null)).toEqual(parseFilters(''))
+  })
+
+  it('discount: proveedor y tipo de tarjeta del catálogo, sin repetir; no es un chip ni toca la interpretación', () => {
+    const filters = parseFilters('discount:itau.credit,discount:itau-personal-bank.debit,discount:itau.credit,discount:nubank.credit,discount:bbva.other,discount:bbva,discount:.credit')
+    expect(filters.discounts).toEqual([
+      { provider: 'itau', card: 'credit' },
+      { provider: 'itau-personal-bank', card: 'debit' },
+    ])
+    expect(hasFilters(filters)).toBe(true)
+    expect(hasFilters(parseFilters('discount:nubank.credit'))).toBe(false)
+    expect([...filterChipKeys(filters)]).toEqual([])
+    const value = emptyInterpretation()
+    expect(applyFilters(value, filters)).toEqual(value)
   })
 
   it('tag: los del catálogo (cocinas incluidas), sin repetir y nunca un momento', () => {

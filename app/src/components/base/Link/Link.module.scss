@@ -1,0 +1,25 @@
+// Link de texto: el tamaño lo hereda del contexto; la flecha va al final en los externos.
+.link {
+  align-items: center;
+  color: var(--color-text-subtle);
+  display: inline-flex;
+  gap: 4px;
+  text-decoration: none;
+  text-underline-offset: 3px;
+
+  &:hover {
+    color: var(--color-text);
+    text-decoration: underline;
+  }
+
+  &:focus-visible {
+    border-radius: 2px;
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+}
+
+.icon {
+  display: block;
+  flex-shrink: 0;
+}

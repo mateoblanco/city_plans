@@ -7,6 +7,7 @@ import type { SearchCache } from '../cache'
 import type { PlacesStore } from '../store'
 import type { Venue } from '../venues'
 import { SEARCH_CONFIG } from '../config'
+import { matchesChoice } from '../../discounts/selection'
 
 export function row(overrides: Partial<CandidateRow> & { id: string }): CandidateRow {
   return {
@@ -32,6 +33,7 @@ export function row(overrides: Partial<CandidateRow> & { id: string }): Candidat
     brandCount: 1,
     lat: -34.9011,
     lng: -56.1645,
+    discounts: [],
     matchesFilters: true,
     semantic: 0.5,
     keyword: 0,
@@ -88,6 +90,7 @@ export function fakeStore(places: CandidateRow[], names: NameMatch[] = [], vecto
       !filters.excludeTags.flatMap(withSubcuisines).some((id) => place.tags.includes(id)) &&
       !(place.iconCategory !== null && filters.excludeIcons.includes(place.iconCategory)) &&
       filters.groups.every((group) => matchesGroup(group, place)) &&
+      (!filters.discounts?.length || place.discounts.some((discount) => filters.discounts!.some((choice) => matchesChoice(discount, choice)))) &&
       (!filters.near || (place.distance ?? Infinity) <= filters.near.radiusM) &&
       (!filters.dishes.length || filters.dishMode === 'none' ||
         (filters.dishMode === 'related'

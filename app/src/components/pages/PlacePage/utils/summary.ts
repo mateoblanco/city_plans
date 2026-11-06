@@ -72,15 +72,30 @@ export function googleMapsHref(name: string, placeId: string): string {
   return `https://www.google.com/maps/search/?${params}`;
 }
 
-/** Texto claro u oscuro sobre un fondo #rrggbb (luminancia relativa); null con un color inválido. */
-export function toneOn(hex: string | null): "light" | "dark" | null {
+/** Luminancia relativa (WCAG) de un #rrggbb, de 0 (negro) a 1 (blanco); null con un color inválido. */
+function relativeLuminance(hex: string | null): number | null {
   const match = hex?.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
   if (!match) return null;
   const [r, g, b] = match.slice(1).map((part) => {
     const channel = parseInt(part, 16) / 255;
     return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
   });
-  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** Texto claro u oscuro sobre un fondo #rrggbb (luminancia relativa); null con un color inválido. */
+export function toneOn(hex: string | null): "light" | "dark" | null {
+  const luminance = relativeLuminance(hex);
+  if (luminance === null) return null;
   // Fondo oscuro → texto claro. 0,179 es el punto donde blanco y negro tienen el mismo contraste.
   return luminance > 0.179 ? "dark" : "light";
+}
+
+/** Por encima de esta luminancia un fondo es "casi blanco": contraste contra blanco menor a ~1,11:1. */
+const NEAR_WHITE_LUMINANCE = 0.9;
+
+/** Blanco o casi blanco (#f7f7f7 sí, #e0e0e0 no); false sin color o con uno inválido. */
+export function isNearWhite(hex: string | null): boolean {
+  const luminance = relativeLuminance(hex);
+  return luminance !== null && luminance > NEAR_WHITE_LUMINANCE;
 }

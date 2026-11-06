@@ -138,9 +138,9 @@ La aplicación hace una consulta por interacción, mantiene una sola consulta OS
 
 ## Descuentos
 
-Pantalla **Descuentos** (`#/descuentos`): descuentos gastronómicos de bancos (después billeteras, financieras y clubes), leídos de los sitios de cada proveedor, guardados en Neon y cruzados con los lugares guardados. Por ahora BBVA y Santander (Ruta Gourmet, Montevideo).
+Pantalla **Descuentos** (`#/descuentos`): descuentos gastronómicos de bancos (después billeteras, financieras y clubes), leídos de los sitios de cada proveedor, guardados en Neon y cruzados con los lugares guardados. Por ahora BBVA, Santander (Ruta Gourmet, Montevideo), Itaú (Restaurantes y Platinum) e Itaú Personal Bank.
 
-- **Actualizar descuentos** corre en el servidor todos los proveedores de `server/discounts/providers.ts` (un pedido a la vez, 1,5 s de pausa, respetando `robots.txt`, user-agent genérico); la pantalla consulta el progreso cada 1,5 s. BBVA: ~90 pedidos, ~3 min; Santander: ~58 pedidos, ~2 min.
+- **Actualizar descuentos** corre en el servidor todos los proveedores de `server/discounts/providers.ts` (un pedido a la vez, 1,5 s de pausa, respetando `robots.txt`, user-agent genérico); la pantalla consulta el progreso cada 1,5 s. BBVA: ~90 pedidos, ~3 min; Santander: ~58 pedidos, ~2 min; Itaú: 3 páginas.
 - Tablas (`drizzle/0021_discounts.sql`): `discount_places`, `discount_place_links` (uno a muchos con `places`), `discount_benefits` y `discount_runs`. Cada corrida hace upsert por id estable; lo que no aparece queda inactivo (no se borra) y se reactiva si vuelve. Un beneficio vencido cuenta como inactivo. Un proveedor que falla entero no toca nada.
 - El cruce automático se recalcula en cada corrida; lo corregido a mano (Confirmar, elegir candidatos, buscar y vincular, desvincular) y lo ignorado no se toca nunca. **Volver a automático** deshace lo manual.
 - El HTML crudo de cada corrida queda en `cache/discounts/raw/<id>/<proveedor>/` (fuera de git) y las respuestas del modelo en `cache/discounts/llm/`.
@@ -150,7 +150,7 @@ Pantalla **Descuentos** (`#/descuentos`): descuentos gastronómicos de bancos (d
 
 Para probarlo, en este orden:
 
-1. `yarn db:migrate` (crea las tablas de `0021_discounts.sql`).
+1. `yarn db:migrate` (crea las tablas de `0021_discounts.sql` y la columna `source_url` de `0022`).
 2. `yarn discounts:reparse`: llena la base desde el HTML ya guardado, sin pedirle nada al banco.
 3. `yarn dev` y abrir `#/descuentos`.
 

@@ -44,7 +44,9 @@ export function visiblePage(response: Pick<SearchResponse, "results" | "sections
     if (places.length < all.length) hasMore = true;
     return { id: section.id, title: section.title, places, total: section.total };
   });
-  return { forYou: null, list: null, sections, hasMore, places: sections.flatMap((section) => section.places) };
+  // Un lugar puede estar en dos grupos (por proveedor de descuento): en el mapa, un solo punto.
+  const places = [...new Map(sections.flatMap((section) => section.places).map((place): [string, SearchResult] => [place.id, place])).values()];
+  return { forYou: null, list: null, sections, hasMore, places };
 }
 
 /** "Ver todos" sólo si el grupo tiene más lugares de los que muestra. Sin número: la búsqueda filtrada puede dar otro. */

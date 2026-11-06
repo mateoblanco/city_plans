@@ -12,7 +12,7 @@ function json(body: unknown, status = 200) {
 const benefit = (patch: Partial<StoredBenefit> = {}): StoredBenefit => ({
   id: `b-${Math.random()}`, percent: 20, cardType: 'debit', cardTiers: [], cardProgram: null, days: 'all', daysText: null, mode: 'mixed', instantPercent: 10, refundPercent: 10,
   cap: { text: '4000 pesos uruguayos por cierre de estado de cuenta', amount: 4000, currency: 'UYU', period: 'statement' },
-  validFrom: '2026-11-01', validTo: '2027-10-31', conditions: 'Beneficio no acumulable a otras ofertas.', sourceText: '20% Off con Tarjetas de Débito', parsedBy: 'html',
+  validFrom: '2026-11-01', validTo: '2027-10-31', conditions: 'Beneficio no acumulable a otras ofertas.', sourceText: '20% Off con Tarjetas de Débito', sourceUrl: null, parsedBy: 'html',
   firstSeenAt: '2026-11-05T12:00:00.000Z', lastSeenAt: '2026-11-05T12:00:00.000Z', active: true, expired: false, ...patch,
 })
 
@@ -45,7 +45,8 @@ const initialPlaces = () => [
   place('Bocatti', { match: { status: 'found', origin: 'auto', links: [link('00000000-0000-4000-8000-000000000005', 'Bocatti', { wholeBrand: true }), link('00000000-0000-4000-8000-000000000006', 'Bocatti', { wholeBrand: true, neighborhoodId: 'CENTRO' })], candidates: [], missingBranches: 0, nearby: [] } }),
   place('Up Lavista', { city: 'Atlantida', departments: ['Canelones'], montevideo: false, match: { status: 'not_matched', origin: 'auto', links: [], candidates: [], missingBranches: 0, nearby: [] } }),
   place('Cerrado', { active: false }),
-  place('Vencido', { benefits: [benefit({ expired: true })] }),
+  // Vencido de verdad: la fecha pasó y dejó de aparecer.
+  place('Vencido', { benefits: [benefit({ expired: true, active: false })] }),
   place('Ignorado', { ignored: true }),
 ]
 
@@ -291,6 +292,17 @@ describe('DiscountsPage', () => {
     fake.setPlaces(initialPlaces())
     await user.click(screen.getByRole('button', { name: 'Reintentar' }))
     expect(await screen.findByText('Porterhouse')).toBeInTheDocument()
+  })
+
+  it('fecha vencida pero publicado: vigente, con "Vigencia desactualizada en la fuente" en la fila y en el diálogo, y la página de origen', async () => {
+    server({ places: [place('La Perdiz', { benefits: [benefit({ expired: true, validTo: '2026-09-30', sourceUrl: 'https://www.itau.com.uy/inst/restaurantesplatinum.html' })] })] })
+    const user = userEvent.setup()
+    render(<DiscountsPage />)
+    await user.click(await screen.findByRole('button', { name: 'La Perdiz' }))
+    expect(within(row('La Perdiz')).getByText('Vigencia desactualizada en la fuente')).toBeInTheDocument()
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('Vigencia desactualizada en la fuente')).toBeInTheDocument()
+    expect(within(dialog).getByRole('link', { name: 'restaurantesplatinum.html' })).toHaveAttribute('href', 'https://www.itau.com.uy/inst/restaurantesplatinum.html')
   })
 
   it('vecino con otro nombre: nota en la fila, sin cambiar el estado', async () => {

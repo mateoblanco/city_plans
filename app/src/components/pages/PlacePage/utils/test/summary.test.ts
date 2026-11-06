@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Hours } from "@/server/search/hours";
-import { googleMapsHref, instagramHandle, instagramPopularHref, mainCategory, placeOpenText, priceLabel, ratingText, toneOn } from "../summary";
+import { googleMapsHref, instagramHandle, instagramPopularHref, mainCategory, isNearWhite, placeOpenText, priceLabel, ratingText, toneOn } from "../summary";
 
 describe("línea de info", () => {
   it("precio con signos y etiqueta; desconocido no se muestra", () => {
@@ -44,6 +44,30 @@ describe("toneOn", () => {
     expect(toneOn("#f4bc07")).toBe("dark");
     expect(toneOn("#ffffff")).toBe("dark");
     expect(toneOn("verde")).toBeNull();
+  });
+});
+
+describe("isNearWhite", () => {
+  it("blanco y casi blanco son claros", () => {
+    expect(isNearWhite("#ffffff")).toBe(true);
+    expect(isNearWhite("#FFFFFF")).toBe(true);
+    expect(isNearWhite("#f7f7f7")).toBe(true);
+    expect(isNearWhite("#fff8e6")).toBe(true);
+  });
+
+  it("gris claro, amarillo y oscuros no", () => {
+    expect(isNearWhite("#e0e0e0")).toBe(false);
+    expect(isNearWhite("#ededed")).toBe(false);
+    expect(isNearWhite("#fef200")).toBe(false);
+    expect(isNearWhite("#24502f")).toBe(false);
+    expect(isNearWhite("#000000")).toBe(false);
+  });
+
+  it("sin color o inválido, no", () => {
+    expect(isNearWhite(null)).toBe(false);
+    expect(isNearWhite("")).toBe(false);
+    expect(isNearWhite("blanco")).toBe(false);
+    expect(isNearWhite("#fff")).toBe(false);
   });
 });
 

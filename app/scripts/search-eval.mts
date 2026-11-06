@@ -271,7 +271,8 @@ for (const query of queries.length ? queries : checkOnly ? Object.keys(CHECKS) :
     const shown = page.sections ? page.sections.map((section) => `${section.title} ${section.places.length}`).join(" · ") : `lista ${page.list?.length}`;
     console.log(`  de entrada: ${page.places.length} de ${response.results.length} (${shown})${page.hasMore ? " · con Ver más" : ""}`);
     for (const section of page.sections ?? []) {
-      if (!hasViewAll(section)) continue;
+      // Los grupos por proveedor de descuento no tienen regla de sección: su "Ver todos" es la búsqueda con un proveedor.
+      if (!hasViewAll(section) || section.id.startsWith("discount:")) continue;
       // La misma búsqueda con la regla del grupo (sin llamadas pagas: interpretación y embedding en cache).
       const all = await runSearch(key.query, { store, cache }, { ...params, filters: [params.filters, `section:${section.id}`].filter(Boolean).join(",") });
       console.log(`  Ver todos en ${section.title} (${section.total} en la regla) → muestra ${all.results.length}`);

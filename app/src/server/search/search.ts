@@ -37,6 +37,8 @@ import { buildReasons } from './reasons'
 import { logoUrl } from './logo'
 import { relevanceCut, type Relevance } from './relevance'
 import { buildSections, notBroadReason, requestedSections, type Section, type SectionsDebug } from './sections'
+import { discountSections } from '../discounts/sections'
+import { cardProviders, type PlaceDiscount } from '../discounts/selection'
 import { momentsOf } from './moments'
 import { emptyPersonalDebug, personalize, type PersonalDebug } from './personal'
 import { canRelax, noMatchNotice, relax, RELAX_ORDER, relaxNotice, type NoticeKind, type RelaxStep, type SearchState } from './relax'
@@ -92,6 +94,8 @@ export type SearchResult = {
   /** Las otras sucursales de la marca que salieron en la búsqueda: no tienen card, sí punto en el mapa. */
   branches: { id: string; lat: number; lng: number }[]
   reasons: string[]
+  /** Proveedores de descuento para los chips de "Descuento" en la card (en el orden de la config); con el filtro, sólo los elegidos. */
+  discounts: { id: string; name: string }[]
   openStatus: { state: OpenState['state']; closesAt: string | null; label: string } & OpenStateText
   matchLevel: MatchLevel
 }
@@ -128,6 +132,8 @@ export type SearchDebug = {
     style: CandidateRow['style']
     neighborhoodId: string
     locatedIn: string | null
+    /** Proveedor y tipo de tarjeta de cada beneficio que cuenta (search:check). */
+    discounts: PlaceDiscount[]
     rrf: number
     boosts: Fused['boosts']
     baseScore: number
@@ -285,6 +291,7 @@ export function filtersFor(
   near: CandidateFilters['near'] = null,
   groups: CandidateFilters['groups'] = [],
   venues: Venue[] = [],
+  discounts: CandidateFilters['discounts'] = [],
 ): CandidateFilters {
   return {
     categories: value.must.categories,
@@ -301,6 +308,7 @@ export function filtersFor(
     dishMode,
     near,
     groups,
+    discounts,
   }
 }
 
@@ -520,6 +528,8 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       near && value.nearRadius !== null ? { ...near, radiusM: value.nearRadius } : null,
       [...intentGroups(value.intent, value.subs), ...sectionGroups],
       venues,
+      // Como la sección, viene de la barra y nunca se relaja.
+      filters.discounts,
     )
   const fetchCandidates = async () => {
     const attemptStart = performance.now()
@@ -650,6 +660,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       branchCount: item.row.brandCount,
       branches: item.branches.map(({ row }) => ({ id: row.id, lat: row.lat, lng: row.lng })),
       reasons: buildReasons(item, { interpretation: current, dishes, dishMode: state.dishMode, intent: state.intent, near: near !== null }),
+      discounts: cardProviders(item.row.discounts, filters.discounts),
       openStatus: {
         state: open.state,
         closesAt: open.state === 'open' ? open.closesAt : null,
@@ -660,9 +671,12 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     }
   })
 
+  // Con 2 o más proveedores de descuento elegidos, los grupos son por proveedor (un lugar puede ir en varios) y
+  // reemplazan a los del catálogo y a los bloques personales.
+  const byDiscount = discountSections(fused.map((item) => ({ id: item.row.id, discounts: item.row.discounts })), filters.discounts)
   // Secciones: sólo en búsquedas amplias y con suficientes resultados.
   const minResults = SEARCH_CONFIG.sections.minResults
-  const notGrouped = notBroadReason(interpretation, { pinned: pinned !== null, section: filters.section !== null }) ??
+  const notGrouped = (byDiscount ? 'agrupado por descuento' : null) ?? notBroadReason(interpretation, { pinned: pinned !== null, section: filters.section !== null }) ??
     (fused.length < minResults ? `menos de ${minResults} resultados` : null)
   const sectionSubs = state.subs.map((id) => ({ id, fromText: resolved.subs.some((sub) => sub.id === id && sub.fromText) }))
   const sectionChoice = notGrouped ? null : requestedSections(interpretation, { fromLlm: source === 'llm', intent: state.intent, subs: sectionSubs })
@@ -682,6 +696,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     options.profile === false ? 'profile=off'
     : likes.length === 0 ? 'sin likes'
     : nameSearch ? 'búsqueda por nombre'
+    : byDiscount ? 'agrupado por descuento'
     : fused.length === 0 ? 'sin resultados'
     : hasCount < minHas ? `${hasCount} resultados "has" (mínimo ${minHas})`
     : null
@@ -789,7 +804,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     interpreted: { chips },
     bar,
     results,
-    sections: grouped?.sections ?? null,
+    sections: byDiscount ?? grouped?.sections ?? null,
     forYou,
     relaxed,
     suggestedRemovals,
@@ -843,6 +858,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
         style: item.row.style,
         neighborhoodId: item.row.neighborhoodId,
         locatedIn: item.row.locatedIn,
+        discounts: item.row.discounts,
         rrf: item.rrf,
         boosts: item.boosts,
         baseScore: item.baseScore,

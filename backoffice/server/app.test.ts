@@ -914,6 +914,11 @@ describe('descuentos', () => {
       campaign: { validFrom: null, validTo: null, text: null }, benefits: [],
     }
     await store.apply(planDiscountWrites({ providerId: 'bbva', runId: 'r1', now: new Date(), result: { places: [sourcePlace], unread: [] }, existing: [], candidates: ours }))
+    // Itaú: el id lleva la ciudad (dos ":"), y un slug de BBVA con "%" (path codificado de la fuente).
+    const itauPlace = { ...sourcePlace, id: 'itau:montevideo:dos-orientales', providerId: 'itau', sourceName: 'Dos Orientales', city: 'Montevideo', sourceUrl: 'https://bank.test/restaurantes.html' }
+    await store.apply(planDiscountWrites({ providerId: 'itau', runId: 'r1', now: new Date(), result: { places: [itauPlace], unread: [] }, existing: [], candidates: ours }))
+    const encodedPlace = { ...sourcePlace, id: 'bbva:caf%c3%a9-100%', sourceName: 'Café' }
+    await store.apply(planDiscountWrites({ providerId: 'bbva', runId: 'r1', now: new Date(), result: { places: [sourcePlace, encodedPlace], unread: [] }, existing: [], candidates: ours }))
     const runner = { start: options.start ?? (() => 'r2'), status: () => ({ status: 'idle' }) }
     const discounts = { runner, store, candidates: async () => ours } as unknown as NonNullable<Parameters<typeof createApp>[0]>['discounts']
     return { app: createApp({ discounts }), store }
@@ -930,7 +935,7 @@ describe('descuentos', () => {
     const { app } = await service()
     const body = await (await app.request('/api/discounts')).json()
     expect(body.run).toBeNull()
-    expect(body.places).toEqual([expect.objectContaining({ id: 'bbva:es-mercat', match: expect.objectContaining({ status: 'found', origin: 'auto' }) })])
+    expect(body.places).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'bbva:es-mercat', match: expect.objectContaining({ status: 'found', origin: 'auto' }) })]))
   })
 
   it('POST /api/discounts/runs arranca la corrida (202) o avisa que ya hay una (409)', async () => {
@@ -958,6 +963,55 @@ describe('descuentos', () => {
     const cleared = await app.request(`${at}/links`, { method: 'PUT', ...json({ links: [] }) })
     expect((await cleared.json()).place.match).toMatchObject({ status: 'missing', origin: 'manual', links: [] })
     expect((await app.request('/api/discounts/places/bbva%3Anada/links', { method: 'PUT', ...json({ links: [] }) })).status).toBe(404)
+  })
+
+  describe('Itaú (id con ciudad): cada camino del diálogo', () => {
+    // Lo que manda el cliente: encodeURIComponent del id.
+    const itau = `/api/discounts/places/${encodeURIComponent('itau:montevideo:dos-orientales')}`
+
+    it('vincular a mano "Dos Orientales" de Itaú guarda (antes: "Vínculos inválidos")', async () => {
+      const { app } = await service()
+      const response = await app.request(`${itau}/links`, { method: 'PUT', ...json({ links: [{ placeId: ourPlace, wholeBrand: false }] }) })
+      expect(response.status).toBe(200)
+      expect((await response.json()).place).toMatchObject({ id: 'itau:montevideo:dos-orientales', match: { origin: 'manual', status: 'found', links: [expect.objectContaining({ placeId: ourPlace })] } })
+    })
+
+    it('candidatos, varios lugares con toda la marca, desvincular uno y desvincular todo', async () => {
+      const { app } = await service()
+      const put = (links: unknown[]) => app.request(`${itau}/links`, { method: 'PUT', ...json({ links }) })
+      const both = await put([{ placeId: ourPlace, wholeBrand: true }, { placeId: otherPlace, wholeBrand: true }])
+      expect((await both.json()).place.match.links).toHaveLength(2)
+      const one = await put([{ placeId: otherPlace, wholeBrand: true }])
+      expect((await one.json()).place.match.links).toEqual([expect.objectContaining({ placeId: otherPlace, wholeBrand: true })])
+      const none = await put([])
+      expect((await none.json()).place.match).toMatchObject({ status: 'missing', origin: 'manual', links: [] })
+    })
+
+    it('confirmar, ignorar y volver a automático', async () => {
+      const { app } = await service()
+      expect((await app.request(`${itau}/ignored`, { method: 'PATCH', ...json({ ignored: true }) })).status).toBe(200)
+      expect((await app.request(`${itau}/auto`, { method: 'POST' })).status).toBe(200)
+      await app.request(`${itau}/links`, { method: 'PUT', ...json({ links: [{ placeId: ourPlace }] }) })
+      expect((await app.request(`${itau}/confirm`, { method: 'POST' })).status).toBe(200)
+    })
+
+    it('un slug con "%" no se decodifica dos veces', async () => {
+      const { app } = await service()
+      const response = await app.request(`/api/discounts/places/${encodeURIComponent('bbva:caf%c3%a9-100%')}/links`, { method: 'PUT', ...json({ links: [] }) })
+      expect(response.status).toBe(200)
+      expect((await response.json()).place.id).toBe('bbva:caf%c3%a9-100%')
+    })
+
+    it('los errores dicen qué falló', async () => {
+      const { app } = await service()
+      const error = async (url: string, body: unknown) => (await (await app.request(url, { method: 'PUT', ...json(body) })).json()).error.message
+      expect(await error(`${itau}/links`, { links: [{ placeId: ourPlace }, { placeId: 'nope' }] })).toBe('Vínculos inválidos: el lugar 2 de 2 no es un id de lugar nuestro (uuid): «nope».')
+      expect(await error(`${itau}/links`, { links: [{ placeId: ourPlace, wholeBrand: 'sí' }] })).toBe('Vínculos inválidos: «toda la marca» del lugar 1 debe ser sí o no.')
+      expect(await error(`${itau}/links`, { placeIds: [ourPlace] })).toBe('Vínculos inválidos: se espera { links: [{ placeId, wholeBrand? }] }.')
+      expect(await error(`${itau}/links`, { links: Array.from({ length: 201 }, () => ({ placeId: ourPlace })) })).toBe('Vínculos inválidos: son 201 lugares y el máximo es 200.')
+      expect(await error('/api/discounts/places/no%20vale/links', { links: [] })).toBe('El id del lugar del proveedor no es válido: «no vale».')
+      expect(await error(`${itau}/links`, { links: [{ placeId: '00000000-0000-4000-8000-00000000ffff' }] })).toMatch(/ya no existe en nuestra base/)
+    })
   })
 
   it('ignorar y volver a automático', async () => {

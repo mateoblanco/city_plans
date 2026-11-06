@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 import PlaceImage from "@/components/pages/SearchPage/Results/PlaceCard/PlaceImage/PlaceImage";
 import BackButton from "./BackButton/BackButton";
 import PlaceActions from "./PlaceActions/PlaceActions";
-import { instagramHandle, instagramPopularHref, toneOn } from "../utils/summary";
+import { instagramHandle, instagramPopularHref, isNearWhite, toneOn } from "../utils/summary";
 import styles from "./PlaceHeader.module.scss";
 
 type Props = {
@@ -32,7 +32,7 @@ const PlaceHeader = (props: Props) => {
       <div className={styles.content}>
         <div className={styles.row}>
           <div className={styles.logo}>
-            <PlaceImage name={props.name} logoUrl={props.logoUrl} logoBgColor={props.logoBgColor} size="lg" />
+            <PlaceImage name={props.name} logoUrl={props.logoUrl} logoBgColor={props.logoBgColor} size="lg" onLightBar={isNearWhite(barColor)} />
           </div>
           <div className={styles.like}>
             <PlaceActions

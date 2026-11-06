@@ -1,12 +1,16 @@
 import { INTENT_IDS, INTENTS } from "@shared/intents.ts";
 import { neighborhoodDisplayName } from "@shared/neighborhood-names.ts";
 import { publishedNeighborhoods, type Chip, type IntentBar } from "@/server/search";
+import { activeDiscountProviders, type DiscountProviderOption } from "@/server/discounts";
+import { choiceKey } from "@/server/discounts/selection";
+import { parseFilters } from "@/server/search/filters";
 import { PRICES, type DietKey } from "@/server/search/interpretation";
 import { dietLabel, PRICE_FILTER_LABELS } from "@/server/search/labels";
 import FilterChip from "./FilterChip/FilterChip";
 import NeighborhoodSelect from "./NeighborhoodSelect/NeighborhoodSelect";
 import PriceSelect from "./PriceSelect/PriceSelect";
 import DietSelect from "./DietSelect/DietSelect";
+import DiscountFilter from "./DiscountFilter/DiscountFilter";
 import { DIET_OPTIONS } from "./DietSelect/utils/diet-selection";
 import { addFilterHref, extraHref, intentHref, removeChipHref, subHref, type SearchUrl } from "@/components/pages/SearchPage/utils/search-href";
 import styles from "./FilterBar.module.scss";
@@ -55,6 +59,9 @@ const FilterBar = async (props: Props) => {
     .filter((chip) => chip.kind === "diet")
     .map(({ kind, id, fromText, fromFilter }) => ({ kind, id, fromText, fromFilter }));
   const diets = DIET_OPTIONS.map((id) => ({ id, label: dietLabel(id as DietKey, "es") }));
+  // Descuentos: no vienen del texto, así que lo activo sale de `f` y no de los chips.
+  const discountProviders = await activeDiscountProviders().catch(() => [] as DiscountProviderOption[]);
+  const activeDiscounts = parseFilters(props.state.f).discounts.map(choiceKey);
   const toggle = { state: props.state, chips: props.chips };
   const activeIntent = props.bar.intent?.id ?? null;
   const showSubs = props.bar.subs.length > 0 || props.bar.extras.length > 0;
@@ -65,6 +72,7 @@ const FilterBar = async (props: Props) => {
         <NeighborhoodSelect options={neighborhoods} chips={neighborhoodChips} state={props.state} autoNear={props.needsLocation} />
         <PriceSelect options={prices} chips={priceChips} state={props.state} />
         <DietSelect options={diets} chips={dietChips} state={props.state} />
+        {discountProviders.length > 0 && <DiscountFilter providers={discountProviders} active={activeDiscounts} state={props.state} />}
         <Toggle {...toggle} kind="openAt" id="today" text="Abre hoy" />
       </div>
       <hr className={`${styles.divider} ${styles.intentDivider}`} />

@@ -13,7 +13,7 @@ const SimilarPlaces = (props: Props) => {
 
   return (
     <PlaceSection title={`Lugares similares`}>
-      <PlacesGrid places={props.places} scores={null} />
+      <PlacesGrid places={props.places} scores={null} columns={1} />
     </PlaceSection>
   );
 };

@@ -10,6 +10,8 @@ import { logoUrl } from '../search/logo'
 import { concreteMismatch } from '../search/personal'
 import type { SearchResult } from '../search'
 import type { PlaceRow } from './place'
+import { placeDiscountsColumn } from '../discounts/queries'
+import { cardProviders, type PlaceDiscount } from '../discounts/selection'
 
 /** Cuántos "Parecidos a" muestra la ficha. */
 export const SIMILAR_MAX = 6
@@ -34,6 +36,8 @@ export type SimilarRow = {
   brandCount: number
   lat: number
   lng: number
+  /** Proveedor y tipo de tarjeta de cada beneficio que cuenta, para "Descuento: …" de la card. */
+  discounts: PlaceDiscount[]
   similarity: number
 }
 
@@ -56,6 +60,7 @@ function similarQuery(place: PlaceRow) {
       case when p.brand_key is null then 1
         else (select count(*)::int from places b where b.brand_key = p.brand_key and b.status = 'published') end as "brandCount",
       ST_Y(p.location::geometry) as lat, ST_X(p.location::geometry) as lng,
+      ${placeDiscountsColumn(sql`p.id`)} as discounts,
       1 - (p.embedding <=> t.embedding) as similarity
     from places p, target t
     where p.status = 'published' and p.embedding is not null and p.id::text <> ${place.id}
@@ -87,7 +92,7 @@ export function pickSimilar(place: Pick<PlaceRow, 'id' | 'brand_key' | 'icon_cat
 /** Lo que necesita similarCard: también lo arman los "Guardados" de la home (server/home/saved.ts). */
 export type CardRow = Pick<
   SimilarRow,
-  'id' | 'slug' | 'name' | 'neighborhoodId' | 'categories' | 'hours' | 'iconCategory' | 'logoKey' | 'logoBgColor' | 'locatedIn' | 'brandCount' | 'lat' | 'lng'
+  'id' | 'slug' | 'name' | 'neighborhoodId' | 'categories' | 'hours' | 'iconCategory' | 'logoKey' | 'logoBgColor' | 'locatedIn' | 'brandCount' | 'lat' | 'lng' | 'discounts'
 >
 
 /** Una fila como resultado de la búsqueda, para la PlaceCard: el estado de horario sale de las horas de la base, ahora. */
@@ -111,6 +116,7 @@ export function similarCard(row: CardRow, now = new Date()): SearchResult {
     branchCount: row.brandCount,
     branches: [],
     reasons: [],
+    discounts: cardProviders(row.discounts, []),
     openStatus: {
       state: open.state,
       closesAt: open.state === 'open' ? open.closesAt : null,

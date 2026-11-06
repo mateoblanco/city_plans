@@ -1,16 +1,19 @@
+@use '../../layout';
+
 // .results y .grid: el mismo layout que SearchResults y PlacesGrid, para que el skeleton ocupe lo mismo.
 .results {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding: 24px 48px 24px 48px;
-  width: 55%;
+  padding-top: 24px;
+  padding-bottom: 24px;
+  @include layout.results-column;
 }
 
 .grid {
   display: grid;
   gap: 24px;
-  grid-template-columns: repeat(2, 1fr);
+  @include layout.places-grid;
 }
 
 .skeletonCard,

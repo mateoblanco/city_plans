@@ -1,0 +1,76 @@
+// Basado en el demo de Popover de Base UI (v1.9.0, css-modules), en px. El botón se ve como el de base/Select y los
+// demás filtros de la barra (.chip en FilterChip.module.scss): activo con algo elegido.
+
+.trigger {
+  align-items: center;
+  background: var(--color-surface-chip);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 14px;
+  gap: 8px;
+  line-height: 1;
+  padding: 8px 12px;
+  user-select: none;
+  white-space: nowrap;
+  -webkit-user-select: none;
+
+  &:hover,
+  &[data-popup-open] {
+    background-color: var(--color-surface-hover);
+  }
+
+  &[data-active] {
+    background-color: var(--color-surface-hover);
+    border-color: var(--color-selected);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+}
+
+.icon {
+  display: block;
+}
+
+.positioner {
+  outline: none;
+  z-index: 10;
+}
+
+.popup {
+  background-clip: padding-box;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border-popover);
+  border-radius: 16px;
+  box-shadow: var(--shadow-popover);
+  box-sizing: border-box;
+  color: var(--color-text);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  outline: 0;
+  padding: 16px;
+  transform-origin: var(--transform-origin);
+  transition:
+    transform 100ms ease-out,
+    opacity 100ms ease-out;
+
+  &[data-starting-style],
+  &[data-ending-style] {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+.title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  margin: 0;
+}

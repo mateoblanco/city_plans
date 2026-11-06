@@ -16,7 +16,7 @@ const benefit = (placeId: string, patch: Partial<DiscountBenefit> = {}): Discoun
   const base: DiscountBenefit = {
     id: '', percent: 20, cardType: 'debit', cardTiers: [], cardProgram: null, days: 'all', daysText: null, mode: 'mixed', instantPercent: 10, refundPercent: 10,
     cap: { text: '4000 pesos uruguayos por cierre de estado de cuenta', amount: 4000, currency: 'UYU', period: 'statement' },
-    validFrom: '2026-11-01', validTo: '2027-10-31', conditions: null, sourceText: '20% Off con Tarjetas de Débito', parsedBy: 'html', ...patch,
+    validFrom: '2026-11-01', validTo: '2027-10-31', conditions: null, sourceText: '20% Off con Tarjetas de Débito', sourceUrl: null, parsedBy: 'html', ...patch,
   }
   return { ...base, id: patch.id ?? benefitId(placeId, base.cardType, base.cardTiers, base.cardProgram) }
 }
@@ -90,20 +90,21 @@ describe('corridas en la base', () => {
     expect(benefits.find((item) => item.cardType === 'credit')?.active).toBe(false)
   })
 
-  it('un beneficio vencido se guarda inactivo, y vence solo al leer', async () => {
+  it('fecha vencida pero publicado en la fuente: activo (vigencia desactualizada); si deja de aparecer, inactivo', async () => {
     const { run, get } = setup('2026-12-15')
     // La corrida es del 5/11 y "hoy" (al leer) es el 15/12.
     await run(async () => result([place('a:1', { benefits: [
-      benefit('a:1', { validTo: '2026-11-01' }),
-      benefit('a:1', { cardType: 'credit', validTo: '2026-11-30' }),
-      benefit('a:1', { cardType: 'other', validTo: '2027-10-31' }),
+      benefit('a:1', { validTo: '2026-09-30' }),
+      benefit('a:1', { cardType: 'credit', validTo: '2027-10-31' }),
     ] })]))
-    const benefits = (await get('a:1')).benefits
-    // Ya vencido en la corrida: se guarda inactivo.
+    let benefits = (await get('a:1')).benefits
+    // La fecha ya pasó en la corrida, pero sigue publicado: activo, con la fecha tal cual.
+    expect(benefits.find((item) => item.cardType === 'debit')).toMatchObject({ active: true, expired: true, validTo: '2026-09-30' })
+    expect(benefits.find((item) => item.cardType === 'credit')).toMatchObject({ active: true, expired: false })
+    // Deja de aparecer el de débito: ahora sí, vencido e inactivo.
+    await run(async () => result([place('a:1', { benefits: [benefit('a:1', { cardType: 'credit', validTo: '2027-10-31' })] })]))
+    benefits = (await get('a:1')).benefits
     expect(benefits.find((item) => item.cardType === 'debit')).toMatchObject({ active: false, expired: true })
-    // Vigente en la corrida, vencido hoy.
-    expect(benefits.find((item) => item.cardType === 'credit')).toMatchObject({ active: true, expired: true })
-    expect(benefits.find((item) => item.cardType === 'other')).toMatchObject({ active: true, expired: false })
   })
 
   it('un error total del proveedor no marca nada como inactivo', async () => {
@@ -198,7 +199,7 @@ describe('BBVA y Santander', () => {
     let clock = new Date('2026-11-05T12:00:00Z')
     const reader = (providerId: string, ids: string[]): ProviderReader => async () => result(ids.map((id) => place(id, { providerId })))
     const run = (readers: Record<string, ProviderReader>) => {
-      const summary = runDiscounts({ providers: DISCOUNT_PROVIDERS, readers, fetcherFor: async () => ({ get: async () => '', requests: 0 }), candidates: async () => ours, store, now: () => clock })
+      const summary = runDiscounts({ providers: DISCOUNT_PROVIDERS.filter((provider) => provider.id === 'bbva' || provider.id === 'santander'), readers, fetcherFor: async () => ({ get: async () => '', requests: 0 }), candidates: async () => ours, store, now: () => clock })
       clock = new Date(clock.getTime() + 86_400_000)
       return summary
     }
@@ -262,5 +263,70 @@ describe('DiscountRunner', () => {
     })
     expect(run.providers[0]).toMatchObject({ status: 'error', error: 'Neon caído' })
     expect(await store.list()).toEqual([])
+  })
+})
+
+describe('cruces manuales heredados de otro proveedor (Itaú ← Itaú Personal Bank)', () => {
+  const heirProviders: DiscountProvider[] = [
+    { id: 'src', name: 'Fuente', kind: 'bank', sourceUrl: 'https://src.test/' },
+    { id: 'heir', name: 'Heredero', kind: 'bank', sourceUrl: 'https://heir.test/', pages: [
+      { url: 'https://heir.test/', label: 'Propia' },
+      { url: 'https://src.test/', label: 'PB', manualMatchFrom: 'src' },
+    ] },
+  ]
+  const at = (providerId: string, slug: string, tags: string[]) => place(`${providerId}:montevideo:${slug}`, { providerId, sourceName: `Lugar ${slug}`, sourceTags: tags })
+
+  it('copia lo vinculado, confirmado o ignorado a un lugar nuevo o automático del mismo logo; no pisa lo manual propio', async () => {
+    const store = memoryDiscountStore(ours)
+    const run = (only: string[], readers: Record<string, ProviderReader>) => runDiscounts({
+      providers: heirProviders.filter((provider) => only.includes(provider.id)),
+      readers,
+      fetcherFor: async () => ({ get: async () => '', requests: 0 }),
+      candidates: async () => store.places,
+      store,
+    })
+    const sources = ['x', 'y', 'z', 'w', 'v'].map((slug) => at('src', slug, ['PB']))
+    await run(['src'], { src: async () => result(sources) })
+    await store.setLinks('src:montevideo:x', [{ placeId: esMercat, wholeBrand: false }])
+    await store.setIgnored('src:montevideo:y', true)
+    await store.setLinks('src:montevideo:z', [{ placeId: pasivaPocitos, wholeBrand: false }])
+    await store.setLinks('src:montevideo:w', [{ placeId: pasivaPocitos, wholeBrand: true }])
+    await store.setLinks('src:montevideo:v', [{ placeId: esMercat, wholeBrand: false }])
+
+    // Antes: z ya tiene cruce manual propio en el heredero y w existe con cruce automático (sólo en la página propia).
+    await run(['heir'], { heir: async () => result([at('heir', 'z', ['Propia']), at('heir', 'w', ['Propia'])]) })
+    await store.setLinks('heir:montevideo:z', [{ placeId: pasivaCentro, wholeBrand: false }])
+    expect((await store.get('heir:montevideo:w'))!.match.origin).toBe('auto')
+
+    // v no está en la página que hereda (sólo en la propia): no se copia.
+    const heirPlaces = [...['x', 'y', 'z', 'w'].map((slug) => at('heir', slug, ['PB'])), at('heir', 'v', ['Propia'])]
+    const summary = await run(['heir'], { heir: async () => result(heirPlaces) })
+    expect(summary.providers[0].notes).toContain('3 cruces manuales copiados de src (PB).')
+
+    const x = (await store.get('heir:montevideo:x'))!
+    expect(x.match).toMatchObject({ status: 'found', origin: 'manual' })
+    expect(x.match.links.map((link) => [link.placeId, link.origin])).toEqual([[esMercat, 'manual']])
+    expect(await store.get('heir:montevideo:y')).toMatchObject({ ignored: true, match: { origin: 'manual' } })
+    expect((await store.get('heir:montevideo:z'))!.match.links.map((link) => link.placeId)).toEqual([pasivaCentro])
+    const w = (await store.get('heir:montevideo:w'))!
+    expect(w.match.origin).toBe('manual')
+    expect(w.match.links.map((link) => [link.placeId, link.wholeBrand])).toEqual([[pasivaPocitos, true]])
+    expect((await store.get('heir:montevideo:v'))!.match.origin).toBe('auto')
+
+    // Ya son manuales: la corrida siguiente no copia de nuevo ni los toca.
+    const again = await run(['heir'], { heir: async () => result(heirPlaces) })
+    expect(again.providers[0].notes).toContain('0 cruces manuales copiados de src (PB).')
+    expect((await store.get('heir:montevideo:x'))!.match.links.map((link) => link.placeId)).toEqual([esMercat])
+  })
+
+  it('el planificador no calcula cruce automático para lo copiado', () => {
+    const writes = planDiscountWrites({
+      providerId: 'heir', runId: 'r', now: new Date('2026-11-05T12:00:00Z'),
+      result: result([at('heir', 'x', ['PB']), at('heir', 'n', ['PB'])]),
+      existing: [], candidates: ours,
+      inherited: [{ fromProviderId: 'src', label: 'PB', sources: [{ id: 'src:montevideo:x', status: 'found', ignored: false, links: [{ placeId: esMercat, wholeBrand: false, locationIndex: null }] }] }],
+    })
+    expect(writes.copies.map((copy) => [copy.discountPlaceId, copy.fromId])).toEqual([['heir:montevideo:x', 'src:montevideo:x']])
+    expect(writes.matches.map((match) => match.discountPlaceId)).toEqual(['heir:montevideo:n'])
   })
 })

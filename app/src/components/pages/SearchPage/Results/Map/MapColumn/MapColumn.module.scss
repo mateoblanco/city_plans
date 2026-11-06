@@ -1,9 +1,12 @@
+@use '../../../layout';
+
 .map {
   // background-color: var(--color-skeleton);
   height: calc(100vh - var(--header-offset));
   position: fixed;
   right: 0;
   top: var(--header-offset);
-  width: 45%;
-  padding: 24px 48px 24px 0;
+  padding-top: 24px;
+  padding-bottom: 24px;
+  @include layout.map-column;
 }

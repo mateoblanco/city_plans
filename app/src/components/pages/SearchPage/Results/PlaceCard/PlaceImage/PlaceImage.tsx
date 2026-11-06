@@ -8,6 +8,8 @@ type Props = {
   logoBgColor: string | null;
   /** lg: el logo grande de la ficha del lugar; sin size, el de la card. */
   size?: "lg";
+  /** Ficha sobre una barra blanca o casi blanca: el borde del logo pasa a ser el de borde, no el de superficie. */
+  onLightBar?: boolean;
 };
 
 /** Banner de la card (y logo de la ficha): el logo centrado sobre su color de fondo; sin logo, el nombre. */
@@ -16,7 +18,7 @@ const PlaceImage = (props: Props) => {
   const background = props.logoBgColor ? ({ "--banner-bg": props.logoBgColor } as CSSProperties) : undefined;
 
   return (
-    <div className={styles.image} style={background} data-size={props.size}>
+    <div className={props.onLightBar ? `${styles.image} ${styles.onLightBar}` : styles.image} style={background} data-size={props.size}>
       {props.logoUrl && <Image
         src={props.logoUrl}
         alt={`Logo de ${props.name}`}

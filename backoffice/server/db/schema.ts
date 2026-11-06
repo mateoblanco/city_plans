@@ -345,6 +345,8 @@ export const discountBenefits = pgTable(
     validTo: date("valid_to", { mode: "string" }),
     conditions: text("conditions"),
     sourceText: text("source_text").notNull(),
+    // La página del proveedor de la que salió (Itaú: Restaurantes o Platinum).
+    sourceUrl: text("source_url"),
     parsedBy: text("parsed_by", { enum: PARSED_BY }).notNull(),
     firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
