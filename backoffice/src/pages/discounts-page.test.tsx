@@ -293,6 +293,17 @@ describe('DiscountsPage', () => {
     expect(await screen.findByText('Porterhouse')).toBeInTheDocument()
   })
 
+  it('vecino con otro nombre: nota en la fila, sin cambiar el estado', async () => {
+    server({ places: [place('Nora Rey', { match: { status: 'missing', origin: 'auto', links: [], candidates: [], missingBranches: 0, nearby: [
+      { placeId: '00000000-0000-4000-8000-000000000008', name: 'El Horno de Juan', neighborhoodId: 'POCITOS', meters: 3, address: 'Blvr. 26 de Marzo 1153' },
+      { placeId: '00000000-0000-4000-8000-000000000009', name: 'Casa Fermento', neighborhoodId: 'POCITOS', meters: 91, address: 'Blvr. 26 de Marzo 1153' },
+    ] } })] })
+    render(<DiscountsPage />)
+    const note = await within(await screen.findByRole('table')).findByText('cerca de El Horno de Juan, a 3 m y 1 más')
+    expect(note).toHaveAttribute('title', 'El Horno de Juan, a 3 m de Blvr. 26 de Marzo 1153\nCasa Fermento, a 91 m de Blvr. 26 de Marzo 1153')
+    expect(within(row('Nora Rey')).getByText('No está en la base')).toBeInTheDocument()
+  })
+
   it('cadena encontrada en parte: marca "Faltan sucursales en la base"', async () => {
     server({ places: [place('Burger Time', { match: { status: 'found', origin: 'auto', links: [link('00000000-0000-4000-8000-000000000007', 'Burger Time', { locationIndex: 0 })], candidates: [], missingBranches: 5, nearby: [] } })] })
     render(<DiscountsPage />)
