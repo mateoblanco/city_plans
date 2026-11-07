@@ -28,7 +28,8 @@ $actions-width: 24px * 2 + 8px;
   gap: 8px;
   min-width: 0;
   // Lugar fijo para los botones (estén visibles o no), así el hover nunca cambia el ancho del texto.
-  padding-right: $actions-width + 16px;
+  // padding-right: $actions-width + 16px;
+  padding-right: 16px;
   // padding: 12px;
 }
 
@@ -45,6 +46,7 @@ $actions-width: 24px * 2 + 8px;
 .name {
   font-size: 18px;
   font-weight: 600;
+  padding-right: $actions-width + 16px;
 }
 
 // Toda la card es el link: el ::after la cubre entera.
