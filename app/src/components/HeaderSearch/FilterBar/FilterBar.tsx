@@ -68,27 +68,31 @@ const FilterBar = async (props: Props) => {
 
   return (
     <nav className={styles.filterBar} aria-label="Filtros">
-      <div className={`${styles.filterRow} ${styles.selectRow}`}>
-        <NeighborhoodSelect options={neighborhoods} chips={neighborhoodChips} state={props.state} autoNear={props.needsLocation} />
-        <PriceSelect options={prices} chips={priceChips} state={props.state} />
-        <DietSelect options={diets} chips={dietChips} state={props.state} />
-        {discountProviders.length > 0 && <DiscountFilter providers={discountProviders} active={activeDiscounts} state={props.state} />}
-        <Toggle {...toggle} kind="openAt" id="today" text="Abre hoy" />
-      </div>
-      <hr className={`${styles.divider} ${styles.intentDivider}`} />
-      <div className={styles.filterRow} role="group" aria-label="Qué querés hacer">
-        {INTENT_IDS.map((id) => {
-          const active = id === activeIntent;
-          return (
-            <FilterChip
-              key={id}
-              active={active}
-              current={active}
-              href={intentHref(props.state, active ? null : id, props.bar)}
-              text={INTENTS[id].label.es}
-            />
-          );
-        })}
+      {/* Primera línea: selects e intenciones. En desktop no existe como caja (display: contents); en mobile es la
+          línea con su propio scroll horizontal. */}
+      <div className={styles.mainLine}>
+        <div className={`${styles.filterRow} ${styles.selectRow}`}>
+          <NeighborhoodSelect options={neighborhoods} chips={neighborhoodChips} state={props.state} autoNear={props.needsLocation} />
+          <PriceSelect options={prices} chips={priceChips} state={props.state} />
+          <DietSelect options={diets} chips={dietChips} state={props.state} />
+          {discountProviders.length > 0 && <DiscountFilter providers={discountProviders} active={activeDiscounts} state={props.state} />}
+          <Toggle {...toggle} kind="openAt" id="today" text="Abre hoy" />
+        </div>
+        <hr className={`${styles.divider} ${styles.intentDivider}`} />
+        <div className={styles.filterRow} role="group" aria-label="Qué querés hacer">
+          {INTENT_IDS.map((id) => {
+            const active = id === activeIntent;
+            return (
+              <FilterChip
+                key={id}
+                active={active}
+                current={active}
+                href={intentHref(props.state, active ? null : id, props.bar)}
+                text={INTENTS[id].label.es}
+              />
+            );
+          })}
+        </div>
       </div>
       {showSubs && (
         <div className={`${styles.filterRow} ${styles.subRow}`} role="group" aria-label="Sub-filtros">

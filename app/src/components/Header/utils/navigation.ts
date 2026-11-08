@@ -15,6 +15,12 @@ export function hasInAppHistory() {
   return navigated;
 }
 
+/** Volver: la página anterior si se llegó desde la app; si no (URL abierta directo), la home. */
+export function goBack(router: { back: () => void; push: (href: string) => void }) {
+  if (hasInAppHistory()) router.back();
+  else router.push("/");
+}
+
 /** Sólo para tests. */
 export function resetNavigation() {
   lastPath = null;

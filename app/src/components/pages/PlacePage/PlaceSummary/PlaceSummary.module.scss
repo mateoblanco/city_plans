@@ -1,3 +1,5 @@
+@use '../../../../styles/breakpoints' as *;
+
 .main{
   display: flex;
   flex-direction: column;
@@ -12,18 +14,32 @@
 
 .name {
   font-family: var(--font-display);
-  font-size: 40px;
+  font-size: 28px;
   font-weight: 700;
-  line-height: 56px;
+  line-height: 34px;
+  // Mobile: lugar para me gusta y guardar, que van a la derecha (PlaceHeader .like): 2 × 32px + 8px entre ellos + 8px
+  // de aire. Un nombre largo baja de línea sin pisarlos.
+  padding-right: 80px;
+
+  @include media(ml) {
+    font-size: 40px;
+    line-height: 56px;
+    padding-right: 0;
+  }
 }
 
 .facts {
   align-items: center;
   display: flex;
   flex-wrap: wrap;
-  font-size: 16px;
+  font-size: 15px;
   gap: 0 8px;
-  line-height: 26px;
+  line-height: 24px;
+
+  @include media(ml) {
+    font-size: 16px;
+    line-height: 26px;
+  }
 }
 
 .fact {
@@ -86,9 +102,14 @@
 }
 
 .description {
-  font-size: 16px;
-  line-height: 28px;
+  font-size: 15px;
+  line-height: 24px;
   max-width: 720px;
+
+  @include media(ml) {
+    font-size: 16px;
+    line-height: 28px;
+  }
 }
 
 .links {

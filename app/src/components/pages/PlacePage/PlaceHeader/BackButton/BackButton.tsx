@@ -3,7 +3,7 @@
 import { Button } from "@base-ui/react/button";
 import { useRouter } from "next/navigation";
 import ArrowLeft from "@/assets/arrow_left.svg";
-import { hasInAppHistory } from "@/components/Header/utils/navigation";
+import { goBack } from "@/components/Header/utils/navigation";
 import styles from "./BackButton.module.scss";
 
 type Props = {
@@ -20,7 +20,7 @@ const BackButton = (props: Props) => {
       type="button"
       className={styles.back}
       data-tone={props.tone ?? undefined}
-      onClick={() => (hasInAppHistory() ? router.back() : router.push("/"))}
+      onClick={() => goBack(router)}
     >
       <ArrowLeft aria-hidden width={16} height={13} />
       Volver

@@ -1,5 +1,12 @@
+@use '../../../../styles/breakpoints' as *;
+
 .grid {
   display: grid;
   gap: 24px;
-  grid-template-columns: repeat(2, 1fr);
+  // Mobile: una por fila; desde ml, dos.
+  grid-template-columns: 1fr;
+
+  @include media(ml) {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }

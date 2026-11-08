@@ -1,6 +1,14 @@
+@use '../../../../styles/breakpoints' as *;
+
+// Mobile: el ancho de la columna y 16:10 de alto (unos 224px en 390). Desde ml, 280px en la columna lateral.
 .map {
+  aspect-ratio: 16 / 10;
   background-color: var(--color-skeleton);
   border-radius: 16px;
-  height: 280px;
   overflow: hidden;
+
+  @include media(ml) {
+    aspect-ratio: auto;
+    height: 280px;
+  }
 }

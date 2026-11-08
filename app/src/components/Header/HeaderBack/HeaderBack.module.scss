@@ -1,0 +1,19 @@
+@use '../../../styles/breakpoints' as *;
+
+// Sólo debajo de su breakpoint (data-below): md en /search, ml en la ficha.
+.back {
+  display: flex;
+  flex-shrink: 0;
+
+  &[data-below="md"] {
+    @include media(md) {
+      display: none;
+    }
+  }
+
+  &[data-below="ml"] {
+    @include media(ml) {
+      display: none;
+    }
+  }
+}

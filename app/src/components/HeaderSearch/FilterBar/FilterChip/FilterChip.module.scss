@@ -1,3 +1,5 @@
+@use '../../../../styles/breakpoints' as *;
+
 // Los filtros de la barra; el botón de `base/Select` se ve igual.
 .chip {
   background: none;
@@ -7,8 +9,15 @@
   cursor: pointer;
   display: inline-block;
   font: inherit;
-  font-size: 14px;
-  padding: 8px 12px;
+  font-size: 13px;
+  padding: 6px 10px;
+  text-transform: capitalize;
+
+  // Mobile más chico (13px, 6px 10px), como el resto de los filtros de la barra; desde md, el de siempre.
+  @include media(md) {
+    font-size: 14px;
+    padding: 8px 12px;
+  }
   text-decoration: none;
   // background-color: var(--color-surface);
   background-color: var(--color-surface-chip);

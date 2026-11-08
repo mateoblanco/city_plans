@@ -1,13 +1,20 @@
+@use '../../styles/breakpoints' as *;
+
 .container{
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 16px;
-    padding:12px 16px;
+    // Mobile más bajo; desde md, el de siempre.
+    padding: 8px 12px;
     border: 1px solid var(--color-border-input);
     background-color: var(--color-surface);
     border-radius:40px;
     transition: border-color 0.2s ease-in-out ;
+
+    @include media(md) {
+      padding: 12px 16px;
+    }
 
     &:has(.input:hover){
       border-color: var(--color-focus-ring);
@@ -26,17 +33,27 @@
     margin: 0;
     border-radius: 0;
     border: 1px solid var(--color-control-border);
-    width: 400px;
+    // Mobile: ocupa lo que deja el botón. Desde md, ancho fijo.
+    flex: 1;
+    min-width: 0;
     height: 2rem;
     font-family: inherit;
     line-height: 1.25rem;
     font-weight: 400;
-    background-color: var(--color-control-bg);
+    // Transparente y con los colores de la página: la píldora (.container) es siempre clara, aunque el sistema esté en
+    // modo oscuro (los tokens --color-control-* cambian con él y dejaban el input negro).
+    background-color: transparent;
     border: none;
     outline: none;
     font-size: 16px;
     font-weight: 400;
-    color: var(--color-control-input-text);
+    color: var(--color-text);
+
+    @include media(md) {
+      flex: 0 1 auto;
+      min-width: auto;
+      width: 400px;
+    }
   
     &::-webkit-search-cancel-button,
     &::-webkit-search-decoration,
@@ -48,6 +65,6 @@
     }
 
     &::placeholder {
-      color: var(--color-control-text-muted);
+      color: var(--color-text-muted);
     }
   }

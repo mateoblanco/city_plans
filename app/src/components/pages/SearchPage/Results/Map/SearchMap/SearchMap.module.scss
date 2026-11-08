@@ -1,3 +1,5 @@
+@use '../../../../../../styles/breakpoints' as *;
+
 .mapMessage {
   color: var(--color-text-muted);
   font-size: 14px;
@@ -15,9 +17,15 @@
 
 // Con className, <Map> deja de aplicar su width/height 100% por defecto: hay que darlos acá.
 .map {
-  border-radius: 16px;
+  border-radius: 0;
   height: 100%;
   overflow: hidden;
   width: 100%;
-  border: 1px solid var(--color-border-input);
+  border: none;
+
+  // Mobile: de borde a borde, de fondo, sin borde ni radio. Desde md, con borde y radio.
+  @include media(md) {
+    border: 1px solid var(--color-border-input);
+    border-radius: 16px;
+  }
 }

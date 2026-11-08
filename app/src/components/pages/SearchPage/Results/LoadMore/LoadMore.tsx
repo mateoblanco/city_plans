@@ -15,6 +15,8 @@ const LoadMore = (props: Props) => {
   const reach = useEffectEvent(props.onReach);
 
   useEffect(() => {
+    // En mobile la lista scrollea dentro del panel: el margen se mide contra él (sin panel, contra la ventana).
+    const root = ref.current?.closest<HTMLElement>("[data-drawer-content]") ?? null;
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
@@ -22,7 +24,7 @@ const LoadMore = (props: Props) => {
           reach();
         }
       },
-      { rootMargin: "400px" },
+      { root, rootMargin: "400px" },
     );
     if (ref.current) observer.observe(ref.current);
     return () => observer.disconnect();

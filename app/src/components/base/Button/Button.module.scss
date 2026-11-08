@@ -1,3 +1,5 @@
+@use '../../../styles/breakpoints' as *;
+
 .button {
   box-sizing: border-box;
   display: flex;
@@ -42,18 +44,40 @@
   }
 
 
+  // Mobile un punto más chico; desde md, el tamaño de siempre.
   &.size-sm {
     padding: 4px 12px;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 500;
     line-height: 20px;
+
+    @include media(md) {
+      font-size: 14px;
+    }
   }
 
   &.size-md {
     padding: 6px 16px;
-    font-size: 16px;
+    font-size: 14px;
     font-weight: 600;
     line-height: 22px;
+
+    @include media(md) {
+      font-size: 16px;
+    }
+  }
+
+  // Sin fondo ni padding: sólo el contenido. Después de los size-* para ganarle a su padding.
+  &.variant-ghost {
+    background: none;
+    border: none;
+    box-shadow: none;
+    color: var(--color-text);
+    padding: 0;
+
+    &:active:not([data-disabled]) {
+      background-color: transparent;
+    }
   }
 
   // Sólo ícono: cuadrado según el size.

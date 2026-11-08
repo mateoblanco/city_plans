@@ -1,3 +1,5 @@
+@use '../../../../styles/breakpoints' as *;
+
 .card {
   background-color: var(--color-surface);
   border: 1px solid var(--color-border-card);
@@ -50,5 +52,54 @@
     // El fondo sale un poco a los costados; el texto queda alineado con el título.
     margin: -2px -8px;
     padding: 2px 8px;
+  }
+}
+
+// Mobile cerrado (sin data-hours-expanded de HoursToggle): sólo la fila de hoy, como "Hoy · 10:00 – 20:00". Abierto
+// (y desde ml), la semana con el nombre de cada día.
+.day:not([data-today]) {
+  display: none;
+
+  [data-hours-expanded] & {
+    display: flex;
+  }
+
+  @include media(ml) {
+    display: flex;
+  }
+}
+
+.day[data-today] {
+  gap: 8px;
+  justify-content: flex-start;
+
+  .dayName {
+    display: none;
+  }
+
+  [data-hours-expanded] & {
+    gap: 16px;
+    justify-content: space-between;
+
+    .dayName {
+      display: inline;
+    }
+
+    .todayLabel {
+      display: none;
+    }
+  }
+
+  @include media(ml) {
+    gap: 16px;
+    justify-content: space-between;
+
+    .dayName {
+      display: inline;
+    }
+
+    .todayLabel {
+      display: none;
+    }
   }
 }

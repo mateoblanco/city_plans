@@ -1,4 +1,5 @@
 @use './theme/index';
+@use './breakpoints';
 
 *,
 *::after,
@@ -16,6 +17,7 @@
   }
   
 html {
+	@include breakpoints.custom-properties;
 	--scroll-behavior: smooth !important;
 	// Alto mínimo del header sticky.
 	--header-height: 56px;

@@ -12,6 +12,8 @@ import EndOfResults from "../EndOfResults/EndOfResults";
 import styles from "./ResultsView.module.scss";
 import { mapPlaces, visiblePage } from "../../utils/pagination";
 import type { SearchUrl } from "../../utils/search-href";
+import { SHEET_MID, type SheetSnapPoint } from "../../utils/sheet";
+import { useMobile } from "../../utils/use-mobile";
 
 type Props = {
   results: SearchResponse["results"];
@@ -29,16 +31,32 @@ type Props = {
 /**
  * Lista y mapa de una búsqueda. La respuesta trae todos los resultados: el scroll infinito suma la página siguiente
  * sin volver a buscar, y el mapa muestra sólo las cards visibles. Al llegar al final, el aviso de que no hay más.
+ * En mobile la lista va en un panel arrastrable sobre el mapa (ResultsSheet).
  */
 const ResultsView = (props: Props) => {
+  const mobile = useMobile();
   const [pages, setPages] = useState(1);
+  const [snapPoint, setSnapPoint] = useState<SheetSnapPoint>(SHEET_MID);
   const page = visiblePage(props, pages);
   // Con grupos, el StickyHeader pone el aire de arriba; sin ellos lo pone el contenedor.
   const grouped = props.results.length > 0 && Boolean(page.sections ?? page.forYou);
 
   return (
-    <MapSync places={mapPlaces(page.places)} userLocation={props.near}>
-      <div className={clsx(styles.results, !grouped && styles.ungrouped)}>
+    <MapSync
+      places={mapPlaces(page.places)}
+      results={page.places}
+      userLocation={props.near}
+      sheet={
+        mobile
+          ? {
+              count: props.results.length,
+              snapPoint,
+              onSnapPointChange: setSnapPoint,
+            }
+          : null
+      }
+    >
+      <div className={clsx(mobile ? styles.sheetResults : styles.results, !grouped && styles.ungrouped)}>
         {props.notices.length > 0 && (
           <div className={styles.notices}>
             {props.notices.map((message) => (

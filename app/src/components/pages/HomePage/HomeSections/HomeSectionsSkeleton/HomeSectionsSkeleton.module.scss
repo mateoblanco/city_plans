@@ -1,3 +1,5 @@
+@use '../../../../../styles/breakpoints' as *;
+
 // El mismo layout que HomeSections y PlaceRow, para que el skeleton ocupe lo mismo.
 .sections {
   display: flex;
@@ -19,7 +21,11 @@
   display: flex;
   gap: 16px;
   overflow: hidden;
-  padding: 4px 48px 12px;
+  padding: 4px 16px 12px;
+
+  @include media(md) {
+    padding: 4px 48px 12px;
+  }
 }
 
 .title,
@@ -35,15 +41,23 @@
 .title {
   border-radius: 8px;
   height: 24px;
-  margin: 0 48px;
+  margin: 0 16px;
   width: 160px;
+
+  @include media(md) {
+    margin: 0 48px;
+  }
 }
 
 // El alto de PlaceCard: imagen 100 + padding 2×16 + borde 2×1.
 .card {
   border-radius: 16px;
-  flex: 0 0 360px;
+  flex: 0 0 70vw;
   height: 134px;
+
+  @include media(md) {
+    flex-basis: 360px;
+  }
 }
 
 .visuallyHidden {

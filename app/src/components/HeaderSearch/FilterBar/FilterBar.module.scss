@@ -1,17 +1,67 @@
-// Segunda fila del header: cada fila de filtros, centrada.
+@use '../../../styles/breakpoints' as *;
+
+// La barra de filtros, en dos líneas: selects, divisor e intenciones arriba; sub-filtros y extras abajo.
+// Mobile: cada línea con su propio scroll horizontal, sin barra y de borde a borde del header (el margen negativo
+// compensa su padding de 16px). Desde md: un flex con wrap, centrado (la primera línea no es una caja).
 .filterBar {
-  align-items: center;
+  align-items: stretch;
   display: flex;
-  // flex-direction: column;
-  flex-wrap: wrap;
-  gap: 16px;
+  flex-direction: column;
+  gap: 8px;
   justify-content: center;
-  // padding-top: 8px;
+
+  @include media(md) {
+    align-items: center;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
 }
 
-// Sub-filtros y extras de la intención: en su propia línea, debajo de las intenciones.
+.mainLine,
 .subRow {
-  flex-basis: 100%;
+  align-items: center;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 12px;
+  justify-content: flex-start;
+  margin: 0 -16px;
+  overflow-x: auto;
+  padding: 0 16px;
+  scrollbar-width: none;
+  white-space: nowrap;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+
+  @include media(md) {
+    margin: 0;
+    overflow-x: visible;
+    padding: 0;
+    scrollbar-width: auto;
+    white-space: normal;
+  }
+}
+
+// Primera línea: desde md sus hijos son parte del flex de .filterBar (sin caja propia).
+.mainLine {
+  @include media(md) {
+    align-items: normal;
+    display: contents;
+    gap: normal;
+    justify-content: normal;
+  }
+}
+
+// Sub-filtros y extras de la intención: desde md, en su propia línea, debajo de las intenciones.
+.subRow {
+  gap: 8px;
+
+  @include media(md) {
+    flex-basis: 100%;
+    justify-content: center;
+  }
 }
 
 // Separa los sub-filtros de la intención de lo que pidió el texto (extras): línea vertical del gris del borde del header.
@@ -29,19 +79,37 @@
 .filterRow {
   align-items: center;
   display: flex;
-  // flex-wrap: wrap;
   gap: 8px;
-  justify-content: center;
+  justify-content: flex-start;
+
+  @include media(md) {
+    justify-content: center;
+  }
 }
 
-// Barrio, precio, dieta y abre hoy: en un teléfono no entran todos en una línea.
+// Mobile: nada se achica, la línea scrollea. Con :where (sin especificidad), el flex-shrink: 0 propio de .divider
+// siempre gana, también desde md.
+:where(.mainLine > *, .filterRow > *) {
+  flex-shrink: 0;
+
+  @include media(md) {
+    flex-shrink: 1;
+  }
+}
+
+// Barrio, precio, dieta y abre hoy: desde md bajan de línea si no entran.
 .selectRow {
-  flex-wrap: wrap;
+  @include media(md) {
+    flex-wrap: wrap;
+  }
 }
 
-// Entre "Abre hoy" y las intenciones: cuando las intenciones bajan de línea, quedaría colgando en un costado.
-@media (max-width: 799px) {
-  .intentDivider {
-    display: none;
+// Entre "Abre hoy" y las intenciones, de md a 799px: cuando las intenciones bajan de línea, quedaría colgando en un
+// costado. En mobile cada línea scrollea y el divisor se ve.
+.intentDivider {
+  @include media(md) {
+    @media (max-width: 799px) {
+      display: none;
+    }
   }
 }

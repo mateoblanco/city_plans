@@ -14,11 +14,18 @@ const MONTEVIDEO = { lat: -34.9011, lng: -56.1645 };
 const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 const MAP_ID = process.env.NEXT_PUBLIC_GOOGLE_MAP_ID;
 
+/** Desktop: 64px de aire a cada lado al encuadrar. */
+const FIT_PADDING = 64;
+
 type FitBoundsProps = {
   places: LatLng[];
+  bottomInset: number;
 };
 
-/** Encuadra todos los marcadores (y la ubicación de la persona) al llegar resultados; sin nada, Montevideo. */
+/**
+ * Encuadra todos los marcadores (y la ubicación de la persona) al llegar resultados; sin nada, Montevideo. Con
+ * bottomInset (mobile: lo que tapa el panel de resultados), encuadra en la parte del mapa que queda a la vista.
+ */
 const FitBounds = (props: FitBoundsProps) => {
   const map = useMap();
 
@@ -30,12 +37,17 @@ const FitBounds = (props: FitBoundsProps) => {
     } else if (props.places.length === 1) {
       map.setCenter(props.places[0]);
       map.setZoom(15);
+      // El punto, en el centro de lo que se ve arriba del panel.
+      if (props.bottomInset > 0) map.panBy(0, props.bottomInset / 2);
     } else {
       // Límites como literal: no depende del global `google` (ni de sus tipos en el editor).
       const lats = props.places.map((place) => place.lat);
       const lngs = props.places.map((place) => place.lng);
-      map.fitBounds({ north: Math.max(...lats), south: Math.min(...lats), east: Math.max(...lngs), west: Math.min(...lngs) }, 64);
+      const bounds = { north: Math.max(...lats), south: Math.min(...lats), east: Math.max(...lngs), west: Math.min(...lngs) };
+      map.fitBounds(bounds, props.bottomInset > 0 ? { top: 32, right: 24, left: 24, bottom: props.bottomInset + 24 } : FIT_PADDING);
     }
+    // Sólo al cambiar los lugares: el panel que sube o baja después no vuelve a encuadrar.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map, props.places]);
 
   return null;
@@ -47,6 +59,10 @@ type Props = {
   hoveredId: string | null;
   onHover: (id: string | null) => void;
   onSelect: (id: string) => void;
+  /** Un toque en el mapa, fuera de un marcador (mobile: cierra la card flotante). */
+  onMapClick?: () => void;
+  /** Mobile: cuánto del mapa tapa el panel de resultados, para encuadrar en lo que queda a la vista. */
+  bottomInset?: number;
 };
 
 const SearchMap = (props: Props) => {
@@ -59,7 +75,7 @@ const SearchMap = (props: Props) => {
 
   return (
     <APIProvider apiKey={API_KEY} language="es" region="UY">
-      <Map className={styles.map} mapId={MAP_ID} defaultCenter={MONTEVIDEO} defaultZoom={13} disableDefaultUI clickableIcons={false} gestureHandling="greedy" >
+      <Map className={styles.map} mapId={MAP_ID} defaultCenter={MONTEVIDEO} defaultZoom={13} disableDefaultUI clickableIcons={false} gestureHandling="greedy" onClick={() => props.onMapClick?.()}>
         {props.places.map((place) => {
           const active = place.cardId === props.hoveredId;
           return (
@@ -81,7 +97,7 @@ const SearchMap = (props: Props) => {
             <div className={styles.userMarker} />
           </AdvancedMarker>
         )}
-        <FitBounds places={points} />
+        <FitBounds places={points} bottomInset={props.bottomInset ?? 0} />
       </Map>
     </APIProvider>
   );

@@ -1,9 +1,14 @@
+@use '../../../../styles/breakpoints' as *;
+
 .sections {
   display: flex;
   flex-direction: column;
-  gap: 40px;
+  gap: 24px;
   margin: 0 auto;
   max-width: 1200px;
   min-width: 0;
   padding: 40px 0 64px;
+
+  @include media(md) {
+gap: 40px; }
 }

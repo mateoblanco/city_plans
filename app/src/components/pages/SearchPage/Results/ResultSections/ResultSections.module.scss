@@ -1,3 +1,5 @@
+@use '../../../../../styles/breakpoints' as *;
+
 .sections {
   display: flex;
   flex-direction: column;
@@ -13,16 +15,21 @@
 // El header del primer grupo arranca justo en el `top` del sticky (con el margen negativo, incluso más arriba), así
 // que sin este aire ya aparece pegado al cargar la búsqueda.
 .section:first-child {
-  padding-top: 24px;
+  padding-top: 12px;
+
+  // Mobile 12px: con el margen negativo del header, menos de 9px lo dejaría pegado (con borde) ya en el scroll 0.
+  @include media(md) {
+    padding-top: 24px;
+  }
 }
 
 // Queda pegado debajo del header mientras se scrollea su sección; el padding con margen negativo le da fondo
 // alrededor del texto sin cambiar el espaciado. El borde inferior sólo se ve mientras está pegado (data-stuck).
 .header {
   position: sticky;
-  top: var(--header-offset);
+  top: 0;
   background-color: var(--color-bg-page);
-  padding: 24px 0 16px 0;
+  padding: 16px 0 12px;
   z-index: 2;
   margin: -8px 0;
   display: flex;
@@ -34,6 +41,18 @@
 
   &[data-stuck] {
     border-bottom-color: var(--color-border);
+  }
+
+  justify-content: space-between;
+
+
+  // Mobile (afuera): pegado arriba del área con scroll del panel, con menos aire (el panel ya tiene título). Desde md,
+  // pegado debajo del header.
+  @include media(md) {
+    top: var(--header-offset);
+    padding: 24px 0 16px 0;
+    justify-content: flex-start;
+
   }
 }
 

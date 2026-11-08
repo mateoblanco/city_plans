@@ -1,12 +1,24 @@
 @use '../../../layout';
+@use '../../../../../../styles/breakpoints' as *;
 
 .map {
-  // background-color: var(--color-skeleton);
-  height: calc(100vh - var(--header-offset));
   position: fixed;
   right: 0;
   top: var(--header-offset);
-  padding-top: 24px;
-  padding-bottom: 24px;
-  @include layout.map-column;
+
+  // Mobile: de fondo, toda la pantalla debajo del header (el panel de resultados va encima). Termina arriba del panel
+  // en su altura baja (SHEET_LOW de utils/sheet.ts, 104px): así la atribución de Google queda a la vista.
+  bottom: 104px;
+  left: 0;
+  width: 100%;
+
+  // Desde md: la columna fija de la derecha del layout dividido.
+  @include media(md) {
+    bottom: auto;
+    height: calc(100vh - var(--header-offset));
+    left: auto;
+    padding-top: 24px;
+    padding-bottom: 24px;
+    @include layout.map-column;
+  }
 }

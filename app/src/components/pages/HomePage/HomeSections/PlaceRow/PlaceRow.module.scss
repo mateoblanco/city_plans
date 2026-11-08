@@ -1,3 +1,5 @@
+@use '../../../../../styles/breakpoints' as *;
+
 // La fila no puede ensanchar la página: el scroll queda adentro de .scroller.
 .row {
   display: flex;
@@ -11,7 +13,11 @@
   align-items: center;
   display: flex;
   gap: 12px;
-  padding: 0 48px;
+  padding: 0 16px;
+
+  @include media(md) {
+    padding: 0 48px;
+  }
 }
 
 .title {
@@ -34,7 +40,11 @@
   margin: 0;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 4px 48px 12px;
+  padding: 4px 16px 12px;
+
+  @include media(md) {
+    padding: 4px 48px 12px;
+  }
   // Sin barra visible: se sigue scrolleando con trackpad o Shift + rueda.
   scrollbar-width: none;
 
@@ -44,8 +54,13 @@
 }
 
 .item {
-  flex: 0 0 360px;
+  // Mobile: ~70% del ancho, así asoma la card siguiente. Desde md, 360px.
+  flex: 0 0 85vw;
   min-width: 0;
+
+  @include media(md) {
+    flex-basis: 360px;
+  }
 
   > * {
     height: 100%;

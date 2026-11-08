@@ -1,4 +1,6 @@
-.card {
+  @use '@/styles/breakpoints' as *;
+
+  .card {
   position: relative;
   border: 1px solid var(--color-border-card);
   outline: 2px solid transparent;
@@ -27,9 +29,10 @@ $actions-width: 24px * 2 + 8px;
   flex-direction: column;
   gap: 8px;
   min-width: 0;
+  justify-content: center;
   // Lugar fijo para los botones (estén visibles o no), así el hover nunca cambia el ancho del texto.
   // padding-right: $actions-width + 16px;
-  padding-right: 16px;
+  // padding-right: 16px;
   // padding: 12px;
 }
 
@@ -44,9 +47,13 @@ $actions-width: 24px * 2 + 8px;
 }
 
 .name {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
   padding-right: $actions-width + 16px;
+
+  @include media(md) {
+    font-size: 18px;
+  }
 }
 
 // Toda la card es el link: el ::after la cubre entera.

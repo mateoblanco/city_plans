@@ -1,3 +1,5 @@
+@use '../../styles/breakpoints' as *;
+
 .header{
     display: flex;
     flex-direction: column;
@@ -66,4 +68,72 @@
 // Alto real del header (lo mide HeaderOffset), en el flujo de la página.
 .spacer{
     height: var(--header-offset);
+}
+
+// Header normal (logo | centro | usuario): lo que compactBelow cambia, para volver a él desde su breakpoint.
+@mixin full {
+    padding: 16px 48px;
+    gap: 16px;
+
+    .top {
+        grid-template-columns: 1fr auto 1fr;
+    }
+
+    .logo {
+        display: flex;
+    }
+
+    .end {
+        display: block;
+    }
+
+    .center,
+    .bottom {
+        display: flex;
+        min-width: auto;
+    }
+}
+
+// compactBelow: debajo de su breakpoint (md en home y /search, ml en la ficha), sin logo, el centro y la segunda fila
+// a todo el ancho; arriba, la zona segura de iOS. Desde el breakpoint, como cualquier header.
+.header[data-compact] {
+    padding: calc(12px + env(safe-area-inset-top)) 16px 12px;
+    gap: 12px;
+
+    .top {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .logo,
+    .end {
+        display: none;
+    }
+
+    .center,
+    .bottom {
+        display: block;
+        min-width: 0;
+    }
+}
+
+.header[data-compact="md"] {
+    @include media(md) {
+        @include full;
+    }
+}
+
+.header[data-compact="ml"] {
+    @include media(ml) {
+        @include full;
+    }
+}
+
+// mobileOnlyContent (la home): el centro y la segunda fila sólo en mobile; desde md, sólo el logo.
+.header[data-mobile-only] {
+    @include media(md) {
+        .center,
+        .bottom {
+            display: none;
+        }
+    }
 }

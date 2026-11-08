@@ -68,13 +68,12 @@
 	--color-button-secondary: #{palette.get(gray-50)}; // Button .variant-secondary (fondo)
 	--color-button-secondary-text: #{palette.get(gray-900)}; // Button .variant-secondary
 
-	// Controles base (Button, input de Search)
-	--color-control-bg: #{palette.get(white)}; // Button, Search
+	// Controles base (Button)
+	--color-control-bg: #{palette.get(white)}; // Button
 	--color-control-bg-hover: #{palette.get(neutral-50)}; // Button
 	--color-control-bg-active: #{palette.get(neutral-200)}; // Button
 	--color-control-text: #{palette.get(neutral-950)}; // Button
-	--color-control-input-text: #{palette.get(black)}; // Search
-	--color-control-text-muted: #{palette.get(neutral-500)}; // Button, Search
+	--color-control-text-muted: #{palette.get(neutral-500)}; // Button
 	--color-control-border: #{palette.get(neutral-950)}; // Search
 	--color-control-focus: #{palette.get(neutral-950)}; // Button
 
@@ -82,6 +81,7 @@
 	--shadow-card: 0 4px 4px 0 #{shade(0.05)}; // PlaceCard, PlaceImage (lg), BranchCard, PlaceHours, PlaceDiscounts
 	--shadow-popover: 2px 2px 4px #{shade(0.12)}; // Select (popup), Popover, Tooltip
 	--shadow-panel: 0 4px 16px #{shade(0.12)}; // DebugPanel
+	--shadow-sheet: 0 -4px 16px #{shade(0.12)}; // ResultsSheet (panel de resultados de /search en mobile)
 	--shadow-marker: 0 1px 4px #{shade(0.3)}; // MapMarker (marcadores de /search y de la ficha)
 	// Button .variant-primary y .variant-secondary (el anillo de color lo agrega el componente)
 	--shadow-button: inset 0 0 1px 1px #{highlight(0.14)}, 0 0 0 1px #{shade(0.08)}, 0 2px 2px #{shade(0.04)};
@@ -93,7 +93,6 @@
 	--color-control-bg-hover: #{palette.get(neutral-800)};
 	--color-control-bg-active: #{palette.get(neutral-700)};
 	--color-control-text: #{palette.get(white)};
-	--color-control-input-text: #{palette.get(white)};
 	--color-control-text-muted: #{palette.get(neutral-400)};
 	--color-control-border: #{palette.get(white)};
 	--color-control-focus: #{palette.get(white)};

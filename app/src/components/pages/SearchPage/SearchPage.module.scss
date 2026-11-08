@@ -1,5 +1,27 @@
+@use '../../../styles/breakpoints' as *;
+
 // Layout dividido (sólo desktop): la lista scrollea con la página y el mapa queda fijo a la derecha, debajo del header.
 .list {
   // padding: 24px;
   // width: 55%;
+}
+
+// Mobile: la página no scrollea (el mapa es el fondo); sólo scrollea el contenido del panel de resultados. La marca la
+// pone PageScrollLock mientras /search está a la vista. Desde md, la página scrollea como siempre (global.scss).
+:global(html[data-search-page]),
+:global(html[data-search-page] body) {
+  height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
+
+  @include media(md) {
+    height: auto;
+    overflow: visible;
+  }
+}
+
+:global(html[data-search-page]) {
+  @include media(md) {
+    overscroll-behavior: auto;
+  }
 }

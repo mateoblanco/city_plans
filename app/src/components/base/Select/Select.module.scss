@@ -1,3 +1,5 @@
+@use '../../../styles/breakpoints' as *;
+
 // Basado en el demo de Select de Base UI (v1.9.0, css-modules), en px y sin modo oscuro (la página es siempre clara).
 // El botón se ve como los demás filtros de la barra (.chip en FilterChip.module.scss): activo con algo elegido.
 
@@ -10,11 +12,17 @@
   cursor: pointer;
   display: inline-flex;
   font: inherit;
-  font-size: 14px;
+  font-size: 13px;
   gap: 8px;
   line-height: 1;
   // padding: 3px 6px 3px 10px;
-  padding: 8px 12px;
+  padding: 6px 10px;
+
+  // Mobile más chico (13px, 6px 10px), como el resto de los filtros de la barra; desde md, el de siempre.
+  @include media(md) {
+    font-size: 14px;
+    padding: 8px 12px;
+  }
 
   user-select: none;
   white-space: nowrap;

@@ -1,0 +1,27 @@
+.wrap {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 16px;
+}
+
+// Una sola línea, de borde a borde del header (el margen negativo compensa su padding de 16px). Mismo scroll nativo
+// que los carruseles de la home, sin barra visible.
+.scroll {
+  display: flex;
+  gap: 8px;
+  margin: 0 -16px;
+  overflow-x: auto;
+  padding: 0 16px;
+  scrollbar-width: none;
+  white-space: nowrap;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+
+  > * {
+    flex-shrink: 0;
+  }
+}

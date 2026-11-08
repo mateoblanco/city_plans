@@ -1,10 +1,16 @@
 @use '../../layout';
+@use '../../../../../styles/breakpoints' as *;
 
 .grid {
   display: grid;
   gap: 24px;
   padding: 0 2px;
-  @include layout.places-grid;
+  // Mobile: una card por fila. Desde md, las columnas del layout dividido.
+  grid-template-columns: 1fr;
+
+  @include media(md) {
+    @include layout.places-grid;
+  }
 
   &[data-columns="1"] {
     grid-template-columns: 1fr;

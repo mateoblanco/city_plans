@@ -13,6 +13,9 @@ const nextConfig: NextConfig = {
   // "use cache" para la interpretación de búsquedas y los embeddings de consultas.
   cacheComponents: true,
   outputFileTracingRoot: repoRoot,
+  // Dev: probar desde el teléfono por la IP de la red local (192.168.x.x). Sin esto, Next bloquea sus scripts de dev
+  // para otros orígenes y la página nunca hidrata (sin mapa ni panel en /search). No afecta producción.
+  allowedDevOrigins: ["192.168.*.*"],
   images: { remotePatterns: logoPatterns },
   turbopack: {
     root: repoRoot,

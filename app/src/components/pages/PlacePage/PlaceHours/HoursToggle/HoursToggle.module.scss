@@ -1,0 +1,20 @@
+@use '../../../../../styles/breakpoints' as *;
+
+.toggle {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  @include media(ml) {
+    display: contents;
+  }
+}
+
+// El botón, alineado a la izquierda con el texto; desde ml no está.
+.action {
+  display: flex;
+
+  @include media(ml) {
+    display: none;
+  }
+}

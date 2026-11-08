@@ -1,0 +1,34 @@
+@use 'sass:map';
+
+// Breakpoints de la app: un solo lugar. Mobile-first: lo que va afuera de una media query es mobile, y
+// `@include media(md) { … }` agrega o cambia lo de 768px para arriba (desktop).
+$breakpoints: (
+  sm: 600px,
+  md: 768px,
+  // La ficha del lugar (/place) pasa a una columna debajo de este ancho; el resto de la app, debajo de md.
+  ml: 900px,
+  lg: 1024px,
+  xl: 1280px,
+  xxl: 1440px,
+);
+
+@function breakpoint($name) {
+  @if not map.has-key($breakpoints, $name) {
+    @error "Breakpoint desconocido: #{$name}. Usá uno de #{map.keys($breakpoints)}.";
+  }
+  @return map.get($breakpoints, $name);
+}
+
+// Desde el breakpoint (incluido) para arriba. El único mixin: sin max-width.
+@mixin media($name) {
+  @media (min-width: breakpoint($name)) {
+    @content;
+  }
+}
+
+// Los mismos valores como variables CSS en :root (global.scss), para leerlos desde JS (matchMedia).
+@mixin custom-properties {
+  @each $name, $value in $breakpoints {
+    --breakpoint-#{$name}: #{$value};
+  }
+}

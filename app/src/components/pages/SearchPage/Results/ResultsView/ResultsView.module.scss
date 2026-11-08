@@ -1,11 +1,49 @@
 @use '../../layout';
+@use '../../../../../styles/breakpoints' as *;
 
 .results {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding-bottom: 24px;
-  @include layout.results-column;
+
+  // Mobile antes de hidratar (todavía sin el Drawer): ya se ve como el panel a media altura sobre el mapa, así al
+  // pasar a ResultsSheet no salta.
+  background-color: var(--color-bg-page);
+  border-radius: 16px 16px 0 0;
+  bottom: 0;
+  box-shadow: var(--shadow-sheet);
+  height: 50dvh;
+  left: 0;
+  overflow-y: auto;
+  padding: 56px 16px 24px;
+  position: fixed;
+  right: 0;
+  width: 100%;
+  z-index: 2;
+
+  // Desde md: la columna de la lista del layout dividido.
+  @include media(md) {
+    background-color: transparent;
+    border-radius: 0;
+    bottom: auto;
+    box-shadow: none;
+    height: auto;
+    left: auto;
+    overflow-y: visible;
+    padding: 0 0 24px;
+    position: static;
+    right: auto;
+    z-index: auto;
+    @include layout.results-column;
+  }
+}
+
+// Mobile, dentro del panel (ResultsSheet pone el padding lateral y el scroll).
+.sheetResults {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-bottom: 8px;
 }
 
 .notices {
@@ -30,4 +68,8 @@
 // Sin grupos no hay StickyHeader que ponga el aire de arriba.
 .ungrouped {
   padding-top: 24px;
+
+  &.sheetResults {
+    padding-top: 0;
+  }
 }

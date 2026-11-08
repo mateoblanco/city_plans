@@ -1,3 +1,5 @@
+@use '../../../../styles/breakpoints' as *;
+
 // Bloques del skeleton; el layout (.page, .content, .columns, .main, .side) viene de PlacePage.module.scss.
 // Las medidas copian las de PlaceHeader (sin barra), PlaceSummary y PlaceMap para que no salte al cargar.
 
@@ -11,38 +13,61 @@
   }
 }
 
-// PlaceHeader sin barra: padding-top 32px, "Volver", y la fila con el logo y las acciones.
+// PlaceHeader sin barra: padding-top 32px, "Volver", y la fila con el logo y las acciones. En mobile no hay "Volver"
+// (está en el header de la app) y las acciones van junto al título.
 .header {
   display: flex;
   flex-direction: column;
-  padding-top: 32px;
+
+  @include media(ml) {
+    padding-top: 32px;
+  }
 }
 
 .back {
   @extend %block;
+  display: none;
   height: 20px;
   margin: 0 48px;
   width: 80px;
+
+  @include media(ml) {
+    display: block;
+  }
 }
 
 .row {
   align-items: flex-end;
   display: flex;
   justify-content: space-between;
-  padding: 16px 48px 0;
+  padding: 16px 0 0;
+
+  @include media(ml) {
+    padding: 16px 48px 0;
+  }
 }
 
 // PlaceImage size="lg".
 .logo {
   @extend %block;
-  border-radius: 16px;
-  height: 130px;
-  width: 130px;
+  border-radius: 12px;
+  height: 88px;
+  width: 88px;
+
+  @include media(ml) {
+    border-radius: 16px;
+    height: 130px;
+    width: 130px;
+  }
 }
 
 .actions {
-  display: flex;
+  display: none;
   gap: 16px;
+
+  @include media(ml) {
+    display: flex;
+  }
 }
 
 .action {
@@ -60,8 +85,13 @@
 
 .name {
   @extend %block;
-  height: 56px;
-  width: 45%;
+  height: 34px;
+  width: 70%;
+
+  @include media(ml) {
+    height: 56px;
+    width: 45%;
+  }
 }
 
 .facts {
@@ -115,7 +145,11 @@
 .cards {
   display: grid;
   gap: 24px;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 1fr;
+
+  @include media(ml) {
+    grid-template-columns: repeat(3, 1fr);
+  }
 }
 
 .card {
@@ -133,8 +167,13 @@
 // PlaceMap .map.
 .map {
   @extend %block;
+  aspect-ratio: 16 / 10;
   border-radius: 16px;
-  height: 280px;
+
+  @include media(ml) {
+    aspect-ratio: auto;
+    height: 280px;
+  }
 }
 
 .location {

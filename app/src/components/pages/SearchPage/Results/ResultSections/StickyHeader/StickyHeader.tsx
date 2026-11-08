@@ -9,7 +9,8 @@ type Props = {
 
 /**
  * Header de sección sticky que marca data-stuck mientras está pegado (sin eso, el borde inferior no se ve). Pegado =
- * su borde de arriba llegó al `top` del sticky; antes de eso está en su lugar, más abajo.
+ * su borde de arriba llegó al `top` del sticky; antes de eso está en su lugar, más abajo. En desktop scrollea la
+ * página; en mobile, el panel de resultados (Drawer.Content): el `top` se mide desde el borde de ese contenedor.
  */
 const StickyHeader = (props: Props) => {
   const ref = useRef<HTMLDivElement>(null);
@@ -23,17 +24,19 @@ const StickyHeader = (props: Props) => {
     const update = () => {
       frame = 0;
       const stickyTop = parseFloat(getComputedStyle(element).top) || 0;
-      setStuck(element.getBoundingClientRect().top <= stickyTop + 0.5);
+      const containerTop = element.closest("[data-drawer-content]")?.getBoundingClientRect().top ?? 0;
+      setStuck(element.getBoundingClientRect().top <= containerTop + stickyTop + 0.5);
     };
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(update);
     };
 
     update();
-    window.addEventListener("scroll", schedule, { passive: true });
+    // En captura: también llega el scroll del panel, que no burbujea.
+    window.addEventListener("scroll", schedule, { capture: true, passive: true });
     window.addEventListener("resize", schedule);
     return () => {
-      window.removeEventListener("scroll", schedule);
+      window.removeEventListener("scroll", schedule, { capture: true });
       window.removeEventListener("resize", schedule);
       cancelAnimationFrame(frame);
     };

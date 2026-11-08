@@ -1,0 +1,23 @@
+@use '../../styles/breakpoints' as *;
+
+// Mobile: la flecha de volver y el buscador en una línea; el buscador ocupa el resto.
+.searchLine {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+
+  > :last-child {
+    flex: 1;
+    min-width: 0;
+
+    @include media(md) {
+      flex: 0 1 auto;
+      min-width: auto;
+    }
+  }
+
+  // Desde md no es una caja: el input queda como antes en el centro del header.
+  @include media(md) {
+    display: contents;
+  }
+}

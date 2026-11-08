@@ -1,0 +1,8 @@
+// Arriba del panel en la altura baja (SHEET_LOW de utils/sheet.ts, 104px) con 12px de aire; entre el mapa y el header.
+.selected {
+  bottom: 116px;
+  left: 16px;
+  position: fixed;
+  right: 16px;
+  z-index: 2;
+}

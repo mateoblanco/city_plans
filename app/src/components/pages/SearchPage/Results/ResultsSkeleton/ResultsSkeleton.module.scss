@@ -1,19 +1,51 @@
 @use '../../layout';
+@use '../../../../../styles/breakpoints' as *;
 
 // .results y .grid: el mismo layout que SearchResults y PlacesGrid, para que el skeleton ocupe lo mismo.
 .results {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding-top: 24px;
-  padding-bottom: 24px;
-  @include layout.results-column;
+
+  // Mobile: como el panel a media altura sobre el mapa (ResultsSheet), con las cards en una columna.
+  background-color: var(--color-bg-page);
+  border-radius: 16px 16px 0 0;
+  bottom: 0;
+  box-shadow: var(--shadow-sheet);
+  height: 50dvh;
+  left: 0;
+  overflow: hidden;
+  padding: 56px 16px 24px;
+  position: fixed;
+  right: 0;
+  width: 100%;
+  z-index: 2;
+
+  // Desde md: la columna de la lista del layout dividido.
+  @include media(md) {
+    background-color: transparent;
+    border-radius: 0;
+    bottom: auto;
+    box-shadow: none;
+    height: auto;
+    left: auto;
+    overflow: visible;
+    padding: 24px 0;
+    position: static;
+    right: auto;
+    z-index: auto;
+    @include layout.results-column;
+  }
 }
 
 .grid {
   display: grid;
   gap: 24px;
-  @include layout.places-grid;
+  grid-template-columns: 1fr;
+
+  @include media(md) {
+    @include layout.places-grid;
+  }
 }
 
 .skeletonCard,

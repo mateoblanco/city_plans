@@ -1,18 +1,29 @@
-// Alto de la barra y cuánto del logo queda encima de ella.
-$bar-height: 180px;
-$logo-overlap: 96px;
+@use '../../../../styles/breakpoints' as *;
 
+// Alto de la barra y cuánto del logo queda encima de ella (mobile / desde ml).
+$bar-height: 96px;
+$bar-height-md: 180px;
+$logo-overlap: 44px;
+$logo-overlap-md: 96px;
+
+// Mobile: me gusta y guardar van a la derecha del título (que está en PlaceSummary, 16px debajo de este header: el
+// padding-top de .columns en PlacePage.module.scss). El título deja lugar con su padding-right.
 .header {
   display: flex;
   flex-direction: column;
+  position: relative;
+
+  @include media(ml) {
+    position: static;
+  }
 }
 
 .bar {
   display: flex;
   flex-direction: column;
-  padding: 32px 0 0;
 
-  // El padding lateral de la barra va por dentro del ancho máximo, para que "Volver" quede alineado con el logo.
+  // Desde ml, "← Volver" va dentro de la barra; su padding lateral va por dentro del ancho máximo, para que quede
+  // alineado con el logo. En mobile no hay "Volver" (está en el header de la app).
   .content {
     padding: 0 calc(var(--place-gutter) + 48px);
   }
@@ -20,8 +31,16 @@ $logo-overlap: 96px;
   .header[data-bar] & {
     background-color: var(--bar-bg);
     height: $bar-height;
-    padding-top: 48px;
     border-bottom: 1px solid var(--color-border);
+  }
+
+  @include media(ml) {
+    padding: 32px 0 0;
+
+    .header[data-bar] & {
+      height: $bar-height-md;
+      padding-top: 48px;
+    }
   }
 }
 
@@ -40,11 +59,20 @@ $logo-overlap: 96px;
   align-items: flex-end;
   display: flex;
   justify-content: space-between;
-  padding: 16px 48px 0;
+  padding: 16px 0 0;
 
   .header[data-bar] & {
     margin-top: -$logo-overlap;
     padding-top: 0;
+  }
+
+  @include media(ml) {
+    padding: 16px 48px 0;
+
+    .header[data-bar] & {
+      margin-top: -$logo-overlap-md;
+      padding-top: 0;
+    }
   }
 }
 
@@ -52,13 +80,24 @@ $logo-overlap: 96px;
   position: relative;
 }
 
-// Con barra, me gusta y guardar van debajo de ella, no encima del color.
+// Mobile: a la altura de la primera línea del título (16px debajo del header; +1 porque el título tiene 34px de alto
+// de línea y los botones 32px). Desde ml, con barra, van debajo de ella, no encima del color.
 .like {
   align-items: center;
   display: flex;
-  gap: 16px;
+  gap: 8px;
+  position: absolute;
+  right: var(--place-gutter);
+  top: calc(100% + 17px);
 
-  .header[data-bar] & {
-    padding-top: $logo-overlap + 16px;
+  @include media(ml) {
+    gap: 16px;
+    position: static;
+    right: auto;
+    top: auto;
+
+    .header[data-bar] & {
+      padding-top: $logo-overlap-md + 16px;
+    }
   }
 }

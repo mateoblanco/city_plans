@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import HeaderSearch from "@/components/HeaderSearch/HeaderSearch";
+import PageScrollLock from "./PageScrollLock/PageScrollLock";
 import ResultsSkeleton from "./Results/ResultsSkeleton/ResultsSkeleton";
 import SearchResults from "./Results/SearchResults/SearchResults";
 import { readParams, searchKey, type SearchParams } from "./utils/search-params";
@@ -28,6 +29,7 @@ type Props = {
 const SearchPage = (props: Props) => {
   return (
     <section>
+      <PageScrollLock />
       <HeaderSearch searchParams={props.searchParams} />
 
       <div className={styles.list}>

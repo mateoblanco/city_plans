@@ -7,7 +7,8 @@ type Props = {
     /** Texto del botón; con onlyIcon pasa a ser su nombre accesible (aria-label). */
     label: string;
     disabled?: boolean;
-    variant: 'primary' | 'secondary' | 'tertiary';
+    /** ghost: sin fondo ni padding (p. ej. la flecha de volver del header de /search). */
+    variant: 'primary' | 'secondary' | 'tertiary' | 'ghost';
     size: 'sm' | 'md';
     icon?: React.ReactNode;
     /** Ícono después del texto (p. ej. la flecha de un link externo); no se muestra con onlyIcon. */

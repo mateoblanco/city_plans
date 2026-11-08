@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import Header from "@/components/Header/Header";
+import HeaderBack from "@/components/Header/HeaderBack/HeaderBack";
 import { getPlacePage } from "@/server/places/page-data";
 import { montevideoNow } from "@/server/search/hours";
 import PlaceContact from "./PlaceContact/PlaceContact";
@@ -52,8 +53,11 @@ const Details = async (props: DetailsProps) => {
               instagram={place.instagram}
             />
             <PlaceDiscounts providers={data.discounts} />
-            <PlaceBranches branches={data.branches} />
-            <SimilarPlaces name={place.name} places={data.similar} />
+            {/* En mobile van al final, después de horarios, mapa y dirección (PlacePage.module.scss). */}
+            <div className={styles.more}>
+              <PlaceBranches branches={data.branches} />
+              <SimilarPlaces name={place.name} places={data.similar} />
+            </div>
           </div>
 
           <aside className={styles.side}>
@@ -85,11 +89,16 @@ type Props = {
   params: Promise<{ slug: string }>;
 };
 
-/** Ficha del lugar (sólo desktop): info y secciones a la izquierda; horarios, mapa y dirección fijos a la derecha. */
+/**
+ * Ficha del lugar. Desktop: info y secciones a la izquierda; horarios, mapa y dirección fijos a la derecha. Mobile: una
+ * sola columna (el mismo DOM, reordenado con CSS) y en el header sólo la flecha de volver.
+ */
 const PlacePage = (props: Props) => {
   return (
     <section>
-      <Header />
+      <Header compactBelow="ml">
+        <HeaderBack below="ml" />
+      </Header>
       <Suspense fallback={<PlacePageSkeleton />}>
         <Details params={props.params} />
       </Suspense>
