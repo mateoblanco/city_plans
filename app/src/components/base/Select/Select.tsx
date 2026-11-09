@@ -6,7 +6,7 @@ import ChevronDown from "@/assets/chevron_down.svg";
 import styles from "./Select.module.scss";
 
 type Props = {
-  /** Nombre accesible del botón (aria-label). */
+  /** Qué filtra ("Precio"): va en el nombre accesible después del texto visible (accessibleName). */
   label: string;
   items: { value: string; label: string }[];
   value: string[];
@@ -14,17 +14,23 @@ type Props = {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   /** Texto del botón (lo que va dentro de Select.Value). */
-  triggerLabel: () => React.ReactNode;
+  triggerLabel: () => string;
   /** El botón se ve elegido (data-active), como los chips de la barra. */
   active: boolean;
   /** Valor del ítem después del cual va un separador. */
   separatorAfter?: string;
 };
 
+/**
+ * Nombre accesible del botón de un filtro: empieza con el texto visible y sigue con qué filtra ("Normal, Precio"), así
+ * el control por voz lo encuentra por lo que se ve (WCAG 2.5.3). Si el texto visible ya es la etiqueta, sólo ella.
+ */
+export const accessibleName = (visible: string, label: string) => (visible === label ? label : `${visible}, ${label}`);
+
 /** Select de varias opciones (siempre `multiple`) con el botón de los filtros de la barra; se abre debajo. */
 const Select = (props: Props) => (
   <SelectBase.Root multiple items={props.items} value={props.value} onValueChange={props.onValueChange} open={props.open} onOpenChange={props.onOpenChange} >
-    <SelectBase.Trigger className={styles.trigger} aria-label={props.label} data-active={props.active ? "" : undefined}>
+    <SelectBase.Trigger className={styles.trigger} aria-label={accessibleName(props.triggerLabel(), props.label)} data-active={props.active ? "" : undefined}>
       <SelectBase.Value>{props.triggerLabel}</SelectBase.Value>
       <SelectBase.Icon className={styles.triggerIcon}>
         <ChevronDown className={styles.icon} width={10} height={10} aria-hidden />

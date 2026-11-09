@@ -7,8 +7,11 @@
   z-index: 2;
 }
 
-// Mide hasta el header: la altura alta (1) queda justo debajo. Base UI publica cuánto correrlo para cada altura
-// (--drawer-snap-point-offset) y cuánto se arrastró (--drawer-swipe-movement-y).
+// Mide hasta el header sin la barra de filtros (--header-offset-collapsed, HeaderOffset): la altura alta (1) queda justo
+// debajo del header compacto, y el alto no cambia mientras la barra aparece o se esconde (si siguiera a --header-offset,
+// Base UI recalcularía las alturas en cada frame y el panel se trabaría al bajar). En la media y la baja el borde de
+// arriba no se ve. Base UI publica cuánto correrlo para cada altura (--drawer-snap-point-offset) y cuánto se arrastró
+// (--drawer-swipe-movement-y).
 .popup {
   background-color: var(--color-bg-page);
   border-radius: 16px 16px 0 0;
@@ -16,7 +19,7 @@
   box-shadow: var(--shadow-sheet);
   display: flex;
   flex-direction: column;
-  height: calc(100dvh - var(--header-offset));
+  height: calc(100dvh - var(--header-offset-collapsed, var(--header-offset)));
   left: 0;
   // Mide siempre lo de la alta y se corre hacia abajo: el padding de abajo (lo que queda fuera de la pantalla) achica
   // la lista a lo que se ve, así se llega a su final en cualquier altura. Va acá y no en .content: Base UI no deja
@@ -28,6 +31,11 @@
   transform: translateY(calc(var(--drawer-snap-point-offset, 0px) + var(--drawer-swipe-movement-y, 0px)));
   transition: transform 400ms cubic-bezier(0.32, 0.72, 0, 1);
 
+  // Movimiento reducido: el panel cambia de altura sin animación.
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+
   &[data-swiping] {
     transition: none;
     user-select: none;
@@ -38,14 +46,43 @@
   }
 }
 
+// La manija es un botón (ResultsSheet): ocupa lo mismo que la barrita de antes (10px arriba, 4 de alto, 6 abajo) y la
+// barrita es su ::after. El ::before agranda el área táctil a 44px de alto (se mete en el padding del título, que no
+// recibe toques) sin cambiar el layout.
 .handle {
   align-self: center;
-  background-color: var(--color-border-input);
-  border-radius: 999px;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  cursor: grab;
   flex-shrink: 0;
-  height: 4px;
-  margin: 10px 0 6px;
-  width: 40px;
+  height: 20px;
+  padding: 0;
+  position: relative;
+  width: 96px;
+
+  &::before {
+    content: "";
+    inset: 0 0 -24px;
+    position: absolute;
+  }
+
+  &::after {
+    background-color: var(--color-border-input);
+    border-radius: 999px;
+    content: "";
+    height: 4px;
+    left: 50%;
+    position: absolute;
+    top: 10px;
+    transform: translateX(-50%);
+    width: 40px;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
 }
 
 .title {

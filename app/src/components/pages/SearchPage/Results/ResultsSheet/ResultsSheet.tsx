@@ -1,9 +1,11 @@
 "use client";
 
 import { useRef, type ReactNode } from "react";
+import { Button } from "@base-ui/react/button";
 import { Drawer } from "@base-ui/react/drawer";
 import styles from "./ResultsSheet.module.scss";
-import { SHEET_LOW, SHEET_SNAP_POINTS, toSnapPoint, type SheetSnapPoint } from "../../utils/sheet";
+import { resultsCountLabel } from "../../utils/results-count";
+import { isTap, nextSnapPoint, SHEET_HIGH, SHEET_LOW, SHEET_MID, SHEET_SNAP_POINTS, toSnapPoint, type SheetSnapPoint } from "../../utils/sheet";
 
 type Props = {
   /** Cuántos lugares trajo la búsqueda: el título del panel ("N lugares"). Mientras busca, null ("Buscando…"). */
@@ -16,8 +18,6 @@ type Props = {
 /** Después de un intento de cierre, Base UI vuelve a avisar la altura anterior (~30 ms): se ignora en este lapso. */
 const DISMISS_SETTLE_MS = 300;
 
-const countLabel = (count: number | null) =>
-  count === null ? "Buscando…" : count === 1 ? "1 lugar" : `${count.toLocaleString("es-UY")} lugares`;
 
 /**
  * Los resultados de /search en mobile: un Drawer de Base UI siempre abierto y no modal (sin backdrop ni cierre al tocar
@@ -27,6 +27,9 @@ const countLabel = (count: number | null) =>
  */
 const ResultsSheet = (props: Props) => {
   const dismissing = useRef(false);
+  // Dónde se apoyó el dedo (o el mouse) en la manija: si al soltar se movió, fue un arrastre del Drawer, no un toque.
+  const pointerDown = useRef<{ x: number; y: number } | null>(null);
+  const expanded = props.snapPoint === SHEET_HIGH;
 
   return (
     <Drawer.Root
@@ -60,9 +63,33 @@ const ResultsSheet = (props: Props) => {
             finalFocus={false}
             data-low={props.snapPoint === SHEET_LOW || undefined}
           >
-            <div className={styles.handle} aria-hidden />
-            <Drawer.Title className={styles.title}>{countLabel(props.count)}</Drawer.Title>
-            <Drawer.Content className={styles.content}>
+            {/* La manija: se arrastra (Drawer) o se toca, con el dedo o con Enter/Espacio, para alternar entre la media y la
+                alta (desde la baja, a la media). Lo que se ve es el ::after; el botón es más ancho y su ::before agranda
+                el área táctil a 44px de alto sin mover nada. */}
+            <Button
+              className={styles.handle}
+              aria-label={expanded ? "Contraer resultados" : "Expandir resultados"}
+              aria-expanded={expanded}
+              onPointerDown={(event) => {
+                pointerDown.current = { x: event.clientX, y: event.clientY };
+              }}
+              onClick={(event) => {
+                const tap = isTap(pointerDown.current, { x: event.clientX, y: event.clientY, detail: event.detail });
+                pointerDown.current = null;
+                if (tap) props.onSnapPointChange(nextSnapPoint(props.snapPoint));
+              }}
+            />
+            <Drawer.Title className={styles.title}>{resultsCountLabel(props.count)}</Drawer.Title>
+            {/* Si el foco entra a la lista con el panel en la baja (Tab, "Ir a los resultados"), sube a la media: si no, se
+                enfocaría algo invisible. */}
+            <Drawer.Content
+              className={styles.content}
+              role="region"
+              aria-label="Resultados"
+              onFocus={() => {
+                if (props.snapPoint === SHEET_LOW) props.onSnapPointChange(SHEET_MID);
+              }}
+            >
               {props.children}
             </Drawer.Content>
           </Drawer.Popup>

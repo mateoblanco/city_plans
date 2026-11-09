@@ -145,8 +145,8 @@
 }
 
 // /search en mobile con el panel de resultados en la altura alta (MapSync pone el atributo, sólo en mobile): la barra
-// de filtros se esconde para que la lista tenga más lugar. El header se achica, HeaderOffset lo vuelve a medir y el
-// panel (que mide hasta el header) crece. El margen negativo saca el gap del header.
+// de filtros se esconde para que la lista tenga más lugar. El panel ya mide hasta el header sin esta fila
+// (--header-offset-collapsed): no cambia de alto mientras corre la transición. El margen negativo saca el gap del header.
 :global(html[data-sheet-high]) .header[data-compact="md"] .bottom {
     grid-template-rows: 0fr;
     margin-top: -12px;

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { preconnect } from "react-dom";
 import MapColumn from "../MapColumn/MapColumn";
 import { startMapsLoad } from "../SearchMap/maps-loader";
+import ResultsAnnouncer from "../../ResultsAnnouncer/ResultsAnnouncer";
 import ResultsSheet from "../../ResultsSheet/ResultsSheet";
 import SelectedPlace from "../../SelectedPlace/SelectedPlace";
 import { SHEET_HIGH, SHEET_LOW, SHEET_MID, type SheetSnapPoint } from "../../../utils/sheet";
@@ -63,7 +64,8 @@ const MapSync = (props: Props) => {
         return;
       }
       hover.setHovered(id);
-      document.getElementById(cardId(id))?.scrollIntoView({ behavior: "smooth", block: "center" });
+      const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      document.getElementById(cardId(id))?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "center" });
     },
     [hover],
   );
@@ -95,7 +97,7 @@ const MapSync = (props: Props) => {
   const sheet = mobile && state.fitKey > 0;
 
   // Con el panel en la alta, el header esconde la barra de filtros (Header.module.scss, html[data-sheet-high]): la
-  // lista gana ese alto (el popup mide hasta el header, que HeaderOffset vuelve a medir).
+  // lista gana ese alto (el popup mide siempre hasta el header sin esa barra: --header-offset-collapsed, HeaderOffset).
   const sheetHigh = sheet && snapPoint === SHEET_HIGH;
   useEffect(() => {
     if (!sheetHigh) return;
@@ -110,6 +112,7 @@ const MapSync = (props: Props) => {
   return (
     <SearchMapContext value={store}>
       <HoverContext value={hover}>
+        <ResultsAnnouncer pending={state.pending} count={state.count} fitKey={state.fitKey} />
         {!sheet && props.children}
         {map}
         {selected && <SelectedPlace place={selected} />}

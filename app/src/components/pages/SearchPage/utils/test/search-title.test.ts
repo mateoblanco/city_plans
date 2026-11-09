@@ -23,6 +23,14 @@ describe("título de /search", () => {
     expect(searchHeading({ query: "", intent: "desserts", chips: [] })).toBe("Lugares de postres en Montevideo");
   });
 
+  it("con opciones de la barra, van en lugar de la intención; con una consulta propia, entre paréntesis", () => {
+    expect(searchTitle({ query: "tomar algo", intent: "bars", chips: [], subs: ["Tragos"] })).toBe("Tragos en Montevideo · Salimos");
+    expect(searchHeading({ query: "", intent: "bars", chips: [barrio("Pocitos", "bar")], subs: ["Tragos", "Vinos"] })).toBe("Tragos y vinos en Pocitos");
+    expect(searchHeading({ query: "", intent: "bars", chips: [], subs: ["Tragos", "Vinos", "Cerveza"] })).toBe("Tragos, vinos y cerveza en Montevideo");
+    expect(searchHeading({ query: "rooftop", intent: "bars", chips: [], subs: ["Música en vivo"] })).toBe("Rooftop (música en vivo) en Montevideo");
+    expect(searchHeading({ query: "tomar algo", intent: "bars", chips: [], subs: [] })).toBe("Bares para tomar algo en Montevideo");
+  });
+
   it("sin texto ni intención", () => {
     expect(searchTitle({ query: "", intent: null, chips: [] })).toBe("Lugares para salir en Montevideo · Salimos");
   });

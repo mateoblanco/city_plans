@@ -86,6 +86,12 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Código puro que usan el cliente y el servidor va en `src/lib/` (`coords.ts`, `discount-cards.ts`, `discount-section-ids.ts`); `server/` lo reexporta. Un componente de cliente no importa nada de `src/server/` (salvo tipos) ni zod.
 - El hero de la home (`assets/hero_image.webp`, 2400 px) sólo se ve desde `md`: su `sizes` pide la variante mínima debajo de eso. `next.config.ts` sirve AVIF y WebP.
 
+# Accesibilidad
+
+- Objetivo: WCAG 2.2 AA y 100 en Accesibilidad de Lighthouse en home, /search y ficha (mobile y desktop).
+- Foco: el anillo por defecto es `:where(:focus-visible)` en `global.scss` con `--color-focus-ring`; un componente sólo define el suyo si necesita otro offset. Los destinos de `SkipLinks` llevan `data-skip-target` (sin anillo).
+- Pendiente (punto 16 de la auditoría, WCAG 2.4.11 Foco no oculto): en /search mobile, el Tab entra al mapa (región, marcador y controles de Google) que queda **tapado por el panel de resultados**, y al final de la lista el Tab vuelve al principio del panel (pasa por un *focus guard* invisible de Base UI y por el popup del Drawer). Falta que lo tapado no reciba foco (`inert` o mapa con `bottomInset` para que sus controles queden arriba del panel) y sacar el bucle del Drawer.
+
 # Convenciones de React
 
 Aplican a `src/components/`. Los archivos de ruta de `src/app/` (`page.tsx`, `layout.tsx`, `error.tsx`) siguen las convenciones de Next y sólo importan el componente de la página (`app/search/page.tsx` → `SearchPage`).

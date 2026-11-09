@@ -31,11 +31,17 @@ $palette: (
 	blue-500: #0469f8, // azul de marca (también en assets/logo.svg)
 	blue-600: #1a73e8,
 
+	// Estado de apertura: tonos propios (más oscuros que orange-600 y red-600) para llegar a 4,5:1 sobre blanco.
+	status-closing-soon: #C15402,
+	status-closed: #EB0317,
+
 	// Colores de marca de los bancos (fondo del nombre en la ficha, PlaceDiscounts).
-	bank-itau: #FE6600,
+	// Naranja de Itaú elegido a propósito con texto blanco: 3,20:1, por debajo de 4,5:1 (WCAG 1.4.3). Lighthouse lo marca.
+	bank-itau: #FF551E,
 	bank-itau-personal-bank: #000D3E,
-	bank-santander: #FF0000,
-	bank-scotiabank: #FF0000,
+	// Rojo de marca apenas más oscuro (#FF0000 → #EB0201) para que el texto blanco llegue a 4,5:1.
+	bank-santander: #EB0201,
+	bank-scotiabank: #EB0201,
 	bank-bbva: #0075BE,
 	bank-brou: #005DAD,
 );

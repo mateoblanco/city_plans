@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { SKIP_TARGETS } from "@/components/SkipLinks/utils/skip-targets";
 import styles from "./MapColumn.module.scss";
 
 type Props = {
@@ -13,7 +14,7 @@ type Props = {
  */
 const MapColumn = (props: Props) => {
   return (
-    <aside className={styles.map} aria-label="Mapa de resultados">
+    <aside id={SKIP_TARGETS.map} className={styles.map} aria-label="Mapa de resultados" data-skip-target>
       <div className={styles.frame}>{props.children}</div>
     </aside>
   );

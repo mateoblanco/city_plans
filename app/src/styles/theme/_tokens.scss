@@ -21,6 +21,7 @@
 	--color-surface-hover: #{palette.get(gray-50)}; // Header, FilterChip, Select, Popover, DiscountFilter
 	--color-surface-muted: #{palette.get(gray-50)}; // NeighborhoodSelect, DebugPanel, ResultsView, PlaceHours (hoy)
 	--color-surface-hero: #{palette.get(blue-500)}; // HeroSearch
+	--color-hero-scrim: #{shade(0.12)}; // HeroSearch: velo sobre la foto, para que el h1 blanco llegue a 3:1 en su punto más claro
 	--color-surface-chip: #{palette.get(gray-50)}; // FilterChip, Select (trigger), Popover (trigger), DiscountFilter, PlaceTags
 	--color-skeleton: #{palette.get(gray-100)}; // ResultsSkeleton, PlaceMap
 
@@ -42,12 +43,12 @@
 
 	// Interacción
 	--color-selected: #{palette.get(black)}; // Select, Popover, DiscountFilter, FilterChip, CopyResponse, MapMarker, PlaceCard, PlaceImage, BranchCard, ProviderDiscounts (nombre de un banco sin color)
-	--color-focus-ring: #{palette.get(black)}; // Select, Popover, DiscountFilter, Tooltip, Link, Search, PlaceCard, BranchCard, BackButton
+	--color-focus-ring: #{palette.get(black)}; // global.scss (:focus-visible por defecto), Select, Popover, DiscountFilter, Tooltip, Link, Search, PlaceCard, BranchCard, BackButton, SkipLinks, ResultsSheet (manija)
 
 	// Estado de apertura del lugar
 	--color-status-open: #{palette.get(green-700)}; // PlaceCard, PlaceSummary
-	--color-status-closing-soon: #{palette.get(orange-600)}; // PlaceCard
-	--color-status-closed: #{palette.get(red-600)}; // PlaceCard, PlaceSummary
+	--color-status-closing-soon: #{palette.get(status-closing-soon)}; // PlaceCard, PlaceSummary
+	--color-status-closed: #{palette.get(status-closed)}; // PlaceCard, PlaceSummary
 	--color-rating: #{palette.get(yellow-500)}; // PlaceSummary (estrella del puntaje de Google)
 
 	--color-like: #{palette.get(red-600)}; // LikeButton

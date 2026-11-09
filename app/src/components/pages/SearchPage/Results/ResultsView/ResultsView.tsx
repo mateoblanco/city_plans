@@ -2,6 +2,7 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import clsx from "clsx";
+import { SKIP_TARGETS } from "@/components/SkipLinks/utils/skip-targets";
 import type { LatLng, SearchResponse } from "@/server/search";
 import type { CardDebug } from "../PlaceCard/PlaceCard";
 import PlacesGrid from "../PlacesGrid/PlacesGrid";
@@ -42,7 +43,7 @@ const ResultsView = (props: Props) => {
   const grouped = props.results.length > 0 && Boolean(page.sections ?? page.forYou);
 
   return (
-    <div className={clsx(styles.results, !grouped && styles.ungrouped)}>
+    <div id={SKIP_TARGETS.results} className={clsx(styles.results, !grouped && styles.ungrouped)} data-skip-target>
       {props.notices.length > 0 && (
         <div className={styles.notices}>
           {props.notices.map((message) => (

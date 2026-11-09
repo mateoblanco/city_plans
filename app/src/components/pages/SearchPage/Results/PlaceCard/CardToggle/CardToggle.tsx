@@ -6,7 +6,7 @@ import styles from "./CardToggle.module.scss";
 
 type Props = {
   active: boolean;
-  /** Label accesible (el botón es sólo ícono): cambia con el estado. */
+  /** Nombre accesible (el botón es sólo ícono): fijo; el estado va en aria-pressed. */
   label: string;
   icon: ReactElement;
   onToggle: () => void;

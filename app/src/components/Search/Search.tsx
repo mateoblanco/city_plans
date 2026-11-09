@@ -21,7 +21,7 @@ type Props = {
   sub?: string | null;
   /**
    * La home: el placeholder va rotando entre ejemplos (HOME_PLACEHOLDERS) con una animación. Al tocar el input frena y
-   * el ejemplo de ese momento queda como placeholder fijo.
+   * el ejemplo de ese momento queda como placeholder fijo. Con prefers-reduced-motion no rota: el primer ejemplo, fijo.
    */
   rotatingPlaceholder?: boolean;
 };
@@ -35,8 +35,9 @@ const Search = (props: Props) => {
 
   const [placeholderIndex, setPlaceholderIndex] = useState(0);
   const [stopped, setStopped] = useState(false);
-  const rotating = !!props.rotatingPlaceholder && !stopped;
   const reducedMotion = useReducedMotion();
+  // Con movimiento reducido no rota: queda el primer ejemplo fijo, como placeholder nativo.
+  const rotating = !!props.rotatingPlaceholder && !stopped && !reducedMotion;
 
   // Rota sólo mientras se ve (input vacío y sin tocar).
   useEffect(() => {
@@ -47,8 +48,7 @@ const Search = (props: Props) => {
 
   // Rotando, el placeholder nativo va vacío y el texto lo dibuja la capa animada de encima.
   const placeholder = !props.rotatingPlaceholder ? DEFAULT_PLACEHOLDER : rotating ? "" : HOME_PLACEHOLDERS[placeholderIndex];
-  // Sin desplazamiento con movimiento reducido: sólo cambia la opacidad.
-  const offset = reducedMotion ? "0%" : "100%";
+  const offset = "100%";
 
   return (
     // Con el botón deshabilitado el navegador ya no envía con Enter; el chequeo cubre cualquier otro envío.

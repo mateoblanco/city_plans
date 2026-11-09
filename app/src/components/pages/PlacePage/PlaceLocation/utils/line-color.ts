@@ -7,7 +7,7 @@ type Company = { company: string; pill: LinePill; lines: string[] };
 const COMPANIES: Company[] = [
   {
     company: "CUTCSA",
-    pill: { background: "#0080FF", color: "#FFFFFF" },
+    pill: { background: "#0272E3", color: "#FFFFFF" },
     lines: [
       "21", "60", "62", "64", "100", "102", "103", "104", "105", "106", "109", "110", "111", "112", "113", "115", "116", "117",
       "121", "124", "124 SD", "125", "127", "128", "130", "133", "135", "137", "140", "141", "142", "143", "144", "145", "147",
@@ -19,7 +19,7 @@ const COMPANIES: Company[] = [
   },
   {
     company: "COETC",
-    pill: { background: "#FF3B30", color: "#FFFFFF" },
+    pill: { background: "#E71816", color: "#FFFFFF" },
     lines: [
       "2", "4A", "4AC", "4AD", "4D", "4DR", "5D", "48D", "76", "222", "402", "404", "405", "407", "409", "427", "456", "468",
       "494", "495", "600", "D222", "D9", "L14", "L16", "L19", "L29", "L7", "L77",
@@ -35,7 +35,7 @@ const COMPANIES: Company[] = [
   },
   {
     company: "COME",
-    pill: { background: "#F97316", color: "#FFFFFF" },
+    pill: { background: "#F97316", color: "#1C1C1E" },
     lines: [
       "1M1", "1M11", "1M12", "1M13", "1M14", "1M15", "1M16", "1M2", "1M4", "1M5", "1M6", "1M7", "1M8", "2M1", "2M3", "2M5",
       "2M6", "2M7", "2M8", "D11", "MD1", "MD3", "ML1", "ML2",

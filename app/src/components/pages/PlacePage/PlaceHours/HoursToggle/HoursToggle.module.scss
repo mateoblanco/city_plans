@@ -10,9 +10,19 @@
   }
 }
 
-// El botón, alineado a la izquierda con el texto; desde ml no está.
+// La lista de días (PlaceHours), envuelta sólo para tener un id (aria-controls del botón).
+.list {
+  display: contents;
+}
+
+// El botón, alineado a la izquierda con el texto; desde ml no está. Alto mínimo de 24px (WCAG 2.5.8): el ghost no tiene
+// padding y su texto mide 20.
 .action {
   display: flex;
+
+  > * {
+    min-height: 24px;
+  }
 
   @include media(ml) {
     display: none;

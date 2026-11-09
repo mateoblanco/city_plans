@@ -57,9 +57,12 @@
   }
 }
 
-// Sub-filtros y extras de la intención: desde md, en su propia línea, debajo de las intenciones.
-.subRow {
+// Sub-filtros y extras de la intención: desde md, en su propia línea, debajo de las intenciones. Con .filterRow para
+// ganarle a su `justify-content: center` (más abajo): en mobile la fila scrollea y, centrada, lo que desborda por la
+// izquierda quedaba cortado y fuera de alcance.
+.filterRow.subRow {
   gap: 8px;
+  justify-content: flex-start;
 
   @include media(md) {
     flex-basis: 100%;

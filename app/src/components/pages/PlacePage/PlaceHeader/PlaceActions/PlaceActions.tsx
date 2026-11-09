@@ -15,8 +15,8 @@ type Props = {
 };
 
 /**
- * Me gusta y guardar de la ficha: botones con texto (acción → estado: "Me gusta" → "Te gusta", "Guardar" → "Guardado"),
- * con el mismo guardado en el navegador que los de la card. Sin localStorage no se muestran.
+ * Me gusta y guardar de la ficha: botones de ícono con nombre fijo ("Me gusta", "Guardar"); el estado va sólo en
+ * aria-pressed (y en el ícono lleno). Con el mismo guardado en el navegador que los de la card. Sin localStorage no se muestran.
  */
 const PlaceActions = (props: Props) => {
   const likes = useLiked(props.placeId);
@@ -32,7 +32,7 @@ const PlaceActions = (props: Props) => {
           type="button"
           variant="secondary"
           size="md"
-          label={liked ? "Te gusta" : "Me gusta"}
+          label="Me gusta"
           pressed={liked}
           onlyIcon
           icon={liked ? <HeartFill aria-hidden /> : <Heart aria-hidden />}
@@ -44,7 +44,7 @@ const PlaceActions = (props: Props) => {
           type="button"
           variant="secondary"
           size="md"
-          label={isSaved ? "Guardado" : "Guardar"}
+          label="Guardar"
           onlyIcon
           pressed={isSaved}
           icon={isSaved ? <BookmarkFill aria-hidden /> : <Bookmark aria-hidden />}

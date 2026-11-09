@@ -1,7 +1,7 @@
 import Button from "@/components/base/Button/Button";
 import styles from "./PlaceLocation.module.scss";
 import ArrowExternal from "@/assets/arrow_external.svg";
-import { linePill } from "./utils/line-color";
+import TransitLines from "./TransitLines/TransitLines";
 
 type Props = {
   /** De Google; null si no vino. */
@@ -27,21 +27,7 @@ const PlaceLocation = (props: Props) => (
         <Button href={props.mapsHref} external label="Google Maps" variant="tertiary" size="sm" iconEnd={<ArrowExternal aria-hidden width={8} height={8}  />} />
       </div>
     )}
-    {props.lines.length > 0 && (
-      <div className={styles.transit}>
-        <p className={styles.transitLabel}>Ómnibus cerca</p>
-        <ul className={styles.chips} aria-label="Líneas de ómnibus cercanas">
-          {props.lines.map((line) => {
-            const pill = linePill(line);
-            return (
-              <li key={line} className={pill ? styles.chip : `${styles.chip} ${styles.unknown}`} style={pill ? { backgroundColor: pill.background, color: pill.color } : undefined}>
-                {line}
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-    )}
+    {props.lines.length > 0 && <TransitLines lines={props.lines} />}
   </div>
 );
 

@@ -18,7 +18,8 @@ export async function generateMetadata({ params }: PageProps<"/place/[slug]">): 
   const logo = logoUrl(place.logo_key);
   const images = logo ? [{ url: logo, alt: `Logo de ${place.name}` }] : undefined;
   return {
-    title,
+    // La pestaña termina en el sitio, como el resto; Open Graph ya lo lleva en siteName.
+    title: `${title} · Salimos`,
     description,
     alternates: { canonical: url },
     openGraph: { type: "website", locale: "es_UY", siteName: "Salimos", url, title, description, images },

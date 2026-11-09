@@ -21,3 +21,13 @@ export type SheetSnapPoint = typeof SHEET_LOW | typeof SHEET_MID | typeof SHEET_
 /** Lo que devuelve el Drawer como una de las tres alturas; cualquier otra cosa (cerrar), la baja. */
 export const toSnapPoint = (value: unknown): SheetSnapPoint =>
   (SHEET_SNAP_POINTS.find((point) => Object.is(point, value)) as SheetSnapPoint | undefined) ?? SHEET_LOW;
+
+/** La manija como botón (WCAG 2.5.7, sin arrastrar): de la media a la alta y de la alta a la media; desde la baja, a la media. */
+export const nextSnapPoint = (current: SheetSnapPoint): SheetSnapPoint => (current === SHEET_MID ? SHEET_HIGH : SHEET_MID);
+
+/** Más que esto entre que se apoya y se suelta, fue un arrastre (lo maneja el Drawer), no un toque. */
+export const TAP_SLOP_PX = 8;
+
+/** ¿El click de la manija fue un toque (o teclado) y no el final de un arrastre? */
+export const isTap = (down: { x: number; y: number } | null, up: { x: number; y: number; detail: number }) =>
+  up.detail === 0 || down === null || Math.hypot(up.x - down.x, up.y - down.y) <= TAP_SLOP_PX;

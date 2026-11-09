@@ -2,6 +2,8 @@ import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import Header from "@/components/Header/Header";
 import HeaderBack from "@/components/Header/HeaderBack/HeaderBack";
+import SkipLinks from "@/components/SkipLinks/SkipLinks";
+import { SKIP_TARGETS } from "@/components/SkipLinks/utils/skip-targets";
 import { getPlacePage } from "@/server/places/page-data";
 import { montevideoNow } from "@/server/search/hours";
 import { siteUrl } from "@/server/seo/indexing";
@@ -61,11 +63,6 @@ const Details = async (props: DetailsProps) => {
               instagram={place.instagram}
             />
             <PlaceDiscounts providers={data.discounts} />
-            {/* En mobile van al final, después de horarios, mapa y dirección (PlacePage.module.scss). */}
-            <div className={styles.more}>
-              <PlaceBranches branches={data.branches} />
-              <SimilarPlaces name={place.name} places={data.similar} />
-            </div>
           </div>
 
           <aside className={styles.side}>
@@ -88,6 +85,14 @@ const Details = async (props: DetailsProps) => {
               mapsHref={place.google_place_id ? googleMapsHref(place.name, place.google_place_id) : null}
             />
           </aside>
+
+          {/* Sucursales y similares: en mobile, al final (después de contacto, horarios, mapa y dirección); en desktop,
+              en la columna izquierda debajo de .main (grid-template-areas en PlacePage.module.scss). El DOM sigue el
+              orden de mobile, así el Tab va en el orden en que se ve. */}
+          <div className={styles.more}>
+            <PlaceBranches branches={data.branches} />
+            <SimilarPlaces name={place.name} places={data.similar} />
+          </div>
         </div>
       </div>
     </div>
@@ -104,14 +109,17 @@ type Props = {
  */
 const PlacePage = (props: Props) => {
   return (
-    <section>
+    <>
+      <SkipLinks links={[{ target: SKIP_TARGETS.content, label: "Ir al contenido" }]} />
       <Header compactBelow="ml">
         <HeaderBack below="ml" />
       </Header>
-      <Suspense fallback={<PlacePageSkeleton />}>
-        <Details params={props.params} />
-      </Suspense>
-    </section>
+      <main id={SKIP_TARGETS.content} data-skip-target>
+        <Suspense fallback={<PlacePageSkeleton />}>
+          <Details params={props.params} />
+        </Suspense>
+      </main>
+    </>
   );
 };
 

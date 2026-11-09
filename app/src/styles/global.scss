@@ -59,9 +59,23 @@ body {
 	-webkit-text-size-adjust: none;
 }
 
+// Foco de teclado (WCAG 2.4.7): el mismo anillo en todo lo que no define el suyo (FilterChip, títulos de sección, logo
+// del header, links sueltos…), en lugar del contorno por defecto del navegador. :where no suma especificidad: el de cada
+// componente (Button, Select, Popover, cards…) sigue ganando. Sólo con :focus-visible: un click con el mouse no lo dibuja.
+:where(:focus-visible) {
+	outline: 2px solid var(--color-focus-ring);
+	outline-offset: 2px;
+}
+
+// Destinos de los links para saltar (SkipLinks): reciben el foco sólo como punto de partida del próximo Tab; un anillo
+// alrededor de todo el <main> o de la lista no ayuda.
+[data-skip-target]:focus {
+	outline: none;
+}
+
 html,
 body,
-main {
+.root {
 	min-height: 100vh;
 
 	@supports (min-height: 100dvh) {
@@ -84,6 +98,13 @@ main {
 }
 
 @media (prefers-reduced-motion: reduce) {
+	// Sin scroll suave (le gana al smooth !important de html).
+	html,
+	html:focus-within,
+	body {
+		scroll-behavior: auto !important;
+	}
+
 	[data-motion-target][data-motion-state='pending']:not([data-motion-preset='word-fade']) {
 		transform: none;
 	}

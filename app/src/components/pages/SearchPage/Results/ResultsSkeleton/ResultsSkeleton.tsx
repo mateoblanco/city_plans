@@ -4,7 +4,7 @@ import styles from "./ResultsSkeleton.module.scss";
 const ResultsSkeleton = () => {
   return (
     <div className={styles.results} aria-busy="true">
-      <span className={styles.visuallyHidden} role="status">
+      <span className={styles.visuallyHidden}>
         Buscando…
       </span>
       <div className={styles.grid}>

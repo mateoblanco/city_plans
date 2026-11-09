@@ -16,6 +16,9 @@ type Props = {
     onlyIcon?: boolean;
     /** Botón que alterna (aria-pressed), p. ej. el me gusta. */
     pressed?: boolean;
+    /** Botón que muestra u oculta otra parte (aria-expanded), con el id de esa parte (aria-controls). */
+    expanded?: boolean;
+    controls?: string;
 } & (
         | { type: 'button'; onClick: () => void }
         | { type: 'submit' }
@@ -41,6 +44,8 @@ const Button = (props: Props) => {
             className={buttonClass}
             aria-label={props.onlyIcon ? props.label : undefined}
             aria-pressed={props.pressed}
+            aria-expanded={props.expanded}
+            aria-controls={props.controls}
             nativeButton={!isLink}
             render={!isLink ? undefined
                 : props.external ? <a href={props.href} target="_blank" rel="noopener noreferrer" />

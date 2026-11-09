@@ -28,9 +28,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         />
       </head>
       <body>
-        <main className="root">
+        {/* Cada página pone su <header> (banner) y su <main>: acá sólo el contenedor. */}
+        <div className="root">
           {children}
-        </main>
+        </div>
         {/* Web Vitals reales (LCP, INP, CLS) en el dashboard de Vercel. */}
         <SpeedInsights />
       </body>

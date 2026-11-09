@@ -22,7 +22,7 @@ const SaveButton = (props: Props) => {
   return (
     <CardToggle
       active={isSaved}
-      label={isSaved ? `Quitar ${props.name} de guardados` : `Guardar ${props.name}`}
+      label={`Guardar ${props.name}`}
       icon={isSaved ? <BookmarkFill aria-hidden /> : <Bookmark aria-hidden />}
       onToggle={() => toggleSaved(props.placeId)}
     />

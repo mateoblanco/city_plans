@@ -23,7 +23,7 @@ const LikeButton = (props: Props) => {
   return (
     <CardToggle
       active={liked}
-      label={liked ? `Quitar me gusta de ${props.name}` : `Me gusta ${props.name}`}
+      label={`Me gusta ${props.name}`}
       icon={liked ? <HeartFill className={styles.heartLiked} aria-hidden /> : <Heart aria-hidden />}
       onToggle={() => toggleLike(props.placeId)}
     />

@@ -1,5 +1,7 @@
 import { Suspense } from "react";
 import HeaderSearch from "@/components/HeaderSearch/HeaderSearch";
+import SkipLinks from "@/components/SkipLinks/SkipLinks";
+import { SKIP_TARGETS } from "@/components/SkipLinks/utils/skip-targets";
 import PageScrollLock from "./PageScrollLock/PageScrollLock";
 import MapSync from "./Results/Map/MapSync/MapSync";
 import ResultsSkeleton from "./Results/ResultsSkeleton/ResultsSkeleton";
@@ -30,19 +32,27 @@ type Props = {
 
 const SearchPage = (props: Props) => {
   return (
-    <section>
+    <>
       <PageScrollLock />
+      {/* Sin lista (la búsqueda falló), "Ir a los resultados" va al <main>. "Ir al mapa", sólo en desktop: en mobile el
+          mapa queda detrás del panel. */}
+      <SkipLinks
+        links={[
+          { target: SKIP_TARGETS.results, label: "Ir a los resultados", fallback: SKIP_TARGETS.content },
+          { target: SKIP_TARGETS.map, label: "Ir al mapa", desktopOnly: true },
+        ]}
+      />
       <HeaderSearch searchParams={props.searchParams} />
 
-      <div className={styles.list}>
+      <main id={SKIP_TARGETS.content} className={styles.list} data-skip-target>
         {/* El mapa queda montado entre búsquedas: la key del Suspense de Results aplica sólo a la lista. */}
         <MapSync>
           <Suspense fallback={<ResultsSkeleton />}>
             <Results searchParams={props.searchParams} />
           </Suspense>
         </MapSync>
-      </div>
-    </section>
+      </main>
+    </>
   );
 };
 

@@ -1,0 +1,42 @@
+@use '../../styles/breakpoints' as *;
+
+// Fuera de la pantalla hasta que un link recibe el foco; entonces aparece arriba a la izquierda, encima del header
+// (z-index 3) y de los popups (10), con el aspecto de los chips de la barra.
+.skipLinks {
+  left: 16px;
+  position: fixed;
+  top: 12px;
+  z-index: 20;
+}
+
+.link {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-selected);
+  border-radius: 999px;
+  box-shadow: var(--shadow-popover);
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 600;
+  left: 0;
+  padding: 8px 16px;
+  position: absolute;
+  text-decoration: none;
+  top: 0;
+  transform: translateY(calc(-100% - 24px));
+  white-space: nowrap;
+
+  &:focus-visible,
+  &:focus {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+    transform: none;
+  }
+
+  &[data-desktop-only] {
+    display: none;
+
+    @include media(md) {
+      display: inline-block;
+    }
+  }
+}

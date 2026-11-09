@@ -11,6 +11,8 @@ export type SearchTitleInput = {
   intent: IntentId | null;
   /** Los chips de la búsqueda: de acá salen los barrios (del texto o de la barra). */
   chips: Pick<Chip, "kind" | "label" | "fromText" | "fromFilter">[];
+  /** Opciones de la intención elegidas en la barra ("Tragos"), en su orden. Las del texto no: ya están en la consulta. */
+  subs?: string[];
 };
 
 const SITE = "Salimos";
@@ -46,6 +48,13 @@ function placeSuffix(chips: SearchTitleInput["chips"]): string {
   return ` en ${neighborhoods.map((chip) => chip.label).join(" y ")}`;
 }
 
+/** "Tragos", "Tragos y vinos", "Tragos, vinos y cerveza": la primera con mayúscula, como en la barra. */
+function subList(labels: string[]): string {
+  const [first, ...rest] = labels.map((label, index) => (index === 0 ? label : label.charAt(0).toLocaleLowerCase("es") + label.slice(1)));
+  if (rest.length === 0) return first;
+  return `${[first, ...rest.slice(0, -1)].join(", ")} y ${rest[rest.length - 1]}`;
+}
+
 /** El h1 (sin el nombre del sitio). */
 export function searchHeading(input: SearchTitleInput): string {
   const query = clip(input.query.replace(/\s+/g, " ").trim());
@@ -58,6 +67,13 @@ export function searchHeading(input: SearchTitleInput): string {
   else if (verb && noun && !noun.includes(" ")) subject = `${noun} para ${query}`;
   else if (query) subject = capitalize(query);
   else subject = noun ?? "Lugares para salir";
+  // Con opciones de la barra: en lugar de la intención ("Tragos en Montevideo"); con una consulta propia, entre
+  // paréntesis después de ella ("Rooftop (tragos) en Montevideo").
+  const subs = input.subs ?? [];
+  if (subs.length > 0) {
+    const ownQuery = query !== "" && !verb;
+    subject = ownQuery ? `${capitalize(query)} (${subList(subs).toLocaleLowerCase("es")})` : subList(subs);
+  }
   return `${subject}${placeSuffix(input.chips)}`;
 }
 
@@ -69,4 +85,5 @@ export const searchTitleInput = (query: string, response: Pick<SearchResponse, "
   query,
   intent: response?.bar.intent?.id ?? null,
   chips: response?.interpreted.chips ?? [],
+  subs: response?.bar.subs.filter((sub) => sub.active && !sub.fromText).map((sub) => sub.label) ?? [],
 });

@@ -49,14 +49,15 @@
   }
 }
 
-// El alto de PlaceCard: imagen 100 + padding 2×16 + borde 2×1.
+// El alto de PlaceCard: en mobile, el fijo de la home (PlaceRow, 145px); desde md, imagen 100 + padding 2×16 + borde 2×1.
 .card {
   border-radius: 16px;
   flex: 0 0 70vw;
-  height: 134px;
+  height: 145px;
 
   @include media(md) {
     flex-basis: 360px;
+    height: 134px;
   }
 }
 

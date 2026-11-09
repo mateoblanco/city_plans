@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import Button from "@/components/base/Button/Button";
 import styles from "./HoursToggle.module.scss";
 
@@ -15,16 +15,22 @@ type Props = {
  */
 const HoursToggle = (props: Props) => {
   const [expanded, setExpanded] = useState(false);
+  const listId = useId();
 
   return (
     <div className={styles.toggle} data-hours-expanded={expanded || undefined}>
-      {props.children}
+      {/* El destino de aria-controls; display: contents, no cambia el layout. */}
+      <div id={listId} className={styles.list}>
+        {props.children}
+      </div>
       <div className={styles.action}>
         <Button
           type="button"
           variant="ghost"
           size="sm"
-          label={expanded ? "Ver menos" : "Ver todos"}
+          label={expanded ? "Ver menos horarios" : "Ver todos los horarios"}
+          expanded={expanded}
+          controls={listId}
           onClick={() => setExpanded((current) => !current)}
         />
       </div>

@@ -32,7 +32,7 @@ const Header = (props: Props) => {
         <Suspense fallback={null}>
           <NavigationTracker />
         </Suspense>
-        <div className={styles.top}>
+        <div className={styles.top} data-header-top>
           <Link href="/" className={styles.logo}>
             <Logo width={40} height={40} />
             Montevideo

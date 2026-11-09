@@ -62,7 +62,15 @@
     flex-basis: 360px;
   }
 
+  // Mobile: todas las cards de la home con el mismo alto fijo (145px; en /search no cambia). Lo que no entre se corta.
+  // Desde md, el alto de la fila.
   > * {
-    height: 100%;
+    height: 145px;
+    overflow: hidden;
+
+    @include media(md) {
+      height: 100%;
+      overflow: visible;
+    }
   }
 }
