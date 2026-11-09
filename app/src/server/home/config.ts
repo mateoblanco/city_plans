@@ -25,6 +25,7 @@ export type HomeSectionDef = { id: string; title: string; search: HomeSearch }
  */
 export const HOME_SECTIONS: HomeSectionDef[] = [
   { id: 'lunch', title: 'Para almorzar', search: { intent: 'eat', sub: ['lunch'] } },
+  { id: 'brunch', title: 'Lugares para brunchear', search: { tags: ['brunch'] } },
   { id: 'drinks', title: 'Para tomar algo', search: { intent: 'bars' } },
   { id: 'world', title: 'Comidas del mundo', search: { section: 'world' } },
   { id: 'classics', title: 'Clásicos uruguayos', search: { section: 'classics' } },

@@ -12,7 +12,7 @@ const HeroSearch = () => {
       <Image src={heroImage} alt="" fill preload sizes="(min-width: 768px) 100vw, 1px" className={styles.backdrop} />
       <h1 className={styles.heading}>Descubrí lugares para salir hoy</h1>
       <div className={styles.search}>
-        <Search />
+        <Search rotatingPlaceholder />
         <HomeShortcuts layout="wrap" />
       </div>
     </div>

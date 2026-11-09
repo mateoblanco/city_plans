@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Form from "next/form";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Button from "../base/Button/Button";
 import styles from './Search.module.scss';
 import { Input } from '@base-ui/react/input';
 import ArrowRight from "@/assets/arrow_right.svg";
+import { DEFAULT_PLACEHOLDER, HOME_PLACEHOLDERS, PLACEHOLDER_INTERVAL_MS } from "./utils/placeholders";
 
 type Props = {
   defaultValue?: string;
@@ -17,6 +19,11 @@ type Props = {
   near?: string | null;
   intent?: string | null;
   sub?: string | null;
+  /**
+   * La home: el placeholder va rotando entre ejemplos (HOME_PLACEHOLDERS) con una animación. Al tocar el input frena y
+   * el ejemplo de ese momento queda como placeholder fijo.
+   */
+  rotatingPlaceholder?: boolean;
 };
 
 const Search = (props: Props) => {
@@ -26,11 +33,57 @@ const Search = (props: Props) => {
   // la intención.
   const blocked = empty && !props.intent && !props.filters && !props.near;
 
+  const [placeholderIndex, setPlaceholderIndex] = useState(0);
+  const [stopped, setStopped] = useState(false);
+  const rotating = !!props.rotatingPlaceholder && !stopped;
+  const reducedMotion = useReducedMotion();
+
+  // Rota sólo mientras se ve (input vacío y sin tocar).
+  useEffect(() => {
+    if (!rotating || !empty) return;
+    const timer = setInterval(() => setPlaceholderIndex((index) => (index + 1) % HOME_PLACEHOLDERS.length), PLACEHOLDER_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [rotating, empty]);
+
+  // Rotando, el placeholder nativo va vacío y el texto lo dibuja la capa animada de encima.
+  const placeholder = !props.rotatingPlaceholder ? DEFAULT_PLACEHOLDER : rotating ? "" : HOME_PLACEHOLDERS[placeholderIndex];
+  // Sin desplazamiento con movimiento reducido: sólo cambia la opacidad.
+  const offset = reducedMotion ? "0%" : "100%";
+
   return (
     // Con el botón deshabilitado el navegador ya no envía con Enter; el chequeo cubre cualquier otro envío.
     <Form action="/search" onSubmit={(event) => blocked && event.preventDefault()}>
       <div className={styles.container}>
-        <Input type="search" name="q" defaultValue={props.defaultValue} onValueChange={(value) => setEmpty(!value.trim())} autoComplete="off" aria-label="Buscar lugares" className={styles.input} placeholder="Bar para salir a tomar algo con amigos" />
+        <div className={styles.field}>
+          <Input
+            type="search"
+            name="q"
+            defaultValue={props.defaultValue}
+            onValueChange={(value) => setEmpty(!value.trim())}
+            onFocus={() => setStopped(true)}
+            autoComplete="off"
+            aria-label="Buscar lugares"
+            className={styles.input}
+            placeholder={placeholder}
+          />
+          {rotating && empty && (
+            <span className={styles.rotatingPlaceholder} aria-hidden>
+              {/* initial={false}: el primer ejemplo (el del HTML del servidor) no entra animado. */}
+              <AnimatePresence initial={false}>
+                <motion.span
+                  key={placeholderIndex}
+                  className={styles.rotatingText}
+                  initial={{ y: offset, opacity: 0 }}
+                  animate={{ y: "0%", opacity: 1 }}
+                  exit={{ y: `-${offset}`, opacity: 0 }}
+                  transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
+                >
+                  {HOME_PLACEHOLDERS[placeholderIndex]}
+                </motion.span>
+              </AnimatePresence>
+            </span>
+          )}
+        </div>
         {props.filters && <input type="hidden" name="f" value={props.filters} />}
         {props.near && <input type="hidden" name="near" value={props.near} />}
         {props.intent && <input type="hidden" name="intent" value={props.intent} />}

@@ -32,9 +32,11 @@ describe('config de la home', () => {
   })
 
   it('orden fijo, y "Comidas del mundo" es el grupo "Comida del mundo" de la búsqueda', () => {
-    expect(HOME_SECTIONS.map((section) => section.title)).toEqual(['Para almorzar', 'Para tomar algo', 'Comidas del mundo', 'Clásicos uruguayos', 'Vegetariano', 'Merienda', 'Sin TACC'])
+    expect(HOME_SECTIONS.map((section) => section.title)).toEqual(['Para almorzar', 'Lugares para brunchear', 'Para tomar algo', 'Comidas del mundo', 'Clásicos uruguayos', 'Vegetariano', 'Merienda', 'Sin TACC'])
     expect(HOME_SECTIONS.find((section) => section.id === 'world')?.search).toEqual({ section: 'world' })
     expect(SECTIONS.world.title.es).toBe('Comida del mundo')
+    // Brunch por tag y no por sub-filtro: es sub de Comer y de Cafés, y así entran los dos.
+    expect(HOME_SECTIONS.find((section) => section.id === 'brunch')?.search).toEqual({ tags: ['brunch'] })
   })
 })
 

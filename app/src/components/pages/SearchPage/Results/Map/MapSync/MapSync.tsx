@@ -7,7 +7,7 @@ import MapColumn from "../MapColumn/MapColumn";
 import { startMapsLoad } from "../SearchMap/maps-loader";
 import ResultsSheet from "../../ResultsSheet/ResultsSheet";
 import SelectedPlace from "../../SelectedPlace/SelectedPlace";
-import { SHEET_LOW, SHEET_MID, type SheetSnapPoint } from "../../../utils/sheet";
+import { SHEET_HIGH, SHEET_LOW, SHEET_MID, type SheetSnapPoint } from "../../../utils/sheet";
 import { cardId, createHoverStore, HoverContext } from "../../../utils/hover";
 import { createSearchMapStore, INITIAL_SEARCH_MAP_STATE } from "../../../utils/search-map-store";
 import { SearchMapContext } from "../../../utils/use-search-map";
@@ -93,6 +93,18 @@ const MapSync = (props: Props) => {
   // Drawer se montara de entrada, mediría su alto con el header todavía sin la barra de filtros (llega con la búsqueda)
   // y el panel saltaría.
   const sheet = mobile && state.fitKey > 0;
+
+  // Con el panel en la alta, el header esconde la barra de filtros (Header.module.scss, html[data-sheet-high]): la
+  // lista gana ese alto (el popup mide hasta el header, que HeaderOffset vuelve a medir).
+  const sheetHigh = sheet && snapPoint === SHEET_HIGH;
+  useEffect(() => {
+    if (!sheetHigh) return;
+    const root = document.documentElement;
+    root.dataset.sheetHigh = "";
+    return () => {
+      delete root.dataset.sheetHigh;
+    };
+  }, [sheetHigh]);
 
   // Cada cosa en su lugar fijo del árbol: el mapa nunca se vuelve a montar (ni al pasar la lista al panel).
   return (

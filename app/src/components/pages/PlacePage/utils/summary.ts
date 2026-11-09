@@ -100,3 +100,9 @@ export function isNearWhite(hex: string | null): boolean {
   const luminance = relativeLuminance(hex);
   return luminance !== null && luminance > NEAR_WHITE_LUMINANCE;
 }
+
+/** Líneas de ómnibus sin repetir, de la parada más cercana a la más lejana. */
+export function transitLines(rows: { line: string; meters: number }[] | null | undefined): string[] {
+  const sorted = [...(rows ?? [])].sort((a, b) => a.meters - b.meters);
+  return [...new Set(sorted.map((row) => row.line))];
+}

@@ -28,13 +28,25 @@
     }
 }
 
+// El input y, en la home, el placeholder animado encima. Mobile: ocupa lo que deja el botón. Desde md, lo del input.
+.field {
+    flex: 1;
+    min-width: 0;
+    position: relative;
+
+    @include media(md) {
+      flex: 0 1 auto;
+      min-width: auto;
+    }
+}
+
 .input {
     box-sizing: border-box;
     margin: 0;
     border-radius: 0;
     border: 1px solid var(--color-control-border);
-    // Mobile: ocupa lo que deja el botón. Desde md, ancho fijo.
-    flex: 1;
+    // Mobile: todo el ancho de .field. Desde md, ancho fijo.
+    width: 100%;
     min-width: 0;
     height: 2rem;
     font-family: inherit;
@@ -66,12 +78,32 @@
     }
 
     @include media(md) {
-      flex: 0 1 auto;
-      min-width: auto;
       width: 400px;
       font-size: 16px;
     }
   }
+
+// Placeholder rotativo de la home (Search rotatingPlaceholder): encima del input, sin recibir toques, con el mismo
+// aspecto que ::placeholder. Cada ejemplo es absoluto, así el que sale y el que entra se cruzan.
+.rotatingPlaceholder {
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    position: absolute;
+}
+
+.rotatingText {
+    color: var(--color-text-muted);
+    font-size: 14px;
+    // El alto del input, en una línea y con puntos suspensivos si no entra.
+    height: 2rem;
+    inset: 0;
+    line-height: 2rem;
+    overflow: hidden;
+    position: absolute;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 
 // Botón de enviar: flecha sola en mobile, "Buscar" desde md. display: contents para que el span no cuente en el flex.
 .submitMobile {

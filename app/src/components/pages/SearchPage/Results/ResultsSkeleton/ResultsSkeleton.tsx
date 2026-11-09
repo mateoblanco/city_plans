@@ -8,7 +8,7 @@ const ResultsSkeleton = () => {
         Buscando…
       </span>
       <div className={styles.grid}>
-        {Array.from({ length: 6 }, (_, index) => (
+        {Array.from({ length: 12 }, (_, index) => (
           <div key={index} className={styles.skeletonCard} />
         ))}
       </div>

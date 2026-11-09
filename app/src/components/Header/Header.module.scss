@@ -117,9 +117,43 @@
 }
 
 .header[data-compact="md"] {
+    // Mobile: la segunda fila (en /search, la barra de filtros) es una grilla de una fila para poder colapsarla con
+    // transición (grid-template-rows 1fr → 0fr), ver data-sheet-high abajo.
+    .bottom {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: 1fr;
+        transition: grid-template-rows 250ms ease, opacity 200ms ease, margin-top 250ms ease, visibility 250ms;
+
+        > * {
+            min-height: 0;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            transition: none;
+        }
+    }
+
     @include media(md) {
         @include full;
+
+        .bottom {
+            display: flex;
+            transition: none;
+        }
     }
+}
+
+// /search en mobile con el panel de resultados en la altura alta (MapSync pone el atributo, sólo en mobile): la barra
+// de filtros se esconde para que la lista tenga más lugar. El header se achica, HeaderOffset lo vuelve a medir y el
+// panel (que mide hasta el header) crece. El margen negativo saca el gap del header.
+:global(html[data-sheet-high]) .header[data-compact="md"] .bottom {
+    grid-template-rows: 0fr;
+    margin-top: -12px;
+    opacity: 0;
+    overflow: clip;
+    pointer-events: none;
+    visibility: hidden;
 }
 
 .header[data-compact="ml"] {

@@ -23,6 +23,8 @@ export type PlaceRow = Record<string, unknown> & {
   instagram: string | null
   highlights: { es?: string; en?: string }[]
   located_in: string | null
+  /** Líneas de ómnibus con parada cerca: una fila por línea y parada, con la distancia en metros. */
+  transit_lines: { line: string; stopId: string; meters: number }[]
   brand_key: string | null
   icon_category: IconCategory | null
   style: string | null
