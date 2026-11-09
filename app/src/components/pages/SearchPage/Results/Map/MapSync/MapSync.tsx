@@ -1,24 +1,17 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { createContext, use, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { SearchResult } from "@/server/search";
 import type { LatLng, MapPlace } from "../SearchMap/SearchMap";
 import MapColumn from "../MapColumn/MapColumn";
 import ResultsSheet from "../../ResultsSheet/ResultsSheet";
 import SelectedPlace from "../../SelectedPlace/SelectedPlace";
 import { SHEET_LOW, SHEET_MID, type SheetSnapPoint } from "../../../utils/sheet";
-
-type HoverState = { hoveredId: string | null; setHoveredId: (id: string | null) => void };
-
-const HoverContext = createContext<HoverState>({ hoveredId: null, setHoveredId: () => {} });
-
-export const useHoveredPlace = () => use(HoverContext);
+import { cardId, HoverContext } from "../../../utils/hover";
 
 // El mapa (y la librería de Google) se cargan sólo en el cliente: no bloquean el HTML de los resultados.
 const SearchMap = dynamic(() => import("../SearchMap/SearchMap"), { ssr: false });
-
-export const cardId = (id: string) => `place-${id}`;
 
 /** Mobile: la lista va en el panel arrastrable y tocar un marcador muestra su card flotando. */
 export type MobileSheet = {

@@ -24,3 +24,9 @@ export const clearSaved = saved.clear;
 
 /** Guardados actuales; available false si localStorage no funciona (no se muestra el botón). */
 export const useSaved = saved.useList;
+
+/** Si este lugar está guardado (para el botón de su card): sólo se vuelve a renderizar cuando cambia el de este id. */
+export const useIsSaved = (id: string) => saved.useHas(id);
+
+/** Lo que lee useIsSaved: -1 sin localStorage, 1 guardado, 0 no. */
+export const savedMembership = saved.membership;

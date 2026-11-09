@@ -1,9 +1,9 @@
 import { DISCOUNT_PROVIDERS, type CardType, type DiscountProviderId } from '@shared/discounts.ts'
+import { DISCOUNT_CARDS, type DiscountCard } from '@/lib/discount-cards'
 import { DISCOUNTS_CONFIG } from './config'
 
-/** Tipos de tarjeta que se eligen en el filtro. Un beneficio "other" (sin especificar) cumple los dos. */
-export const DISCOUNT_CARDS = ['debit', 'credit'] as const
-export type DiscountCard = (typeof DISCOUNT_CARDS)[number]
+// Los tipos de tarjeta y availableCards viven en src/lib (también los usa el cliente, DiscountFilter); se reexportan acá.
+export { availableCards, DISCOUNT_CARDS, type DiscountCard } from '@/lib/discount-cards'
 
 /** Una elección del filtro: `f=discount:itau.credit`. No distingue niveles de tarjeta (Platinum, Black…). */
 export type DiscountChoice = { provider: DiscountProviderId; card: DiscountCard }
@@ -14,14 +14,6 @@ export type PlaceDiscount = { provider: string; cardType: CardType }
 const PROVIDER_IDS = new Set<string>(DISCOUNT_PROVIDERS.map((provider) => provider.id))
 
 export const isDiscountProvider = (id: string): id is DiscountProviderId => PROVIDER_IDS.has(id)
-
-/**
- * Los chips del panel para un proveedor: los tipos con algún beneficio ("other" cuenta como los dos) y, aunque ya no
- * tengan, los elegidos en la URL (para poder sacarlos). En el orden de DISCOUNT_CARDS.
- */
-export function availableCards(cardTypes: string[], chosen: DiscountCard[] = []): DiscountCard[] {
-  return DISCOUNT_CARDS.filter((card) => chosen.includes(card) || cardTypes.includes(card) || cardTypes.includes('other'))
-}
 
 /** El id de una elección en `f` (sin el `discount:`). */
 export const choiceKey = (choice: DiscountChoice) => `${choice.provider}.${choice.card}`

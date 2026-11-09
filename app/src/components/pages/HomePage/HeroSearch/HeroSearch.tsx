@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Search from "@/components/Search/Search";
-import heroImage from "@/assets/hero_image.png";
+import heroImage from "@/assets/hero_image.webp";
 import HomeShortcuts from "../HomeShortcuts/HomeShortcuts";
 import styles from './HeroSearch.module.scss';
 
@@ -8,7 +8,8 @@ import styles from './HeroSearch.module.scss';
 const HeroSearch = () => {
   return (
     <div className={styles.hero}>
-      <Image src={heroImage} alt="" fill priority sizes="100vw" className={styles.backdrop} />
+      {/* Sólo se ve desde md: debajo, sizes pide la variante mínima (el preload igual se emite y bajaba ~90 KB en mobile). */}
+      <Image src={heroImage} alt="" fill preload sizes="(min-width: 768px) 100vw, 1px" className={styles.backdrop} />
       <h1 className={styles.heading}>Descubrí lugares para salir hoy</h1>
       <div className={styles.search}>
         <Search />

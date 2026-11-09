@@ -5,8 +5,8 @@ import Bookmark from "@/assets/bookmark.svg";
 import BookmarkFill from "@/assets/bookmark_fill.svg";
 import Heart from "@/assets/heart.svg";
 import HeartFill from "@/assets/heart_fill.svg";
-import { toggleLike, useLikes } from "@/components/pages/SearchPage/utils/likes";
-import { toggleSaved, useSaved } from "@/components/pages/SearchPage/utils/saved";
+import { toggleLike, useLiked } from "@/components/pages/SearchPage/utils/likes";
+import { toggleSaved, useIsSaved } from "@/components/pages/SearchPage/utils/saved";
 
 type Props = {
   placeId: string;
@@ -19,10 +19,10 @@ type Props = {
  * con el mismo guardado en el navegador que los de la card. Sin localStorage no se muestran.
  */
 const PlaceActions = (props: Props) => {
-  const likes = useLikes();
-  const saved = useSaved();
-  const liked = likes.ids.includes(props.placeId);
-  const isSaved = saved.ids.includes(props.placeId);
+  const likes = useLiked(props.placeId);
+  const saved = useIsSaved(props.placeId);
+  const liked = likes.active;
+  const isSaved = saved.active;
 
   return (
     <>

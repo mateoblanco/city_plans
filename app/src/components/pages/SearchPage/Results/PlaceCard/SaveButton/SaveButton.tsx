@@ -3,7 +3,7 @@
 import Bookmark from "@/assets/bookmark.svg";
 import BookmarkFill from "@/assets/bookmark_fill.svg";
 import CardToggle from "../CardToggle/CardToggle";
-import { toggleSaved, useSaved } from "../../../utils/saved";
+import { toggleSaved, useIsSaved } from "../../../utils/saved";
 
 type Props = {
   placeId: string;
@@ -15,9 +15,9 @@ type Props = {
  * like y sin tocar el perfil de gustos. Sin localStorage no se muestra.
  */
 const SaveButton = (props: Props) => {
-  const saved = useSaved();
+  const saved = useIsSaved(props.placeId);
   if (!saved.available) return null;
-  const isSaved = saved.ids.includes(props.placeId);
+  const isSaved = saved.active;
 
   return (
     <CardToggle

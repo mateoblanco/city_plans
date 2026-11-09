@@ -1,14 +1,11 @@
 import { DISCOUNTS_CONFIG } from './config'
 import { matchesChoice, providerName, selectedProviders, type DiscountChoice, type PlaceDiscount } from './selection'
+import type { DiscountSectionId } from '@/lib/discount-section-ids'
 
-export type DiscountSectionId = `discount:${string}`
+// Los ids de grupo viven en src/lib (también los usa el cliente, utils/discount-sections.ts); se reexportan acá.
+export { discountSectionProvider, isDiscountSectionId, type DiscountSectionId } from '@/lib/discount-section-ids'
 
 export type DiscountSection = { id: DiscountSectionId; title: string; placeIds: string[]; total: number }
-
-export const isDiscountSectionId = (id: string): id is DiscountSectionId => id.startsWith('discount:')
-
-/** El proveedor de un grupo `discount:<proveedor>`. */
-export const discountSectionProvider = (id: DiscountSectionId) => id.slice('discount:'.length)
 
 /**
  * Con 2 o más proveedores elegidos, los resultados se agrupan por proveedor ("Con descuento Itaú"), en el orden de la

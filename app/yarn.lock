@@ -2097,6 +2097,11 @@
   resolved "https://registry.yarnpkg.com/@vercel/oidc/-/oidc-3.2.0.tgz#5782a4d4904443f015808705b5537cf9c3b68528"
   integrity sha512-UycprH3T6n3jH0k44NHMa7pnFHGu/N05MjojYr+Mc6I7obkoLIJujSWwin1pCvdy/eOxrI/l3uDLQsmcrOb4ug==
 
+"@vercel/speed-insights@^2.1.0":
+  version "2.1.0"
+  resolved "https://registry.yarnpkg.com/@vercel/speed-insights/-/speed-insights-2.1.0.tgz#3b7fe1facc2ad6e25507ed4a335910811f830c08"
+  integrity sha512-tkDiIEjjmlwPpTFnOK14hBhsRLMo5yoCeK2Er3AHWlL7WTzHgFSyItps3TOW0HukErUlYlaUeHiVLCyfiE4WAA==
+
 "@vis.gl/react-google-maps@^1.10.1":
   version "1.10.1"
   resolved "https://registry.yarnpkg.com/@vis.gl/react-google-maps/-/react-google-maps-1.10.1.tgz#65361684e42d87db4d164e0a3beee56f01208016"

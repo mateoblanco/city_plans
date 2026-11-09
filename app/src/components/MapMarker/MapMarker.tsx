@@ -7,11 +7,11 @@ type MarkerIconProps = {
   category: IconCategory | null;
 };
 
-/** SVG de la categoría; sin categoría o sin archivo, el emoji de PlaceIcon. El nombre accesible es el title del marcador. */
+/** Ícono de la categoría (WebP); sin categoría o sin archivo, el emoji de PlaceIcon. El nombre accesible es el title del marcador. */
 const MarkerIcon = (props: MarkerIconProps) => {
   const icon = props.category ? MARKER_ICONS[props.category] : undefined;
   if (!icon) return <PlaceIcon category={props.category} />;
-  // <img> y no next/image: un SVG no se optimiza y la misma URL con hash la cachea el navegador.
+  // <img> y no next/image: el archivo ya está al tamaño justo (90×90) y la misma URL con hash la cachea el navegador.
   // eslint-disable-next-line @next/next/no-img-element
   return <img className={styles.markerIcon} src={icon.src} alt="" width={20} height={20} draggable={false} decoding="async" />;
 };

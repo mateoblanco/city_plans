@@ -1,7 +1,6 @@
 import { INTENT_IDS, INTENTS } from "@shared/intents.ts";
 import { neighborhoodDisplayName } from "@shared/neighborhood-names.ts";
-import { publishedNeighborhoods, type Chip, type IntentBar } from "@/server/search";
-import { activeDiscountProviders, type DiscountProviderOption } from "@/server/discounts";
+import type { Chip, IntentBar } from "@/server/search";
 import { choiceKey } from "@/server/discounts/selection";
 import { parseFilters } from "@/server/search/filters";
 import { PRICES, type DietKey } from "@/server/search/interpretation";
@@ -12,6 +11,7 @@ import PriceSelect from "./PriceSelect/PriceSelect";
 import DietSelect from "./DietSelect/DietSelect";
 import DiscountFilter from "./DiscountFilter/DiscountFilter";
 import { DIET_OPTIONS } from "./DietSelect/utils/diet-selection";
+import type { FilterBarData } from "./utils/filter-bar-data";
 import { addFilterHref, extraHref, intentHref, removeChipHref, subHref, type SearchUrl } from "@/components/pages/SearchPage/utils/search-href";
 import styles from "./FilterBar.module.scss";
 
@@ -39,16 +39,17 @@ type Props = {
   /** Intención, sub-filtros y extras del texto. */
   bar: IntentBar;
   needsLocation: boolean;
+  /** Barrios publicados y proveedores de descuento (loadFilterBarData), pedidos en paralelo con la búsqueda. */
+  data: FilterBarData;
 };
 
-const FilterBar = async (props: Props) => {
+const FilterBar = (props: Props) => {
   const neighborhoodChips = props.chips
     .filter((chip) => chip.kind === "neighborhood")
     .map(({ kind, id, fromText, fromFilter }) => ({ kind, id, fromText, fromFilter }));
   // Los barrios con lugares publicados, más los activos aunque no tengan ninguno ("cafés en Pocitos"): si no, el
   // select mostraría "Todos" con un barrio aplicado.
-  const published = await publishedNeighborhoods().catch(() => [] as string[]);
-  const neighborhoods = [...new Set([...published, ...neighborhoodChips.map((chip) => chip.id)])]
+  const neighborhoods = [...new Set([...props.data.publishedNeighborhoods, ...neighborhoodChips.map((chip) => chip.id)])]
     .map((id) => ({ id, label: neighborhoodDisplayName(id) ?? id }))
     .sort((a, b) => a.label.localeCompare(b.label, "es"));
   const priceChips = props.chips
@@ -60,7 +61,7 @@ const FilterBar = async (props: Props) => {
     .map(({ kind, id, fromText, fromFilter }) => ({ kind, id, fromText, fromFilter }));
   const diets = DIET_OPTIONS.map((id) => ({ id, label: dietLabel(id as DietKey, "es") }));
   // Descuentos: no vienen del texto, así que lo activo sale de `f` y no de los chips.
-  const discountProviders = await activeDiscountProviders().catch(() => [] as DiscountProviderOption[]);
+  const discountProviders = props.data.discountProviders;
   const activeDiscounts = parseFilters(props.state.f).discounts.map(choiceKey);
   const toggle = { state: props.state, chips: props.chips };
   const activeIntent = props.bar.intent?.id ?? null;

@@ -5,7 +5,7 @@ import BankChip from "@/components/BankChip/BankChip";
 import Button from "@/components/base/Button/Button";
 import Popover from "@/components/base/Popover/Popover";
 import { setDiscountsHref, type SearchUrl } from "@/components/pages/SearchPage/utils/search-href";
-import { availableCards, type DiscountCard } from "@/server/discounts/selection";
+import { availableCards, type DiscountCard } from "@/lib/discount-cards";
 import { useDelayedApply } from "../utils/use-delayed-apply";
 import styles from "./DiscountFilter.module.scss";
 

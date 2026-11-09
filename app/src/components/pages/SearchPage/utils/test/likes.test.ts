@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { clearLikes, LIKES_KEY, readLikes, toggleLike } from "../likes";
-import { likesCookieValue, parseLikesCookie } from "../likes-cookie";
+import { clearLikes, likeMembership, LIKES_KEY, readLikes, toggleLike } from "../likes";
+import { likesCookieValue, MAX_LIKES, parseLikesCookie } from "../likes-cookie";
+import { SEARCH_CONFIG } from "@/server/search/config";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 
@@ -56,6 +57,22 @@ describe("likes en localStorage", () => {
     expect(likes).toHaveLength(100);
     expect(likes[0]).toBe(id(500));
     expect(likes).not.toContain(id(99));
+  });
+});
+
+describe("corazón de cada card (por id)", () => {
+  it("sólo dice si ese lugar tiene like", () => {
+    const storage = memoryStorage();
+    toggleLike(id(1), storage);
+    expect(likeMembership(id(1), storage)).toBe(1);
+    expect(likeMembership(id(2), storage)).toBe(0);
+    expect(likeMembership(id(1), broken)).toBe(-1);
+  });
+});
+
+describe("tope de likes", () => {
+  it("MAX_LIKES (cliente) es el mismo que SEARCH_CONFIG.personal.maxLikes (servidor)", () => {
+    expect(MAX_LIKES).toBe(SEARCH_CONFIG.personal.maxLikes);
   });
 });
 

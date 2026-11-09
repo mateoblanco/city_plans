@@ -10,6 +10,8 @@ import { idsCookieValue, parseIds } from "./place-list-cookie";
 export type PlaceListStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 export type PlaceListEntry = { id: string; savedAt: string };
 export type PlaceListState = { available: boolean; ids: string[]; entries: PlaceListEntry[] };
+/** Para el botón de una card: available false si localStorage no funciona (no se muestra). */
+export type PlaceMembership = { available: boolean; active: boolean };
 
 type Options = { storageKey: string; cookieName: string; max: number; dated: boolean };
 
@@ -42,17 +44,59 @@ function parseEntries(values: unknown[], max: number): PlaceListEntry[] {
   return entries.slice(0, max);
 }
 
+// Snapshot de useList cuando localStorage no está disponible.
+const UNAVAILABLE = "";
+
 export function createPlaceList({ storageKey, cookieName, max, dated }: Options) {
-  /** null: localStorage no está disponible (o falla). Sin dated, savedAt queda vacío. */
-  function readEntries(storage: PlaceListStorage | null = browserStorage()): PlaceListEntry[] | null {
-    if (!storage) return null;
+  /** El texto guardado tal cual; undefined si localStorage no está disponible (o falla). */
+  function readRaw(storage: PlaceListStorage | null): string | null | undefined {
+    if (!storage) return undefined;
     try {
-      const parsed: unknown = JSON.parse(storage.getItem(storageKey) ?? "[]");
+      return storage.getItem(storageKey);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** null: el texto no es JSON (se trata como localStorage roto). Sin dated, savedAt queda vacío. */
+  function parseRaw(raw: string | null): PlaceListEntry[] | null {
+    try {
+      const parsed: unknown = JSON.parse(raw ?? "[]");
       if (!Array.isArray(parsed)) return [];
       return dated ? parseEntries(parsed, max) : parseIds(parsed, max).map((id) => ({ id, savedAt: "" }));
     } catch {
       return null;
     }
+  }
+
+  /** null: localStorage no está disponible (o falla). Sin dated, savedAt queda vacío. */
+  function readEntries(storage: PlaceListStorage | null = browserStorage()): PlaceListEntry[] | null {
+    const raw = readRaw(storage);
+    return raw === undefined ? null : parseRaw(raw);
+  }
+
+  /**
+   * La lista ya leída, cacheada por el texto de localStorage: sólo se vuelve a parsear y validar cuando ese texto cambia.
+   * Cada botón de la card (me gusta, guardar) la consulta en cada render y en cada cambio; sin esto, 42 cards eran 42
+   * JSON.parse y 42 validaciones por toque.
+   */
+  type ListState = { entries: PlaceListEntry[] | null; ids: Set<string>; json: string };
+  let cached: { storage: PlaceListStorage | null; raw: string | null | undefined; state: ListState } | null = null;
+
+  function stateOf(storage: PlaceListStorage | null = browserStorage()): ListState {
+    const raw = readRaw(storage);
+    if (cached && cached.storage === storage && cached.raw === raw) return cached.state;
+    const entries = raw === undefined ? null : parseRaw(raw);
+    const state = { entries, ids: new Set(entries?.map((entry) => entry.id) ?? []), json: entries === null ? UNAVAILABLE : JSON.stringify(entries) };
+    cached = { storage, raw, state };
+    return state;
+  }
+
+  /** -1: localStorage no está disponible; 1: el lugar está en la lista; 0: no está. */
+  function membership(id: string, storage: PlaceListStorage | null = browserStorage()): -1 | 0 | 1 {
+    const state = stateOf(storage);
+    if (state.entries === null) return -1;
+    return state.ids.has(id) ? 1 : 0;
   }
 
   /** null: localStorage no está disponible (o falla). */
@@ -128,25 +172,23 @@ export function createPlaceList({ storageKey, cookieName, max, dated }: Options)
     if (ids !== null && readCookie() !== idsCookieValue(ids, max)) writeCookie(ids);
   }
 
+  // Un solo listener de "storage" (cambios desde otra pestaña) para todos los suscriptores, no uno por botón.
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === storageKey) notify();
+  };
+
   function subscribe(listener: () => void) {
     syncCookie();
+    if (listeners.size === 0) window.addEventListener("storage", onStorage);
     listeners.add(listener);
-    const onStorage = (event: StorageEvent) => {
-      if (event.key === storageKey) listener();
-    };
-    window.addEventListener("storage", onStorage);
     return () => {
       listeners.delete(listener);
-      window.removeEventListener("storage", onStorage);
+      if (listeners.size === 0) window.removeEventListener("storage", onStorage);
     };
   }
 
-  // Un string estable como snapshot: "" = localStorage no disponible.
-  const UNAVAILABLE = "";
-  const snapshot = () => {
-    const entries = readEntries();
-    return entries === null ? UNAVAILABLE : JSON.stringify(entries);
-  };
+  // Un string estable como snapshot (el JSON cacheado de stateOf): "" = localStorage no disponible.
+  const snapshot = () => stateOf().json;
   const serverSnapshot = () => "[]";
 
   /** La lista actual; available false si localStorage no funciona (no se muestra el botón). */
@@ -157,5 +199,17 @@ export function createPlaceList({ storageKey, cookieName, max, dated }: Options)
     return { available: true, ids: entries.map((entry) => entry.id), entries };
   }
 
-  return { read, readEntries, toggle, clear, useList };
+  // En el servidor (y al hidratar) la lista está disponible y vacía, como serverSnapshot.
+  const serverMembership = () => 0 as const;
+
+  /**
+   * Si el lugar está en la lista, para el botón de su card. El snapshot es un número: al cambiar la lista sólo se vuelve a
+   * renderizar el botón cuyo valor cambió, no los de todas las cards.
+   */
+  function useHas(id: string): PlaceMembership {
+    const value = useSyncExternalStore(subscribe, () => membership(id), serverMembership);
+    return { available: value !== -1, active: value === 1 };
+  }
+
+  return { read, readEntries, toggle, clear, useList, useHas, membership, stateOf };
 }

@@ -8,7 +8,7 @@ import PlaceImage from "./PlaceImage/PlaceImage";
 import LikeButton from "./LikeButton/LikeButton";
 import SaveButton from "./SaveButton/SaveButton";
 import CardDiscounts from "./CardDiscounts/CardDiscounts";
-import { cardId, useHoveredPlace } from "../Map/MapSync/MapSync";
+import { cardId, useHoveredPlace } from "../../utils/hover";
 import styles from "./PlaceCard.module.scss";
 
 /** Sólo con ?debug=1: puntajes, similitud semántica con la consulta y por qué pasó el corte por relevancia. */

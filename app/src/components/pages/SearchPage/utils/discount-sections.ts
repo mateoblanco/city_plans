@@ -1,4 +1,4 @@
-import { discountSectionProvider, isDiscountSectionId } from "@/server/discounts/sections";
+import { discountSectionProvider, isDiscountSectionId } from "@/lib/discount-section-ids";
 import { setDiscountsHref, type SearchUrl } from "./search-href";
 
 /**

@@ -4,7 +4,7 @@ import Heart from "@/assets/heart.svg";
 import HeartFill from "@/assets/heart_fill.svg";
 import CardToggle from "../CardToggle/CardToggle";
 import styles from "./LikeButton.module.scss";
-import { toggleLike, useLikes } from "../../../utils/likes";
+import { toggleLike, useLiked } from "../../../utils/likes";
 
 type Props = {
   placeId: string;
@@ -16,9 +16,9 @@ type Props = {
  * siguiente. Sin localStorage no se muestra.
  */
 const LikeButton = (props: Props) => {
-  const likes = useLikes();
-  if (!likes.available) return null;
-  const liked = likes.ids.includes(props.placeId);
+  const like = useLiked(props.placeId);
+  if (!like.available) return null;
+  const liked = like.active;
 
   return (
     <CardToggle

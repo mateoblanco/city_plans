@@ -1,4 +1,4 @@
-import { roundCoord } from "@/server/search/coords";
+import { roundCoord } from "@/lib/coords";
 
 /** Todo el estado de /search vive en la URL: texto, chips quitados, intención, filtros de la barra y ubicación. */
 export type SearchUrl = {

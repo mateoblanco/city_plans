@@ -1,4 +1,3 @@
-import { SEARCH_CONFIG } from "@/server/search/config";
 import { idsCookieValue, parseIds, parseIdsCookie } from "./place-list-cookie";
 
 /**
@@ -6,7 +5,11 @@ import { idsCookieValue, parseIds, parseIdsCookie } from "./place-list-cookie";
  * pedido, sin guardarla. Sin hooks: la importan server components y la ruta de /api/search.
  */
 export const LIKES_COOKIE = "likes";
-const MAX_LIKES = SEARCH_CONFIG.personal.maxLikes;
+/**
+ * Tope de likes (localStorage y cookie). Es el mismo número que SEARCH_CONFIG.personal.maxLikes: va acá porque lo importa
+ * el cliente (sin código de server/), y un test exige que coincidan.
+ */
+export const MAX_LIKES = 100;
 
 /** Ids válidos (formato uuid), sin repetidos, como mucho los 100 primeros (los más recientes). */
 export const parseLikes = (values: unknown[]): string[] => parseIds(values, MAX_LIKES);

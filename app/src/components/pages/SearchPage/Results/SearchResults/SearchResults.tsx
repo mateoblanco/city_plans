@@ -6,6 +6,7 @@ import ResultsView from "../ResultsView/ResultsView";
 import styles from "./SearchResults.module.scss";
 import { searchHref } from "../../utils/search-href";
 import { toSearchOptions, toSearchUrl, type Params } from "../../utils/search-params";
+import { searchHeading, searchTitleInput } from "../../utils/search-title";
 
 /** Con debug: puntajes de cada resultado, su similitud y por qué pasó el corte por relevancia. */
 function cardScores(response: SearchResponse): Map<string, CardDebug> | null {
@@ -41,17 +42,21 @@ const SearchResults = async (props: Props) => {
   // La barra de filtros se renderiza aparte (SearchFilters), con la misma búsqueda deduplicada.
   const { interpreted, relaxed, results, sections, forYou } = response;
   return (
-    <ResultsView
-      results={results}
-      sections={sections}
-      forYou={forYou}
-      notices={relaxed.map((notice) => notice.message)}
-      scores={cardScores(response)}
-      near={response.near}
-      state={toSearchUrl(props.params)}
-    >
-      {response.debug && <DebugPanel debug={response.debug} chips={interpreted.chips} bar={response.bar} response={response} />}
-    </ResultsView>
+    <>
+      {/* h1 para lectores de pantalla y buscadores (el título del <head> es el mismo): no cambia el diseño. */}
+      <h1 className={styles.visuallyHidden}>{searchHeading(searchTitleInput(props.params.query, response))}</h1>
+      <ResultsView
+        results={results}
+        sections={sections}
+        forYou={forYou}
+        notices={relaxed.map((notice) => notice.message)}
+        scores={cardScores(response)}
+        near={response.near}
+        state={toSearchUrl(props.params)}
+      >
+        {response.debug && <DebugPanel debug={response.debug} chips={interpreted.chips} bar={response.bar} response={response} />}
+      </ResultsView>
+    </>
   );
 };
 

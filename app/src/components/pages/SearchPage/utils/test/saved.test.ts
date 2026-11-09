@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { LIKES_KEY, readLikes, toggleLike } from "../likes";
-import { clearSaved, readSaved, readSavedEntries, SAVED_KEY, toggleSaved } from "../saved";
+import { clearSaved, readSaved, readSavedEntries, SAVED_KEY, savedMembership, toggleSaved } from "../saved";
 import { parseSavedCookie, savedCookieValue } from "../saved-cookie";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -116,5 +116,16 @@ describe("cookie espejo de guardados", () => {
     expect(parseSavedCookie(`${id(1)}.nada.${id(1)}.<script>.${id(2)}`)).toEqual([id(1), id(2)]);
     expect(parseSavedCookie(undefined)).toEqual([]);
     expect(parseSavedCookie("")).toEqual([]);
+  });
+});
+
+describe("botón de guardar de cada card (por id)", () => {
+  it("sólo dice si ese lugar está guardado, sin mezclarse con los likes", () => {
+    const storage = memoryStorage();
+    toggleSaved(id(1), storage, day(1));
+    toggleLike(id(2), storage);
+    expect(savedMembership(id(1), storage)).toBe(1);
+    expect(savedMembership(id(2), storage)).toBe(0);
+    expect(savedMembership(id(1), broken)).toBe(-1);
   });
 });
