@@ -1,5 +1,6 @@
 import Image from "next/image";
 import type { CSSProperties } from "react";
+import type { ImageLoad } from "../../../utils/eager-images";
 import styles from "./PlaceImage.module.scss";
 
 type Props = {
@@ -10,6 +11,8 @@ type Props = {
   size?: "lg";
   /** Ficha sobre una barra blanca o casi blanca: el borde del logo pasa a ser el de borde, no el de superficie. */
   onLightBar?: boolean;
+  /** Visible al cargar (primeras cards, logo de la ficha): se pide ya, y con "high" además antes que el resto; sin load, lazy. */
+  load?: ImageLoad;
 };
 
 /** Banner de la card (y logo de la ficha): el logo centrado sobre su color de fondo; sin logo, el nombre. */
@@ -25,6 +28,9 @@ const PlaceImage = (props: Props) => {
         width={props.size === "lg" ? 120 : 60}
         height={props.size === "lg" ? 120 : 66}
         unoptimized
+        // `priority` está deprecado en Next 16; para lo que está a la vista, loading + fetchPriority (no `preload`).
+        loading={props.load ? "eager" : "lazy"}
+        fetchPriority={props.load === "high" ? "high" : undefined}
         className={styles.logo} />
       }
       {!props.logoUrl && <span className={styles.name}>{props.name}</span>}

@@ -13,6 +13,8 @@ type Props = {
   sections: VisibleSection[];
   scores: Map<string, CardDebug> | null;
   state: SearchUrl;
+  /** Cards del primer grupo con el logo eager (las demás secciones arrancan fuera de la vista). */
+  eagerCount?: number;
 };
 
 /** "Ver todos": la búsqueda con la regla del grupo o, en un grupo por proveedor de descuento, sólo con ese proveedor. */
@@ -25,7 +27,7 @@ const viewAllHref = (state: SearchUrl, id: string) => discountViewAllHref(state,
  */
 const ResultSections = (props: Props) => (
   <div className={styles.sections}>
-    {props.sections.map((section) => (
+    {props.sections.map((section, sectionIndex) => (
       <section key={section.id} className={styles.section}>
         <StickyHeader className={styles.header}>
           <h2 className={styles.title}>
@@ -49,7 +51,7 @@ const ResultSections = (props: Props) => (
             />
           )}
         </StickyHeader>
-        <PlacesGrid places={section.places} scores={props.scores} />
+        <PlacesGrid places={section.places} scores={props.scores} eagerCount={sectionIndex === 0 ? props.eagerCount : undefined} />
       </section>
     ))}
   </div>

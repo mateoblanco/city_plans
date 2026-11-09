@@ -10,6 +10,7 @@ import LoadMore from "../LoadMore/LoadMore";
 import EndOfResults from "../EndOfResults/EndOfResults";
 import styles from "./ResultsView.module.scss";
 import { visiblePage } from "../../utils/pagination";
+import { EAGER_SEARCH_CARDS } from "../../utils/eager-images";
 import type { SearchUrl } from "../../utils/search-href";
 import { usePublishSearchResults } from "../../utils/use-search-map";
 
@@ -56,13 +57,14 @@ const ResultsView = (props: Props) => {
         <div className={styles.empty}>{props.notices.length === 0 && <p>No encontramos lugares para esta búsqueda.</p>}</div>
       ) : page.sections ? (
         // Búsqueda amplia: grupos con título y "Más opciones", que es lo único que pagina.
-        <ResultSections sections={page.sections} scores={props.scores} state={props.state} />
+        <ResultSections sections={page.sections} scores={props.scores} state={props.state} eagerCount={EAGER_SEARCH_CARDS} />
       ) : (
         // Una sola grilla: los que tienen el plato ya vienen primero, y los "maybe" lo dicen en la card
         // ("Puede que tengan pizza", en sus motivos). Con perfil, la fila "Para vos" arriba, sin repetirse abajo.
         <>
-          {page.forYou && <ResultSections sections={[page.forYou]} scores={props.scores} state={props.state} />}
-          <PlacesGrid places={page.list ?? []} scores={props.scores} />
+          {/* El primer grupo es "Para vos" si está; si no, la grilla. */}
+          {page.forYou && <ResultSections sections={[page.forYou]} scores={props.scores} state={props.state} eagerCount={EAGER_SEARCH_CARDS} />}
+          <PlacesGrid places={page.list ?? []} scores={props.scores} eagerCount={page.forYou ? undefined : EAGER_SEARCH_CARDS} />
         </>
       )}
 

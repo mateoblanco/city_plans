@@ -149,6 +149,16 @@ export function intentHref(state: SearchUrl, id: string | null, bar: BarRef): st
 }
 
 /**
+ * Un chip de intención de la barra: combina con el texto. Elegir o cambiar de intención conserva el texto entero (los
+ * extras del texto no se ven, así que no se suman a remove); apagar una elegida en la barra vuelve a la búsqueda sólo
+ * con el texto (si el texto elige una intención por sí mismo, reaparece). Apagar una que vino del texto, como intentHref.
+ */
+export function barIntentHref(state: SearchUrl, id: string | null, bar: BarRef): string {
+  if (id === null && bar.intent && !bar.intent.fromText) return searchHref({ ...state, intent: null, sub: null });
+  return intentHref(state, id, { ...bar, extras: [] });
+}
+
+/**
  * Prender o apagar un sub-filtro. Apagar uno del texto suma lo que lo activó a remove. La intención queda fija
  * en la URL: si no, quitar lo del texto podría hacer que el texto deje de elegirla.
  */

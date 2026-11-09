@@ -6,6 +6,7 @@ import { label } from "@shared/tags.ts";
 import type { SearchResult } from "@/server/search";
 import type { KeptBy } from "@/server/search/relevance";
 import PlaceImage from "./PlaceImage/PlaceImage";
+import type { ImageLoad } from "../../utils/eager-images";
 import LikeButton from "./LikeButton/LikeButton";
 import SaveButton from "./SaveButton/SaveButton";
 import CardDiscounts from "./CardDiscounts/CardDiscounts";
@@ -45,6 +46,8 @@ const debugLine = ({ score, baseScore, multiplier, similarity, keptBy, pinned }:
 type Props = {
   place: SearchResult;
   debug?: CardDebug;
+  /** Card visible al cargar la página: el logo se pide ya, y con "high" con prioridad alta (ver eager-images.ts). */
+  eagerImage?: ImageLoad;
 };
 
 /** Tarjeta de un resultado, con el hover sincronizado con su marcador. */
@@ -61,7 +64,7 @@ const PlaceCard = (props: Props) => {
       onMouseEnter={() => setHovered(props.place.id)}
       onMouseLeave={() => setHovered(null)}
     >
-      <PlaceImage name={props.place.name} logoUrl={props.place.logoUrl} logoBgColor={props.place.logoBgColor} />
+      <PlaceImage name={props.place.name} logoUrl={props.place.logoUrl} logoBgColor={props.place.logoBgColor} load={props.eagerImage} />
 
       <div className={styles.body}>
 

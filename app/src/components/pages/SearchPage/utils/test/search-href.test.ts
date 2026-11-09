@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addFilterHref, extraHref, intentHref, nearHref, removeChipHref, searchHref, sectionHref, setDietsHref, setNeighborhoodsHref, setPricesHref, subHref, widenUrl, type BarRef } from "../search-href";
+import { addFilterHref, barIntentHref, extraHref, intentHref, nearHref, removeChipHref, searchHref, sectionHref, setDietsHref, setNeighborhoodsHref, setPricesHref, subHref, widenUrl, type BarRef } from "../search-href";
 
 describe("searchHref", () => {
   it("suma el chip a los remove que ya estaban, sin duplicar", () => {
@@ -180,6 +180,42 @@ describe("intención y sub-filtros", () => {
 
   it("quitar un extra usa remove y deja la intención fija", () => {
     expect(read(extraHref(state, { kind: "dish", id: "pizza", fromText: true }, fromText))).toMatchObject({ intent: "bars", remove: "dish:pizza" });
+  });
+});
+
+describe("chips de intención de la barra: texto + intención", () => {
+  const empty: BarRef = { intent: null, textIntent: null, subs: [], extras: [] };
+  const f = "open:today";
+
+  it("texto + intención: conserva el texto y no quita lo que pidió (ya no se ve como extra)", () => {
+    // "salir con mi pareja" (Cita es un momento) y "pizza" (plato): elegir Cafés suma la intención y nada más.
+    const bar: BarRef = { ...empty, extras: [{ kind: "prefer", id: "date", fromText: true }, { kind: "dish", id: "pizza", fromText: true }] };
+    expect(read(barIntentHref({ q: "salir con mi pareja", f }, "cafes", bar))).toEqual({ q: "salir con mi pareja", intent: "cafes", f });
+  });
+
+  it("cambiar de intención con texto limpia la del texto y sus sub-filtros, pero no los extras", () => {
+    const bar: BarRef = {
+      intent: { id: "bars", fromText: true },
+      textIntent: "bars",
+      subs: [{ id: "cocktails", active: true, fromText: true, removeKeys: ["tag:classic_cocktails"] }],
+      extras: [{ kind: "dish", id: "pizza", fromText: true }],
+    };
+    expect(read(barIntentHref({ q: "cócteles y pizza" }, "cafes", bar))).toEqual({ q: "cócteles y pizza", remove: "intent:bars,tag:classic_cocktails", intent: "cafes" });
+  });
+
+  it("apagar una intención elegida en la barra vuelve a la búsqueda sólo con el texto (y los filtros)", () => {
+    const bar: BarRef = { ...empty, intent: { id: "cafes", fromText: false }, subs: [{ id: "brunch", active: true, fromText: false, removeKeys: [] }] };
+    expect(read(barIntentHref({ q: "salir con mi pareja", intent: "cafes", sub: "brunch", f }, null, bar))).toEqual({ q: "salir con mi pareja", f });
+  });
+
+  it("intención sola, sin texto: elegirla y apagarla", () => {
+    expect(read(barIntentHref({ q: "" }, "cafes", empty))).toEqual({ intent: "cafes" });
+    expect(read(barIntentHref({ q: "", intent: "cafes" }, null, { ...empty, intent: { id: "cafes", fromText: false } }))).toEqual({});
+  });
+
+  it("texto solo: apagar la intención que eligió el texto la quita con remove", () => {
+    const bar: BarRef = { ...empty, intent: { id: "cafes", fromText: true }, textIntent: "cafes" };
+    expect(read(barIntentHref({ q: "cafés" }, null, bar))).toEqual({ q: "cafés", remove: "intent:cafes" });
   });
 });
 

@@ -65,6 +65,27 @@ const subFromText = (id: string): Check => ({
   },
 });
 
+/** La intención la eligió la barra (la URL), no el texto. */
+const intentFromBar = (intent: string): Check => ({
+  description: `intención ${intent} elegida en la barra`,
+  test: (_, response) => (response.bar.intent?.id === intent && !response.bar.intent.fromText ? [] : [`intención: ${response.bar.intent?.id ?? "—"}, fromText ${response.bar.intent?.fromText ?? "—"}`]),
+});
+
+/** El texto sigue valiendo: el tag queda como preferencia de la interpretación. */
+const preferTag = (id: string): Check => ({
+  description: `${id} en prefer`,
+  test: (_, response) => (response.debug!.interpretation.prefer.tags.includes(id) ? [] : [`prefer: ${response.debug!.interpretation.prefer.tags.join(", ") || "—"}`]),
+});
+
+/** Sub-filtro activo desde la URL (el chip de la barra). */
+const subFromBar = (id: string): Check => ({
+  description: `sub-filtro ${id} activo desde la barra`,
+  test: (_, response) => {
+    const sub = response.bar.subs.find((item) => item.id === id);
+    return sub?.active && !sub.fromText ? [] : [`${id}: ${sub ? `active ${sub.active}, fromText ${sub.fromText}` : "no está"}`];
+  },
+});
+
 const hasChip = (kind: string, id: string): Check => ({
   description: `chip ${kind}:${id}`,
   test: (_, response) => (response.interpreted.chips.some((chip) => chip.kind === kind && chip.id === id) ? [] : [`chips: ${response.interpreted.chips.map((chip) => `${chip.kind}:${chip.id}`).join(", ") || "—"}`]),
@@ -258,6 +279,12 @@ export const CHECKS: Record<string, Check[]> = {
   ],
   " ?f=discount:santander.debit": [nonEmpty, allWithDiscount([{ provider: "santander", card: "debit" }]), includesPlace("Café Butiá")],
   " ?f=discount:santander.credit": [nonEmpty, allWithDiscount([{ provider: "santander", card: "credit" }]), includesPlace("Café Butiá")],
+  // Texto + intención (los chips de la home y de la barra): la intención de la URL se combina con el texto, que sigue
+  // valiendo entero; intención sola sin texto; el texto solo.
+  " ?intent=cafes": [nonEmpty, intentFromBar("cafes"), allInIntent("cafes")],
+  " ?intent=cafes&sub=brunch": [nonEmpty, allInIntent("cafes"), subFromBar("brunch"), every("todos con brunch", (place) => place.tags.includes("brunch"))],
+  "salir con mi pareja ?intent=cafes": [nonEmpty, intentFromBar("cafes"), allInIntent("cafes"), preferTag("date")],
+  "salir con mi pareja": [nonEmpty, preferTag("date")],
   "Mercado del Puerto": [
     nonEmpty,
     hasChip("venue", "Mercado del Puerto"),

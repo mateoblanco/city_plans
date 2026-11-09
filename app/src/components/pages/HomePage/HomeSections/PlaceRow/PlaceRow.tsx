@@ -3,6 +3,7 @@ import Button from "@/components/base/Button/Button";
 import ArrowRight from "@/assets/arrow_right.svg";
 import type { SearchResult } from "@/server/search";
 import PlaceCard from "@/components/pages/SearchPage/Results/PlaceCard/PlaceCard";
+import { eagerImage } from "@/components/pages/SearchPage/utils/eager-images";
 import RowScroller from "./RowScroller/RowScroller";
 import styles from "./PlaceRow.module.scss";
 
@@ -11,6 +12,8 @@ type Props = {
   places: SearchResult[];
   /** "Ver todos": la misma búsqueda en /search. null: sin link ("Para vos"). */
   href: string | null;
+  /** Cuántas cards del principio llevan el logo eager; sin eagerCount, ninguna. */
+  eagerCount?: number;
 };
 
 /** Una fila de la home: título y cards con scroll horizontal (con degradado a la derecha mientras haya más). */
@@ -39,9 +42,9 @@ const PlaceRow = (props: Props) => (
       )}
     </header>
     <RowScroller className={styles.scroller}>
-      {props.places.map((place) => (
+      {props.places.map((place, index) => (
         <li key={place.id} className={styles.item}>
-          <PlaceCard place={place} />
+          <PlaceCard place={place} eagerImage={eagerImage(index, props.eagerCount)} />
         </li>
       ))}
     </RowScroller>

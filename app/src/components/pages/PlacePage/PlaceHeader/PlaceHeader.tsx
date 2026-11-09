@@ -32,7 +32,7 @@ const PlaceHeader = (props: Props) => {
       <div className={styles.content}>
         <div className={styles.row}>
           <div className={styles.logo}>
-            <PlaceImage name={props.name} logoUrl={props.logoUrl} logoBgColor={props.logoBgColor} size="lg" onLightBar={isNearWhite(barColor)} />
+            <PlaceImage name={props.name} logoUrl={props.logoUrl} logoBgColor={props.logoBgColor} size="lg" onLightBar={isNearWhite(barColor)} load="high" />
           </div>
           <div className={styles.like}>
             <PlaceActions

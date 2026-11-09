@@ -6,7 +6,7 @@
     justify-content: space-between;
     gap: 16px;
     // Mobile más bajo; desde md, el de siempre.
-    padding: 8px 12px;
+    padding: 8px 8px;
     border: 1px solid var(--color-border-input);
     background-color: var(--color-surface);
     border-radius:40px;
@@ -49,11 +49,7 @@
     font-weight: 400;
     color: var(--color-text);
 
-    @include media(md) {
-      flex: 0 1 auto;
-      min-width: auto;
-      width: 400px;
-    }
+   
   
     &::-webkit-search-cancel-button,
     &::-webkit-search-decoration,
@@ -66,5 +62,30 @@
 
     &::placeholder {
       color: var(--color-text-muted);
+      font-size: 14px;
+    }
+
+    @include media(md) {
+      flex: 0 1 auto;
+      min-width: auto;
+      width: 400px;
+      font-size: 16px;
     }
   }
+
+// Botón de enviar: flecha sola en mobile, "Buscar" desde md. display: contents para que el span no cuente en el flex.
+.submitMobile {
+  display: contents;
+
+  @include media(md) {
+    display: none;
+  }
+}
+
+.submitDesktop {
+  display: none;
+
+  @include media(md) {
+    display: contents;
+  }
+}

@@ -1,0 +1,33 @@
+@use '../../../../styles/breakpoints' as *;
+
+// De borde a borde del header (el margen negativo compensa su padding de 16px), así el degradado toca el borde de la
+// pantalla. Desde md no es una caja: la línea de adentro sigue siendo parte del flex de la barra.
+.wrapper {
+  margin: 0 -16px;
+  min-width: 0;
+  position: relative;
+
+  @include media(md) {
+    display: contents;
+  }
+}
+
+// Sobre el borde derecho, con el color del fondo del header. No recibe clicks ni scroll.
+.fade {
+  background: linear-gradient(to right, transparent, var(--color-surface));
+  bottom: 0;
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+  top: 0;
+  transition: opacity 150ms ease-out;
+  width: 30px;
+
+  .wrapper[data-at-end] & {
+    opacity: 0;
+  }
+
+  @include media(md) {
+    display: none;
+  }
+}

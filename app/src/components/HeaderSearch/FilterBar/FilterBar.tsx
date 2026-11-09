@@ -10,9 +10,10 @@ import NeighborhoodSelect from "./NeighborhoodSelect/NeighborhoodSelect";
 import PriceSelect from "./PriceSelect/PriceSelect";
 import DietSelect from "./DietSelect/DietSelect";
 import DiscountFilter from "./DiscountFilter/DiscountFilter";
+import ScrollFade from "./ScrollFade/ScrollFade";
 import { DIET_OPTIONS } from "./DietSelect/utils/diet-selection";
 import type { FilterBarData } from "./utils/filter-bar-data";
-import { addFilterHref, extraHref, intentHref, removeChipHref, subHref, type SearchUrl } from "@/components/pages/SearchPage/utils/search-href";
+import { addFilterHref, barIntentHref, extraHref, removeChipHref, subHref, type SearchUrl } from "@/components/pages/SearchPage/utils/search-href";
 import styles from "./FilterBar.module.scss";
 
 type ToggleProps = {
@@ -65,13 +66,17 @@ const FilterBar = (props: Props) => {
   const activeDiscounts = parseFilters(props.state.f).discounts.map(choiceKey);
   const toggle = { state: props.state, chips: props.chips };
   const activeIntent = props.bar.intent?.id ?? null;
-  const showSubs = props.bar.subs.length > 0 || props.bar.extras.length > 0;
+  // Segunda fila: sólo las opciones de la intención activa. Lo que pidió el texto (momentos, platos, tags…) no va como
+  // chip: ya está en el buscador. Quedan los filtros de la URL que no tienen otro lugar (tag de una fila de la home,
+  // "Ver todos" de un grupo), para poder verlos y quitarlos.
+  const extras = props.bar.extras.filter((chip) => chip.fromFilter);
+  const showSubs = props.bar.subs.length > 0 || extras.length > 0;
 
   return (
     <nav className={styles.filterBar} aria-label="Filtros">
       {/* Primera línea: selects e intenciones. En desktop no existe como caja (display: contents); en mobile es la
-          línea con su propio scroll horizontal. */}
-      <div className={styles.mainLine}>
+          línea con su propio scroll horizontal y degradado, con las intenciones primero (la activa adelante). */}
+      <ScrollFade className={styles.mainLine}>
         <div className={`${styles.filterRow} ${styles.selectRow}`}>
           <NeighborhoodSelect options={neighborhoods} chips={neighborhoodChips} state={props.state} autoNear={props.needsLocation} />
           <PriceSelect options={prices} chips={priceChips} state={props.state} />
@@ -80,7 +85,7 @@ const FilterBar = (props: Props) => {
           <Toggle {...toggle} kind="openAt" id="today" text="Abre hoy" />
         </div>
         <hr className={`${styles.divider} ${styles.intentDivider}`} />
-        <div className={styles.filterRow} role="group" aria-label="Qué querés hacer">
+        <div className={`${styles.filterRow} ${styles.intentRow}`} role="group" aria-label="Qué querés hacer">
           {INTENT_IDS.map((id) => {
             const active = id === activeIntent;
             return (
@@ -88,20 +93,20 @@ const FilterBar = (props: Props) => {
                 key={id}
                 active={active}
                 current={active}
-                href={intentHref(props.state, active ? null : id, props.bar)}
+                href={barIntentHref(props.state, active ? null : id, props.bar)}
                 text={INTENTS[id].label.es}
               />
             );
           })}
         </div>
-      </div>
+      </ScrollFade>
       {showSubs && (
         <div className={`${styles.filterRow} ${styles.subRow}`} role="group" aria-label="Sub-filtros">
           {props.bar.subs.map((sub) => (
             <FilterChip key={sub.id} active={sub.active} href={subHref(props.state, sub.id, props.bar)} text={sub.label} />
           ))}
-          {props.bar.subs.length > 0 && props.bar.extras.length > 0 && <hr className={styles.divider} />}
-          {props.bar.extras.map((chip) => (
+          {props.bar.subs.length > 0 && extras.length > 0 && <hr className={styles.divider} />}
+          {extras.map((chip) => (
             <FilterChip key={`${chip.kind}:${chip.id}`} active href={extraHref(props.state, chip, props.bar)} text={chip.label} />
           ))}
         </div>

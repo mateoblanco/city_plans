@@ -1,20 +1,6 @@
 import FilterChip from "@/components/HeaderSearch/FilterBar/FilterChip/FilterChip";
-import { searchHref } from "@/components/pages/SearchPage/utils/search-href";
+import { SHORTCUTS } from "./utils/shortcuts";
 import styles from "./HomeShortcuts.module.scss";
-
-/**
- * Accesos directos de la home. Los de texto se resuelven por el diccionario, sin pasar por el modelo; los de dieta van
- * sin texto, con el filtro de la barra (se ven activos en el select de Dieta).
- */
-const SHORTCUTS = [
-  { text: "Comer", href: searchHref({ q: "comer" }) },
-  { text: "Tomar algo", href: searchHref({ q: "tomar algo" }) },
-  { text: "Cafés", href: searchHref({ q: "cafés" }) },
-  { text: "Brunch", href: searchHref({ q: "brunch" }) },
-  { text: "Vegetariano", href: searchHref({ q: "", f: "diet:vegetarian" }) },
-  { text: "Vegano", href: searchHref({ q: "", f: "diet:vegan" }) },
-  { text: "Sin TACC", href: searchHref({ q: "", f: "diet:glutenFree" }) },
-];
 
 type Props = {
   /** wrap: centrados y en varias líneas (el hero de desktop). scroll: una sola línea con scroll horizontal (mobile). */

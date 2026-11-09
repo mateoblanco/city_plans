@@ -76,7 +76,7 @@ export const INTENTS = {
     },
   },
   bars: {
-    label: { es: 'Bares', en: 'Bars' },
+    label: { es: 'Tomar algo', en: 'Bars' },
     noun: { es: 'bares', en: 'bars' },
     match: { categories: ['bar', 'brewery', 'wine_bar', 'night_club'] },
     aliases: ['bar'],

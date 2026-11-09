@@ -44,8 +44,11 @@
   }
 }
 
-// Primera línea: desde md sus hijos son parte del flex de .filterBar (sin caja propia).
+// Primera línea: el margen negativo de borde a borde lo pone ScrollFade (su envoltorio, donde va el degradado).
+// Desde md sus hijos son parte del flex de .filterBar (sin caja propia).
 .mainLine {
+  margin: 0;
+
   @include media(md) {
     align-items: normal;
     display: contents;
@@ -80,11 +83,12 @@
   align-items: center;
   display: flex;
   gap: 8px;
-  justify-content: flex-start;
+  // justify-content: flex-start;
+  justify-content: center;
 
-  @include media(md) {
-    justify-content: center;
-  }
+  // @include media(md) {
+  //   justify-content: center;
+  // }
 }
 
 // Mobile: nada se achica, la línea scrollea. Con :where (sin especificidad), el flex-shrink: 0 propio de .divider
@@ -97,17 +101,41 @@
   }
 }
 
-// Barrio, precio, dieta y abre hoy: desde md bajan de línea si no entran.
+// Barrio, precio, dieta y abre hoy: desde md bajan de línea si no entran. En mobile van después de las intenciones.
 .selectRow {
+  order: 3;
+
   @include media(md) {
     flex-wrap: wrap;
+    order: 0;
+  }
+}
+
+// Mobile: las intenciones primero, con la activa adelante; desde md, el orden del DOM (selects, divisor, intenciones).
+.intentRow {
+  order: 1;
+
+  > [aria-current="true"] {
+    order: -1;
+  }
+
+  @include media(md) {
+    order: 0;
+
+    > [aria-current="true"] {
+      order: 0;
+    }
   }
 }
 
 // Entre "Abre hoy" y las intenciones, de md a 799px: cuando las intenciones bajan de línea, quedaría colgando en un
 // costado. En mobile cada línea scrollea y el divisor se ve.
 .intentDivider {
+  order: 2;
+
   @include media(md) {
+    order: 0;
+
     @media (max-width: 799px) {
       display: none;
     }

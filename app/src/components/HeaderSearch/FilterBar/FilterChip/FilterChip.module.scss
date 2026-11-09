@@ -11,7 +11,6 @@
   font: inherit;
   font-size: 13px;
   padding: 6px 10px;
-  text-transform: capitalize;
 
   // Mobile más chico (13px, 6px 10px), como el resto de los filtros de la barra; desde md, el de siempre.
   @include media(md) {
