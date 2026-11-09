@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import Link from "next/link";
 import { label } from "@shared/tags.ts";
 import type { SearchResult } from "@/server/search";
@@ -8,7 +9,7 @@ import PlaceImage from "./PlaceImage/PlaceImage";
 import LikeButton from "./LikeButton/LikeButton";
 import SaveButton from "./SaveButton/SaveButton";
 import CardDiscounts from "./CardDiscounts/CardDiscounts";
-import { cardId, useHoveredPlace } from "../../utils/hover";
+import { cardId, useIsHovered, useSetHovered } from "../../utils/hover";
 import styles from "./PlaceCard.module.scss";
 
 /** Sólo con ?debug=1: puntajes, similitud semántica con la consulta y por qué pasó el corte por relevancia. */
@@ -48,15 +49,17 @@ type Props = {
 
 /** Tarjeta de un resultado, con el hover sincronizado con su marcador. */
 const PlaceCard = (props: Props) => {
-  const { hoveredId, setHoveredId } = useHoveredPlace();
+  // Sólo si es ESTA card la del hover: al pasar el mouse por otra, esta no se re-renderiza.
+  const hovered = useIsHovered(props.place.id);
+  const setHovered = useSetHovered();
 
   return (
     <article
       id={cardId(props.place.id)}
       className={styles.card}
-      data-active={hoveredId === props.place.id || undefined}
-      onMouseEnter={() => setHoveredId(props.place.id)}
-      onMouseLeave={() => setHoveredId(null)}
+      data-active={hovered || undefined}
+      onMouseEnter={() => setHovered(props.place.id)}
+      onMouseLeave={() => setHovered(null)}
     >
       <PlaceImage name={props.place.name} logoUrl={props.place.logoUrl} logoBgColor={props.place.logoBgColor} />
 
@@ -103,4 +106,5 @@ const PlaceCard = (props: Props) => {
   );
 };
 
-export default PlaceCard;
+// Memoizada: con "Ver más" la grilla se re-renderiza, pero las cards que ya estaban reciben el mismo `place` (y `debug`).
+export default memo(PlaceCard);

@@ -1,12 +1,12 @@
 import { useSyncExternalStore } from "react";
 
-type Breakpoint = "md" | "ml";
+export type Breakpoint = "md" | "ml";
 
 /**
  * Desde el breakpoint, igual que `@include media(<bp>)` en SCSS; mobile es lo contrario. El valor sale de
  * `--breakpoint-<bp>` (lo publica `styles/_breakpoints.scss`), así no se define dos veces.
  */
-const desktopQuery = (breakpoint: Breakpoint) => {
+export const desktopQuery = (breakpoint: Breakpoint) => {
   const value = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(`--breakpoint-${breakpoint}`));
   return window.matchMedia(`(min-width: ${value || (breakpoint === "ml" ? 900 : 768)}px)`);
 };

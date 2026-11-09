@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { searchPlaces, type SearchResponse } from "@/server/search";
 import DebugPanel from "../DebugPanel/DebugPanel";
+import EmptyMap from "./EmptyMap";
 import type { CardDebug } from "../PlaceCard/PlaceCard";
 import ResultsView from "../ResultsView/ResultsView";
 import styles from "./SearchResults.module.scss";
@@ -31,6 +32,7 @@ const SearchResults = async (props: Props) => {
     console.error("Falló la búsqueda", error);
     return (
       <div className={styles.empty} role="alert">
+        <EmptyMap />
         <p>No pudimos completar la búsqueda.</p>
         <Link href={searchHref(toSearchUrl(props.params))} prefetch={false}>
           Reintentar

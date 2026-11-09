@@ -22,7 +22,7 @@
 	--color-surface-muted: #{palette.get(gray-50)}; // NeighborhoodSelect, DebugPanel, ResultsView, PlaceHours (hoy)
 	--color-surface-hero: #{palette.get(blue-500)}; // HeroSearch
 	--color-surface-chip: #{palette.get(gray-50)}; // FilterChip, Select (trigger), Popover (trigger), DiscountFilter, PlaceTags
-	--color-skeleton: #{palette.get(gray-100)}; // MapColumn, ResultsSkeleton, PlaceMap
+	--color-skeleton: #{palette.get(gray-100)}; // ResultsSkeleton, PlaceMap
 
 	// Texto
 	--color-text: #{palette.get(black)}; // html y body (global.scss), Select, PlaceImage, BackButton, PlaceHours
@@ -52,6 +52,8 @@
 
 	--color-like: #{palette.get(red-600)}; // LikeButton
 	--color-map-user: #{palette.get(blue-600)}; // SearchMap (punto de la ubicación del usuario)
+	// MapColumn: el fondo del mapa de /search hasta que dibuja Google; el color de tierra del estilo del Map ID (no una imagen)
+	--color-map-placeholder: #f7f7f7;
 
 	// Fondo del nombre de cada banco (BankChip: descuentos de la ficha y filtro de Descuentos), por id de proveedor; el texto va en
 	// --color-text-inverse. Scotiabank y BROU todavía no tienen lector. BankChip

@@ -4,21 +4,38 @@
 .map {
   position: fixed;
   right: 0;
-  top: var(--header-offset);
 
-  // Mobile: de fondo, toda la pantalla debajo del header (el panel de resultados va encima). Termina arriba del panel
-  // en su altura baja (SHEET_LOW de utils/sheet.ts, 104px): así la atribución de Google queda a la vista.
+  // Mobile: de fondo, toda la pantalla desde arriba de todo; el header (opaco, encima) tapa la parte de arriba y el
+  // panel de resultados va encima. No arranca debajo del header a propósito: la barra de filtros llega con la búsqueda
+  // y agranda el header, y un mapa pegado a él bajaría (CLS); SearchMap descuenta lo que tapa el header al encuadrar.
+  // Termina arriba del panel en su altura baja (SHEET_LOW de utils/sheet.ts, 104px): así la atribución de Google queda
+  // a la vista.
+  top: 0;
   bottom: 104px;
   left: 0;
   width: 100%;
 
-  // Desde md: la columna fija de la derecha del layout dividido.
+  // Desde md: la columna fija de la derecha del layout dividido, debajo del header.
   @include media(md) {
+    top: var(--header-offset);
     bottom: auto;
     height: calc(100vh - var(--header-offset));
     left: auto;
     padding-top: 24px;
     padding-bottom: 24px;
     @include layout.map-column;
+  }
+}
+
+// El fondo propio hasta que dibuja Google (un color liso, no una imagen), con el mismo recorte que el mapa (SearchMap
+// .map): de borde a borde en mobile; desde md, con radio.
+.frame {
+  background-color: var(--color-map-placeholder);
+  height: 100%;
+  overflow: hidden;
+  width: 100%;
+
+  @include media(md) {
+    border-radius: 16px;
   }
 }

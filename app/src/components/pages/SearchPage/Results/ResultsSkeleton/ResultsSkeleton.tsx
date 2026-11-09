@@ -1,6 +1,6 @@
-import MapColumn from "../Map/MapColumn/MapColumn";
 import styles from "./ResultsSkeleton.module.scss";
 
+/** Las cards mientras busca. El mapa no: es el de MapSync, que queda montado (con los puntos anteriores) entre búsquedas. */
 const ResultsSkeleton = () => {
   return (
     <div className={styles.results} aria-busy="true">
@@ -12,9 +12,6 @@ const ResultsSkeleton = () => {
           <div key={index} className={styles.skeletonCard} />
         ))}
       </div>
-      <MapColumn>
-        <div className={styles.skeletonMap} />
-      </MapColumn>
     </div>
   );
 };

@@ -21,6 +21,17 @@
   width: 100%;
   z-index: 2;
 
+  // Mobile ya hidratado, dentro del panel (ResultsSheet, que pone el padding lateral y el scroll): sólo las cards.
+  :global([data-drawer-content]) & {
+    background-color: transparent;
+    border-radius: 0;
+    box-shadow: none;
+    height: auto;
+    padding: 0 0 8px;
+    position: static;
+    z-index: auto;
+  }
+
   // Desde md: la columna de la lista del layout dividido.
   @include media(md) {
     background-color: transparent;
@@ -48,8 +59,7 @@
   }
 }
 
-.skeletonCard,
-.skeletonMap {
+.skeletonCard {
   animation: pulse 1.2s ease-in-out infinite;
   background-color: var(--color-skeleton);
   border-radius: 16px;
@@ -62,12 +72,6 @@
 // El alto de PlaceCard: imagen 100 + padding 2×16 + borde 2×1.
 .skeletonCard {
   height: 134px;
-}
-
-// Llena la MapColumn, como el mapa real (SearchMap .map).
-.skeletonMap {
-  height: 100%;
-  width: 100%;
 }
 
 .visuallyHidden {

@@ -58,3 +58,20 @@ export const mapPlaces = (places: SearchResult[]): MapPlace[] =>
     { id, cardId: id, name, lat, lng, iconCategory },
     ...branches.map((branch) => ({ ...branch, cardId: id, name, iconCategory })),
   ]);
+
+/**
+ * Los puntos de `next`, reusando el objeto anterior de cada id si no cambió nada: con "Ver más" los marcadores que ya
+ * estaban reciben el mismo `place` (memo) y no se les manda un `position` nuevo.
+ */
+export const stableMapPlaces = (previous: ReadonlyMap<string, MapPlace>, next: MapPlace[]): MapPlace[] =>
+  next.map((place) => {
+    const old = previous.get(place.id);
+    return old &&
+      old.lat === place.lat &&
+      old.lng === place.lng &&
+      old.name === place.name &&
+      old.cardId === place.cardId &&
+      old.iconCategory === place.iconCategory
+      ? old
+      : place;
+  });

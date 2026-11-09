@@ -2,15 +2,19 @@ import type { ReactNode } from "react";
 import styles from "./MapColumn.module.scss";
 
 type Props = {
-  /** El mapa, o su skeleton mientras carga la búsqueda. */
+  /** El mapa (SearchMap, que se carga sólo en el cliente). */
   children: ReactNode;
 };
 
-/** Columna fija del mapa a la derecha, debajo del header. */
+/**
+ * Columna fija del mapa a la derecha, debajo del header (en mobile, el fondo de toda la pantalla, también debajo del
+ * header). Hasta que Google dibuja, se ve el fondo propio de `.frame`: un color liso, sin imágenes (no compite por el
+ * LCP).
+ */
 const MapColumn = (props: Props) => {
   return (
     <aside className={styles.map} aria-label="Mapa de resultados">
-      {props.children}
+      <div className={styles.frame}>{props.children}</div>
     </aside>
   );
 };

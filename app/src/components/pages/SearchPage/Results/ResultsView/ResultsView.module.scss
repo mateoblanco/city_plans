@@ -6,8 +6,8 @@
   flex-direction: column;
   gap: 16px;
 
-  // Mobile antes de hidratar (todavía sin el Drawer): ya se ve como el panel a media altura sobre el mapa, así al
-  // pasar a ResultsSheet no salta.
+  // Mobile antes de la primera búsqueda en el cliente (todavía sin el Drawer): ya se ve como el panel a media altura
+  // sobre el mapa, así al pasar a ResultsSheet no salta.
   background-color: var(--color-bg-page);
   border-radius: 16px 16px 0 0;
   bottom: 0;
@@ -20,6 +20,19 @@
   right: 0;
   width: 100%;
   z-index: 2;
+
+  // Mobile ya en el panel (ResultsSheet, que pone el padding lateral y el scroll): sólo la lista. El panel lo monta
+  // MapSync con la primera búsqueda; esta misma lista pasa de un lado al otro sin cambiar de clase.
+  :global([data-drawer-content]) & {
+    background-color: transparent;
+    border-radius: 0;
+    box-shadow: none;
+    height: auto;
+    overflow-y: visible;
+    padding: 0 0 8px;
+    position: static;
+    z-index: auto;
+  }
 
   // Desde md: la columna de la lista del layout dividido.
   @include media(md) {
@@ -36,14 +49,6 @@
     z-index: auto;
     @include layout.results-column;
   }
-}
-
-// Mobile, dentro del panel (ResultsSheet pone el padding lateral y el scroll).
-.sheetResults {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding-bottom: 8px;
 }
 
 .notices {
@@ -69,7 +74,7 @@
 .ungrouped {
   padding-top: 24px;
 
-  &.sheetResults {
+  :global([data-drawer-content]) & {
     padding-top: 0;
   }
 }

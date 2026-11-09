@@ -6,8 +6,8 @@ import styles from "./ResultsSheet.module.scss";
 import { SHEET_LOW, SHEET_SNAP_POINTS, toSnapPoint, type SheetSnapPoint } from "../../utils/sheet";
 
 type Props = {
-  /** Cuántos lugares trajo la búsqueda: el título del panel ("N lugares"). */
-  count: number;
+  /** Cuántos lugares trajo la búsqueda: el título del panel ("N lugares"). Mientras busca, null ("Buscando…"). */
+  count: number | null;
   snapPoint: SheetSnapPoint;
   onSnapPointChange: (snapPoint: SheetSnapPoint) => void;
   children: ReactNode;
@@ -16,7 +16,8 @@ type Props = {
 /** Después de un intento de cierre, Base UI vuelve a avisar la altura anterior (~30 ms): se ignora en este lapso. */
 const DISMISS_SETTLE_MS = 300;
 
-const countLabel = (count: number) => (count === 1 ? "1 lugar" : `${count.toLocaleString("es-UY")} lugares`);
+const countLabel = (count: number | null) =>
+  count === null ? "Buscando…" : count === 1 ? "1 lugar" : `${count.toLocaleString("es-UY")} lugares`;
 
 /**
  * Los resultados de /search en mobile: un Drawer de Base UI siempre abierto y no modal (sin backdrop ni cierre al tocar

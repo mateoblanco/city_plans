@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SearchResponse, SearchResult } from "@/server/search";
-import { hasViewAll, mapPlaces, PAGE_SIZE, visiblePage } from "../pagination";
+import { hasViewAll, mapPlaces, PAGE_SIZE, stableMapPlaces, visiblePage } from "../pagination";
 
 const place = (id: string, branches: SearchResult["branches"] = []) => ({ id, name: id, lat: -34.9, lng: -56.16, iconCategory: null, branches }) as unknown as SearchResult;
 const places = (n: number, prefix = "p") => Array.from({ length: n }, (_, index) => place(`${prefix}${index}`));
@@ -90,5 +90,28 @@ describe("grupos por proveedor de descuento", () => {
     const page = visiblePage({ results, sections, forYou: null }, 1);
     expect(page.sections?.map((section) => ids(section.places))).toEqual([["p0", "p1"], ["p0", "p2"]]);
     expect(ids(page.places)).toEqual(["p0", "p1", "p2"]);
+  });
+});
+
+describe("puntos estables por id", () => {
+  const first = mapPlaces([place("a"), place("b")]);
+  const previous = new Map(first.map((point) => [point.id, point]));
+
+  it("reusa el objeto si no cambió nada", () => {
+    const next = stableMapPlaces(previous, mapPlaces([place("a"), place("b"), place("c")]));
+    expect(next[0]).toBe(first[0]);
+    expect(next[1]).toBe(first[1]);
+    expect(next[2].id).toBe("c");
+  });
+
+  it("si cambian las coordenadas, el objeto nuevo", () => {
+    const moved = { ...place("a"), lat: -34.8 } as SearchResult;
+    const next = stableMapPlaces(previous, mapPlaces([moved]));
+    expect(next[0]).not.toBe(first[0]);
+    expect(next[0].lat).toBe(-34.8);
+  });
+
+  it("los que ya no están no vuelven", () => {
+    expect(stableMapPlaces(previous, mapPlaces([place("b")])).map((point) => point.id)).toEqual(["b"]);
   });
 });
