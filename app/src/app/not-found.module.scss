@@ -1,0 +1,15 @@
+.page {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 96px 16px;
+  text-align: center;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: 28px;
+  line-height: 34px;
+  margin: 0;
+}

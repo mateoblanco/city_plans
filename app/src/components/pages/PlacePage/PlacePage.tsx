@@ -4,6 +4,7 @@ import Header from "@/components/Header/Header";
 import HeaderBack from "@/components/Header/HeaderBack/HeaderBack";
 import { getPlacePage } from "@/server/places/page-data";
 import { montevideoNow } from "@/server/search/hours";
+import { siteUrl } from "@/server/seo/indexing";
 import PlaceContact from "./PlaceContact/PlaceContact";
 import PlaceInfoCard from "./PlaceInfoCard/PlaceInfoCard";
 import PlaceBranches from "./PlaceBranches/PlaceBranches";
@@ -16,6 +17,7 @@ import PlacePageSkeleton from "./PlacePageSkeleton/PlacePageSkeleton";
 import PlaceSummary from "./PlaceSummary/PlaceSummary";
 import SimilarPlaces from "./SimilarPlaces/SimilarPlaces";
 import { placeChips } from "./utils/place-options";
+import { jsonLdScript, placeJsonLd } from "./utils/structured-data";
 import { googleMapsHref, instagramHandle, instagramPopularHref, mainCategory, placeOpenText, priceLabel, ratingText } from "./utils/summary";
 import styles from "./PlacePage.module.scss";
 
@@ -35,8 +37,12 @@ const Details = async (props: DetailsProps) => {
   // Estado con los textos de la card: de los horarios de la base; sin confirmar, de Google; sin ninguno, no se muestra.
   const status = placeOpenText(place.hours, google?.openNow ?? null, now);
 
+  // Datos estructurados sólo con datos propios (la fila y el logo de R2): nunca `google`.
+  const jsonLd = placeJsonLd({ place, siteUrl: siteUrl(), logoUrl: data.logoUrl, neighborhood: data.neighborhood });
+
   return (
     <div className={styles.page}>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(jsonLd) }} />
       <PlaceHeader placeId={place.id} name={place.name} logoUrl={data.logoUrl} logoBgColor={place.logo_bg_color} instagram={place.instagram} />
 
       <div className={styles.content}>

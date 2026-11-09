@@ -2,7 +2,8 @@ import { label } from "@shared/tags.ts";
 import { nextOpening, openStatus, type Hours } from "@/server/search/hours";
 import { DISPLAY_LANG, openStateText, PRICE_LABELS, type OpenStateText } from "@/server/search/labels";
 
-const PRICE_SIGNS: Record<string, string> = { low: "$", moderate: "$$", high: "$$$" };
+/** El precio en signos: "$", "$$", "$$$" (también el priceRange del JSON-LD). */
+export const PRICE_SIGNS: Record<string, string> = { low: "$", moderate: "$$", high: "$$$" };
 
 /** "$$ (Normal)"; null con precio desconocido. */
 export function priceLabel(price: string): string | null {
