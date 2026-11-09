@@ -5,6 +5,7 @@ import { INTENTS, type IntentDef } from '@shared/intents.ts'
 import { SECTIONS, type SectionDef } from '@shared/sections.ts'
 import { SEARCH_CONFIG } from './config'
 import { gatewayCost } from './cost'
+import type { CacheSource } from './cache'
 import { LlmInterpretationSchema, type LlmInterpretation } from './interpretation'
 
 function catalog() {
@@ -83,8 +84,11 @@ ${sectionCatalog()}
 # Barrios
 ${Object.values(NEIGHBORHOOD_NAMES).join(', ')}`
 
-/** cost: lo que cobró el Gateway; computedAt: cuándo se llamó al modelo (si es anterior a la búsqueda, vino de la cache). */
-export type LlmResult = { data: LlmInterpretation; model: string; cost: number | null; computedAt: number }
+/**
+ * cost: lo que cobró el Gateway; computedAt: cuándo se llamó al modelo (si es anterior a la búsqueda, vino de la cache);
+ * cacheSource: de qué capa salió (runtime-cache.ts), sin cache no viene.
+ */
+export type LlmResult = { data: LlmInterpretation; model: string; cost: number | null; computedAt: number; cacheSource?: CacheSource }
 
 /**
  * Opciones de la llamada. El mensaje de sistema es fijo (instrucciones, catálogo de tags y barrios) y va con

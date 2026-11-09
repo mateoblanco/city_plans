@@ -5,7 +5,7 @@ import { INTENT_VERB_WORDS } from '@shared/intents.ts'
 import centroids from '@shared/neighborhood-centroids.json'
 import type { IconCategory } from '@shared/icon-categories.ts'
 import { SEARCH_CONFIG } from './config'
-import type { EmbeddingResult, SearchCache } from './cache'
+import type { CacheSource, EmbeddingResult, SearchCache } from './cache'
 import type { CandidateFilters, CandidateRow, DishMode, FilterGroup, NameMatch, ScoreInputs } from './candidates'
 import { summarizeCost, type CostEntry, type SearchCost } from './cost'
 import { collapseBranches } from './branches'
@@ -353,6 +353,12 @@ async function blockingConditions(store: SearchDeps['store'], filters: Candidate
 /** Cuántas invitaciones a ampliar se muestran como mucho. */
 const WIDEN_MAX = 2
 
+/**
+ * Con capas de cache, lo dice la capa (otra búsqueda simultánea puede haber hecho la llamada después de que arrancó
+ * esta); sin ellas, un computedAt anterior a la búsqueda.
+ */
+const wasCached = (result: { computedAt: number; cacheSource?: CacheSource }, startedAt: number) =>
+  result.cacheSource ? result.cacheSource !== 'none' : result.computedAt < startedAt
 const elapsed = (start: number) => Math.round(performance.now() - start)
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
@@ -360,8 +366,8 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   const started = performance.now()
   const startedAt = Date.now()
   const costs: CostEntry[] = []
-  const priced = <T extends { model: string; cost: number | null; computedAt: number }>(step: CostEntry['step'], result: T) => {
-    costs.push({ step, model: result.model, usd: result.cost, cached: result.computedAt < startedAt })
+  const priced = <T extends { model: string; cost: number | null; computedAt: number; cacheSource?: CacheSource }>(step: CostEntry['step'], result: T) => {
+    costs.push({ step, model: result.model, usd: result.cost, cached: wasCached(result, startedAt), ...(result.cacheSource && { source: result.cacheSource }) })
     return result
   }
   const timings: Record<string, number> = {}
@@ -823,7 +829,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     await queryEmbedding
     if (llmPromise && (source === 'name' || source === 'shortcut')) {
       const llm = await llmPromise
-      if (llm.ok) costs.push({ step: 'interpret', model: llm.value.model, usd: llm.value.cost, cached: llm.value.computedAt < startedAt, discarded: true })
+      if (llm.ok) costs.push({ step: 'interpret', model: llm.value.model, usd: llm.value.cost, cached: wasCached(llm.value, startedAt), ...(llm.value.cacheSource && { source: llm.value.cacheSource }), discarded: true })
     }
     const depth = SEARCH_CONFIG.debugDepth
     const collapsedInto = new Map(fused.flatMap((item) => item.branches.map((branch) => [branch.row.id, item.row.id] as const)))

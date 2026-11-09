@@ -1,34 +1,41 @@
 import 'server-only'
+import { getCache, waitUntil } from '@vercel/functions'
 import { cacheLife, cacheTag } from 'next/cache'
 import { getDb } from '../db'
-import { SEARCH_CONFIG } from './config'
-import { embedQuery, type SearchCache } from './cache'
-import { interpretWithLlm } from './llm'
+import { uncached, type SearchCache } from './cache'
+import { layeredCache, type RemoteStore } from './runtime-cache'
 import { neonPlacesStore } from './store'
 import type { Venue } from './venues'
 
-// La clave de cada entrada son los argumentos: la consulta normalizada (con la versión de la interpretación) o el
-// texto a embeber.
-// expire marca el TTL de 24 h; revalidate tiene que ser menor y renueva en segundo plano.
-const lifetime = { stale: 60 * 60, revalidate: SEARCH_CONFIG.cacheSeconds - 60 * 60, expire: SEARCH_CONFIG.cacheSeconds }
-
-async function cachedInterpretation(normalized: string, version: number) {
-  'use cache'
-  cacheLife(lifetime)
-  cacheTag('search-interpretation', `search-interpretation-v${version}`)
-  return interpretWithLlm(normalized)
+/**
+ * Vercel Runtime Cache sólo en Vercel. Afuera (local, scripts) getCache cae a una memoria propia que no agrega nada a
+ * la de layeredCache: sin remoto. Las claves ya vienen hasheadas con sha256 (el hash por defecto de getCache es de
+ * 32 bits).
+ */
+function vercelRemote(): RemoteStore | null {
+  if (!process.env.VERCEL) return null
+  try {
+    return getCache({ keyHashFunction: (key) => key })
+  } catch (error) {
+    console.warn('[search-cache] Runtime Cache no disponible:', error instanceof Error ? error.message : error)
+    return null
+  }
 }
 
-async function cachedEmbedding(text: string) {
-  'use cache'
-  cacheLife(lifetime)
-  cacheTag('search-embedding')
-  return embedQuery(text)
+/** La escritura en el remoto termina después de la respuesta; fuera de Vercel, waitUntil no hace nada y sigue sola. */
+function background(promise: Promise<unknown>) {
+  try {
+    waitUntil(promise)
+  } catch {
+    // Sin contexto de request: la promesa sigue igual.
+  }
 }
+
+export const nextSearchCache: SearchCache = layeredCache(uncached, vercelRemote(), { background })
 
 /** Barrios con lugares publicados, para la barra de filtros. Cambian sólo al publicar en el backoffice. */
 export async function publishedNeighborhoods(): Promise<string[]> {
-  'use cache'
+  'use cache: remote'
   cacheLife('hours')
   cacheTag('search-neighborhoods')
   return neonPlacesStore(getDb()).neighborhoods()
@@ -36,13 +43,8 @@ export async function publishedNeighborhoods(): Promise<string[]> {
 
 /** Venues (located_in) de los publicados, para reconocerlos en el texto. Cambian sólo al publicar en el backoffice. */
 export async function publishedVenues(): Promise<Venue[]> {
-  'use cache'
+  'use cache: remote'
   cacheLife('hours')
   cacheTag('search-venues')
   return neonPlacesStore(getDb()).venues()
-}
-
-export const nextSearchCache: SearchCache = {
-  interpret: (normalized) => cachedInterpretation(normalized, SEARCH_CONFIG.interpretationCacheVersion),
-  embed: cachedEmbedding,
 }

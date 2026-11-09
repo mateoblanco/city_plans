@@ -1,4 +1,5 @@
 import type { ProviderMetadata } from 'ai'
+import type { CacheSource } from './cache'
 
 /** Una llamada paga de la búsqueda (modelo o embedding) y lo que cobró el AI Gateway en dólares. */
 export type CostEntry = {
@@ -6,8 +7,10 @@ export type CostEntry = {
   model: string
   /** null si el Gateway no informó costo o la llamada falló. */
   usd: number | null
-  /** Vino de la cache de Next: esta búsqueda no pagó nada. */
+  /** Vino de la cache: esta búsqueda no pagó nada. */
   cached: boolean
+  /** De qué capa salió: memoria de la instancia, Runtime Cache o ninguna (se llamó). Sin cache no viene. */
+  source?: CacheSource
   /** Se llamó en paralelo pero no se usó (la consulta era un nombre): se pagó igual. */
   discarded?: boolean
 }

@@ -205,10 +205,7 @@ export const SEARCH_CONFIG = {
 
   llm: {
     model: process.env.SEARCH_MODEL?.trim() || 'anthropic/claude-haiku-5.5',
-    /**
-     * Por debajo de los 10 s en los que Next (dev) da por trabada una entrada de "use cache".
-     * Si se vence, la búsqueda sigue con el diccionario parcial y el embedding del texto.
-     */
+    /** Si se vence, la búsqueda sigue con el diccionario parcial y el embedding del texto. */
     timeoutMs: 8000,
     /**
      * TTL del prompt caching del mensaje de sistema (instrucciones, tags y barrios, ~8.300 tokens).
@@ -218,8 +215,20 @@ export const SEARCH_CONFIG = {
   },
   embeddingModel: 'openai/text-embedding-3-small',
 
-  /** La interpretación y el embedding de una consulta duran 24 h en la cache de Next. */
-  cacheSeconds: 60 * 60 * 24,
+  /**
+   * Interpretación y embedding de una consulta (runtime-cache.ts): memoria de la instancia y Vercel Runtime Cache, con
+   * el mismo TTL. La interpretación cambia con el prompt (para eso está interpretationCacheVersion) y el catálogo:
+   * 30 días. El embedding es determinista para un modelo y un texto: 90 días. Si el remoto tarda más que
+   * remoteTimeoutMs cuenta como que no estaba (en el peor caso se paga la llamada, no se traba la búsqueda).
+   */
+  cache: {
+    interpretationSeconds: 60 * 60 * 24 * 30,
+    embeddingSeconds: 60 * 60 * 24 * 90,
+    remoteTimeoutMs: 500,
+    /** Tope por instancia: ~1–2 KB cada interpretación, ~12 KB cada embedding (1536 números). */
+    memoryInterpretations: 500,
+    memoryEmbeddings: 300,
+  },
   /**
    * Va en la clave de la interpretación cacheada: subirla cuando cambia cómo se interpreta (prompt, schema,
    * validación) para no usar lo guardado con el criterio viejo. 2: horario del texto ("tarde" con bares). 3: almuerzo

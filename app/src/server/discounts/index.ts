@@ -15,7 +15,7 @@ export type { PlaceBenefit, PlaceDiscountProvider } from './benefits'
  * del panel "Descuentos" de la barra. Cambian sólo con una corrida del backoffice.
  */
 export async function activeDiscountProviders(): Promise<DiscountProviderOption[]> {
-  'use cache'
+  'use cache: remote'
   cacheLife('hours')
   cacheTag('discount-providers')
   const { rows } = await getDb().execute(discountProvidersQuery())

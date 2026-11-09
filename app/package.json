@@ -14,6 +14,7 @@
   "dependencies": {
     "@base-ui/react": "^1.9.0",
     "@neondatabase/serverless": "^1.2.0",
+    "@vercel/functions": "^3.11.0",
     "@vercel/speed-insights": "^2.1.0",
     "@vis.gl/react-google-maps": "^1.10.1",
     "ai": "^7.0.124",
