@@ -3,6 +3,25 @@ import { GooglePlacesProvider } from './google-places-provider.ts'
 import { seedCategoryForFoodPlaceType } from '../../src/data/food-place-types.ts'
 
 describe('GooglePlacesProvider', () => {
+  it('findPlace: Text Search Pro (sin rating), sesgado a las coordenadas, sólo resultados con id, nombre y coordenadas', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      places: [
+        { id: 'one', displayName: { text: 'La Pasiva' }, formattedAddress: 'Av. Brasil 2580, Montevideo', location: { latitude: -34.91, longitude: -56.15 }, primaryType: 'restaurant' },
+        { id: 'no-location', displayName: { text: 'Sin lugar' } },
+      ],
+    }), { status: 200 }))
+    const provider = new GooglePlacesProvider('private-key', fetcher)
+    expect(await provider.findPlace({ query: 'La Pasiva, Av. Brasil 2580, Montevideo', near: { lat: -34.91, lng: -56.15 } })).toEqual([
+      { placeId: 'one', name: 'La Pasiva', address: 'Av. Brasil 2580, Montevideo', lat: -34.91, lng: -56.15, primaryType: 'restaurant' },
+    ])
+    const init = (fetcher.mock.calls as unknown as [string, { headers: Record<string, string>; body: string }][])[0][1]
+    const mask = init.headers['X-Goog-FieldMask']
+    expect(mask.split(',').sort()).toEqual(['places.displayName', 'places.formattedAddress', 'places.id', 'places.location', 'places.primaryType'])
+    expect(JSON.parse(init.body)).toMatchObject({ textQuery: 'La Pasiva, Av. Brasil 2580, Montevideo', pageSize: 5, locationBias: { circle: { center: { latitude: -34.91, longitude: -56.15 }, radius: 500 } } })
+    await provider.findPlace({ query: 'Kamba, Montevideo' })
+    expect(JSON.parse((fetcher.mock.calls as unknown as [string, { body: string }][])[1][1].body).locationBias.circle.radius).toBe(30000)
+  })
+
   it('mapea tipos especializados de Google a la categoría semilla', () => {
     expect(seedCategoryForFoodPlaceType('pizza_restaurant')).toBe('pizzeria')
     expect(seedCategoryForFoodPlaceType('steak_house')).toBe('grill')

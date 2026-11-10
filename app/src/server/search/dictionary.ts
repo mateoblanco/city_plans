@@ -104,6 +104,39 @@ function allYouCanEatFood(phrase: string): string | null {
 }
 export const ALL_YOU_CAN_EAT = 'all_you_can_eat'
 
+// "milanesa al pan", "bondiola al pan": el plato y, como preferencia, sándwiches. Sin esto "al pan" quedaba sin
+// reconocer. Lo que va antes tiene que ser una comida del catálogo; si no ("bondiola"), lo lee el modelo y applyDictionary
+// suma la preferencia.
+const ON_BREAD = ' al pan'
+const ON_BREAD_TAG = 'sandwiches'
+function onBreadFood(phrase: string): string | null {
+  if (!phrase.endsWith(ON_BREAD)) return null
+  const food = phrase.slice(0, -ON_BREAD.length)
+  const found = food ? canonicalOf(food) : null
+  return found && (found.group === 'foods' || found.dish) ? food : null
+}
+const mentionsOnBread = (normalized: string) => ` ${normalized} `.includes(`${ON_BREAD} `)
+
+// "para compartir": lo que se comparte (picadas, tablas, tapas: las señales del grupo Para compartir), como preferencia.
+// Es sinónimo de picada en shared/tags.ts y sin esto salía como un segundo plato ("Puede que tengan para compartir").
+// No hay un tag sharing en el catálogo.
+const SHARE_PHRASES = new Map<string, 'es' | 'en'>([['para compartir', 'es'], ['for sharing', 'en']])
+const SHARE_TAGS = ['picada', 'tapas']
+
+// Vino por copa: el tag wine (en un bar, el sub-filtro Vinos), no la categoría vinoteca obligatoria, que dejaba sólo
+// las vinotecas. "vinos por copa" sigue siendo sinónimo de wine_bar en shared/tags.ts (entra en los textos guardados).
+const WINE_GLASS_PHRASES = new Map<string, 'es' | 'en'>([
+  ...['vino por copa', 'vinos por copa', 'vino por la copa', 'vinos por la copa', 'vino en copa', 'vinos en copa', 'copas de vino'].map((phrase) => [phrase, 'es'] as const),
+  ['wine by the glass', 'en'],
+])
+const WINE_TAG = 'wine'
+
+/**
+ * Sinónimos del catálogo que el diccionario resuelve distinto a su tag ("vinos por copa" es sinónimo de wine_bar pero va
+ * como el tag wine; "para compartir", de picada, va como preferencia). Los tests generados desde tags.ts los saltean.
+ */
+export const REROUTED_PHRASES: ReadonlySet<string> = new Set([...WINE_GLASS_PHRASES.keys(), ...SHARE_PHRASES.keys()])
+
 const MAX_PHRASE_WORDS = 5
 
 /** Idioma de un sinónimo: en si sólo aparece entre las formas en inglés del tag. */
@@ -168,7 +201,20 @@ export function interpretWithDictionary(normalized: string, { partial = false }:
       const combined = COMBINED_PHRASES.get(phrase)
       const freeFood = allYouCanEatFood(phrase)
       const groupPhrase = GROUP_PHRASES.get(phrase)
-      if (groupPhrase) {
+      const onBread = onBreadFood(phrase)
+      const share = SHARE_PHRASES.get(phrase)
+      const wineGlass = WINE_GLASS_PHRASES.get(phrase)
+      if (onBread) {
+        applyTerm(target, onBread)
+        target.prefer.tags.push(ON_BREAD_TAG)
+        votes.es++
+      } else if (share) {
+        target.prefer.tags.push(...SHARE_TAGS)
+        votes[share]++
+      } else if (wineGlass) {
+        target.must.tags.push(WINE_TAG)
+        votes[wineGlass]++
+      } else if (groupPhrase) {
         target.prefer.tags.push('groups')
         votes[groupPhrase]++
       } else if (PARENT_PHRASES.has(phrase)) {
@@ -303,9 +349,21 @@ export function applyDictionary(value: Interpretation, normalized: string): Inte
     next.exclude.tags.push(MEAT_TAG)
     if (!read.must.diet.vegetarian) delete next.must.diet.vegetarian
   }
+  // "al pan", "para compartir" y "vino por copa" valen aunque el modelo los haya leído de otra forma.
+  if (mentionsOnBread(normalized)) next.prefer.tags.push(ON_BREAD_TAG)
+  if (hasPhrase(new Set(SHARE_PHRASES.keys()), normalized)) {
+    next.prefer.tags.push(...SHARE_TAGS)
+    next.dishes = next.dishes.filter((dish) => !SHARE_PHRASES.has(normalizeQuery(dish.name)))
+  }
+  if (hasPhrase(new Set(WINE_GLASS_PHRASES.keys()), normalized)) {
+    next.must.categories = next.must.categories.filter((id) => id !== 'wine_bar')
+    next.prefer.categories = next.prefer.categories.filter((id) => id !== 'wine_bar')
+    next.must.tags.push(WINE_TAG)
+  }
   // Vista al mar es preferencia aunque el modelo la haya exigido (sinónimo "rambla").
   if (read.prefer.tags.includes('sea_view')) next.must.tags = next.must.tags.filter((id) => id !== 'sea_view')
   next.unrecognized = value.unrecognized.filter((part) => {
+    if (normalizeQuery(part) === ON_BREAD.trim()) return false
     const whole = interpretWithDictionary(normalizeQuery(part))
     if (!whole || whole.needsLocation) return true
     merge(next, whole)

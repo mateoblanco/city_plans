@@ -1,4 +1,4 @@
-import type { DiscountBenefit, DiscountLink, DiscountPlace, DiscountRun, MatchCandidate, MatchStatus, ProviderPlace } from '../../src/types/discounts.ts'
+import type { DiscountBenefit, DiscountLink, DiscountPlace, DiscountPlaceSearch, DiscountRun, MatchCandidate, MatchStatus, OurPlaceStatus, ProviderPlace, StoredPlaceSearch } from '../../src/types/discounts.ts'
 import { matchPlace, type AutoMatch, type MatchablePlace } from './match.ts'
 import type { ReaderResult } from './reader.ts'
 
@@ -137,4 +137,18 @@ export type DiscountStore = {
   setIgnored(id: string, ignored: boolean): Promise<boolean>
   /** Vuelve a automático con este cruce (vínculos auto nuevos). */
   setAutoMatch(id: string, match: AutoMatch, now: Date): Promise<boolean>
+  /** Las búsquedas en Google guardadas, por lugar del proveedor, con nuestro lugar como está hoy. */
+  placeSearches(): Promise<Record<string, StoredPlaceSearch[]>>
+  /** Guarda la búsqueda de cada local (reemplaza la del mismo locationIndex). Ninguna corrida toca estas búsquedas. */
+  setPlaceSearches(updates: { discountPlaceId: string; search: DiscountPlaceSearch }[]): Promise<void>
+  /** Nuestros lugares con esos googlePlaceId (para "ya existe"). */
+  ourPlaces(googlePlaceIds: string[]): Promise<OurPlace[]>
+}
+
+/** Un lugar nuestro, para "ya existe" y para mostrar cómo quedó una búsqueda. */
+export type OurPlace = { id: string; googlePlaceId: string; name: string; status: OurPlaceStatus }
+
+/** Reemplaza en `current` la búsqueda del mismo local. */
+export function mergeSearches(current: DiscountPlaceSearch[], search: DiscountPlaceSearch): DiscountPlaceSearch[] {
+  return [...current.filter((item) => item.locationIndex !== search.locationIndex), search]
 }

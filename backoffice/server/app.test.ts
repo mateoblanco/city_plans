@@ -1023,4 +1023,63 @@ describe('descuentos', () => {
     const auto = await app.request(`${at}/auto`, { method: 'POST' })
     expect((await auto.json()).place.match).toMatchObject({ origin: 'auto', status: 'found', links: [expect.objectContaining({ placeId: ourPlace, origin: 'auto' })] })
   })
+
+  describe('búsqueda de los que no están en la base', () => {
+    async function searchService(search?: Record<string, unknown>) {
+      const { store } = await service()
+      const runner = { start: () => 'r2', status: () => ({ status: 'idle' }) }
+      const estimate = async () => ({ searchUsd: 0.032, extractionUsd: 0.075, basedOnPlaces: 214, basedOnReports: 10 })
+      const discounts = { runner, store, candidates: async () => [], search, estimate } as unknown as NonNullable<Parameters<typeof createApp>[0]>['discounts']
+      return createApp({ discounts })
+    }
+    const post = (app: Awaited<ReturnType<typeof searchService>>, url: string, body: unknown) => app.request(url, { method: 'POST', ...json(body) })
+
+    it('sin Google o sin el modelo responde 503; el progreso queda en idle', async () => {
+      const app = await searchService()
+      expect((await post(app, '/api/discounts/searches', { rows: ['bbva:x#0'] })).status).toBe(503)
+      expect((await post(app, '/api/discounts/searches/pick', { rowKey: 'bbva:x#0', placeId: null })).status).toBe(503)
+      expect((await app.request('/api/discounts/searches/estimate')).status).toBe(503)
+      expect(await (await app.request('/api/discounts/searches/current')).json()).toEqual({ status: 'idle' })
+    })
+
+    it('GET /api/discounts trae las búsquedas guardadas', async () => {
+      const app = await searchService()
+      const body = await (await app.request('/api/discounts')).json()
+      expect(body.searches).toEqual({})
+      // Es Mercat está encontrado y Dos Orientales no tiene beneficios vigentes: ninguna fila.
+      expect(body.missing).toEqual([])
+    })
+
+    it('POST /searches: valida, 202, 409 si hay una en curso y 400 si una fila ya no está', async () => {
+      const start = vi.fn(async (rows: string[]) => (rows[0] === 'busy#0' ? { busy: true } : rows[0] === 'gone#0' ? { unknown: rows } : { jobId: 'j1' }))
+      const app = await searchService({ start, pick: vi.fn(), status: () => ({ status: 'idle' }) })
+      expect((await post(app, '/api/discounts/searches', { rows: [] })).status).toBe(400)
+      expect((await post(app, '/api/discounts/searches', { rows: Array.from({ length: 201 }, (_, index) => `bbva:x#${index}`) })).status).toBe(400)
+      const ok = await post(app, '/api/discounts/searches', { rows: ['bbva:x#0'] })
+      expect(ok.status).toBe(202)
+      expect(await ok.json()).toEqual({ jobId: 'j1' })
+      const busy = await post(app, '/api/discounts/searches', { rows: ['busy#0'] })
+      expect(busy.status).toBe(409)
+      expect((await busy.json()).error.code).toBe('DISCOUNT_SEARCH_IN_PROGRESS')
+      expect((await post(app, '/api/discounts/searches', { rows: ['gone#0'] })).status).toBe(400)
+    })
+
+    it('POST /searches/pick: placeId de Google o null; los errores del runner', async () => {
+      const pick = vi.fn(async (rowKey: string) => (rowKey === 'gone#0' ? 'not_found' : rowKey === 'ok#0' ? 'ok' : rowKey === 'nope#0' ? 'not_candidate' : 'not_doubtful'))
+      const app = await searchService({ start: vi.fn(), pick, status: () => ({ status: 'idle' }) })
+      expect((await post(app, '/api/discounts/searches/pick', { rowKey: 'ok#0', placeId: 'ChIJ_abc' })).status).toBe(200)
+      expect((await post(app, '/api/discounts/searches/pick', { rowKey: 'ok#0', placeId: null })).status).toBe(200)
+      expect(pick).toHaveBeenLastCalledWith('ok#0', null)
+      expect((await post(app, '/api/discounts/searches/pick', { rowKey: 'ok#0', placeId: 'no vale' })).status).toBe(400)
+      expect((await post(app, '/api/discounts/searches/pick', { rowKey: 'ok#0' })).status).toBe(400)
+      expect((await post(app, '/api/discounts/searches/pick', { rowKey: 'gone#0', placeId: null })).status).toBe(404)
+      expect((await post(app, '/api/discounts/searches/pick', { rowKey: 'nope#0', placeId: 'ChIJ_abc' })).status).toBe(400)
+      expect((await post(app, '/api/discounts/searches/pick', { rowKey: 'done#0', placeId: 'ChIJ_abc' })).status).toBe(409)
+    })
+
+    it('GET /searches/estimate', async () => {
+      const app = await searchService({ start: vi.fn(), pick: vi.fn(), status: () => ({ status: 'idle' }) })
+      expect(await (await app.request('/api/discounts/searches/estimate')).json()).toEqual({ searchUsd: 0.032, extractionUsd: 0.075, basedOnPlaces: 214, basedOnReports: 10 })
+    })
+  })
 })

@@ -18,6 +18,8 @@ import { OpenStreetMapProvider } from './providers/openstreetmap-provider.ts'
 import { PlaywrightWebsiteScraper } from './providers/website-scraper.ts'
 import { DiscountRunner } from './discounts/run.ts'
 import { discountRunDependencies } from './discounts/setup.ts'
+import { DiscountPlaceSearchRunner } from './discounts/place-search-runner.ts'
+import { searchEstimate } from './discounts/search-estimate.ts'
 
 config({ path: '.env', quiet: true })
 config({ path: '.env.local', override: true, quiet: true })
@@ -108,7 +110,11 @@ const extractor = provider
 const discounts = database
   ? (() => {
       const deps = discountRunDependencies({ store: database.discountStore, candidates: database.discountCandidates })
-      return { runner: new DiscountRunner(deps), store: database.discountStore, candidates: database.discountCandidates }
+      // Buscar en Google los que no están en la base: Text Search y el mismo pipeline que /api/extract y POST /api/places.
+      const search = provider && extractor?.configured
+        ? new DiscountPlaceSearchRunner({ store: database.discountStore, finder: provider, details: provider, extractor, saver: database.placesSaver, reportWriter: fileReportWriter() })
+        : undefined
+      return { runner: new DiscountRunner(deps), store: database.discountStore, candidates: database.discountCandidates, search, estimate: () => searchEstimate() }
     })()
   : undefined
 const apiPort = Number(process.env.BACKOFFICE_API_PORT ?? 8787)

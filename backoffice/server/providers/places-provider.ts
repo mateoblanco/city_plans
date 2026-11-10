@@ -26,6 +26,24 @@ export interface PlacesProvider {
   search(criteria: PlaceSearchCriteria): Promise<PlaceSearchPage>
 }
 
+/**
+ * Un resultado de findPlace (Text Search Pro). Nombre y dirección son de Google: sólo para elegir en memoria, nunca se
+ * guardan (de Google sólo se guardan placeId y coordenadas).
+ */
+export type FoundPlace = {
+  placeId: string
+  name: string
+  address: string
+  lat: number
+  lng: number
+  primaryType: string | null
+}
+
+/** Buscar un lugar puntual por nombre y dirección (Descuentos › buscar los que no están en la base). */
+export interface PlaceFinder {
+  findPlace(input: { query: string; near?: { lat: number; lng: number } | null }): Promise<FoundPlace[]>
+}
+
 export type ProviderErrorKind =
   | 'validation'
   | 'configuration'

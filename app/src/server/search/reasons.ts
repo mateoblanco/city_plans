@@ -2,7 +2,8 @@ import { CUISINES, DRINKS, FOODS, isOccasionTag, isStyleId, label } from '@share
 import type { IntentId } from '@shared/intents.ts'
 import type { DishMode } from './candidates'
 import { relatedLabel, type DishTarget } from './dishes'
-import { dietLevel, type Fused } from './fuse'
+import { INTENTS } from '@shared/intents.ts'
+import { dietLevel, subSignal, type Fused } from './fuse'
 import { DIET_KEYS, type Interpretation } from './interpretation'
 import { dietLevelLabel, DISPLAY_LANG, distanceLabel, MOMENT_REASON, STYLE_REASON } from './labels'
 
@@ -12,6 +13,8 @@ export type ReasonContext = {
   dishMode: DishMode
   /** Intención activa: con ella, lo que define al lugar dentro de esa intención (signature) también es motivo. */
   intent: IntentId | null
+  /** Sub-filtros activos: cada uno muestra el tag suyo que tiene el lugar, el más específico primero (Tragos de autor antes que Coctelería). */
+  subs?: string[]
   /** Con "cerca mío": la distancia va entre los motivos. */
   near: boolean
 }
@@ -27,6 +30,14 @@ const INTENT_SIGNATURE: Record<IntentId, Set<string>> = {
   bars: new Set(Object.keys(DRINKS).filter((id) => !NOT_BAR_DRINKS.has(id))),
   cafes: new Set(['specialty_coffee', 'tea', 'pastries', 'brunch', 'afternoon_snack']),
   desserts: new Set(['desserts', 'ice_cream', 'pastries']),
+}
+
+/** Tags de un sub-filtro, del más específico (su señal: fuse.ts SUB_SIGNALS) al de su filtro. */
+function subTags(intent: IntentId | null, sub: string): string[] {
+  if (!intent) return []
+  const definition = (INTENTS[intent].subs as Record<string, { tags?: readonly string[] }>)[sub]
+  const signal = subSignal(intent, sub)
+  return [...(signal?.tags ?? []), ...(signal?.signature ?? []), ...(definition?.tags ?? [])]
 }
 
 /**
@@ -60,6 +71,11 @@ export function buildReasons(item: Fused, context: ReasonContext): string[] {
     for (const id of [...row.categories, ...row.tags]) if (related.has(id)) reasons.push(relatedLabel(id, lang))
   }
   if (context.near && row.distance !== null) reasons.push(distanceLabel(row.distance, lang))
+
+  for (const id of context.subs ?? []) {
+    const tag = subTags(context.intent, id).find((tagId) => row.tags.includes(tagId))
+    if (tag) reasons.push(label(tag, lang))
+  }
 
   const wantedTags = [...interpretation.must.tags, ...interpretation.prefer.tags]
   const wanted = new Set([...interpretation.must.categories, ...interpretation.prefer.categories, ...wantedTags])

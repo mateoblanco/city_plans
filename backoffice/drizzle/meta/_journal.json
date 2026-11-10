@@ -162,6 +162,13 @@
       "when": 1793972189865,
       "tag": "0022_benefit_source_url",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1794339873256,
+      "tag": "0023_discount_place_searches",
+      "breakpoints": true
     }
   ]
 }

@@ -3,6 +3,7 @@ import pMap from 'p-map'
 import { APIFY_FAILURE_LIMIT, EXA_FAILURE_LIMIT, EXTRACT_CONCURRENCY } from '@/lib/extraction-config'
 import { logoSummary, type LogoSummary } from '@/lib/logo-summary'
 import { reviewSummary, type ReviewSummary } from '@/lib/review-summary'
+import { reportPlace } from '@/lib/extraction-report-entry'
 import { initialDraft, instagramChoiceFor, type ReviewDraft } from '@/lib/instagram-review'
 import { PlacesApiError, completePlace, discoverPlace, extractPlace, saveExtractionReport, type ExtractRequest } from '@/lib/places-api'
 import type { ApiErrorCode, ExtractionReportRequest, InstagramDiscovery, PlaceEnrichmentResponse, PlaceExtractionPerformance } from '@/types/places'
@@ -133,43 +134,7 @@ function reportRequest(entries: BatchOutcome[], { stoppedByApify, stoppedByExa }
     exaErrors: entries.filter((entry) => isExaError(entry.row)).map((entry) => entry.id),
     stoppedByExa,
     // Cada lugar terminado entra al resumen; sólo los que tuvieron fuentes traen review.
-    places: outcomes.flatMap(({ status, result }): ExtractionReportRequest['places'] => {
-      if (status !== 'done' || !result) return []
-      const { totalUsd, providers } = result.performance.costUsd
-      const mainLlmUsd = providers.llm.costUsd
-      const hoursRetryUsd = result.status === 'ok' ? result.review.hoursRetry.costUsd : 0
-      const logoUsd = providers.logo?.costUsd ?? 0
-      const base = {
-        costUsd: totalUsd,
-        totalMs: result.performance.totalMs,
-        sourcesUsd: Math.max(0, totalUsd - mainLlmUsd - hoursRetryUsd - logoUsd),
-        mainLlmUsd,
-        hoursRetryUsd,
-        logoUsd,
-        inputTokens: providers.llm.inputTokens ?? 0,
-        cachedInputTokens: providers.llm.cachedInputTokens ?? 0,
-        cacheWriteTokens: providers.llm.cacheWriteTokens ?? 0,
-      }
-      if (result.status !== 'ok') {
-        return [{
-          name: result.target.name, googlePlaceId: result.target.googlePlaceId, review: null,
-          stats: { ...base, hoursStatus: 'none' as const, hasInstagram: false, hasWebsite: false, tagCount: 0 },
-        }]
-      }
-      const { place } = result
-      return [{
-        // Sin nombre confirmado por las fuentes el reporte igual necesita uno; el de Google no se usa.
-        name: place.name || 'Sin nombre confirmado', googlePlaceId: place.googlePlaceId, review: result.review,
-        reviewReasons: place.reviewReasons ?? [],
-        stats: {
-          ...base,
-          hoursStatus: place.hours.status,
-          hasInstagram: Boolean(place.contact.instagram),
-          hasWebsite: Boolean(place.contact.website),
-          tagCount: place.tags.length,
-        },
-      }]
-    }),
+    places: outcomes.flatMap(({ status, result }) => (status === 'done' && result ? [reportPlace(result)] : [])),
   }
 }
 

@@ -1,8 +1,9 @@
 import type { BenefitCap, BenefitDays, CapCurrency, CapPeriod, Weekday } from '../../src/types/discounts.ts'
 import { WEEKDAYS } from '../../src/types/discounts.ts'
+import { fold } from '../../src/lib/discount-names.ts'
 
-/** Minúscula, sin tildes, espacios simples. */
-export const fold = (value: string) => value.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim()
+/** Minúscula, sin tildes, espacios simples (vive en src/lib/discount-names.ts, compartido con la pantalla). */
+export { fold }
 
 export const cleanText = (value: string) => value.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim()
 

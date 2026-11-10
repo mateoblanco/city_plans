@@ -1,10 +1,10 @@
 import { and, desc, eq, inArray, notInArray, sql } from 'drizzle-orm'
 import type { NeonHttpDatabase } from 'drizzle-orm/neon-http'
-import type { BenefitDays, DiscountPlace, DiscountRun, StoredBenefit, Weekday } from '../../src/types/discounts.ts'
+import type { BenefitDays, DiscountPlace, DiscountRun, StoredBenefit, StoredPlaceSearch, Weekday } from '../../src/types/discounts.ts'
 import type * as schema from '../db/schema.ts'
 import { discountBenefits, discountPlaceLinks, discountPlaces, discountRuns, places } from '../db/schema.ts'
 import { withReadDerived } from './match.ts'
-import { isExpired, montevideoToday, type DiscountStore, type DiscountWrites } from './persist.ts'
+import { isExpired, mergeSearches, montevideoToday, type DiscountStore, type DiscountWrites } from './persist.ts'
 
 type Db = NeonHttpDatabase<typeof schema>
 
@@ -321,6 +321,39 @@ export function drizzleDiscountStore(db: Db): DiscountStore {
         db.update(discountPlaces).set({ matchOrigin: 'auto', matchStatus: match.status, matchCandidates: match.candidates, matchedAt: now, updatedAt: now }).where(eq(discountPlaces.id, id)),
       ] as unknown as Parameters<typeof db.batch>[0])
       return true
+    },
+
+    async placeSearches() {
+      const rows = await db.select({ id: discountPlaces.id, searches: discountPlaces.placeSearches }).from(discountPlaces)
+        .where(sql`jsonb_array_length(${discountPlaces.placeSearches}) > 0`)
+      const ids = [...new Set(rows.flatMap((row) => row.searches.flatMap((search) => (search.placeId ? [search.placeId] : []))))]
+      const ours = ids.length ? await db.select({ id: places.id, name: places.name, status: places.status }).from(places).where(inArray(places.id, ids)) : []
+      const byId = new Map(ours.map((place) => [place.id, place]))
+      return Object.fromEntries(rows.map((row) => [row.id, row.searches.map((search): StoredPlaceSearch => ({ ...search, ourPlace: (search.placeId && byId.get(search.placeId)) || null }))]))
+    },
+
+    async setPlaceSearches(updates) {
+      if (!updates.length) return
+      const ids = [...new Set(updates.map((update) => update.discountPlaceId))]
+      const rows = await db.select({ id: discountPlaces.id, searches: discountPlaces.placeSearches }).from(discountPlaces).where(inArray(discountPlaces.id, ids))
+      const next = new Map(rows.map((row) => [row.id, row.searches]))
+      for (const { discountPlaceId, search } of updates) {
+        const current = next.get(discountPlaceId)
+        if (current) next.set(discountPlaceId, mergeSearches(current, search))
+      }
+      if (!next.size) return
+      // Sólo esta columna: no toca updated_at ni el cruce.
+      await db.execute(sql`
+        update ${discountPlaces} set place_searches = v.searches
+        from jsonb_to_recordset(${JSON.stringify([...next].map(([id, searches]) => ({ id, searches })))}::jsonb) as v(id text, searches jsonb)
+        where ${discountPlaces.id} = v.id`)
+    },
+
+    async ourPlaces(googlePlaceIds) {
+      if (!googlePlaceIds.length) return []
+      const rows = await db.select({ id: places.id, googlePlaceId: places.googlePlaceId, name: places.name, status: places.status }).from(places)
+        .where(inArray(places.googlePlaceId, googlePlaceIds))
+      return rows.flatMap((row) => (row.googlePlaceId ? [{ ...row, googlePlaceId: row.googlePlaceId }] : []))
     },
   }
 }

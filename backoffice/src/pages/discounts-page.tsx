@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AlertCircle, ArrowUpRight, BadgePercent, Check, EyeOff, LoaderCircle, PencilLine, RefreshCw, RotateCcw, Search } from 'lucide-react'
+import { DiscountMissingView } from '@/components/discount-missing-view'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -46,6 +47,8 @@ import {
   type DiscountRun,
   type DiscountRunProgress,
   type StoredBenefit,
+  type MissingRow,
+  type StoredPlaceSearch,
 } from '@/types/discounts'
 
 export const POLL_MS = 1_500
@@ -55,7 +58,7 @@ const SEARCH_PAGE_SIZE = 10
 type LoadState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | { status: 'success'; run: DiscountRun | null; places: DiscountPlace[] }
+  | { status: 'success'; run: DiscountRun | null; places: DiscountPlace[]; searches: Record<string, StoredPlaceSearch[]>; missing: MissingRow[] }
 
 /** Estado de una acción en una fila (o en el diálogo). */
 type ActionState = { status: 'saving' } | { status: 'saved' } | { status: 'error'; message: string }
@@ -496,7 +499,7 @@ export function DiscountsPage() {
     const controller = new AbortController()
     Promise.all([getDiscounts(controller.signal), getDiscountRunProgress(controller.signal).catch(() => ({ status: 'idle' }) as const)])
       .then(([data, current]) => {
-        setState({ status: 'success', run: data.run, places: data.places })
+        setState({ status: 'success', run: data.run, places: data.places, searches: data.searches ?? {}, missing: data.missing ?? [] })
         setProgress(current)
       })
       .catch((error: unknown) => {
@@ -513,9 +516,21 @@ export function DiscountsPage() {
   const reload = useCallback(async () => {
     try {
       const data = await getDiscounts()
-      setState({ status: 'success', run: data.run, places: data.places })
+      setState({ status: 'success', run: data.run, places: data.places, searches: data.searches ?? {}, missing: data.missing ?? [] })
     } catch (error) {
       setRunError(`La corrida terminó pero no se pudo cargar: ${message(error)}`)
+    }
+  }, [])
+
+  // Después de una búsqueda en Google (o de elegir "Ninguno"): los estados guardados de las filas.
+  const [searchReloadError, setSearchReloadError] = useState<string | null>(null)
+  const reloadSearches = useCallback(async () => {
+    try {
+      const data = await getDiscounts()
+      setSearchReloadError(null)
+      setState({ status: 'success', run: data.run, places: data.places, searches: data.searches ?? {}, missing: data.missing ?? [] })
+    } catch (error) {
+      setSearchReloadError(`La búsqueda terminó pero no se pudo recargar la pantalla: ${message(error)}`)
     }
   }, [])
 
@@ -584,6 +599,9 @@ export function DiscountsPage() {
     return names
   }, [data, places])
   const visible = useMemo(() => filterDiscountPlaces(places, filters), [places, filters])
+  const visibleIds = useMemo(() => new Set(visible.map((place) => place.id)), [visible])
+  // "No están en la base": vista agrupada por barrio, sin repetir y con la búsqueda en Google.
+  const missingView = filters.match === 'missing'
   const selectedPlace = places.find((place) => place.id === selected) ?? null
   const filtered = JSON.stringify(filters) !== JSON.stringify(DEFAULT_DISCOUNT_FILTERS)
 
@@ -699,97 +717,108 @@ export function DiscountsPage() {
               )}
             </div>
 
-            <div className="overflow-hidden rounded-xl border bg-background">
-              <div className="border-b px-4 py-2.5 sm:px-5">
-                <p className="text-sm font-semibold tabular-nums" role="status">{visible.length} {visible.length === 1 ? 'lugar' : 'lugares'}</p>
+            {searchReloadError && (
+              <Alert variant="destructive" className="mb-4 rounded-xl bg-background">
+                <AlertCircle aria-hidden="true" />
+                <AlertTitle>No se pudo recargar</AlertTitle>
+                <AlertDescription>{searchReloadError}</AlertDescription>
+              </Alert>
+            )}
+            {missingView ? (
+              <DiscountMissingView rows={data.missing} visibleIds={visibleIds} searches={data.searches} providers={providers} onReload={reloadSearches} />
+            ) : (
+              <div className="overflow-hidden rounded-xl border bg-background">
+                <div className="border-b px-4 py-2.5 sm:px-5">
+                  <p className="text-sm font-semibold tabular-nums" role="status">{visible.length} {visible.length === 1 ? 'lugar' : 'lugares'}</p>
+                </div>
+                {visible.length === 0 ? (
+                  <div className="flex min-h-48 flex-col items-center justify-center px-6 py-12 text-center">
+                    <BadgePercent className="mb-4 size-6 text-muted-foreground" aria-hidden="true" />
+                    <p className="font-medium">Ningún lugar coincide con los filtros</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted/40 hover:bg-muted/40">
+                          <TableHead className="px-4 sm:px-5">Nombre en la fuente</TableHead>
+                          <TableHead className="px-4 sm:px-5">Proveedor</TableHead>
+                          <TableHead className="px-4 sm:px-5">Ciudad</TableHead>
+                          <TableHead className="px-4 sm:px-5">Cruce</TableHead>
+                          <TableHead className="px-4 sm:px-5">Lugar</TableHead>
+                          <TableHead className="px-4 sm:px-5">Acciones</TableHead>
+                          <TableHead className="px-4 sm:px-5">Beneficios</TableHead>
+                          <TableHead className="px-4 sm:px-5">Vigencia</TableHead>
+                          <TableHead className="px-4 sm:px-5">Fuente</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {visible.map((place) => {
+                          const action = rowActions[place.id]
+                          const busy = action?.status === 'saving'
+                          const current = isPlaceCurrent(place)
+                          const canConfirm = place.match.origin === 'auto' && place.match.links.length > 0
+                          return (
+                            <TableRow key={place.id} className={`cursor-pointer ${current && !place.ignored ? '' : 'text-muted-foreground'}`} onClick={() => setSelected(place.id)}>
+                              <TableCell className="px-4 py-3 font-medium sm:px-5">
+                                <button type="button" className="text-left hover:underline" onClick={(event) => { event.stopPropagation(); setSelected(place.id) }}>
+                                  {place.sourceName}
+                                </button>
+                                {(!current || place.ignored) && (
+                                  <span className="mt-1 flex gap-1">
+                                    {!current && <Tag>Inactivo</Tag>}
+                                    {place.ignored && <Tag>Ignorado</Tag>}
+                                  </span>
+                                )}
+                              </TableCell>
+                              <TableCell className="px-4 py-3 sm:px-5">{providers.get(place.providerId) ?? place.providerId}</TableCell>
+                              <TableCell className="px-4 py-3 text-sm sm:px-5">{place.city ?? (place.departments.join(', ') || '—')}</TableCell>
+                              <TableCell className="px-4 py-3 sm:px-5"><MatchBadges match={place.match} /></TableCell>
+                              <TableCell className="px-4 py-3 sm:px-5"><LinkedSummary match={place.match} /><NearbyNote match={place.match} /></TableCell>
+                              <TableCell className="px-4 py-3 sm:px-5" onClick={(event) => event.stopPropagation()}>
+                                <div className="flex flex-wrap items-center gap-1">
+                                  {canConfirm && (
+                                    <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void rowAction(place.id, () => confirmDiscountMatch(place.id))} aria-label={`Confirmar cruce de ${place.sourceName}`}>
+                                      <Check className="size-3.5" aria-hidden="true" />
+                                      Confirmar
+                                    </Button>
+                                  )}
+                                  {place.montevideo && (
+                                    <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => setSelected(place.id)} aria-label={`Corregir cruce de ${place.sourceName}`}>
+                                      <PencilLine className="size-3.5" aria-hidden="true" />
+                                      Corregir
+                                    </Button>
+                                  )}
+                                  <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => void rowAction(place.id, () => setDiscountIgnored(place.id, !place.ignored))} aria-label={`${place.ignored ? 'Dejar de ignorar' : 'Ignorar'} ${place.sourceName}`}>
+                                    <EyeOff className="size-3.5" aria-hidden="true" />
+                                    {place.ignored ? 'Dejar de ignorar' : 'Ignorar'}
+                                  </Button>
+                                  <ActionStatus state={action} />
+                                </div>
+                              </TableCell>
+                              <TableCell className="px-4 py-3 text-sm sm:px-5" title={capsTooltip(place.benefits.filter(isBenefitCurrent))}>{place.benefits.some(isBenefitCurrent) ? benefitSummary(place.benefits.filter(isBenefitCurrent)) : <span className="text-muted-foreground">Sin vigentes</span>}</TableCell>
+                              <TableCell className="px-4 py-3 text-sm whitespace-nowrap sm:px-5">
+                                {placeValidity(place)}
+                                {place.benefits.some(hasStaleValidity) && (
+                                  <span className="mt-1 block" title="La fecha de fin ya pasó, pero el lugar sigue publicado en la fuente.">
+                                    <Tag className="bg-amber-50 text-amber-800 ring-amber-200">Vigencia desactualizada en la fuente</Tag>
+                                  </span>
+                                )}
+                              </TableCell>
+                              <TableCell className="px-4 py-3 sm:px-5">
+                                <a className="inline-flex items-center gap-1 text-sm underline" href={place.sourceUrl} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>
+                                  Ver <ArrowUpRight className="size-3.5" aria-hidden="true" />
+                                </a>
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
               </div>
-              {visible.length === 0 ? (
-                <div className="flex min-h-48 flex-col items-center justify-center px-6 py-12 text-center">
-                  <BadgePercent className="mb-4 size-6 text-muted-foreground" aria-hidden="true" />
-                  <p className="font-medium">Ningún lugar coincide con los filtros</p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-muted/40 hover:bg-muted/40">
-                        <TableHead className="px-4 sm:px-5">Nombre en la fuente</TableHead>
-                        <TableHead className="px-4 sm:px-5">Proveedor</TableHead>
-                        <TableHead className="px-4 sm:px-5">Ciudad</TableHead>
-                        <TableHead className="px-4 sm:px-5">Cruce</TableHead>
-                        <TableHead className="px-4 sm:px-5">Lugar</TableHead>
-                        <TableHead className="px-4 sm:px-5">Acciones</TableHead>
-                        <TableHead className="px-4 sm:px-5">Beneficios</TableHead>
-                        <TableHead className="px-4 sm:px-5">Vigencia</TableHead>
-                        <TableHead className="px-4 sm:px-5">Fuente</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {visible.map((place) => {
-                        const action = rowActions[place.id]
-                        const busy = action?.status === 'saving'
-                        const current = isPlaceCurrent(place)
-                        const canConfirm = place.match.origin === 'auto' && place.match.links.length > 0
-                        return (
-                          <TableRow key={place.id} className={`cursor-pointer ${current && !place.ignored ? '' : 'text-muted-foreground'}`} onClick={() => setSelected(place.id)}>
-                            <TableCell className="px-4 py-3 font-medium sm:px-5">
-                              <button type="button" className="text-left hover:underline" onClick={(event) => { event.stopPropagation(); setSelected(place.id) }}>
-                                {place.sourceName}
-                              </button>
-                              {(!current || place.ignored) && (
-                                <span className="mt-1 flex gap-1">
-                                  {!current && <Tag>Inactivo</Tag>}
-                                  {place.ignored && <Tag>Ignorado</Tag>}
-                                </span>
-                              )}
-                            </TableCell>
-                            <TableCell className="px-4 py-3 sm:px-5">{providers.get(place.providerId) ?? place.providerId}</TableCell>
-                            <TableCell className="px-4 py-3 text-sm sm:px-5">{place.city ?? (place.departments.join(', ') || '—')}</TableCell>
-                            <TableCell className="px-4 py-3 sm:px-5"><MatchBadges match={place.match} /></TableCell>
-                            <TableCell className="px-4 py-3 sm:px-5"><LinkedSummary match={place.match} /><NearbyNote match={place.match} /></TableCell>
-                            <TableCell className="px-4 py-3 sm:px-5" onClick={(event) => event.stopPropagation()}>
-                              <div className="flex flex-wrap items-center gap-1">
-                                {canConfirm && (
-                                  <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void rowAction(place.id, () => confirmDiscountMatch(place.id))} aria-label={`Confirmar cruce de ${place.sourceName}`}>
-                                    <Check className="size-3.5" aria-hidden="true" />
-                                    Confirmar
-                                  </Button>
-                                )}
-                                {place.montevideo && (
-                                  <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => setSelected(place.id)} aria-label={`Corregir cruce de ${place.sourceName}`}>
-                                    <PencilLine className="size-3.5" aria-hidden="true" />
-                                    Corregir
-                                  </Button>
-                                )}
-                                <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => void rowAction(place.id, () => setDiscountIgnored(place.id, !place.ignored))} aria-label={`${place.ignored ? 'Dejar de ignorar' : 'Ignorar'} ${place.sourceName}`}>
-                                  <EyeOff className="size-3.5" aria-hidden="true" />
-                                  {place.ignored ? 'Dejar de ignorar' : 'Ignorar'}
-                                </Button>
-                                <ActionStatus state={action} />
-                              </div>
-                            </TableCell>
-                            <TableCell className="px-4 py-3 text-sm sm:px-5" title={capsTooltip(place.benefits.filter(isBenefitCurrent))}>{place.benefits.some(isBenefitCurrent) ? benefitSummary(place.benefits.filter(isBenefitCurrent)) : <span className="text-muted-foreground">Sin vigentes</span>}</TableCell>
-                            <TableCell className="px-4 py-3 text-sm whitespace-nowrap sm:px-5">
-                              {placeValidity(place)}
-                              {place.benefits.some(hasStaleValidity) && (
-                                <span className="mt-1 block" title="La fecha de fin ya pasó, pero el lugar sigue publicado en la fuente.">
-                                  <Tag className="bg-amber-50 text-amber-800 ring-amber-200">Vigencia desactualizada en la fuente</Tag>
-                                </span>
-                              )}
-                            </TableCell>
-                            <TableCell className="px-4 py-3 sm:px-5">
-                              <a className="inline-flex items-center gap-1 text-sm underline" href={place.sourceUrl} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>
-                                Ver <ArrowUpRight className="size-3.5" aria-hidden="true" />
-                              </a>
-                            </TableCell>
-                          </TableRow>
-                        )
-                      })}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </div>
+            )}
           </>
         )}
       </section>

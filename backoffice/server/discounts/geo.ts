@@ -1,5 +1,6 @@
-import { resolveNeighborhood } from '../../../shared/neighborhood-aliases.ts'
-import { fold } from './text.ts'
+import { fold, montevideoNeighborhood } from '../../src/lib/discount-names.ts'
+
+export { montevideoNeighborhood }
 
 /** Los 19 departamentos, con el nombre con tildes. */
 export const DEPARTMENTS = [
@@ -22,12 +23,6 @@ export function departmentsIn(tags: string[], texts: (string | null)[]): string[
     for (const [key, name] of BY_FOLDED) if (folded.includes(` ${key} `)) found.add(name)
   }
   return DEPARTMENTS.filter((name) => found.has(name))
-}
-
-/** Barrio de Montevideo (id del INE) de un texto corto ("Pocitos", "Punta Carretas"); null si no es uno. */
-export function montevideoNeighborhood(text: string | null): string | null {
-  if (!text) return null
-  return resolveNeighborhood(text.trim())
 }
 
 /**

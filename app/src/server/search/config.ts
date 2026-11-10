@@ -82,6 +82,19 @@ export const SEARCH_CONFIG = {
      */
     eatFit: 0.015,
     /**
+     * Intención Postres (fuse.ts dessertFitOf): entero para el lugar de postres (heladería, o ícono de postre o helado),
+     * lo mismo que knownFor, para que vaya arriba aunque tenga menos calidad (sin texto, el primer puesto de calidad vale
+     * 1/61 ≈ 0.016). dessertFitPartial del entero (0.012) para el café o la panadería con pastelería: arriba de lo que no
+     * encaja, debajo de los de postres. El tag desserts suelto no suma: lo tiene la mayoría.
+     */
+    dessertFit: 0.03,
+    dessertFitPartial: 0.4,
+    /**
+     * Por cada sub-filtro activo cuya señal específica tiene el lugar (fuse.ts SUB_SIGNALS: Tragos → signature_cocktails o
+     * ícono de coctelería, no classic_cocktails). El filtro ya lo cumplen todos: esto ordena dentro. Como barFit.
+     */
+    subFit: 0.015,
+    /**
      * Por cada señal de la sección que tiene el lugar (las de su regla y las de bonus: picada + tapas + groups en Para
      * compartir), hasta maxSectionSignals. Ordena dentro de la sección (Ver todos o el grupo); no cambia quién entra.
      */

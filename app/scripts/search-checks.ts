@@ -1,5 +1,6 @@
 // Propiedades esperadas por consulta, para `yarn search:eval` y `yarn search:check` (sale con error si alguna falla).
-import { isDanceOnly, isKidsNight } from "../src/server/search/fuse";
+import { SEARCH_CONFIG } from "../src/server/search/config";
+import { dessertFitOf, isDanceOnly, isKidsNight } from "../src/server/search/fuse";
 import { intentGroups, matchesGroup } from "../src/server/search/intents";
 import { fitsGroup } from "../src/server/search/moments";
 import type { SearchDebug, SearchResponse } from "../src/server/search/search";
@@ -113,16 +114,28 @@ const isFirst = (placeName: string): Check => ({
 
 const SUNSET_TAGS = ["sea_view", "rooftop", "terrace"];
 
+/** Los primeros count cumplen ok (y hay al menos count resultados). */
+const topAll = (count: number, description: string, ok: (place: Place) => boolean): Check => ({
+  description: `los primeros ${count} ${description}`,
+  test: (places) => [...(places.length < count ? [`sólo ${places.length} resultados`] : []), ...places.slice(0, count).filter((place) => !ok(place)).map(name)],
+});
+
+/** Lugar de postres: heladería, o ícono de postre o helado (dessertFit entero). */
+const isDessertPlace = (place: Place) => dessertFitOf(place) === SEARCH_CONFIG.boosts.dessertFit;
+
 const hasDiscount = (place: Place, choices: DiscountChoice[]) => place.discounts.some((discount) => choices.some((choice) => matchesChoice(discount, choice)));
 
 /** Filtro de descuentos: todos cumplen alguna elección (un beneficio "other" cumple débito y crédito). */
 const allWithDiscount = (choices: DiscountChoice[]): Check =>
   every(`todos con descuento ${choices.map((choice) => `${choice.provider} ${choice.card}`).join(" o ")}`, (place) => hasDiscount(place, choices));
 
-/** La línea "Descuento: …" de cada card dice sólo lo elegido. */
-const cardDiscountsAre = (names: string[]): Check => ({
-  description: `la card dice "Descuento: ${names.join(", ")}"`,
-  test: (_, response) => response.results.filter((result) => result.discounts.join() !== names.join()).map((result) => `${result.name}: ${result.discounts.join(", ") || "—"}`),
+/** La línea "Descuento: …" de cada card dice sólo lo elegido (por id de proveedor, en este orden). */
+const cardDiscountsAre = (ids: string[]): Check => ({
+  description: `la card muestra sólo los descuentos ${ids.join(", ")}`,
+  test: (_, response) =>
+    response.results
+      .filter((result) => result.discounts.map((discount) => discount.id).join() !== ids.join())
+      .map((result) => `${result.name}: ${result.discounts.map((discount) => discount.id).join(", ") || "—"}`),
 });
 
 const noDiscountGroups: Check = {
@@ -175,6 +188,9 @@ export function parseCheckKey(key: string): { query: string; filters?: string | 
 
 export const CHECKS: Record<string, Check[]> = {
   "Bar Tasende": [isFirst("Bar Tasende")],
+  // Sin texto, la intención y el sub-filtro ordenan por afinidad (dessertFit, subFit).
+  " ?intent=desserts": [allInIntent("desserts"), topAll(5, "son heladerías o pastelerías (heladería o ícono de postre)", isDessertPlace)],
+  " ?intent=bars&sub=cocktails": [allInIntent("bars"), subFromBar("cocktails"), topAll(5, "tienen signature_cocktails", (place) => place.tags.includes("signature_cocktails"))],
   Jacinto: [isFirst("Jacinto")],
   Abasto: [isFirst("Abasto")],
   "La Latina Café": [isFirst("La Latina Café")],
@@ -261,7 +277,7 @@ export const CHECKS: Record<string, Check[]> = {
   ],
   "algo sin carne": [nonEmpty, noneInTop(10, "ninguna parrilla ni carne", isMeat)],
   // Descuentos de la barra, sin texto: un proveedor y crédito; dos proveedores (grupos); "other" cumple débito y crédito.
-  " ?f=discount:itau.credit": [nonEmpty, allWithDiscount([{ provider: "itau", card: "credit" }]), cardDiscountsAre(["Itaú"]), noDiscountGroups],
+  " ?f=discount:itau.credit": [nonEmpty, allWithDiscount([{ provider: "itau", card: "credit" }]), cardDiscountsAre(["itau"]), noDiscountGroups],
   " ?f=discount:itau.credit,discount:itau-personal-bank.debit": [
     nonEmpty,
     allWithDiscount([{ provider: "itau", card: "credit" }, { provider: "itau-personal-bank", card: "debit" }]),

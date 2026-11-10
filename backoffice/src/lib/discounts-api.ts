@@ -1,9 +1,9 @@
-import type { DiscountLinksRequest, DiscountPlace, DiscountRunProgress, DiscountsResponse } from '@/types/discounts'
+import type { DiscountLinksRequest, DiscountPlace, DiscountRunProgress, DiscountsListResponse, PlaceSearchEstimate, PlaceSearchProgress } from '@/types/discounts'
 import { parseApiResponse } from '@/lib/places-api'
 
-/** Todo lo guardado y la última corrida. */
-export async function getDiscounts(signal?: AbortSignal): Promise<DiscountsResponse> {
-  return parseApiResponse<DiscountsResponse>(await fetch('/api/discounts', { signal }))
+/** Todo lo guardado, la última corrida y las búsquedas en Google guardadas. */
+export async function getDiscounts(signal?: AbortSignal): Promise<DiscountsListResponse> {
+  return parseApiResponse<DiscountsListResponse>(await fetch('/api/discounts', { signal }))
 }
 
 /** Arranca "Actualizar descuentos" en el servidor. 409 si ya hay una corrida. */
@@ -46,4 +46,24 @@ export async function setDiscountIgnored(id: string, ignored: boolean): Promise<
 /** Vuelve a automático y se cruza de nuevo. */
 export async function resetDiscountMatch(id: string): Promise<DiscountPlace> {
   return placeResponse(await fetch(placeUrl(id, 'auto'), { method: 'POST' }))
+}
+
+const json = (body: unknown) => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+
+/** Busca en Google las filas de "No están en la base" (en el servidor). 409 si ya hay una búsqueda. */
+export async function startPlaceSearch(rows: string[]): Promise<{ jobId: string }> {
+  return parseApiResponse<{ jobId: string }>(await fetch('/api/discounts/searches', json({ rows })))
+}
+
+export async function getPlaceSearchProgress(signal?: AbortSignal): Promise<PlaceSearchProgress> {
+  return parseApiResponse<PlaceSearchProgress>(await fetch('/api/discounts/searches/current', { signal }))
+}
+
+export async function getPlaceSearchEstimate(signal?: AbortSignal): Promise<PlaceSearchEstimate> {
+  return parseApiResponse<PlaceSearchEstimate>(await fetch('/api/discounts/searches/estimate', { signal }))
+}
+
+/** Un dudoso: el candidato elegido (va a extracción) o null ("Ninguno": no encontrado). */
+export async function pickPlaceSearchCandidate(rowKey: string, placeId: string | null): Promise<void> {
+  await parseApiResponse<{ ok: true }>(await fetch('/api/discounts/searches/pick', json({ rowKey, placeId })))
 }

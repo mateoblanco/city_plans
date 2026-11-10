@@ -5,6 +5,8 @@ import type {
   JsonValue,
 } from '../../src/types/places.ts'
 import type {
+  FoundPlace,
+  PlaceFinder,
   PlaceSearchCriteria,
   PlaceSearchPage,
   PlacesProvider,
@@ -21,6 +23,19 @@ const FIELD_MASK = [
   'places.googleMapsUri',
   'nextPageToken',
 ].join(',')
+
+// findPlace: Text Search Pro (USD 32 cada 1.000). Sin rating ni userRatingCount, que lo pasarían a Enterprise.
+const FIND_FIELD_MASK = [
+  'places.id',
+  'places.displayName',
+  'places.formattedAddress',
+  'places.location',
+  'places.primaryType',
+].join(',')
+/** Costo de una llamada a findPlace (Text Search Pro). */
+export const FIND_PLACE_USD = 0.032
+const MONTEVIDEO_BIAS = { center: { latitude: -34.9011, longitude: -56.1645 }, radius: 30000 }
+const FIND_NEAR_METERS = 500
 
 type GoogleLocalizedText = {
   text?: string
@@ -57,7 +72,7 @@ type GoogleErrorResponse = {
   }
 }
 
-export class GooglePlacesProvider implements PlacesProvider {
+export class GooglePlacesProvider implements PlacesProvider, PlaceFinder {
   private readonly apiKey: string
   private readonly fetcher: typeof fetch
   private readonly detailsCache = new Map<string, Promise<GooglePlaceDetailsResponse>>()
@@ -89,12 +104,7 @@ export class GooglePlacesProvider implements PlacesProvider {
       body.includedType = criteria.placeType
       body.strictTypeFiltering = true
     } else {
-      body.locationBias = {
-        circle: {
-          center: { latitude: -34.9011, longitude: -56.1645 },
-          radius: 30000,
-        },
-      }
+      body.locationBias = { circle: MONTEVIDEO_BIAS }
     }
 
     if (criteria.pageToken) {
@@ -148,6 +158,43 @@ export class GooglePlacesProvider implements PlacesProvider {
       items,
       nextPageToken: payload.nextPageToken || null,
     }
+  }
+
+  /**
+   * Text Search de un lugar puntual ("nombre, dirección, Montevideo"), hasta 5 resultados, sesgado a 500 m de `near` si
+   * hay coordenadas (si no, a Montevideo). Sin paginar. Sólo los que traen id, nombre y coordenadas.
+   */
+  async findPlace({ query, near }: { query: string; near?: { lat: number; lng: number } | null }): Promise<FoundPlace[]> {
+    const body = {
+      textQuery: query,
+      languageCode: 'es',
+      regionCode: 'UY',
+      pageSize: 5,
+      locationBias: {
+        circle: near ? { center: { latitude: near.lat, longitude: near.lng }, radius: FIND_NEAR_METERS } : MONTEVIDEO_BIAS,
+      },
+    }
+    let response: Response
+    try {
+      response = await this.fetcher(GOOGLE_TEXT_SEARCH_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': this.apiKey, 'X-Goog-FieldMask': FIND_FIELD_MASK },
+        body: JSON.stringify(body),
+      })
+    } catch (error) {
+      throw new PlacesProviderError('upstream', 'No se pudo conectar con Google Places.', { cause: error })
+    }
+    if (!response.ok) await throwGoogleError(response)
+    const payload = (await response.json()) as {
+      places?: { id?: string; displayName?: GoogleLocalizedText; formattedAddress?: string; location?: { latitude?: number; longitude?: number }; primaryType?: string }[]
+    }
+    return (payload.places ?? []).flatMap((place) => {
+      const name = place.displayName?.text?.trim()
+      const lat = place.location?.latitude
+      const lng = place.location?.longitude
+      if (!place.id || !name || !Number.isFinite(lat) || !Number.isFinite(lng)) return []
+      return [{ placeId: place.id, name, address: place.formattedAddress?.trim() ?? '', lat: lat as number, lng: lng as number, primaryType: place.primaryType ?? null }]
+    })
   }
 
   async getDetails(placeId: string): Promise<GooglePlaceDetailsResponse> {

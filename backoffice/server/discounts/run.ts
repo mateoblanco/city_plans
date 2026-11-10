@@ -1,5 +1,7 @@
 import type { DiscountProvider, DiscountRun, DiscountRunProgress, DiscountRunProvider } from '../../src/types/discounts.ts'
+import type { PlaceSearchEstimate } from '../../src/types/discounts.ts'
 import type { MatchablePlace } from './match.ts'
+import type { DiscountPlaceSearchRunner } from './place-search-runner.ts'
 import { planDiscountWrites, type DiscountStore } from './persist.ts'
 import { discountProvider } from './providers.ts'
 import type { PageFetcher } from './polite-fetch.ts'
@@ -131,9 +133,14 @@ export class DiscountRunner {
   }
 }
 
-/** Lo que usan los endpoints de descuentos: la corrida, lo guardado y nuestros lugares (para volver a cruzar). */
+/**
+ * Lo que usan los endpoints de descuentos: la corrida, lo guardado y nuestros lugares (para volver a cruzar). `search`:
+ * la búsqueda en Google de los que no están en la base (falta sin Google o sin el modelo); `estimate`, su costo.
+ */
 export type DiscountsService = {
   runner: DiscountRunner
   store: DiscountStore
   candidates: () => Promise<MatchablePlace[]>
+  search?: Pick<DiscountPlaceSearchRunner, 'start' | 'pick' | 'status'>
+  estimate?: () => Promise<PlaceSearchEstimate>
 }

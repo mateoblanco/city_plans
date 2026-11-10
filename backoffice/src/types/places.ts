@@ -715,6 +715,8 @@ export type ApiErrorCode =
   | 'LOGO_INVALID'
   /** Ya hay una corrida de descuentos en curso. */
   | 'DISCOUNT_RUN_IN_PROGRESS'
+  /** Ya hay una búsqueda de lugares de descuentos en curso. */
+  | 'DISCOUNT_SEARCH_IN_PROGRESS'
   | 'UNKNOWN_ERROR'
 
 export type ApiErrorResponse = {

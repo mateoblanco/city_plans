@@ -9,6 +9,8 @@ export const REVIEW_REASONS = {
   low_rating: 'Puntaje bajo en Google',
   closed_permanently: 'Cerrado definitivamente',
   closed_temporarily: 'Cerrado temporalmente',
+  // Lo agregó la búsqueda de Descuentos › "No están en la base": siempre se revisa a mano antes de publicar.
+  from_discounts: 'Agregado desde descuentos',
 } as const
 
 export type ReviewReason = keyof typeof REVIEW_REASONS

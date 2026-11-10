@@ -28,6 +28,7 @@ import {
   MATCH_ORIGINS,
   MATCH_STATUSES,
   WEEKDAYS,
+  type DiscountPlaceSearch,
   type DiscountRunError,
   type DiscountRunProvider,
   type MatchCandidate,
@@ -285,6 +286,10 @@ export const discountPlaces = pgTable(
     matchOrigin: text("match_origin", { enum: MATCH_ORIGINS }).notNull().default("auto"),
     matchCandidates: jsonb("match_candidates").$type<MatchCandidate[]>().notNull().default([]),
     matchedAt: timestamp("matched_at", { withTimezone: true }),
+
+    // Búsqueda en Google de los que no están en la base (pantalla Descuentos), una por local. De Google sólo place_id y
+    // coordenadas. Las corridas de descuentos no la tocan.
+    placeSearches: jsonb("place_searches").$type<DiscountPlaceSearch[]>().notNull().default([]),
 
     lastRunId: text("last_run_id"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

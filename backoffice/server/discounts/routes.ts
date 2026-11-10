@@ -1,8 +1,10 @@
 import type { Context, Hono, Next } from 'hono'
 import { z } from 'zod'
 import type { ApiErrorResponse } from '../../src/types/places.ts'
-import type { DiscountsResponse } from '../../src/types/discounts.ts'
+import type { DiscountsListResponse } from '../../src/types/discounts.ts'
 import { matchPlace } from './match.ts'
+import { missingRows } from './missing.ts'
+import { MAX_SEARCH_ROWS } from './place-search-runner.ts'
 import type { DiscountsService } from './run.ts'
 
 const apiError = (code: ApiErrorResponse['error']['code'], message: string): ApiErrorResponse => ({ error: { code, message } })
@@ -36,6 +38,11 @@ function linksError(error: z.ZodError, body: unknown): string {
   return `Vínculos inválidos: ${error.issues[0]?.message ?? 'formato desconocido'}.`
 }
 const ignoredSchema = z.object({ ignored: z.boolean() })
+// Una fila de "No están en la base": las claves de sus locales ("bbva:la-pasiva#0|santander:la-pasiva#1").
+const rowKey = z.string().min(3).max(4000)
+const searchSchema = z.object({ rows: z.array(rowKey).min(1).max(MAX_SEARCH_ROWS) })
+const pickSchema = z.object({ rowKey, placeId: z.string().regex(/^[A-Za-z0-9_-]{2,256}$/).nullable() })
+const SEARCH_NOT_CONFIGURED = 'Buscar en Google necesita GOOGLE_PLACES_API_KEY y AI_GATEWAY_API_KEY en .env.local.'
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
@@ -50,8 +57,8 @@ export function registerDiscountRoutes(app: Hono, discounts: DiscountsService | 
 
   app.get('/api/discounts', async (context) => {
     try {
-      const [run, places] = await Promise.all([discounts!.store.latestRun(), discounts!.store.list()])
-      return context.json({ run, places } satisfies DiscountsResponse)
+      const [run, places, searches] = await Promise.all([discounts!.store.latestRun(), discounts!.store.list(), discounts!.store.placeSearches()])
+      return context.json({ run, places, searches, missing: missingRows(places) } satisfies DiscountsListResponse)
     } catch (error) {
       return context.json(apiError('UNKNOWN_ERROR', `No se pudieron leer los descuentos: ${message(error)}`), 500)
     }
@@ -135,6 +142,45 @@ export function registerDiscountRoutes(app: Hono, discounts: DiscountsService | 
       return respondWith(context, id)
     } catch (error) {
       return context.json(apiError('UNKNOWN_ERROR', `No se pudo volver a cruzar: ${message(error)}`), 500)
+    }
+  })
+
+  // Buscar en Google los que no están en la base y mandarlos a extracción (siempre a "A revisar"). Corre en el
+  // servidor; la pantalla consulta el progreso.
+  app.post('/api/discounts/searches', async (context) => {
+    if (!discounts!.search) return context.json(apiError('CONFIGURATION_ERROR', SEARCH_NOT_CONFIGURED), 503)
+    const body = searchSchema.safeParse(await context.req.json().catch(() => null))
+    if (!body.success) return context.json(apiError('VALIDATION_ERROR', `Se espera { rows: [...] } con entre 1 y ${MAX_SEARCH_ROWS} filas.`), 400)
+    try {
+      const started = await discounts!.search.start(body.data.rows)
+      if ('busy' in started) return context.json(apiError('DISCOUNT_SEARCH_IN_PROGRESS', 'Ya hay una búsqueda de lugares en curso.'), 409)
+      if ('unknown' in started) return context.json(apiError('VALIDATION_ERROR', `${started.unknown.length === 1 ? 'Una fila ya no está' : `${started.unknown.length} filas ya no están`} en «No están en la base»: recargá la pantalla.`), 400)
+      return context.json(started, 202)
+    } catch (error) {
+      return context.json(apiError('UNKNOWN_ERROR', `No se pudo empezar la búsqueda: ${message(error)}`), 500)
+    }
+  })
+
+  app.get('/api/discounts/searches/current', (context) => context.json(discounts!.search?.status() ?? { status: 'idle' }))
+
+  app.get('/api/discounts/searches/estimate', async (context) => {
+    if (!discounts!.search || !discounts!.estimate) return context.json(apiError('CONFIGURATION_ERROR', SEARCH_NOT_CONFIGURED), 503)
+    return context.json(await discounts!.estimate())
+  })
+
+  // Un dudoso: elegir un candidato (va a extracción) o ninguno (placeId null: no encontrado).
+  app.post('/api/discounts/searches/pick', async (context) => {
+    if (!discounts!.search) return context.json(apiError('CONFIGURATION_ERROR', SEARCH_NOT_CONFIGURED), 503)
+    const body = pickSchema.safeParse(await context.req.json().catch(() => null))
+    if (!body.success) return context.json(apiError('VALIDATION_ERROR', 'Se espera { rowKey, placeId } (placeId null = ninguno).'), 400)
+    try {
+      const result = await discounts!.search.pick(body.data.rowKey, body.data.placeId)
+      if (result === 'not_found') return context.json(apiError('NOT_FOUND_ERROR', 'Esa fila ya no está en «No están en la base»: recargá la pantalla.'), 404)
+      if (result === 'not_doubtful') return context.json(apiError('VALIDATION_ERROR', 'Esa fila no está dudosa: no hay candidatos para elegir.'), 409)
+      if (result === 'not_candidate') return context.json(apiError('VALIDATION_ERROR', 'Ese lugar no es uno de los candidatos de la búsqueda.'), 400)
+      return context.json({ ok: true })
+    } catch (error) {
+      return context.json(apiError('UNKNOWN_ERROR', `No se pudo guardar la elección: ${message(error)}`), 500)
     }
   })
 }

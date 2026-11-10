@@ -1,6 +1,6 @@
-import type { DiscountLink, DiscountPlace, DiscountRun, StoredBenefit } from '../../src/types/discounts.ts'
+import type { DiscountLink, DiscountPlace, DiscountPlaceSearch, DiscountRun, StoredBenefit } from '../../src/types/discounts.ts'
 import { withReadDerived, type MatchablePlace } from './match.ts'
-import { isExpired, montevideoToday, type DiscountStore, type DiscountWrites } from './persist.ts'
+import { isExpired, mergeSearches, montevideoToday, type DiscountStore, type DiscountWrites, type OurPlace } from './persist.ts'
 
 type Row = Omit<DiscountPlace, 'benefits' | 'match'> & {
   matchStatus: DiscountPlace['match']['status']
@@ -10,13 +10,17 @@ type Row = Omit<DiscountPlace, 'benefits' | 'match'> & {
 
 /**
  * DiscountStore en memoria, con las mismas reglas que el de Drizzle (drizzle-store.ts): para los tests de las corridas
- * y de los endpoints. `places` son nuestros lugares (para validar vínculos y poner el nombre).
+ * y de los endpoints. `places` son nuestros lugares (para validar vínculos y poner el nombre); `ours`, los mismos con
+ * googlePlaceId y status (para "ya existe" de la búsqueda en Google).
  */
-export function memoryDiscountStore(places: MatchablePlace[] = [], options: { today?: () => string; seed?: DiscountPlace[] } = {}) {
+export function memoryDiscountStore(places: MatchablePlace[] = [], options: { today?: () => string; seed?: DiscountPlace[]; ours?: OurPlace[] } = {}) {
   const rows = new Map<string, Row>()
   const benefits = new Map<string, StoredBenefit & { discountPlaceId: string }>()
   let links: (Omit<DiscountLink, 'name' | 'neighborhoodId'> & { discountPlaceId: string })[] = []
   const runs: DiscountRun[] = []
+  // Aparte de rows, como la columna en la base: una corrida no la toca.
+  const searches = new Map<string, DiscountPlaceSearch[]>()
+  const ours: OurPlace[] = [...(options.ours ?? [])]
   const today = options.today ?? (() => montevideoToday(new Date()))
   const placeOf = (id: string) => places.find((place) => place.id === id)
   // Arranca con lo guardado (--dry-run sobre la base actual): lugares, beneficios y vínculos tal cual.
@@ -45,9 +49,10 @@ export function memoryDiscountStore(places: MatchablePlace[] = [], options: { to
     }, places)
   }
 
-  const store: DiscountStore & { places: typeof places; runs: DiscountRun[] } = {
+  const store: DiscountStore & { places: typeof places; runs: DiscountRun[]; ours: OurPlace[] } = {
     places,
     runs,
+    ours,
     async existing(providerId) {
       return [...rows.values()].filter((row) => row.providerId === providerId).map((row) => ({ id: row.id, ignored: row.ignored, matchOrigin: row.matchOrigin }))
     },
@@ -144,6 +149,20 @@ export function memoryDiscountStore(places: MatchablePlace[] = [], options: { to
       links = links.filter((item) => item.discountPlaceId !== id)
       for (const { name: _name, neighborhoodId: _neighborhood, ...item } of match.links) links.push({ ...item, discountPlaceId: id })
       return true
+    },
+    async placeSearches() {
+      return Object.fromEntries([...searches].filter(([, items]) => items.length).map(([id, items]) => [id, items.map((search) => {
+        const place = search.placeId ? ours.find((item) => item.id === search.placeId) : undefined
+        return { ...search, ourPlace: place ? { id: place.id, name: place.name, status: place.status } : null }
+      })]))
+    },
+    async setPlaceSearches(updates) {
+      for (const { discountPlaceId, search } of updates) {
+        if (rows.has(discountPlaceId)) searches.set(discountPlaceId, mergeSearches(searches.get(discountPlaceId) ?? [], search))
+      }
+    },
+    async ourPlaces(googlePlaceIds) {
+      return ours.filter((place) => googlePlaceIds.includes(place.googlePlaceId))
     },
   }
   return store

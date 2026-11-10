@@ -591,6 +591,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       wantsDancing,
       avoidNight: mentionsParents(normalized),
       intent: value.intent,
+      subs: value.subs,
       section: filters.section,
     })
     // Sin tope: se muestran todos los que pasan el corte por relevancia (los de horario sin confirmar, al final).
@@ -665,7 +666,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       lng: item.row.lng,
       branchCount: item.row.brandCount,
       branches: item.branches.map(({ row }) => ({ id: row.id, lat: row.lat, lng: row.lng })),
-      reasons: buildReasons(item, { interpretation: current, dishes, dishMode: state.dishMode, intent: state.intent, near: near !== null }),
+      reasons: buildReasons(item, { interpretation: current, dishes, dishMode: state.dishMode, intent: state.intent, subs: state.subs, near: near !== null }),
       discounts: cardProviders(item.row.discounts, filters.discounts),
       openStatus: {
         state: open.state,
@@ -731,6 +732,8 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   // Avisos: cada paso se arma con el estado previo y sólo si algún resultado no cumple lo relajado.
   const shownRows = fused.filter((item) => !item.pinned).map((item) => item.row)
   const relaxed: SearchResponse['relaxed'] = []
+  // Los avisos sólo nombran la intención si la persona la eligió (barra) o la dijo con un verbo ("comer").
+  const intentNamed = state.intent !== null && (intentUrl.intent === state.intent || fromText.intent === state.intent)
   let before = initial
   for (const relaxStep of relaxedSteps) {
     const notice = relaxNotice(relaxStep, {
@@ -739,6 +742,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       rows: shownRows,
       dishes,
       openAt: openFilterOf(before.interpretation),
+      intentNamed,
     })
     if (notice && shownRows.length) relaxed.push(notice)
     before = relax(before, relaxStep)
@@ -752,7 +756,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     const blocking = await blockingConditions(deps.store, filtersOf(state))
     const chips = chipsOf(buildChips(interpretation, today))
     suggestedRemovals = chips.filter((chip) => (blocking.diet && chip.kind === 'diet') || (blocking.exclude && chip.kind === 'exclude'))
-    relaxed.push(noMatchNotice(interpretation, blocking, state.intent, rawQuery))
+    relaxed.push(noMatchNotice(interpretation, blocking, intentNamed ? state.intent : null, rawQuery))
     timings.diagnose = elapsed(step)
   }
   timings.total = elapsed(started)

@@ -3,9 +3,8 @@ import distance from '@turf/distance'
 import { point } from '@turf/helpers'
 import { getBarrio } from '../../src/lib/getNeighborhood.ts'
 import { instagramKey } from '../places/brand-key.ts'
-import { montevideoNeighborhood } from './geo.ts'
+import { montevideoNeighborhood, nameSimilarity, normalizeName, tokensOf } from '../../src/lib/discount-names.ts'
 import type { ReadPlace } from './reader.ts'
-import { fold } from './text.ts'
 
 /** Lo que el cruce lee de `places` (sólo lectura). */
 export type MatchablePlace = {
@@ -31,58 +30,10 @@ export function metersBetween(a: { lat: number; lng: number }, b: { lat: number;
   return distance(point([a.lng, a.lat]), point([b.lng, b.lat]), { units: 'meters' })
 }
 
+export { nameSimilarity, normalizeName }
+
 const metersLabel = (meters: number) => (meters < 1000 ? `a ${Math.round(meters)} m` : `a ${(meters / 1000).toFixed(1).replace('.', ',')} km`)
 
-// Rubros, artículos y sufijos de ubicación que no distinguen un lugar.
-const GENERIC = new Set([
-  'restaurante', 'restaurant', 'resto', 'bar', 'cafe', 'cafeteria', 'coffee', 'parrilla', 'parrillada', 'pizzeria', 'heladeria', 'helado', 'helados',
-  'cerveceria', 'bistro', 'bodegon', 'rotiseria', 'panaderia', 'confiteria', 'pub', 'grill', 'kitchen', 'cocina', 'casa',
-  'el', 'la', 'los', 'las', 'de', 'del', 'the', 'y', 'and', 'by', 'uy', 'mvd', 'montevideo', 'uruguay', 'sucursal', 'local',
-])
-
-const tokensOf = (name: string) => fold(name).replace(/&/g, ' y ').replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean)
-
-/** Nombre para comparar: sin tildes, sin puntuación y sin palabras genéricas (si queda algo). */
-export function normalizeName(name: string): string {
-  const tokens = tokensOf(name)
-  const specific = tokens.filter((token) => !GENERIC.has(token))
-  return (specific.length ? specific : tokens).join(' ')
-}
-
-function bigrams(value: string): string[] {
-  const compact = value.replace(/ /g, '')
-  const grams: string[] = []
-  for (let index = 0; index < compact.length - 1; index++) grams.push(compact.slice(index, index + 2))
-  return grams
-}
-
-/** Dice sobre bigramas del nombre normalizado (0 a 1). */
-export function nameSimilarity(a: string, b: string): number {
-  const left = normalizeName(a)
-  const right = normalizeName(b)
-  if (!left || !right) return 0
-  if (left === right) return 1
-  if (left.replace(/ /g, '') === right.replace(/ /g, '')) return 0.98
-  const x = bigrams(left)
-  const y = bigrams(right)
-  if (x.length === 0 || y.length === 0) return 0
-  const counts = new Map<string, number>()
-  for (const gram of x) counts.set(gram, (counts.get(gram) ?? 0) + 1)
-  let common = 0
-  for (const gram of y) {
-    const count = counts.get(gram) ?? 0
-    if (count > 0) {
-      common += 1
-      counts.set(gram, count - 1)
-    }
-  }
-  const dice = (2 * common) / (x.length + y.length)
-  // Uno contiene al otro como palabras ("Es Mercat" en "El Otro Es Mercat" no: eso lo baja el resto del nombre).
-  const wordsA = left.split(' ')
-  const wordsB = right.split(' ')
-  const contained = wordsA.every((word) => wordsB.includes(word)) || wordsB.every((word) => wordsA.includes(word))
-  return contained ? Math.max(dice, 0.7) : dice
-}
 
 /** Barrios de Montevideo que nombra la fuente: los de cada local y los de la ciudad ("Pocitos, Montevideo"). */
 export function sourceNeighborhoods(place: { locations: ProviderPlaceLocation[]; city: string | null }): Set<string> {

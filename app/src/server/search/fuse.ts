@@ -1,6 +1,6 @@
 import { CUISINES, FOODS, isOccasionTag, normalize } from '@shared/tags.ts'
 import type { IconCategory } from '@shared/icon-categories.ts'
-import type { IntentId } from '@shared/intents.ts'
+import type { IntentId, INTENTS } from '@shared/intents.ts'
 import type { SectionId } from '@shared/sections.ts'
 import { SEARCH_CONFIG } from './config'
 import type { CandidateRow } from './candidates'
@@ -52,6 +52,8 @@ export type FuseContext = {
    * pedida (requestedTags) también da barFit, aunque no haya intención.
    */
   intent: IntentId | null
+  /** Sub-filtros activos de la intención (URL o texto): el lugar con su señal específica (SUB_SIGNALS) suma subFit. */
+  subs?: string[]
   /** "Ver todos" de una sección (`f=section:<id>`): sus señales suman sectionFit. */
   section: SectionId | null
 }
@@ -202,6 +204,73 @@ export const EAT_ICONS = new Set<IconCategory>([
 /** Categorías que dan la mitad de eatFit aunque el ícono sea de café o bar (Savarin, bodegones con ícono de bar). */
 const EAT_CATEGORIES = new Set(['restaurant', 'bodegon'])
 
+/**
+ * Postres: íconos de un lugar de postres o helado. El tag desserts no sirve para separar (lo tiene la mayoría: cualquier
+ * carta con postres), así que no suma.
+ */
+export const DESSERT_ICONS = new Set<IconCategory>(['cake', 'cupcake', 'pie', 'birthday_cake', 'donut', 'cookie', 'chocolate', 'ice_cream'])
+/** Íconos de pastelería o panadería: con categoría de café o panadería y el tag pastries, el café con pastelería. */
+const PASTRY_ICONS = new Set<IconCategory>(['croissant', 'bread', 'bakery'])
+
+/**
+ * dessertFit del lugar con la intención Postres: entero para el lugar de postres (heladería, o ícono de postre o
+ * helado); la mitad para el café o la panadería con pastelería (tag pastries o ícono de pastelería). Lo demás, nada.
+ */
+export function dessertFitOf(row: Pick<CandidateRow, 'categories' | 'tags' | 'iconCategory'>): number {
+  const full = SEARCH_CONFIG.boosts.dessertFit
+  if (row.categories.includes('ice_cream_shop') || (row.iconCategory !== null && DESSERT_ICONS.has(row.iconCategory))) return full
+  const cafe = row.categories.includes('cafe') || row.categories.includes('bakery')
+  const pastry = row.tags.includes('pastries') || (row.iconCategory !== null && PASTRY_ICONS.has(row.iconCategory))
+  return cafe && pastry ? full * SEARCH_CONFIG.boosts.dessertFitPartial : 0
+}
+
+/**
+ * La señal más específica de cada sub-filtro, más fina que su filtro (que ya cumplen todos): ícono, categoría, un tag
+ * más angosto o el tag en signature (lo que define al lugar). null: no hay una señal mejor que el tag del filtro
+ * (almuerzo y cena los tiene casi todo lugar para comer y nunca están en signature).
+ */
+export type SubSignal = { icons?: IconCategory[]; categories?: string[]; tags?: string[]; signature?: string[] }
+const BREAKFAST_SIGNAL: SubSignal = { icons: ['breakfast', 'pancakes'], signature: ['breakfast'] }
+const BRUNCH_SIGNAL: SubSignal = { icons: ['pancakes'], signature: ['brunch'] }
+export const SUB_SIGNALS: { [K in IntentId]: Record<keyof (typeof INTENTS)[K]['subs'], SubSignal | null> } = {
+  eat: { breakfast: BREAKFAST_SIGNAL, brunch: BRUNCH_SIGNAL, lunch: null, dinner: null },
+  cafes: {
+    specialty: { icons: ['coffee'], signature: ['specialty_coffee'] },
+    pastries: { icons: [...PASTRY_ICONS, ...DESSERT_ICONS].filter((icon) => icon !== 'ice_cream'), categories: ['bakery'], signature: ['pastries'] },
+    brunch: BRUNCH_SIGNAL,
+    work: { signature: ['work'] },
+  },
+  bars: {
+    cocktails: { icons: ['cocktails'], tags: ['signature_cocktails'] },
+    wine: { icons: ['wine'], categories: ['wine_bar'], signature: ['wine'] },
+    beer: { icons: ['beer', 'beer_pub'], categories: ['brewery'], tags: ['craft_beer'] },
+    live_music: { signature: ['live_music'] },
+    live_sports: { signature: ['watch_football'] },
+    dancing: { categories: ['night_club'], signature: ['dj'] },
+  },
+  desserts: {
+    ice_cream: { icons: ['ice_cream'], categories: ['ice_cream_shop'] },
+    pastries: { icons: [...DESSERT_ICONS].filter((icon) => icon !== 'ice_cream'), signature: ['pastries'] },
+  },
+}
+
+export const subSignal = (intent: IntentId | null, sub: string): SubSignal | null =>
+  intent ? ((SUB_SIGNALS[intent] as Record<string, SubSignal | null>)[sub] ?? null) : null
+
+const hasSubSignal = (row: Pick<CandidateRow, 'categories' | 'tags' | 'signature' | 'iconCategory'>, signal: SubSignal) =>
+  (row.iconCategory !== null && (signal.icons ?? []).includes(row.iconCategory)) ||
+  (signal.categories ?? []).some((id) => row.categories.includes(id)) ||
+  (signal.tags ?? []).some((id) => row.tags.includes(id)) ||
+  (signal.signature ?? []).some((id) => row.signature.includes(id))
+
+/** Cuántos sub-filtros activos tienen su señal específica en el lugar. */
+export function subSignalCount(row: Pick<CandidateRow, 'categories' | 'tags' | 'signature' | 'iconCategory'>, intent: IntentId | null, subs: string[]): number {
+  return subs.filter((id) => {
+    const signal = subSignal(intent, id)
+    return signal !== null && hasSubSignal(row, signal)
+  }).length
+}
+
 /** Tags de prefer, sin momentos, que tienen rareTagMaxPlaces lugares o menos entre los que cumplen los filtros. */
 export function rareTagsOf(rows: Pick<CandidateRow, 'tags' | 'matchesFilters'>[], preferTags: string[]): string[] {
   const matching = rows.filter((row) => row.matchesFilters)
@@ -254,6 +323,12 @@ export function boostsFor(row: CandidateRow, context: FuseContext, open: OpenSta
     if (row.iconCategory !== null && EAT_ICONS.has(row.iconCategory)) result.eatFit = boosts.eatFit
     else if (row.categories.some((id) => EAT_CATEGORIES.has(id))) result.eatFit = boosts.eatFit / 2
   }
+  if (context.intent === 'desserts') {
+    const dessertFit = dessertFitOf(row)
+    if (dessertFit > 0) result.dessertFit = dessertFit
+  }
+  const subSignals = subSignalCount(row, context.intent, context.subs ?? [])
+  if (subSignals > 0) result.subFit = subSignals * boosts.subFit
   const signals = context.section ? sectionSignals(context.section, row) : 0
   if (signals > 0) result.sectionFit = signals * boosts.sectionFit
   const moment = momentSignals(context.moments, row)

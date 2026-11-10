@@ -2,6 +2,7 @@
 // intención o filtro y traer sólo lugares de ella. Por el atajo del diccionario y por el modelo (mockeado).
 import { describe, expect, it } from 'vitest'
 import { CATEGORIES, normalize, type CategoryId } from '@shared/tags.ts'
+import { REROUTED_PHRASES } from '../dictionary'
 import { intentGroups, matchesGroup } from '../intents'
 import { runSearch } from '../search'
 import { fakeCache, fakeStore, llmOutput, row } from './fixtures'
@@ -19,7 +20,8 @@ const byId = new Map(places.map((place) => [place.id, place]))
 const termsOf = (id: CategoryId) => {
   const { label, synonyms } = CATEGORIES[id]
   const terms = [label.es, label.en, ...synonyms.es, ...synonyms.en]
-  return [...new Map(terms.map((term) => [normalize(term), term])).values()]
+  // "vinos por copa" es sinónimo de wine_bar pero el diccionario lo resuelve como el tag wine (interpretation.test.ts).
+  return [...new Map(terms.map((term) => [normalize(term), term])).values()].filter((term) => !REROUTED_PHRASES.has(normalize(term)))
 }
 
 const variants = (term: string) => [

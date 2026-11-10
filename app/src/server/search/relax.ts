@@ -91,6 +91,11 @@ export type NoticeContext = {
   dishes: DishTarget[]
   /** openAt antes de relajarlo. */
   openAt: OpenFilter | null
+  /**
+   * La persona eligió o nombró la intención (la barra o un verbo: "comer", "tomar algo"). Si sólo la dedujo un tag
+   * ("almuerzo" → Comer), el aviso no la nombra: dice lugares y lo que se pidió ("lugares para almorzar").
+   */
+  intentNamed?: boolean
 }
 
 /** Aviso de un paso de relajación; null si ningún resultado deja de cumplir lo que se relajó. */
@@ -109,7 +114,7 @@ export function relaxNotice(step: RelaxStep, context: NoticeContext): { what: No
     if (!intent || !rows.some((row) => groups.some((group) => !matchesGroup(group, row)))) return null
     const definition = intentDef(intent)
     const phrases = subs.flatMap((id) => (definition.subs[id] ? [definition.subs[id].phrase[lang]] : []))
-    const noun = definition.noun[lang]
+    const noun = context.intentNamed === false ? (es ? 'lugares' : 'places') : definition.noun[lang]
     const what = `${noun} ${list(phrases, lang)}`
     const message = subs.length === 1
       ? es ? `No encontramos ${what}; estos son los más parecidos.` : `No ${what}; these are the closest matches.`
