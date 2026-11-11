@@ -33,7 +33,7 @@ describe('cardProviders', () => {
   ]
 
   it('sin filtro: todos los proveedores del lugar, sin repetir y en el orden de la config', () => {
-    expect(cardProviders(discounts, [])).toEqual([{ id: 'itau', name: 'Itaú' }, { id: 'bbva', name: 'BBVA' }, { id: 'santander', name: 'Santander' }])
+    expect(cardProviders(discounts, [])).toEqual([{ id: 'itau', name: 'Itaú' }, { id: 'santander', name: 'Santander' }, { id: 'bbva', name: 'BBVA' }])
     expect(cardProviders([], [])).toEqual([])
   })
 

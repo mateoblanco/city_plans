@@ -52,6 +52,19 @@ function benefitChanges(before: DiscountPlace[], after: DiscountPlace[], provide
   return [...new Set([...a.keys(), ...b.keys()])].sort().filter((key) => a.get(key) !== b.get(key)).map((key) => `${key}: ${a.get(key) ?? 0} → ${b.get(key) ?? 0}`)
 }
 
+/** Lugares activos cuyo cruce cambia (estado o vínculos), para revisar falsos positivos antes de escribir. */
+function matchChanges(before: DiscountPlace[], after: DiscountPlace[], providerId: string): string[] {
+  const key = (place: DiscountPlace) => `${place.match.status} [${place.match.links.map((item) => item.name).sort().join(', ')}]`
+  const old = new Map(before.filter((place) => place.providerId === providerId).map((place) => [place.id, place]))
+  return after
+    .filter((place) => place.providerId === providerId && place.active)
+    .flatMap((place) => {
+      const previous = old.get(place.id)
+      const was = previous ? key(previous) : '(nuevo)'
+      return was === key(place) ? [] : [`${place.sourceName} (${place.id}): ${was} → ${key(place)}`]
+    })
+}
+
 function flag(name: string): string | undefined {
   const index = process.argv.indexOf(name)
   if (index < 0) return undefined
@@ -79,6 +92,9 @@ async function main() {
     for (const provider of run.providers) {
       console.log(`  ${provider.name}: ${providerNumbers(before, provider.providerId)}  →  ${providerNumbers(after, provider.providerId)}`)
       for (const line of benefitChanges(before, after, provider.providerId)) console.log(`    ${line}`)
+      const changes = matchChanges(before, after, provider.providerId)
+      if (changes.length) console.log(`    Cruces que cambian (${changes.length}):`)
+      for (const line of changes) console.log(`      ${line}`)
     }
   }
   summary(run, after)

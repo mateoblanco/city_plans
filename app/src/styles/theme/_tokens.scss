@@ -57,7 +57,7 @@
 	--color-map-placeholder: #f7f7f7;
 
 	// Fondo del nombre de cada banco (BankChip: descuentos de la ficha y filtro de Descuentos), por id de proveedor; el texto va en
-	// --color-text-inverse. Scotiabank y BROU todavía no tienen lector. BankChip
+	// --color-text-inverse. Santander y Scotiabank comparten el rojo (4,62:1 con blanco). BankChip
 	--color-bank-itau: #{palette.get(bank-itau)};
 	--color-bank-itau-personal-bank: #{palette.get(bank-itau-personal-bank)};
 	--color-bank-santander: #{palette.get(bank-santander)};

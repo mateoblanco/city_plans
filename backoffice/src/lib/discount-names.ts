@@ -12,11 +12,15 @@ export function montevideoNeighborhood(text: string | null): string | null {
   return resolveNeighborhood(text.trim())
 }
 
+// Plurales de rubro que algunas fuentes pegan al nombre ("IBER restaurantes": la marca es IBER).
+const PLURALS = new Set(['restaurantes', 'cafeterias', 'bares', 'parrillas', 'pizzerias', 'heladerias', 'cervecerias', 'confiterias', 'panaderias'])
+
 // Rubros, artículos y sufijos de ubicación que no distinguen un lugar.
 const GENERIC = new Set([
   'restaurante', 'restaurant', 'resto', 'bar', 'cafe', 'cafeteria', 'coffee', 'parrilla', 'parrillada', 'pizzeria', 'heladeria', 'helado', 'helados',
   'cerveceria', 'bistro', 'bodegon', 'rotiseria', 'panaderia', 'confiteria', 'pub', 'grill', 'kitchen', 'cocina', 'casa',
   'el', 'la', 'los', 'las', 'de', 'del', 'the', 'y', 'and', 'by', 'uy', 'mvd', 'montevideo', 'uruguay', 'sucursal', 'local',
+  ...PLURALS,
 ])
 
 // Además de las genéricas, palabras de rubro o comida que dos lugares vecinos distintos comparten seguido ("Sumi Sushi" y
@@ -40,6 +44,24 @@ export function sharedDistinctiveWords(a: string, b: string): string[] {
 }
 
 export const tokensOf = (name: string) => fold(name).replace(/&/g, ' y ').replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean)
+
+/**
+ * Las formas de un nombre para cruzar: el entero; si tiene " - " o " | ", la parte de antes ("Plantado - Hyatt Centric
+ * Montevideo" → "Plantado"; no se usa si queda sin palabras específicas o en una sola palabra corta, ≤ 5 letras: "Bar - …"
+ * o "Sol - …" dirían poco); y la última de esas sin los plurales de rubro del final ("IBER restaurantes" → "IBER").
+ */
+export function nameVariants(name: string): string[] {
+  const variants = [name]
+  const cut = name.split(/\s+[-|–]\s+/)[0]?.trim() ?? ''
+  const specific = tokensOf(cut).filter((token) => !GENERIC.has(token))
+  if (cut && cut !== name.trim() && specific.length > 0 && !(specific.length === 1 && specific[0].length <= 5)) variants.push(cut)
+  // Sin los plurales de rubro del final: así un nombre corto ("IBER") puede coincidir entero.
+  const words = variants.at(-1)!.trim().split(/\s+/)
+  while (words.length > 1 && PLURALS.has(fold(words.at(-1)!).replace(/[^a-z]/g, ''))) words.pop()
+  const bare = words.join(' ')
+  if (!variants.some((variant) => variant.trim() === bare)) variants.push(bare)
+  return variants
+}
 
 /** Nombre para comparar: sin tildes, sin puntuación y sin palabras genéricas (si queda algo). */
 export function normalizeName(name: string): string {

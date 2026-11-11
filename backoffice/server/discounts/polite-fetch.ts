@@ -12,6 +12,12 @@ export type PageFetcher = {
   get(url: string): Promise<string>
   /** Un archivo binario (el PDF del listado de BROU), con la misma cola, pausa y robots. */
   getBytes?(url: string): Promise<Uint8Array>
+  /**
+   * La página ya renderizada en un navegador (Playwright), con la misma cola, pausa y robots: sólo para una fuente que
+   * manda la página sin los datos a un pedido normal (Scotiabank, si Akamai la frena). Al reprocesar, devuelve el crudo
+   * guardado de esa URL.
+   */
+  render?(url: string): Promise<string>
   readonly requests: number
 }
 
@@ -34,7 +40,8 @@ export function parseRobots(text: string): RobotsRule[] {
   const rules: RobotsRule[] = []
   let inGroup = false
   let groupHasRules = false
-  for (const raw of text.split(/\r?\n/)) {
+  // Un BOM al principio (Scotiabank) escondería el primer "User-agent: *".
+  for (const raw of text.replace(/^\uFEFF/, '').split(/\r?\n/)) {
     const line = raw.replace(/#.*/, '').trim()
     const match = /^([A-Za-z-]+)\s*:\s*(.*)$/.exec(line)
     if (!match) continue
@@ -79,7 +86,7 @@ export function robotsAllows(rules: RobotsRule[], path: string): boolean {
 
 // ── HTML crudo ──
 
-type RawIndex = Record<string, { file: string; status: number; fetchedAt: string; binary?: boolean }>
+type RawIndex = Record<string, { file: string; status: number; fetchedAt: string; binary?: boolean; rendered?: boolean }>
 
 const safeName = (url: string) => {
   const { hostname, pathname, search } = new URL(url)
@@ -87,6 +94,9 @@ const safeName = (url: string) => {
 }
 
 export const rawDir = (root: string, runId: string, providerId: string) => join(root, 'raw', runId, providerId)
+
+/** Abre la URL en un navegador y devuelve el HTML ya renderizado (status de la navegación). */
+export type PageRenderer = (url: string, options: { userAgent: string }) => Promise<{ status: number; html: string }>
 
 type LiveOptions = {
   /** Carpeta del HTML crudo de este proveedor en esta corrida. */
@@ -96,6 +106,8 @@ type LiveOptions = {
   fetch?: typeof fetch
   sleep?: (ms: number) => Promise<void>
   now?: () => Date
+  /** Para `render` (Playwright en las corridas reales). Sin él, `render` es un error. */
+  renderer?: PageRenderer
 }
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
@@ -151,13 +163,14 @@ export function politeFetcher(options: LiveOptions): PageFetcher {
     }
   }
 
-  async function save(url: string, status: number, body: string | Uint8Array) {
+  async function save(url: string, status: number, body: string | Uint8Array, rendered = false) {
     const binary = typeof body !== 'string'
-    // El binario conserva su extensión ("….pdf"); el resto queda como .html, como siempre.
-    const file = binary ? safeName(url).replace(/(\.[A-Za-z0-9]{1,5})?$/, (ext) => ext || '.bin') : `${safeName(url)}.html`
+    // El binario conserva su extensión ("….pdf"); el resto queda como .html, como siempre. El renderizado va aparte y
+    // pasa a ser el de esa URL (lo que relee el reproceso).
+    const file = binary ? safeName(url).replace(/(\.[A-Za-z0-9]{1,5})?$/, (ext) => ext || '.bin') : `${safeName(url)}${rendered ? '.rendered' : ''}.html`
     await mkdir(options.dir, { recursive: true })
     await writeFile(join(options.dir, file), body)
-    index[url] = { file, status, fetchedAt: now().toISOString(), ...(binary ? { binary: true } : {}) }
+    index[url] = { file, status, fetchedAt: now().toISOString(), ...(binary ? { binary: true } : {}), ...(rendered ? { rendered: true } : {}) }
     await writeFile(join(options.dir, 'index.json'), JSON.stringify(index, null, 2))
   }
 
@@ -202,6 +215,28 @@ export function politeFetcher(options: LiveOptions): PageFetcher {
     getBytes(url) {
       return enqueue(async () => (await fetchAllowed(url, true)).bytes ?? new Uint8Array())
     },
+    render(url) {
+      return enqueue(async () => {
+        const renderer = options.renderer
+        if (!renderer) throw new FetchPageError(url, `No hay navegador configurado para leer ${url}.`)
+        const parsed = new URL(url)
+        if (!robotsAllows(await rulesFor(parsed.origin), parsed.pathname + parsed.search)) throw new FetchPageError(url, `robots.txt no permite ${parsed.pathname}.`)
+        const wait = last + delayMs - now().getTime()
+        if (last > 0 && wait > 0) await sleep(wait)
+        requests += 1
+        let result: { status: number; html: string }
+        try {
+          result = await renderer(url, { userAgent })
+        } catch (error) {
+          throw new FetchPageError(url, `No se pudo abrir ${url} en el navegador: ${error instanceof Error ? error.message : String(error)}`)
+        } finally {
+          last = now().getTime()
+        }
+        await save(url, result.status, result.html, true)
+        if (result.status !== 200) throw new FetchPageError(url, `${url} respondió ${result.status} en el navegador.`)
+        return result.html
+      })
+    },
     get requests() {
       return requests
     },
@@ -240,6 +275,10 @@ export async function rawFetcher(dirs: string | string[]): Promise<PageFetcher> 
     },
     async getBytes(url) {
       return new Uint8Array(await readFile(entryOf(url)))
+    },
+    // El crudo de esa URL ya es el renderizado si la corrida tuvo que usar el navegador.
+    async render(url) {
+      return readFile(entryOf(url), 'utf8')
     },
     requests: 0,
   }

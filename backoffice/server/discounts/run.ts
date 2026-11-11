@@ -57,6 +57,7 @@ export async function runDiscounts(deps: RunDependencies, options: { runId?: str
         structure: deps.structure,
         splitRows: deps.splitRows,
         geocoder: deps.geocoder,
+        now,
         onProgress: (progress) => deps.onProgress?.({ status: 'running', runId, startedAt: started.toISOString(), providerId: provider.id, ...progress }),
       })
       deps.onProgress?.({ status: 'running', runId, startedAt: started.toISOString(), providerId: provider.id, phase: 'matching', done: 0, total: result.places.length })

@@ -3,7 +3,7 @@ import distance from '@turf/distance'
 import { point } from '@turf/helpers'
 import { getBarrio } from '../../src/lib/getNeighborhood.ts'
 import { instagramKey } from '../places/brand-key.ts'
-import { montevideoNeighborhood, nameSimilarity, normalizeName, sharedDistinctiveWords, tokensOf } from '../../src/lib/discount-names.ts'
+import { montevideoNeighborhood, nameSimilarity, nameVariants, normalizeName, sharedDistinctiveWords, tokensOf } from '../../src/lib/discount-names.ts'
 import type { ReadPlace } from './reader.ts'
 
 /** Lo que el cruce lee de `places` (sólo lectura). */
@@ -63,12 +63,18 @@ function score(place: ReadPlace, row: MatchablePlace, neighborhoods: Set<string>
   const reasons: string[] = []
   let total = 0
   let strong = false
-  const similarity = nameSimilarity(place.sourceName, row.name)
-  // Sin las palabras genéricas, un nombre corto deja de distinguir ("La Otra Parrilla" y "La Otra" quedan en "otra"):
-  // así sólo cuenta como fuerte si el nombre entero coincide.
-  const sameFull = tokensOf(place.sourceName).join(' ') === tokensOf(row.name).join(' ')
-  const normalized = normalizeName(row.name)
-  const tooShort = !normalized.includes(' ') && normalized.length <= 5
+  // Cada forma de los dos nombres (el entero y el cortado antes de " - " o " | "): gana la que más se parece.
+  const pairs = nameVariants(place.sourceName).flatMap((source) => nameVariants(row.name).map((ours) => {
+    // Sin las palabras genéricas, un nombre corto deja de distinguir ("La Otra Parrilla" y "La Otra" quedan en "otra"):
+    // así sólo cuenta como fuerte si el nombre entero coincide.
+    const sameFull = tokensOf(source).join(' ') === tokensOf(ours).join(' ')
+    const normalized = normalizeName(ours)
+    const tooShort = !normalized.includes(' ') && normalized.length <= 5
+    const similarity = nameSimilarity(source, ours)
+    return { similarity, sameFull, tooShort, strongName: sameFull || (similarity >= STRONG_NAME && !tooShort), cut: source !== place.sourceName || ours !== row.name }
+  }))
+  const best = pairs.reduce((a, b) => (Number(b.strongName) - Number(a.strongName) || b.similarity - a.similarity) > 0 ? b : a)
+  const { similarity, sameFull, tooShort } = best
   if (sameFull || (similarity >= STRONG_NAME && !tooShort)) {
     reasons.push('mismo nombre')
     strong = true
@@ -77,6 +83,7 @@ function score(place: ReadPlace, row: MatchablePlace, neighborhoods: Set<string>
   } else if (similarity > 0) {
     reasons.push(`nombre parecido (${Math.round(similarity * 100)}%)`)
   }
+  if (best.cut && best.similarity > pairs[0].similarity) reasons.push('nombre sin «- …»')
   total += similarity * 0.6
   const handle = instagramKey(row.instagram)
   if (place.instagram && handle && handle === place.instagram) {
@@ -213,7 +220,9 @@ function matchByCoordinates(
   group: Scored[],
   locations: { location: ProviderPlaceLocation; index: number }[],
 ): AutoMatch {
-  const similarity = new Map(rows.map((row) => [row.id, nameSimilarity(place.sourceName, row.name)]))
+  // La mejor entre las formas de los dos nombres (el entero y el cortado antes de " - " o " | ").
+  const bestSimilarity = (row: MatchablePlace) => Math.max(...nameVariants(place.sourceName).flatMap((source) => nameVariants(row.name).map((ours) => nameSimilarity(source, ours))))
+  const similarity = new Map(rows.map((row) => [row.id, bestSimilarity(row)]))
   const byId = new Map(scored.map((candidate) => [candidate.placeId, candidate]))
   const links = new Map<string, DiscountLink>()
   const candidates = new Map<string, MatchCandidate>()

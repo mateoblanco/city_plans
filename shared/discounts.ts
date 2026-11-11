@@ -28,6 +28,7 @@ export const DISCOUNT_PROVIDERS = [
   // Segmento de clientes (un paquete: cuenta, débito y crédito Personal Bank), no un nivel de tarjeta: va aparte de Itaú.
   { id: 'itau-personal-bank', name: 'Itaú Personal Bank', kind: 'bank' },
   { id: 'brou', name: 'BROU', kind: 'bank' },
+  { id: 'scotiabank', name: 'Scotiabank', kind: 'bank' },
 ] as const satisfies readonly DiscountProviderInfo[]
 
 export type DiscountProviderId = (typeof DISCOUNT_PROVIDERS)[number]['id']

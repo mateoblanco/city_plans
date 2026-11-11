@@ -21,6 +21,8 @@ export type ReaderContext = {
   /** Coordenadas de las direcciones que la fuente da sin ellas (BROU). Sin él, los locales quedan sin coordenadas. */
   geocoder?: Geocoder
   onProgress?: (progress: ReaderProgress) => void
+  /** Reloj de la corrida (Scotiabank deja afuera lo que no está vigente hoy, como su página). Por defecto, ahora. */
+  now?: () => Date
 }
 
 export type ReaderResult = {

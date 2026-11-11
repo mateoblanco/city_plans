@@ -39,6 +39,10 @@
       "pages": [
         { "url": "https://beneficios.brou.com.uy/gastronomia/gastronomia-verano-2026-2027", "label": "Gastronomía Verano 2026-2027" }
       ]
+    },
+    "scotiabank": {
+      "nota": "Todos los beneficios (419 en noviembre 2026) vienen en el HTML inicial como pushBenefit({...}); los selects y 'Mostrar más' sólo filtran en el navegador: no se pagina. Si Akamai manda la página sin datos, se lee con Playwright.",
+      "sourceUrl": "https://www.scotiabank.com.uy/Personas/Tarjetas/Beneficios/default"
     }
   }
 }

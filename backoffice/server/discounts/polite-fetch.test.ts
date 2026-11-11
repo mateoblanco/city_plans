@@ -14,6 +14,12 @@ describe('robots.txt', () => {
     expect(robotsAllows(rules, '/x/y.content.html')).toBe(false)
   })
 
+  it('un BOM al principio (Scotiabank) no esconde el grupo User-agent: *', () => {
+    const rules = parseRobots('\uFEFFUser-agent: *\nDisallow: /Scripts/\nDisallow: /Handlers/\n\nSitemap: https://www.scotiabank.com.uy/sitemap.xml')
+    expect(robotsAllows(rules, '/Scripts/x.js')).toBe(false)
+    expect(robotsAllows(rules, '/Personas/Tarjetas/Beneficios/default')).toBe(true)
+  })
+
   it('ignora los grupos de otros user-agents y gana la regla más larga', () => {
     const rules = parseRobots('User-agent: Googlebot\nDisallow: /\n\nUser-agent: *\nDisallow: /privado/\nAllow: /privado/publico.html')
     expect(robotsAllows(rules, '/otra.html')).toBe(true)
@@ -114,5 +120,32 @@ describe('politeFetcher', () => {
     const fetcher = politeFetcher({ dir, fetch, delayMs: 0, sleep: async () => {} })
     expect(await fetcher.get('https://bank.test/flaky.html')).toBe('ok')
     await expect(fetcher.get('https://bank.test/missing.html')).rejects.toThrow('respondió 404')
+  })
+
+  it('render: el navegador en la misma cola, con robots y pausa; el crudo renderizado pasa a ser el de esa URL', async () => {
+    const site = fakeSite({ 'https://bank.test/robots.txt': { body: 'User-agent: *\nDisallow: /privado/' }, 'https://bank.test/p.html': { body: '<p>sin datos</p>' } })
+    let clock = 1_000
+    const sleeps: number[] = []
+    const renders: { url: string; userAgent: string }[] = []
+    const fetcher = politeFetcher({
+      dir, fetch: site.fetch, delayMs: 1_500, now: () => new Date(clock), sleep: async (ms) => { sleeps.push(ms); clock += ms },
+      renderer: async (url, { userAgent }) => { renders.push({ url, userAgent }); return { status: 200, html: '<p>con datos</p>' } },
+    })
+    expect(await fetcher.get('https://bank.test/p.html')).toBe('<p>sin datos</p>')
+    expect(await fetcher.render!('https://bank.test/p.html')).toBe('<p>con datos</p>')
+    expect(renders).toEqual([{ url: 'https://bank.test/p.html', userAgent: DISCOUNTS_USER_AGENT }])
+    expect(sleeps).toEqual([1_500, 1_500])
+    expect(fetcher.requests).toBe(3)
+    await expect(fetcher.render!('https://bank.test/privado/x.html')).rejects.toThrow('robots.txt no permite')
+    const raw = await rawFetcher(dir)
+    expect(await raw.render!('https://bank.test/p.html')).toBe('<p>con datos</p>')
+    expect(JSON.parse(await readFile(join(dir, 'index.json'), 'utf8'))['https://bank.test/p.html']).toMatchObject({ file: 'bank.test_p.html.rendered.html', rendered: true })
+  })
+
+  it('render sin navegador configurado, o con un error del navegador: un error claro', async () => {
+    const site = fakeSite({ 'https://bank.test/robots.txt': { body: '' } })
+    await expect(politeFetcher({ dir, fetch: site.fetch, delayMs: 0, sleep: async () => {} }).render!('https://bank.test/p.html')).rejects.toThrow('No hay navegador configurado')
+    const broken = politeFetcher({ dir, fetch: site.fetch, delayMs: 0, sleep: async () => {}, renderer: async () => { throw new Error('Timeout 45000ms') } })
+    await expect(broken.render!('https://bank.test/p.html')).rejects.toThrow('No se pudo abrir https://bank.test/p.html en el navegador: Timeout 45000ms')
   })
 })

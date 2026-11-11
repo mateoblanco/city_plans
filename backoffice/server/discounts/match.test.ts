@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { resolveNeighborhood } from '../../../shared/neighborhood-aliases.ts'
+import { nameVariants } from '../../src/lib/discount-names.ts'
 import { matchPlace, missingBranches, nearbyPlaces, nameSimilarity, normalizeName, type AutoMatch, type MatchablePlace } from './match.ts'
 import type { ReadPlace } from './reader.ts'
 
@@ -21,6 +22,50 @@ describe('normalizeName', () => {
     expect(normalizeName('Amélie Bar & Bistró')).toBe('amelie')
     expect(normalizeName('Bar')).toBe('bar')
     expect(nameSimilarity('Acevedo Pan Y Cafe', 'Acevedo pan & café')).toBe(1)
+  })
+})
+
+describe('formas del nombre', () => {
+  it('plurales de rubro pegados ("IBER restaurantes") y el nombre cortado antes de " - " o " | "', () => {
+    expect(normalizeName('IBER restaurantes')).toBe('iber')
+    expect(nameVariants('Plantado - Hyatt Centric Montevideo')).toEqual(['Plantado - Hyatt Centric Montevideo', 'Plantado'])
+    expect(nameVariants('Comercio | Sub-línea')).toEqual(['Comercio | Sub-línea', 'Comercio'])
+    expect(nameVariants('BIGA - pizza & pasta')).toEqual(['BIGA - pizza & pasta'])
+    expect(nameVariants('Bar - Restaurante')).toEqual(['Bar - Restaurante'])
+    expect(nameVariants('Sin guion')).toEqual(['Sin guion'])
+    expect(nameVariants('IBER restaurantes')).toEqual(['IBER restaurantes', 'IBER'])
+    // El corte rechazado no se rescata sacando el plural.
+    expect(nameVariants('Sol restaurantes - Hotel Sol')).toEqual(['Sol restaurantes - Hotel Sol'])
+  })
+
+  it('el cruce prueba el nombre cortado: "Plantado - Hyatt Centric Montevideo" es Plantado', () => {
+    const match = matchPlace(source({ sourceName: 'Plantado - Hyatt Centric Montevideo' }), [row('1', 'Plantado', 'CENTRO'), row('2', 'Hyatt Centric', 'POCITOS')])
+    expect(match).toMatchObject({ status: 'found', links: [{ placeId: '1', reasons: expect.arrayContaining(['mismo nombre', 'nombre sin «- …»']) }] })
+    // Un corte corto no se usa: "Sol - Parrilla" no se vuelve "Sol".
+    expect(matchPlace(source({ sourceName: 'Sol - Parrilla de Mar' }), [row('1', 'Sol', 'CENTRO')]).status).not.toBe('found')
+  })
+
+  it('sucursales nombradas (shoppings, mercados) con su barrio: las de la marca en esos barrios; la de Maldonado no cuenta', () => {
+    const iber = source({
+      sourceName: 'IBER restaurantes',
+      locations: [
+        { address: 'Punta Carretas Shopping', area: 'Punta Carretas', department: 'Montevideo', mapsUrl: null },
+        { address: 'Mercado Agrícola', area: 'Villa Muñoz', department: 'Montevideo', mapsUrl: null },
+        { address: 'Punta Shopping', area: null, department: 'Maldonado', mapsUrl: null },
+      ],
+    })
+    const villaMunoz = resolveNeighborhood('Villa Muñoz')!
+    const both = matchPlace(iber, [row('1', 'Iber', 'PUNTA CARRETAS'), row('2', 'Iber', villaMunoz), row('3', 'Iber', 'CARRASCO')])
+    expect(both.status).toBe('found')
+    expect(both.links.map((link) => [link.placeId, link.locationIndex])).toEqual([['1', 0], ['2', 1]])
+    // Sin sucursal nuestra en el barrio del Mercado Agrícola: cadena en parte (encontrado, "faltan sucursales"), como en
+    // todos los proveedores.
+    const partial = matchPlace(iber, [row('1', 'Iber', 'PUNTA CARRETAS'), row('3', 'Iber', 'CARRASCO')])
+    expect(partial).toMatchObject({ status: 'found', links: [{ placeId: '1' }] })
+    expect(missingBranches(iber, { ...partial, origin: 'auto' })).toBe(1)
+    // Un shopping que no está en la tabla (sin barrio): no se sabe cuál sucursal es, dudoso con el motivo.
+    const unknown = source({ sourceName: 'IBER restaurantes', locations: [{ address: 'Shopping Nuevo', area: null, department: null, mapsUrl: null }] })
+    expect(matchPlace(unknown, [row('1', 'Iber', 'PUNTA CARRETAS'), row('3', 'Iber', 'CARRASCO')])).toMatchObject({ status: 'doubtful', links: [], candidates: [{ reasons: expect.arrayContaining(['1 de 1 dirección no cruza con una sucursal']) }, {}] })
   })
 })
 

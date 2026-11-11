@@ -2,6 +2,7 @@ import { readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { MatchablePlace } from './match.ts'
 import type { DiscountStore } from './persist.ts'
+import { playwrightRenderer } from './browser-fetch.ts'
 import { politeFetcher, rawDir, rawFetcher } from './polite-fetch.ts'
 import { discountProviders } from './providers.ts'
 import { ideUyGeocoder } from './geocode.ts'
@@ -29,7 +30,8 @@ export function discountRunDependencies(options: { store: DiscountStore; candida
     },
     readers: DISCOUNT_READERS,
     fetcherFor: async (runId, providerId) => {
-      if (!options.fromRun) return politeFetcher({ dir: rawDir(root, runId, providerId) })
+      // El navegador sólo se abre si un lector lo pide (Scotiabank, si el pedido normal llega sin los datos).
+      if (!options.fromRun) return politeFetcher({ dir: rawDir(root, runId, providerId), renderer: playwrightRenderer() })
       const from = options.fromRun === 'latest' ? await latestRawRun(root, providerId) : options.fromRun
       if (!from) throw new Error(`No hay HTML crudo guardado de ${providerId} en ${join(root, 'raw')}.`)
       // Primero lo del proveedor; si le falta una página (otro proveedor la comparte), la de los demás de esa corrida.

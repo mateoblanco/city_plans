@@ -4,6 +4,7 @@ import { readBbva } from './bbva/reader.ts'
 import { readSantander } from './santander/reader.ts'
 import { readItau } from './itau/reader.ts'
 import { readBrou } from './brou/reader.ts'
+import { readScotiabank } from './scotiabank/reader.ts'
 
 /** El lector de cada proveedor configurado. */
 export const DISCOUNT_READERS: Record<DiscountProviderId, ProviderReader> = {
@@ -12,4 +13,5 @@ export const DISCOUNT_READERS: Record<DiscountProviderId, ProviderReader> = {
   itau: readItau,
   'itau-personal-bank': readItau,
   brou: readBrou,
+  scotiabank: readScotiabank,
 }

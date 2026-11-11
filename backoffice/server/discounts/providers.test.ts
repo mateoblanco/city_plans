@@ -8,6 +8,7 @@ describe('config de fuentes (config/discount-sources.json)', () => {
     expect(providers.map((provider) => provider.id)).toEqual(DISCOUNT_PROVIDERS.map((provider) => provider.id))
     expect(providers.find((provider) => provider.id === 'santander')).toMatchObject({ sourceUrl: 'https://www.santander.com.uy/beneficios', listing: { params: { 'departamento[0]': '49', categoria: '22' }, maxPages: 30 } })
     expect(providers.find((provider) => provider.id === 'itau')?.pages?.map((page) => page.label)).toEqual(['Restaurantes', 'Platinum', 'Personal Bank'])
+    expect(providers.find((provider) => provider.id === 'scotiabank')).toMatchObject({ name: 'Scotiabank', kind: 'bank', sourceUrl: 'https://www.scotiabank.com.uy/Personas/Tarjetas/Beneficios/default' })
     expect(providers.find((provider) => provider.id === 'brou')).toMatchObject({ name: 'BROU', kind: 'bank', pages: [{ url: 'https://beneficios.brou.com.uy/gastronomia/gastronomia-verano-2026-2027', label: 'Gastronomía Verano 2026-2027' }] })
   })
 
