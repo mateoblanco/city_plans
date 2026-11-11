@@ -1,4 +1,5 @@
-import type { DiscountBenefit, DiscountProvider, DiscountRunError } from '../../../src/types/discounts.ts'
+import type { DiscountBenefit, DiscountRunError } from '../../../src/types/discounts.ts'
+import type { DiscountProvider } from '../providers.ts'
 import { DiscountSourceError } from '../errors.ts'
 import { benefitId, dedupeBenefitIds, sourceSlug, type ProviderReader, type ReadPlace } from '../reader.ts'
 import type { BenefitStructurer } from '../structure-benefits.ts'

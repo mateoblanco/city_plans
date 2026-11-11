@@ -1,12 +1,14 @@
-import type { DiscountProvider, DiscountRun, DiscountRunProgress, DiscountRunProvider } from '../../src/types/discounts.ts'
+import type { DiscountRun, DiscountRunProgress, DiscountRunProvider } from '../../src/types/discounts.ts'
 import type { PlaceSearchEstimate } from '../../src/types/discounts.ts'
 import type { MatchablePlace } from './match.ts'
 import type { DiscountPlaceSearchRunner } from './place-search-runner.ts'
 import { planDiscountWrites, type DiscountStore } from './persist.ts'
-import { discountProvider } from './providers.ts'
+import { discountProvider, type DiscountProvider } from './providers.ts'
 import type { PageFetcher } from './polite-fetch.ts'
 import type { ProviderReader } from './reader.ts'
 import type { BenefitStructurer } from './structure-benefits.ts'
+import type { Geocoder } from './geocode.ts'
+import type { RowSplitter } from './brou/split-rows.ts'
 
 export const DEFAULT_DISCOUNTS_DIR = 'cache/discounts'
 
@@ -18,6 +20,10 @@ export type RunDependencies = {
   /** Nuestros lugares, para el cruce (sólo lectura). */
   candidates: () => Promise<MatchablePlace[]>
   structure?: BenefitStructurer
+  /** Nombre y dirección de un listado en PDF (BROU). */
+  splitRows?: RowSplitter
+  /** Coordenadas de direcciones sin ellas (BROU); al reprocesar, sólo del cache. */
+  geocoder?: Geocoder
   store: DiscountStore
   now?: () => Date
   onProgress?: (progress: Extract<DiscountRunProgress, { status: 'running' }>) => void
@@ -49,6 +55,8 @@ export async function runDiscounts(deps: RunDependencies, options: { runId?: str
         provider,
         fetcher,
         structure: deps.structure,
+        splitRows: deps.splitRows,
+        geocoder: deps.geocoder,
         onProgress: (progress) => deps.onProgress?.({ status: 'running', runId, startedAt: started.toISOString(), providerId: provider.id, ...progress }),
       })
       deps.onProgress?.({ status: 'running', runId, startedAt: started.toISOString(), providerId: provider.id, phase: 'matching', done: 0, total: result.places.length })

@@ -78,6 +78,24 @@ describe('politeFetcher', () => {
     await expect(rawFetcher([join(dir, 'missing'), own])).rejects.toThrow('No hay HTML crudo')
   })
 
+  it('un PDF: en la misma cola, guardado con su extensión y releído sin red como bytes', async () => {
+    const pdf = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0xff, 0x00, 0x80])
+    const accepts: (string | null)[] = []
+    const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      accepts.push(new Headers(init?.headers).get('Accept'))
+      if (String(input).endsWith('robots.txt')) return new Response('', { status: 404 })
+      return new Response(pdf, { status: 200 })
+    }) as unknown as typeof globalThis.fetch
+    const fetcher = politeFetcher({ dir, fetch, delayMs: 0, sleep: async () => {} })
+    const url = 'https://bank.test/pdf/Listado%20GASTRONOMIA%206.11.26.pptx.pdf'
+    expect(await fetcher.getBytes!(url)).toEqual(pdf)
+    expect(accepts[1]).toMatch(/^application\/pdf/)
+    const index = JSON.parse(await readFile(join(dir, 'index.json'), 'utf8'))
+    expect(index[url]).toMatchObject({ status: 200, binary: true, file: expect.stringMatching(/\.pdf$/) })
+    const raw = await rawFetcher(dir)
+    expect(await raw.getBytes!(url)).toEqual(pdf)
+  })
+
   it('no baja lo que robots.txt no permite', async () => {
     const site = fakeSite({ 'https://bank.test/robots.txt': { body: ROBOTS } })
     const fetcher = politeFetcher({ dir, fetch: site.fetch, delayMs: 0, sleep: async () => {} })

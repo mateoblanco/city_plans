@@ -1,20 +1,9 @@
-import { createHash } from 'node:crypto'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
-import { generateText, Output } from 'ai'
 import { z } from 'zod'
 import type { CardType } from '../../src/types/discounts.ts'
 import { CARD_TYPES } from '../../src/types/discounts.ts'
-import { llmUsageCost, type LlmUsage } from '../providers/place-extraction-service.ts'
-import { withRateLimitRetry } from '../providers/rate-limit.ts'
-import { withServiceLimit } from '../providers/service-limits.ts'
+import { cachedLlmObject, discountsModel, type LlmCall } from './llm-cache.ts'
 
-/** El más barato de LLM_PRICES_PER_MILLION que alcanza para estructurar unas líneas de texto. */
-export const DEFAULT_DISCOUNTS_MODEL = 'anthropic/claude-haiku-5.5'
-
-export function discountsModel(env: Record<string, string | undefined> = process.env): string {
-  return env.DISCOUNTS_MODEL?.trim() || DEFAULT_DISCOUNTS_MODEL
-}
+export { DEFAULT_DISCOUNTS_MODEL, discountsModel } from './llm-cache.ts'
 
 /** Un beneficio leído por el modelo, ya validado en código. */
 export type StructuredBenefit = {
@@ -72,36 +61,19 @@ function validBenefit(raw: z.infer<typeof Schema>['benefits'][number]): Structur
  * Estructura texto libre con el modelo (AI Gateway). Cada respuesta se guarda por hash del texto en `cacheDir`: al
  * reprocesar el mismo texto no se vuelve a pagar.
  */
-export function llmBenefitStructurer(options: { model?: string; cacheDir: string }): BenefitStructurer {
+export function llmBenefitStructurer(options: { model?: string; cacheDir: string; call?: LlmCall }): BenefitStructurer {
   const model = options.model ?? discountsModel()
   return async (text) => {
-    const key = createHash('sha256').update(`${model}\n${PROMPT}\n${text}`).digest('hex').slice(0, 32)
-    const file = join(options.cacheDir, `${key}.json`)
-    try {
-      const cached = JSON.parse(await readFile(file, 'utf8')) as { benefits: StructuredBenefit[] }
-      return { benefits: cached.benefits, costUsd: 0, cached: true }
-    } catch {
-      // sin cache
-    }
-    const result = await withRateLimitRetry('llm', () => withServiceLimit('llm', () => generateText({
+    const result = await cachedLlmObject({
+      cacheDir: options.cacheDir,
       model,
-      output: Output.object({ schema: Schema }),
       system: PROMPT,
-      prompt: text,
-      ...(model.startsWith('anthropic/') ? { providerOptions: { anthropic: { structuredOutputMode: 'outputFormat' } } } : {}),
-      maxRetries: 0,
-    })), null)
-    const usage: LlmUsage = {
-      inputTokens: result.usage?.inputTokens ?? null,
-      cachedInputTokens: result.usage?.inputTokenDetails?.cacheReadTokens ?? null,
-      cacheWriteTokens: result.usage?.inputTokenDetails?.cacheWriteTokens ?? null,
-      outputTokens: result.usage?.outputTokens ?? null,
-      gatewayCostUsd: Number((result.providerMetadata?.gateway as { cost?: unknown } | undefined)?.cost) || null,
-    }
-    const { inputCost, outputCost } = llmUsageCost(model, usage)
-    const benefits = result.output.benefits.flatMap((raw) => validBenefit(raw) ?? [])
-    await mkdir(options.cacheDir, { recursive: true })
-    await writeFile(file, JSON.stringify({ model, text, benefits }, null, 2))
-    return { benefits, costUsd: usage.gatewayCostUsd ?? inputCost + outputCost, cached: false }
+      text,
+      schema: Schema,
+      validate: (output) => output.benefits.flatMap((raw) => validBenefit(raw) ?? []),
+      call: options.call,
+      field: 'benefits',
+    })
+    return { benefits: result.value, costUsd: result.costUsd, cached: result.cached }
   }
 }

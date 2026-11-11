@@ -1,7 +1,10 @@
 import { createHash } from 'node:crypto'
-import type { CardType, DiscountBenefit, DiscountProvider, DiscountRunError, ProviderPlace } from '../../src/types/discounts.ts'
+import type { CardType, DiscountBenefit, DiscountRunError, ProviderPlace } from '../../src/types/discounts.ts'
+import type { DiscountProvider } from './providers.ts'
 import type { PageFetcher } from './polite-fetch.ts'
 import type { BenefitStructurer } from './structure-benefits.ts'
+import type { Geocoder } from './geocode.ts'
+import type { RowSplitter } from './brou/split-rows.ts'
 
 /** Un lugar leído, todavía sin cruzar con la base. */
 export type ReadPlace = ProviderPlace
@@ -13,6 +16,10 @@ export type ReaderContext = {
   fetcher: PageFetcher
   /** Para el texto libre que no se puede leer con reglas. Sin él, esos beneficios quedan como error parcial. */
   structure?: BenefitStructurer
+  /** Separa nombre, dirección y ciudad de las filas de un listado en PDF (BROU). Sin él, ese listado es un error. */
+  splitRows?: RowSplitter
+  /** Coordenadas de las direcciones que la fuente da sin ellas (BROU). Sin él, los locales quedan sin coordenadas. */
+  geocoder?: Geocoder
   onProgress?: (progress: ReaderProgress) => void
 }
 

@@ -19,6 +19,26 @@ const GENERIC = new Set([
   'el', 'la', 'los', 'las', 'de', 'del', 'the', 'y', 'and', 'by', 'uy', 'mvd', 'montevideo', 'uruguay', 'sucursal', 'local',
 ])
 
+// Además de las genéricas, palabras de rubro o comida que dos lugares vecinos distintos comparten seguido ("Sumi Sushi" y
+// "Kyoto Sushi"): no alcanzan para decir que son el mismo lugar aunque estén pegados.
+const NOT_DISTINCTIVE = new Set([
+  ...GENERIC, 'rest', 'restobar', 'food', 'foods', 'gourmet', 'deli', 'delivery', 'sushi', 'pizza', 'pizzas', 'burger', 'burgers',
+  'hamburgueseria', 'house', 'club', 'store', 'shop', 'market', 'mercado', 'japanese', 'japones', 'sandwich', 'sandwicheria',
+  'chivitos', 'empanadas', 'pasta', 'pastas', 'tea', 'te', 'wine', 'vinos', 'beer', 'brewery', 'pasteleria', 'dulceria', 'bakery',
+  'patio', 'espacio', 'drinks', 'tragos', 'boliche', 'almacen', 'taberna', 'cantina', 'bodega', 'fonda', 'gastro', 'lounge',
+  'san', 'santa', 'nuevo', 'nueva', 'gran', 'mi', 'tu', 'su', 'don', 'dona', 'a', 'al', 'en', 'con',
+  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'setiembre', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+])
+
+/** Palabras que distinguen un nombre: sin genéricas ni de rubro, sin números (suelen ser la calle) y de 3 letras o más. */
+export const distinctiveWords = (name: string) => [...new Set(tokensOf(name).filter((token) => token.length >= 3 && !/^\d+$/.test(token) && !NOT_DISTINCTIVE.has(token)))]
+
+/** Las palabras distintivas que comparten dos nombres (["sumi"] para "SUMI JAPANESE FOOD" y "Sumi Sushi"). */
+export function sharedDistinctiveWords(a: string, b: string): string[] {
+  const right = new Set(distinctiveWords(b))
+  return distinctiveWords(a).filter((word) => right.has(word))
+}
+
 export const tokensOf = (name: string) => fold(name).replace(/&/g, ' y ').replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean)
 
 /** Nombre para comparar: sin tildes, sin puntuación y sin palabras genéricas (si queda algo). */

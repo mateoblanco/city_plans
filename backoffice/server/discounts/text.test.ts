@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseCap, parseDays, spanishDates, validityRange } from './text.ts'
+import { parseCap, parseDays, spanishDates, validityOf, validityRange } from './text.ts'
 
 describe('fechas en español', () => {
   it('lee "del X al Y" con "setiembre", "desde el" y mayúsculas', () => {
@@ -7,6 +7,10 @@ describe('fechas en español', () => {
     expect(validityRange('Promoción válida desde el 01 de Agosto de 2026 al 31 de julio de 2027')).toEqual({ validFrom: '2026-08-01', validTo: '2027-07-31' })
     expect(validityRange('Promoción válida del 22 de mayo de 2026 al 31de mayo de 2027')).toEqual({ validFrom: '2026-05-22', validTo: '2027-05-31' })
     expect(validityRange('Sin fechas')).toBeNull()
+  })
+
+  it('vigencia con fechas numéricas ("del 01/11/2026 al 28/02/2027", BROU)', () => {
+    expect(validityOf('Vigencia: del 01/11/2026 al 28/02/2027.')).toEqual({ validFrom: '2026-11-01', validTo: '2027-02-28' })
   })
 
   it('lee fechas sueltas, con o sin "de" antes del año', () => {

@@ -129,6 +129,9 @@ export function numericDate(text: string): string | null {
 export function validityOf(text: string): { validFrom: string | null; validTo: string | null } | null {
   const range = validityRange(text)
   if (range) return range
+  // "del 01/11/2026 al 28/02/2027" (BROU).
+  const numeric = /(?:del|desde el|desde)\s+(\d{1,2}\/\d{1,2}\/\d{4})\s+(?:al|hasta el|hasta)\s+(\d{1,2}\/\d{1,2}\/\d{4})/.exec(fold(text))
+  if (numeric) return { validFrom: numericDate(numeric[1]), validTo: numericDate(numeric[2]) }
   const folded = fold(text)
   const until = /hasta el\s+(.{0,40})/.exec(folded)
   if (!until) return null

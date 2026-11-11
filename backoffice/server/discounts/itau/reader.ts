@@ -1,4 +1,5 @@
-import type { BenefitMode, DiscountBenefit, DiscountProvider } from '../../../src/types/discounts.ts'
+import type { BenefitMode, DiscountBenefit } from '../../../src/types/discounts.ts'
+import type { DiscountProvider } from '../providers.ts'
 import { DiscountSourceError } from '../errors.ts'
 import { departmentsIn } from '../geo.ts'
 import { benefitId, dedupeBenefitIds, type ProviderReader, type ReadPlace } from '../reader.ts'

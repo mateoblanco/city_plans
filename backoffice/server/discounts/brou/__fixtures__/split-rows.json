@@ -1,0 +1,663 @@
+{
+  "Artigas": [
+    {
+      "name": "CALIS",
+      "address": "AVENIDA GRAL. JOSÉ G. ARTIGAS 1191",
+      "city": "ARTIGAS"
+    },
+    {
+      "name": "CALIS",
+      "address": "LECUEDER 205 ESQ. EDUARDO M CASTRO",
+      "city": "ARTIGAS"
+    },
+    {
+      "name": "MAGIC",
+      "address": "AVENIDA CORONEL CARLOS LECUEDER 517",
+      "city": "ARTIGAS"
+    }
+  ],
+  "Canelones": [
+    {
+      "name": "1939 BAR",
+      "address": "CALLE 1 CASI 22",
+      "city": "ATLÁNTIDA"
+    },
+    {
+      "name": "22 BAR",
+      "address": "CALLE 22 ENTRE 1 Y 11 SN",
+      "city": "ATLÁNTIDA"
+    },
+    {
+      "name": "RESTAURANT LA FONTAINE",
+      "address": "CIUDAD DE MONTEVIDEO Y CALLE 11",
+      "city": "ATLÁNTIDA"
+    },
+    {
+      "name": "LA PROA PIZZERIA",
+      "address": "RUTA 8 KM 25,500",
+      "city": "BARROS BLANCOS"
+    },
+    {
+      "name": "PIZZERIA LOS 3 TANOS",
+      "address": "FERREIRA ESQUINA CENTRAL",
+      "city": "LAS TOSCAS"
+    },
+    {
+      "name": "BAR CARLITOS",
+      "address": "MARIO FERREIRA ESQUINA CALLE 9",
+      "city": "PARQUE DEL PLATA"
+    },
+    {
+      "name": "RIKURAS SIN GLUTEN",
+      "address": "PÉREZ BUTLER Y SANTA PAULA (PATIO BUTLER LOCAL 6)",
+      "city": "PINAR"
+    },
+    {
+      "name": "DOÑA CATA",
+      "address": "RUTA INTERBALNEARIA KM 37.800",
+      "city": "SALINAS"
+    },
+    {
+      "name": "PIZZERIA SALSA Y PIMIE",
+      "address": "GIANNATASIO KM 19.100",
+      "city": "SHANGRILA"
+    },
+    {
+      "name": "RINCON DEL AGUILA",
+      "address": "INTERBALNEARIA KM 44",
+      "city": "VILLA ARGENTINA"
+    }
+  ],
+  "Cerro Largo": [
+    {
+      "name": "DON BARRANCO",
+      "address": "DIONISIO CORONEL",
+      "city": "RIO BRANCO"
+    },
+    {
+      "name": "PIZZERIA YA QUE TAMO",
+      "address": "VIRREY ARREDONDO 1235",
+      "city": "RIO BRANCO"
+    }
+  ],
+  "Colonia": [
+    {
+      "name": "ALMACEN DE LA CAPILLA",
+      "address": "ANA MARÍA CARPY Y CAMINO DE LOS PEREGRINOS NRO.54",
+      "city": "CARMELO"
+    },
+    {
+      "name": "CHE CARMELO",
+      "address": "ROOSVELT, ENTRE URUGUAY Y 19 DE ABRIL",
+      "city": "CARMELO"
+    },
+    {
+      "name": "EL RAMAR",
+      "address": "AVENIDA ARTIGAS 349",
+      "city": "COLONIA"
+    },
+    {
+      "name": "RESTAURANT IRENE'S",
+      "address": "GRAL. FLORES 441",
+      "city": "COLONIA DEL SACRAMENTO"
+    },
+    {
+      "name": "AMERICAN BAR",
+      "address": "RIGADIER GRAL. MANUEL ORIBE",
+      "city": "COLONIA VALDENSE"
+    },
+    {
+      "name": "EL FOGON",
+      "address": "DR. HUGO DERMIT 441",
+      "city": "JUAN LACAZE"
+    },
+    {
+      "name": "CLEMENTE RESTO BAR",
+      "address": "MANUEL ORIBE 786",
+      "city": "NUEVA PALMIRA"
+    },
+    {
+      "name": "PUNTO CONFI",
+      "address": "ITUZAINGÓ 406",
+      "city": "ROSARIO"
+    }
+  ],
+  "Durazno": [
+    {
+      "name": "REST LA FAROLA",
+      "address": "18 DE JULIO 412",
+      "city": "DURAZNO"
+    }
+  ],
+  "Flores": [
+    {
+      "name": "CAFÉ 33",
+      "address": "TREINTA Y TRES ORIENTALES 641",
+      "city": "TRINIDAD"
+    },
+    {
+      "name": "PARADOR SARANDI",
+      "address": "RUTA 3 KM 194",
+      "city": "TRINIDAD"
+    }
+  ],
+  "Florida": [
+    {
+      "name": "CHURRASQUERÍA PAJARITO",
+      "address": "ITUZAINGO 490",
+      "city": "FLORIDA"
+    },
+    {
+      "name": "MERAKI",
+      "address": "CORALIO LACOSTA 802",
+      "city": "FLORIDA"
+    }
+  ],
+  "Lavalleja": [
+    {
+      "name": "CAFÉ VIDAL",
+      "address": "CALLEJON VIDAL Y FUENTES 563",
+      "city": "MINAS"
+    },
+    {
+      "name": "KI JOIA",
+      "address": "DOMINGO PÉREZ 483",
+      "city": "MINAS"
+    }
+  ],
+  "Maldonado": [
+    {
+      "name": "RESTAURANTE BARRA ALTA",
+      "address": "RUTA 10 KM 161",
+      "city": "BARRA DE MALDONADO"
+    },
+    {
+      "name": "THE SECRET",
+      "address": "LOS MALVONES Y RUTA 10",
+      "city": "LAS FLORES"
+    },
+    {
+      "name": "EL NUEVO OASIS",
+      "address": "JOSE PEDRO VARELA 736",
+      "city": "MALDONADO"
+    },
+    {
+      "name": "ESCUELA ALTA GASTRONOMÍA PEDRO FIGARI",
+      "address": "RAMBLA WILLIMAN Y PDA 12 SN",
+      "city": "MALDONADO"
+    },
+    {
+      "name": "ITHAKA",
+      "address": "VENTURA ALEGRE E IPIRANGA",
+      "city": "MALDONADO"
+    },
+    {
+      "name": "RESTAURANT CON HISTORIA",
+      "address": "CAMACHO ESQUINA ROOSEVELT SN",
+      "city": "MALDONADO"
+    },
+    {
+      "name": "EL MERCADO",
+      "address": "RAMBLA DE LOS ARGENTINOS & JACINTO TRAPINI",
+      "city": "PIRIÁPOLIS"
+    },
+    {
+      "name": "LA CASA DE LA EMPANADA",
+      "address": "RAMBLA DE LOS INGLESES 9006",
+      "city": "PIRIÁPOLIS"
+    },
+    {
+      "name": "RESTAURANT ALBA EXPRESS",
+      "address": "ATANASIO SIERRA 890",
+      "city": "PIRIÁPOLIS"
+    },
+    {
+      "name": "RESTAURANT POSEIDON",
+      "address": "RAMBLA Y ATANASIO SIERRA SN",
+      "city": "PIRIÁPOLIS"
+    },
+    {
+      "name": "RESTAURANT TERRANOVA",
+      "address": "RAMBLA Y SANBRIA",
+      "city": "PIRIÁPOLIS"
+    },
+    {
+      "name": "RESTAURANT YO YO",
+      "address": "TUCUMÁN Y GREGORIO SANABRIA",
+      "city": "PIRIÁPOLIS"
+    },
+    {
+      "name": "TERESA Y HÉCTOR",
+      "address": "RAMBLA DE LOS INGLESES Y MONTESDEOCA",
+      "city": "PIRIÁPOLIS"
+    },
+    {
+      "name": "RESTAURANT LO DEL NEGRO Y JACQUE",
+      "address": "AVENIDA ARTIGAS Y MALDONADO SN",
+      "city": "PLAYA VERDE"
+    },
+    {
+      "name": "FORNO DI ROMA",
+      "address": "INTERBALNEARIA KM 117",
+      "city": "PUNTA BALLENA"
+    },
+    {
+      "name": "LA NAVICELLA",
+      "address": "COSTANERA LAGUNA DEL SAUCE, RUTA INTERBALNEARIA KM 116",
+      "city": "PUNTA BALLENA"
+    },
+    {
+      "name": "GURE ETXE",
+      "address": "LA SALINA 693",
+      "city": "PUNTA DEL ESTE"
+    },
+    {
+      "name": "REST EL MILAGRO",
+      "address": "CALLE 17 SN",
+      "city": "PUNTA DEL ESTE"
+    },
+    {
+      "name": "RESTAURANT RINCON DEL ESTE",
+      "address": "RAMBLA LORENZO BATLLE PDA 22",
+      "city": "PUNTA DEL ESTE"
+    },
+    {
+      "name": "TAMOS DE ACUERDO",
+      "address": "CALLE 28 ESQ. GORLERO",
+      "city": "PUNTA DEL ESTE"
+    }
+  ],
+  "Montevideo": [
+    {
+      "name": "ALFAJORES DEL URUGUAY",
+      "address": "PÉREZ CASTELLANO 1660",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "AMARANTO RESTO CAFÉ",
+      "address": "MERCEDES 871",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "BAR 36",
+      "address": "CONVENCIÓN 1152",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "BAR DOS 36",
+      "address": "CONVENCIÓN 1201",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "BAR DUBLIN",
+      "address": "AVENIDA RAMÓN ANADOR 3431",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "BAR EL FAMOSO",
+      "address": "CAMINO EDUARDO PÉREZ 6651",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "BAR GIRASOLES",
+      "address": "YÍ 1403",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "BAR HISPANO",
+      "address": "SAN JOSÉ 1050",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "BAR LA IBERICA 2 PLATOS",
+      "address": "SANTIAGO DE CHILE 1300",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "BAR TINKAL",
+      "address": "FRUGONI 853",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "BURGER HOUSE 284",
+      "address": "PIEDRAS 284",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "CERVECERIA VIEJA CHELA",
+      "address": "ALEJO ROSSELL Y RIUS 1700",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "DELI 14",
+      "address": "MINAS 1411",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "DELI 14",
+      "address": "YI 1411 BIS",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "EL ASADOR",
+      "address": "ALBERTO ZUM FELDE 1967",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "EL RENGANCHE",
+      "address": "TRISTÁN NARVAJA 1578",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "EL TRÉBOL GOURMET",
+      "address": "RIVERA 2028",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "FLOR DE PAN",
+      "address": "BULEVAR ARTIGAS 4296",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "GUACAMOLE",
+      "address": "18 DE JULIO 1070",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "HIMALAYAN",
+      "address": "ALFREDO BALDOMIR 2643",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "HIMALAYAN",
+      "address": "PIEDRAS 273",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "LA CAROLA",
+      "address": "AVENIDA GONZALO RAMIREZ 2225",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "LA FAMA",
+      "address": "18 DE JULIO 1856",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "LO DE VICENTE",
+      "address": "GARZÓN 1886",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "LOS OLIMPICOS",
+      "address": "COLOMBES 1435",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "MVD MISTICA",
+      "address": "RIVERA 2042",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "ODISEA",
+      "address": "EDUARDO RAIZ1905",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "PARRILLA EL ALEMAN",
+      "address": "ACEVEDO DÍAZ 1156",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "REST BOCAAMADA",
+      "address": "YACO 1455",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "REST BOSQUE BAMBU",
+      "address": "SAN JOSÉ 1060",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "REST FANS",
+      "address": "26 DE MARZO 3353",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "REST FANS",
+      "address": "CONSTITUYENTE 1515",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "REST FANS",
+      "address": "JUAN BENITO BLANCO 866",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "REST LA CIBELES",
+      "address": "QUIJANO 1334",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "RESTAURANT BISTRO DEL MAR",
+      "address": "RAMBLA GANDHI 530",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "RESTAURANT BRECHA BAR Y CAFÉ",
+      "address": "AQUILES LANZA 1201",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "RESTOBAR SALOMÉ",
+      "address": "ZABALA 1538",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "RIKURAS SIN GLUTEN",
+      "address": "HIPÓLITO YRIGOYEN 1728 BIS",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "SUMI JAPANESE FOOD",
+      "address": "PATRIA 699",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "TELIZZIA",
+      "address": "PONCE 1479",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "TOSCO - PATIO CERVECERO & RESTOBAR",
+      "address": "RIVERA 3040",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "WAKANDA",
+      "address": "GRITO DE ASENCIO 1189",
+      "city": "MONTEVIDEO"
+    },
+    {
+      "name": "WAKANDA",
+      "address": "JOAQUÍN NÚÑEZ 2755",
+      "city": "MONTEVIDEO"
+    }
+  ],
+  "Paysandú": [
+    {
+      "name": "BIG OTTO",
+      "address": "LUCAS PÍRIZ 1388",
+      "city": "PAYSANDÚ"
+    },
+    {
+      "name": "BIMBA BRUDER",
+      "address": "AVENIDA SALTO 953",
+      "city": "PAYSANDÚ"
+    },
+    {
+      "name": "MC LUCAS (EMPANADAS COMPANY)",
+      "address": "LEANDRO GÓMEZ ESQUINA MONTEVIDEO",
+      "city": "PAYSANDÚ"
+    },
+    {
+      "name": "MC LUCAS (EMPANADAS COMPANY)",
+      "address": "REPÚBLICA ARGENTINA 2030",
+      "city": "PAYSANDÚ"
+    },
+    {
+      "name": "PLATOS ROTOS",
+      "address": "CHARRÚAS 1546",
+      "city": "PAYSANDÚ"
+    },
+    {
+      "name": "REST LO DE ROMERO",
+      "address": "LEANDRO GÓMEZ 932",
+      "city": "PAYSANDÚ"
+    },
+    {
+      "name": "VIEJO MERCADO (NUEVO MERCADO)",
+      "address": "MONTEVIDEO 859",
+      "city": "PAYSANDÚ"
+    }
+  ],
+  "Río Negro": [
+    {
+      "name": "AL TIMON",
+      "address": "CLUB REMEROS FRAY BENTOS SN",
+      "city": "FRAY BENTOS"
+    },
+    {
+      "name": "PIZZERIA TABACANA",
+      "address": "18 DE JULIO 1400",
+      "city": "FRAY BENTOS"
+    }
+  ],
+  "Rocha": [
+    {
+      "name": "EL CHIVITO VELOZ",
+      "address": "AVENIDA CACHIMBA Y FAROLES",
+      "city": "AGUAS DULCES"
+    },
+    {
+      "name": "PIZZERIA LA MANO Y UN LUGAR",
+      "address": "CALLE 28, BARRA DEL CHUY",
+      "city": "BARRA DEL CHUY"
+    },
+    {
+      "name": "TANGO CAFETERIA REST.",
+      "address": "AVENIDA BRASIL 321",
+      "city": "CHUY"
+    },
+    {
+      "name": "PRANA ARTE CAFÉ",
+      "address": "AVENIDA NICÓLAS SOLARI ESQUINA AVENIDA DEL NAVIO",
+      "city": "LA PALOMA"
+    },
+    {
+      "name": "RESTAURANT LO DE EDINSON",
+      "address": "JUNO Y CERES SN",
+      "city": "LA PALOMA"
+    },
+    {
+      "name": "MAREA DE 7 Y 3",
+      "address": "AVENIDA PRINCIPAL",
+      "city": "PEDRERA"
+    },
+    {
+      "name": "EL HORNO PUNTA DEL DIABLO",
+      "address": "BULEVAR SANTA TERESA PARADA 5",
+      "city": "PUNTA DEL DIABLO"
+    },
+    {
+      "name": "RAIZ",
+      "address": "AVENIDA CENTRAL M597 S20",
+      "city": "PUNTA DEL DIABLO"
+    },
+    {
+      "name": "RESTAURANTE AMERICANO",
+      "address": "RAMÍREZ ESQUINA MONTERROSO",
+      "city": "ROCHA"
+    }
+  ],
+  "Salto": [
+    {
+      "name": "MINIGRILL ARRESEIGOR",
+      "address": "BRASIL 983",
+      "city": "SALTO"
+    },
+    {
+      "name": "PIZZERIA DOMINICO",
+      "address": "BLANDENGUES 320",
+      "city": "SALTO"
+    },
+    {
+      "name": "PIZZERÍA LA BLUSERA",
+      "address": "UNIÓN 597",
+      "city": "SALTO"
+    },
+    {
+      "name": "EL RANCHO",
+      "address": "RUTA KM 479",
+      "city": "TERMAS DEL DAYMÁN"
+    },
+    {
+      "name": "THIS TIME",
+      "address": "TERMAS DEL DAYMÁN",
+      "city": "TERMAS DEL DAYMÁN"
+    }
+  ],
+  "San José": [
+    {
+      "name": "PARADOR LO DEL NICO",
+      "address": "WILSON FERREIRA ALDUNATE CASI 25 DE AGOSTO",
+      "city": "LIBERTAD"
+    },
+    {
+      "name": "REST LA CANTINA",
+      "address": "RUTA 1 KM 32",
+      "city": "PLAYA PASCUAL"
+    },
+    {
+      "name": "PARADOR GINO",
+      "address": "BRIGADIER GRAL. MANUEL ORIBE KM 34.200",
+      "city": "RINCON DE LA BOLSA"
+    }
+  ],
+  "Soriano": [
+    {
+      "name": "REST CARAMORA",
+      "address": "TOMÁS GOMENSORO 1144",
+      "city": "DOLORES"
+    },
+    {
+      "name": "MONALISA RESTO BAR",
+      "address": "GRITO DE ASENCIO",
+      "city": "MERCEDES"
+    }
+  ],
+  "Tacuarembó": [
+    {
+      "name": "DON ALFREDO",
+      "address": "LUIS BATLLE BERRES 461",
+      "city": "PASO DE LOS TOROS"
+    },
+    {
+      "name": "LO DE CLAUDIA",
+      "address": "GRAL. ARTIGAS 598",
+      "city": "PASO DE LOS TOROS"
+    },
+    {
+      "name": "RESTO BAR EL GAMO",
+      "address": "18 DE JULIO 148",
+      "city": "TACUAREMBÓ"
+    }
+  ],
+  "Treinta y Tres": [
+    {
+      "name": "LA FRAGATA",
+      "address": "ROTONDA DE RUTA 8 Y BULEVAR FRUCTUOSO DEL PUERTO",
+      "city": "TREINTA Y TRES"
+    }
+  ]
+}

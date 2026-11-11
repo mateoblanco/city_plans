@@ -3,7 +3,7 @@ import distance from '@turf/distance'
 import { point } from '@turf/helpers'
 import { getBarrio } from '../../src/lib/getNeighborhood.ts'
 import { instagramKey } from '../places/brand-key.ts'
-import { montevideoNeighborhood, nameSimilarity, normalizeName, tokensOf } from '../../src/lib/discount-names.ts'
+import { montevideoNeighborhood, nameSimilarity, normalizeName, sharedDistinctiveWords, tokensOf } from '../../src/lib/discount-names.ts'
 import type { ReadPlace } from './reader.ts'
 
 /** Lo que el cruce lee de `places` (sólo lectura). */
@@ -25,6 +25,8 @@ export const FAR_NAME_MIN = 0.8
 export const NEAR_STRONG_METERS = 300
 /** Nombre parecido para confirmar por cercanía (o una señal fuerte: mismo nombre o Instagram). */
 export const NEAR_NAME_MIN = 0.6
+/** Pegado al local (mismo edificio o el de al lado): alcanza con compartir una palabra distintiva del nombre. */
+export const SAME_SPOT_METERS = 30
 
 export function metersBetween(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
   return distance(point([a.lng, a.lat]), point([b.lng, b.lat]), { units: 'meters' })
@@ -235,10 +237,14 @@ function matchByCoordinates(
       .flatMap((row) => (row.location ? [{ row, meters: metersBetween(coordinates, row.location) }] : []))
       .filter((item) => item.meters <= NEAR_STRONG_METERS)
       .sort((a, b) => a.meters - b.meters)
-    // Con señal fuerte (mismo nombre o Instagram) hasta 300 m; con sólo un nombre parecido, hasta 150 m.
-    const hit = near.find(({ row, meters }) => (byId.get(row.id)!.strong && meters <= NEAR_STRONG_METERS) || (similarity.get(row.id)! >= NEAR_NAME_MIN && meters <= NEAR_METERS))
+    // Con señal fuerte (mismo nombre o Instagram) hasta 300 m; con sólo un nombre parecido, hasta 150 m; pegado (≤ 30 m),
+    // con una palabra distintiva en común ("SUMI JAPANESE FOOD" y "Sumi Sushi", "REST FANS" y "Fans 26 de marzo").
+    const shared = (row: MatchablePlace) => sharedDistinctiveWords(place.sourceName, row.name)
+    const hit = near.find(({ row, meters }) => (byId.get(row.id)!.strong && meters <= NEAR_STRONG_METERS) || (similarity.get(row.id)! >= NEAR_NAME_MIN && meters <= NEAR_METERS) || (meters <= SAME_SPOT_METERS && shared(row).length > 0))
     if (hit) {
-      if (!links.has(hit.row.id)) links.set(hit.row.id, link(byId.get(hit.row.id)!, { locationIndex: index, reason: `${metersLabel(hit.meters)} de ${location.address}` }))
+      const byWord = !byId.get(hit.row.id)!.strong && similarity.get(hit.row.id)! < NEAR_NAME_MIN
+      const reason = `${metersLabel(hit.meters)} de ${location.address}${byWord ? `, comparten «${shared(hit.row).join(' ')}»` : ''}`
+      if (!links.has(hit.row.id)) links.set(hit.row.id, link(byId.get(hit.row.id)!, { locationIndex: index, reason }))
       continue
     }
     // Un vecino con otro nombre no es candidato: queda como nota al leer (nearbyPlaces).

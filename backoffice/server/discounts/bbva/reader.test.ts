@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { PageFetcher } from '../polite-fetch.ts'
-import { DISCOUNT_PROVIDERS } from '../providers.ts'
+import { discountProvider } from '../providers.ts'
 import type { BenefitStructurer } from '../structure-benefits.ts'
 import { BASE, fixture, LISTING_URL } from './fixtures.ts'
 import { readBbva, splitSubtitle } from './reader.ts'
 
-const provider = DISCOUNT_PROVIDERS[0]
+const provider = discountProvider('bbva')!
 
 /** Un listado de una página con las cards que se pidan, armado desde las cards reales. */
 function listing(slugs: string[]) {

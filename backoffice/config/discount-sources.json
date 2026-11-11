@@ -1,0 +1,44 @@
+{
+  "$comment": "Fuentes de los descuentos, por proveedor del catálogo (/shared/discounts.ts). Se lee en cada corrida: para cambiar una URL alcanza con editar este archivo. Se valida al cargar (server/discounts/providers.ts): ids del catálogo, URLs https, tipos de tarjeta permitidos.",
+  "providers": {
+    "bbva": {
+      "sourceUrl": "https://www.bbva.com.uy/personas/productos/tarjetas/descuentos/gastronomia.html"
+    },
+    "santander": {
+      "nota": "Los filtros van en el GET. 49 = Montevideo; 22 = Ruta Gourmet (las heladerías, 289, quedan afuera por ahora). page=0, 1, … de 8 cards cada una.",
+      "sourceUrl": "https://www.santander.com.uy/beneficios",
+      "listing": { "params": { "departamento[0]": "49", "categoria": "22" }, "maxPages": 30 }
+    },
+    "itau": {
+      "nota": "Un lugar que está en varias páginas es uno solo, con los beneficios de cada una. Personal Bank: las bases dicen 'tarjetas de crédito y débito Personal Bank, Visa Infinite y MasterCard Black'; Infinite y Black las tiene cualquier cliente Itaú, así que esa parte es de Itaú.",
+      "sourceUrl": "https://www.itau.com.uy/inst/restaurantes.html",
+      "pages": [
+        { "url": "https://www.itau.com.uy/inst/restaurantes.html", "label": "Restaurantes" },
+        { "url": "https://www.itau.com.uy/inst/restaurantesplatinum.html", "label": "Platinum" },
+        {
+          "url": "https://www.itau.com.uy/inst/restaurantespersonalbank.html",
+          "label": "Personal Bank",
+          "cards": [{ "cardType": "credit", "cardTiers": ["Visa Infinite", "Mastercard Black"] }],
+          "manualMatchFrom": "itau-personal-bank"
+        }
+      ]
+    },
+    "itau-personal-bank": {
+      "sourceUrl": "https://www.itau.com.uy/inst/restaurantespersonalbank.html",
+      "pages": [
+        {
+          "url": "https://www.itau.com.uy/inst/restaurantespersonalbank.html",
+          "label": "Personal Bank",
+          "cards": [{ "cardType": "debit", "cardTiers": [] }, { "cardType": "credit", "cardTiers": [] }]
+        }
+      ]
+    },
+    "brou": {
+      "nota": "Una entrada por campaña: la página de la campaña (beneficios y condiciones) tiene el link al PDF con el listado de locales; el nombre del PDF no se fija. La URL cambia cada temporada.",
+      "sourceUrl": "https://beneficios.brou.com.uy/gastronomia/gastronomia-verano-2026-2027",
+      "pages": [
+        { "url": "https://beneficios.brou.com.uy/gastronomia/gastronomia-verano-2026-2027", "label": "Gastronomía Verano 2026-2027" }
+      ]
+    }
+  }
+}

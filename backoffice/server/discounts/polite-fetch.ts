@@ -10,6 +10,8 @@ const RETRY_DELAY_MS = 5_000
 /** Baja páginas de un proveedor. `requests` cuenta los pedidos a la red (0 al reprocesar desde el HTML crudo). */
 export type PageFetcher = {
   get(url: string): Promise<string>
+  /** Un archivo binario (el PDF del listado de BROU), con la misma cola, pausa y robots. */
+  getBytes?(url: string): Promise<Uint8Array>
   readonly requests: number
 }
 
@@ -77,7 +79,7 @@ export function robotsAllows(rules: RobotsRule[], path: string): boolean {
 
 // ── HTML crudo ──
 
-type RawIndex = Record<string, { file: string; status: number; fetchedAt: string }>
+type RawIndex = Record<string, { file: string; status: number; fetchedAt: string; binary?: boolean }>
 
 const safeName = (url: string) => {
   const { hostname, pathname, search } = new URL(url)
@@ -115,42 +117,47 @@ export function politeFetcher(options: LiveOptions): PageFetcher {
   // Una sola cola: aunque alguien llame en paralelo, sale un pedido a la vez.
   let queue: Promise<unknown> = Promise.resolve()
 
-  async function request(url: string): Promise<{ status: number; body: string }> {
+  type Body = { status: number; body: string; bytes: null } | { status: number; body: null; bytes: Uint8Array }
+
+  async function request(url: string, binary = false): Promise<Body> {
     const wait = last + delayMs - now().getTime()
     if (last > 0 && wait > 0) await sleep(wait)
     requests += 1
     try {
       const response = await doFetch(url, {
-        headers: { 'User-Agent': userAgent, Accept: 'text/html,text/plain;q=0.9,*/*;q=0.5' },
+        headers: { 'User-Agent': userAgent, Accept: binary ? 'application/pdf,*/*;q=0.5' : 'text/html,text/plain;q=0.9,*/*;q=0.5' },
         signal: AbortSignal.timeout(TIMEOUT_MS),
         redirect: 'follow',
       })
-      return { status: response.status, body: await response.text() }
+      if (binary) return { status: response.status, body: null, bytes: new Uint8Array(await response.arrayBuffer()) }
+      return { status: response.status, body: await response.text(), bytes: null }
     } finally {
       last = now().getTime()
     }
   }
 
-  async function requestWithRetry(url: string) {
+  async function requestWithRetry(url: string, binary = false) {
     try {
-      const result = await request(url)
+      const result = await request(url, binary)
       if (result.status < 500) return result
     } catch {
       // red o timeout: un reintento
     }
     await sleep(RETRY_DELAY_MS)
     try {
-      return await request(url)
+      return await request(url, binary)
     } catch (error) {
       throw new FetchPageError(url, `No se pudo bajar ${url}: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
-  async function save(url: string, status: number, body: string) {
-    const file = `${safeName(url)}.html`
+  async function save(url: string, status: number, body: string | Uint8Array) {
+    const binary = typeof body !== 'string'
+    // El binario conserva su extensión ("….pdf"); el resto queda como .html, como siempre.
+    const file = binary ? safeName(url).replace(/(\.[A-Za-z0-9]{1,5})?$/, (ext) => ext || '.bin') : `${safeName(url)}.html`
     await mkdir(options.dir, { recursive: true })
     await writeFile(join(options.dir, file), body)
-    index[url] = { file, status, fetchedAt: now().toISOString() }
+    index[url] = { file, status, fetchedAt: now().toISOString(), ...(binary ? { binary: true } : {}) }
     await writeFile(join(options.dir, 'index.json'), JSON.stringify(index, null, 2))
   }
 
@@ -160,33 +167,40 @@ export function politeFetcher(options: LiveOptions): PageFetcher {
       rules = (async () => {
         const url = `${origin}/robots.txt`
         const result = await requestWithRetry(url)
-        await save(url, result.status, result.body)
+        await save(url, result.status, result.body ?? '')
         // Sin robots.txt (404) no hay restricciones; un 5xx después del reintento, no se baja nada.
         if (result.status >= 500) throw new FetchPageError(url, `robots.txt respondió ${result.status}: no se baja nada.`)
-        return result.status >= 400 ? [] : parseRobots(result.body)
+        return result.status >= 400 ? [] : parseRobots(result.body ?? '')
       })()
       robots.set(origin, rules)
     }
     return rules
   }
 
-  async function get(url: string): Promise<string> {
+  async function fetchAllowed(url: string, binary: boolean): Promise<Body> {
     const parsed = new URL(url)
     const rules = await rulesFor(parsed.origin)
     if (!robotsAllows(rules, parsed.pathname + parsed.search)) {
       throw new FetchPageError(url, `robots.txt no permite ${parsed.pathname}.`)
     }
-    const result = await requestWithRetry(url)
-    await save(url, result.status, result.body)
+    const result = await requestWithRetry(url, binary)
+    await save(url, result.status, result.bytes ?? result.body ?? '')
     if (result.status !== 200) throw new FetchPageError(url, `${url} respondió ${result.status}.`)
-    return result.body
+    return result
+  }
+
+  function enqueue<T>(work: () => Promise<T>): Promise<T> {
+    const next = queue.then(work)
+    queue = next.catch(() => undefined)
+    return next
   }
 
   return {
     get(url) {
-      const next = queue.then(() => get(url))
-      queue = next.catch(() => undefined)
-      return next
+      return enqueue(async () => (await fetchAllowed(url, false)).body ?? '')
+    },
+    getBytes(url) {
+      return enqueue(async () => (await fetchAllowed(url, true)).bytes ?? new Uint8Array())
     },
     get requests() {
       return requests
@@ -213,13 +227,19 @@ export async function rawFetcher(dirs: string | string[]): Promise<PageFetcher> 
     const index = await readIndex(dir).catch(() => null)
     if (index) indexes.push({ dir, index })
   }
+  const entryOf = (url: string) => {
+    const found = indexes.find(({ index }) => index[url])
+    if (!found) throw new FetchPageError(url, `${url} no está en el HTML crudo de esa corrida.`)
+    const entry = found.index[url]
+    if (entry.status !== 200) throw new FetchPageError(url, `${url} había respondido ${entry.status}.`)
+    return join(found.dir, entry.file)
+  }
   return {
     async get(url) {
-      const found = indexes.find(({ index }) => index[url])
-      if (!found) throw new FetchPageError(url, `${url} no está en el HTML crudo de esa corrida.`)
-      const entry = found.index[url]
-      if (entry.status !== 200) throw new FetchPageError(url, `${url} había respondido ${entry.status}.`)
-      return readFile(join(found.dir, entry.file), 'utf8')
+      return readFile(entryOf(url), 'utf8')
+    },
+    async getBytes(url) {
+      return new Uint8Array(await readFile(entryOf(url)))
     },
     requests: 0,
   }

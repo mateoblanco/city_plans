@@ -164,6 +164,16 @@ describe('matchPlace con coordenadas (Santander)', () => {
     expect(matchPlace(source({ sourceName: 'Los Leños', locations: [located(bruta)] }), [row('l', 'Los Leños', 'CENTRO', { location: offset(bruta, 350) })]).links).toEqual([])
   })
 
+  it('pegado (≤ 30 m) y con una palabra distintiva en común: encontrado; una palabra genérica o de rubro no alcanza', () => {
+    const near = [row('s', 'Sumi Sushi', 'PUNTA CARRETAS', { location: offset(bruta, 7) }), row('f', 'Fans 26 de marzo', 'PUNTA CARRETAS', { location: offset(bruta, 10) }), row('k', 'Kyoto Sushi Bar', 'PUNTA CARRETAS', { location: offset(bruta, 5) })]
+    expect(matchPlace(source({ sourceName: 'SUMI JAPANESE FOOD', locations: [located(bruta, 'Ellauri 1')] }), near)).toMatchObject({ status: 'found', links: [expect.objectContaining({ placeId: 's', reasons: expect.arrayContaining(['a 7 m de Ellauri 1, comparten «sumi»']) })] })
+    expect(matchPlace(source({ sourceName: 'REST FANS', locations: [located(bruta)] }), near)).toMatchObject({ status: 'found', links: [expect.objectContaining({ placeId: 'f' })] })
+    // "sushi", "bar", números y meses no distinguen.
+    expect(matchPlace(source({ sourceName: 'Tokio Sushi Bar 26 de Marzo', locations: [located(bruta)] }), near).links).toEqual([])
+    // A 40 m ya no alcanza con una palabra.
+    expect(matchPlace(source({ sourceName: 'SUMI JAPANESE FOOD', locations: [located(bruta)] }), [row('s', 'Sumi Sushi', 'PUNTA CARRETAS', { location: offset(bruta, 40) })]).links).toEqual([])
+  })
+
   it('cadena en parte con coordenadas: los locales sin lugar nuestro (aunque tengan vecinos) → encontrado, faltan sucursales', () => {
     const lejos = { lat: -34.85, lng: -56.25 }
     const place = source({ sourceName: 'Bruta', locations: [located(bruta), located(lejos, 'Lejos 1'), located({ lat: -34.8898, lng: -56.0566 }, 'Arocena 1')] })

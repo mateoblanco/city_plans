@@ -6,97 +6,29 @@
 export const PROVIDER_KINDS = ['bank', 'wallet', 'financial', 'club'] as const
 export type ProviderKind = (typeof PROVIDER_KINDS)[number]
 
-/** Un proveedor configurado en código (DISCOUNT_PROVIDERS, abajo). */
-export type DiscountProvider = {
+/**
+ * Un proveedor del catálogo: id, nombre y tipo (la app los usa para los nombres y para validar los filtros). Las URLs de
+ * las fuentes no están acá: viven en backoffice/config/discount-sources.json, editable sin tocar código.
+ */
+export type DiscountProviderInfo = {
   id: string
   name: string
   kind: ProviderKind
-  /** Página de la que sale el listado. */
-  sourceUrl: string
-  /** Parámetros del listado (filtros) y tope de páginas de seguridad, si el lector pagina. */
-  listing?: { params: Record<string, string>; maxPages: number }
-  /** Varias páginas fuente (Itaú: Restaurantes, Platinum y Personal Bank). Sin esto, la única es sourceUrl. */
-  pages?: DiscountProviderPage[]
-}
-
-/** Una página fuente de un proveedor. */
-export type DiscountProviderPage = {
-  url: string
-  label: string
-  /**
-   * Las tarjetas que esta página le da a este proveedor: pisan el tipo y los niveles que dice el texto (el porcentaje,
-   * los días, la modalidad y las bases siguen saliendo de la página). Personal Bank: la misma página da débito y crédito
-   * del paquete a Itaú Personal Bank y crédito Visa Infinite y Mastercard Black a Itaú.
-   */
-  cards?: { cardType: CardType; cardTiers: string[] }[]
-  /**
-   * Los lugares de esta página heredan el cruce manual (vinculado, confirmado o ignorado) del mismo logo en este otro
-   * proveedor, si el suyo es nuevo o automático.
-   */
-  manualMatchFrom?: string
 }
 
 /**
- * Proveedores configurados. Cada uno tiene su lector en backoffice/server/discounts/readers.ts; todos devuelven este
- * formato común. La app los usa para los nombres y para validar los filtros de descuento.
+ * Proveedores del catálogo, en el orden en que se muestran. Cada uno tiene su lector en
+ * backoffice/server/discounts/readers.ts y sus fuentes en backoffice/config/discount-sources.json; todos devuelven el
+ * formato común de abajo.
  */
 export const DISCOUNT_PROVIDERS = [
-  {
-    id: 'bbva',
-    name: 'BBVA',
-    kind: 'bank',
-    sourceUrl: 'https://www.bbva.com.uy/personas/productos/tarjetas/descuentos/gastronomia.html',
-  },
-  {
-    id: 'santander',
-    name: 'Santander',
-    kind: 'bank',
-    // Los filtros van en el GET (no hace falta viewsreference ni Playwright). page=0, 1, … de 8 cards cada una.
-    sourceUrl: 'https://www.santander.com.uy/beneficios',
-    listing: {
-      // 49 = Montevideo; 22 = Ruta Gourmet (las heladerías, 289, quedan afuera por ahora).
-      params: { 'departamento[0]': '49', categoria: '22' },
-      maxPages: 30,
-    },
-  },
-  {
-    id: 'itau',
-    name: 'Itaú',
-    kind: 'bank',
-    // Las dos páginas tienen el mismo armado (pestañas por ciudad y logos por sección); un lugar que está en las dos es
-    // uno solo, con los beneficios de cada una.
-    sourceUrl: 'https://www.itau.com.uy/inst/restaurantes.html',
-    pages: [
-      // Crédito: cualquier tarjeta de crédito Itaú.
-      { url: 'https://www.itau.com.uy/inst/restaurantes.html', label: 'Restaurantes' },
-      // Crédito, nivel Platinum.
-      { url: 'https://www.itau.com.uy/inst/restaurantesplatinum.html', label: 'Platinum' },
-      // Las bases dicen "tarjetas de crédito y débito Personal Bank, Visa Infinite y MasterCard Black": Infinite y Black
-      // son tarjetas que tiene cualquier cliente Itaú (no sólo Personal Bank), así que esta parte es de Itaú.
-      {
-        url: 'https://www.itau.com.uy/inst/restaurantespersonalbank.html',
-        label: 'Personal Bank',
-        cards: [{ cardType: 'credit', cardTiers: ['Visa Infinite', 'Mastercard Black'] }],
-        manualMatchFrom: 'itau-personal-bank',
-      },
-    ],
-  },
-  {
-    // Segmento de clientes (un paquete: cuenta, débito y crédito Personal Bank), no un nivel de tarjeta: va aparte de
-    // Itaú. Los niveles Infinite y Black de la misma página van a Itaú.
-    id: 'itau-personal-bank',
-    name: 'Itaú Personal Bank',
-    kind: 'bank',
-    sourceUrl: 'https://www.itau.com.uy/inst/restaurantespersonalbank.html',
-    pages: [
-      {
-        url: 'https://www.itau.com.uy/inst/restaurantespersonalbank.html',
-        label: 'Personal Bank',
-        cards: [{ cardType: 'debit', cardTiers: [] }, { cardType: 'credit', cardTiers: [] }],
-      },
-    ],
-  },
-] as const satisfies readonly DiscountProvider[]
+  { id: 'bbva', name: 'BBVA', kind: 'bank' },
+  { id: 'santander', name: 'Santander', kind: 'bank' },
+  { id: 'itau', name: 'Itaú', kind: 'bank' },
+  // Segmento de clientes (un paquete: cuenta, débito y crédito Personal Bank), no un nivel de tarjeta: va aparte de Itaú.
+  { id: 'itau-personal-bank', name: 'Itaú Personal Bank', kind: 'bank' },
+  { id: 'brou', name: 'BROU', kind: 'bank' },
+] as const satisfies readonly DiscountProviderInfo[]
 
 export type DiscountProviderId = (typeof DISCOUNT_PROVIDERS)[number]['id']
 

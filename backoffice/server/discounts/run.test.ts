@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { DiscountBenefit, DiscountProvider } from '../../src/types/discounts.ts'
+import type { DiscountBenefit } from '../../src/types/discounts.ts'
+import type { DiscountProvider } from './providers.ts'
 import { DiscountSourceError } from './errors.ts'
 import type { MatchablePlace } from './match.ts'
 import { memoryDiscountStore } from './memory-store.ts'
@@ -194,12 +195,12 @@ describe('corridas en la base', () => {
 
 describe('BBVA y Santander', () => {
   it('cada uno se guarda e inactiva por separado: si Santander falla, no se toca nada suyo ni de BBVA', async () => {
-    const { DISCOUNT_PROVIDERS } = await import('./providers.ts')
+    const { discountProviders } = await import('./providers.ts')
     const store = memoryDiscountStore(ours)
     let clock = new Date('2026-11-05T12:00:00Z')
     const reader = (providerId: string, ids: string[]): ProviderReader => async () => result(ids.map((id) => place(id, { providerId })))
     const run = (readers: Record<string, ProviderReader>) => {
-      const summary = runDiscounts({ providers: DISCOUNT_PROVIDERS.filter((provider) => provider.id === 'bbva' || provider.id === 'santander'), readers, fetcherFor: async () => ({ get: async () => '', requests: 0 }), candidates: async () => ours, store, now: () => clock })
+      const summary = runDiscounts({ providers: discountProviders().filter((provider) => provider.id === 'bbva' || provider.id === 'santander'), readers, fetcherFor: async () => ({ get: async () => '', requests: 0 }), candidates: async () => ours, store, now: () => clock })
       clock = new Date(clock.getTime() + 86_400_000)
       return summary
     }

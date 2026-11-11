@@ -10,7 +10,7 @@ import { drizzleDiscountStore } from '../discounts/drizzle-store.ts'
 import { memoryDiscountStore } from '../discounts/memory-store.ts'
 import { runDiscounts } from '../discounts/run.ts'
 import { discountRunDependencies } from '../discounts/setup.ts'
-import { DISCOUNT_PROVIDERS } from '../discounts/providers.ts'
+import { DISCOUNT_PROVIDER_IDS } from '../discounts/providers.ts'
 
 function summary(run: DiscountRun, places: DiscountPlace[]) {
   console.log(`Corrida ${run.id}${run.reparsedFrom ? ` (desde el HTML de ${run.reparsedFrom})` : ''}`)
@@ -64,7 +64,7 @@ async function main() {
   if (!process.env.DATABASE_URL) throw new Error('Falta configurar DATABASE_URL en .env.local: el cruce lee nuestros lugares de la base.')
   const fromRun = flag('--from')
   const only = flag('--only')?.split(',').map((id) => id.trim()).filter(Boolean)
-  const unknown = only?.filter((id) => !DISCOUNT_PROVIDERS.some((provider) => provider.id === id)) ?? []
+  const unknown = only?.filter((id) => !DISCOUNT_PROVIDER_IDS.includes(id)) ?? []
   if (unknown.length) throw new Error(`Proveedores desconocidos: ${unknown.join(', ')}.`)
   const dryRun = process.argv.includes('--dry-run')
   const [{ db }, { drizzleDiscountCandidates }] = await Promise.all([import('../db/index.ts'), import('../places/list.ts')])

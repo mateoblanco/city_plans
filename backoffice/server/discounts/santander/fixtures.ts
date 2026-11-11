@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { DISCOUNT_PROVIDERS } from '../providers.ts'
+import { discountProviders } from '../providers.ts'
 import { santanderPageUrl } from './reader.ts'
 
-export const SANTANDER = DISCOUNT_PROVIDERS.find((provider) => provider.id === 'santander')!
+export const SANTANDER = discountProviders().find((provider) => provider.id === 'santander')!
 export const DETAIL = 'https://www.santander.com.uy/beneficios/'
 export const pageUrl = (page: number) => santanderPageUrl(SANTANDER, page)
 
