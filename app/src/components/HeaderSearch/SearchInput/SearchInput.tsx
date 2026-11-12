@@ -7,9 +7,9 @@ type Props = {
 
 /** Input del header: sale apenas llegan los parámetros, sin esperar la búsqueda. */
 const SearchInput = async (props: Props) => {
-  const { query, filters, near, intent, sub } = await readParams(props.searchParams);
+  const { query, filters, loc, intent, sub } = await readParams(props.searchParams);
   // key: al navegar a otra búsqueda el input toma el nuevo q.
-  return <Search key={query} defaultValue={query} filters={filters} near={near} intent={intent} sub={sub} />;
+  return <Search key={query} defaultValue={query} filters={filters} loc={loc} intent={intent} sub={sub} />;
 };
 
 export default SearchInput;

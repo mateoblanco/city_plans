@@ -181,9 +181,12 @@ for (const query of queries.length ? queries : checkOnly ? Object.keys(CHECKS) :
     filters: key.filters !== undefined ? key.filters : filters,
     intent: key.intent !== undefined ? key.intent : intent,
     sub: key.sub !== undefined ? key.sub : sub,
+    remove: key.remove ?? null,
+    loc: key.loc ?? null,
+    userLocation: key.userLocation ?? null,
+    defaultNear: key.defaultNear ?? false,
   };
   const response = await runSearch(key.query, { store, cache }, { debug: true, ...params, widen: !checkOnly, likes });
-  const info = response.debug!;
   const checks = runChecks(query, response);
   failures.push(...checks.failed.map((failure) => `${query} → ${failure}`));
   if (checkOnly) {
@@ -191,6 +194,12 @@ for (const query of queries.length ? queries : checkOnly ? Object.keys(CHECKS) :
     for (const failure of checks.failed) console.log(`    ✗ ${failure}`);
     continue;
   }
+  // Esperando la ubicación (location.kind = 'ask'): no hay candidatos ni debug.
+  if (!response.debug) {
+    console.log(`\n━━ ${query}  [ubicación ${response.location.kind}: sin resultados hasta tener la ubicación]`);
+    continue;
+  }
+  const info = response.debug;
   console.log(`\n━━ ${query}${filters ? `  (f=${filters})` : ""}${intent ? `  (intent=${intent}${sub ? `, sub=${sub}` : ""})` : ""}${likes.length ? `  (${likes.length} likes)` : ""}  [${info.source}${info.model ? ` · ${info.model}` : ""} · ${info.timings.total} ms]`);
   if (info.llmError) console.log(`  error del modelo: ${info.llmError}`);
   const calls = info.cost.calls.map((call) => `${call.step} ${call.cached ? "cache" : call.usd === null ? "?" : formatUsd(call.usd)}`);
@@ -200,7 +209,8 @@ for (const query of queries.length ? queries : checkOnly ? Object.keys(CHECKS) :
   console.log(`  chips: ${response.interpreted.chips.map((chip) => `${chip.kind}:${chip.label}`).join(" | ") || "—"}`);
   for (const relaxed of response.relaxed) console.log(`  relajado (${relaxed.what}): ${relaxed.message}`);
   if (response.suggestedRemovals.length) console.log(`  para ampliar, sacá: ${response.suggestedRemovals.map((chip) => `${chip.kind}:${chip.id}`).join(", ")}`);
-  if (response.needsLocation) console.log("  needsLocation: true");
+  console.log(`  ubicación: ${response.location.kind}${"reason" in response.location ? ` (${response.location.reason})` : ""}${response.location.kind === "near" ? ` ${response.location.radiusM} m` : ""}`);
+  if (info.near) console.log(`  radios: ${info.near.tried.map((entry) => `${entry.radiusM} m → ${entry.has}`).join(", ")}; elegido ${info.near.chosen} m`);
   if (info.nameMatches[0]) {
     const best = info.nameMatches[0];
     console.log(`  nombre más parecido: ${best.name} (sim ${best.similarity.toFixed(2)}, word ${best.wordSimilarity.toFixed(2)})`);

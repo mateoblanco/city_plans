@@ -9,6 +9,7 @@ import { neonPlacesStore } from './store'
 export type { SearchDebug, SearchResponse, SearchResult, WidenOption } from './search'
 export type { Chip } from './chips'
 export type { LatLng } from './filters'
+export type { SearchLocation } from './location'
 export type { IntentBar } from './intents'
 
 // Los venues cambian sólo al publicar: van cacheados como los barrios de la barra.
@@ -16,15 +17,29 @@ export const searchDeps = () => ({ store: { ...neonPlacesStore(getDb()), venues:
 const deps = searchDeps
 
 // cache de React compara los argumentos por identidad: van como primitivos para que la barra de filtros y los
-// resultados compartan una sola búsqueda por request. Dura sólo el request; los likes y el perfil van en la clave.
+// resultados compartan una sola búsqueda por request. Dura sólo el request; los likes, el perfil y la ubicación van en
+// la clave (nunca hay cache entre pedidos por coordenada).
 const cachedSearch = cache(
-  (query: string, remove: string | null, filters: string | null, near: string | null, intent: string | null, sub: string | null, debug: boolean, widen: boolean, likes: string, profile: boolean) =>
-    runSearch(query, deps(), { remove, filters, near, intent, sub, debug, widen, likes: likes ? likes.split(',') : [], profile }),
+  (
+    query: string,
+    remove: string | null,
+    filters: string | null,
+    loc: string | null,
+    near: string | null,
+    userLocation: string | null,
+    defaultNear: boolean,
+    intent: string | null,
+    sub: string | null,
+    debug: boolean,
+    widen: boolean,
+    likes: string,
+    profile: boolean,
+  ) => runSearch(query, deps(), { remove, filters, loc, near, userLocation, defaultNear, intent, sub, debug, widen, likes: likes ? likes.split(',') : [], profile }),
 )
 
 /** Búsqueda de lugares publicados; se puede llamar directo desde un server component. */
 export function searchPlaces(query: string, options: SearchOptions = {}): Promise<SearchResponse> {
-  const { remove = null, filters = null, near = null, intent = null, sub = null, debug = false, widen = false, likes = [], profile = true, now } = options
+  const { remove = null, filters = null, loc = null, near = null, userLocation = null, defaultNear = false, intent = null, sub = null, debug = false, widen = false, likes = [], profile = true, now } = options
   if (now) return runSearch(query, deps(), options)
-  return cachedSearch(query, remove, filters, near, intent, sub, debug, widen, likes.join(','), profile)
+  return cachedSearch(query, remove, filters, loc, near, userLocation, defaultNear, intent, sub, debug, widen, likes.join(','), profile)
 }

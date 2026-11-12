@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addFilterHref, barIntentHref, extraHref, intentHref, nearbyHref, nearHref, removeChipHref, searchHref, sectionHref, setDietsHref, setNeighborhoodsHref, setPricesHref, subHref, widenUrl, type BarRef } from "../search-href";
+import { addFilterHref, barIntentHref, extraHref, intentHref, nearbyHref, removeChipHref, searchHref, sectionHref, setDietsHref, setLocationHref, setNeighborhoodsHref, setPricesHref, zoneHref, subHref, widenUrl, type BarRef } from "../search-href";
 
 describe("searchHref", () => {
   it("suma el chip a los remove que ya estaban, sin duplicar", () => {
@@ -24,14 +24,14 @@ describe("searchHref", () => {
 const read = (href: string) => Object.fromEntries(new URL(href, "http://x").searchParams);
 
 describe("chips y barra de filtros", () => {
-  const state = { q: "pizza", remove: "tag:terrace", f: "diet:vegan,neighborhood:CORDON", near: "-34.905,-56.185" };
+  const state = { q: "pizza", remove: "tag:terrace", f: "diet:vegan,neighborhood:CORDON", loc: "near" };
 
   it("quitar un chip que vino de un filtro lo saca de f sin tocar remove", () => {
     expect(read(removeChipHref(state, { kind: "diet", id: "vegan", fromText: false, fromFilter: true }))).toEqual({
       q: "pizza",
       remove: "tag:terrace",
       f: "neighborhood:CORDON",
-      near: "-34.905,-56.185",
+      loc: "near",
     });
   });
 
@@ -42,8 +42,8 @@ describe("chips y barra de filtros", () => {
     expect(both.f).toBe("neighborhood:CORDON");
   });
 
-  it("quitar el chip de cerca mío saca la ubicación", () => {
-    expect(read(removeChipHref(state, { kind: "near", id: "me" })).near).toBeUndefined();
+  it("quitar el chip de cerca mío pasa a todo Montevideo (sin loc volvería a cerca mío, el valor por defecto)", () => {
+    expect(read(removeChipHref(state, { kind: "near", id: "me" })).loc).toBe("all");
   });
 
   it("prender un filtro lo suma a f y lo saca de remove", () => {
@@ -52,29 +52,47 @@ describe("chips y barra de filtros", () => {
   });
 
   it("los barrios reemplazan a los anteriores y quitan los del texto; Todos también", () => {
-    expect(read(setNeighborhoodsHref(state, ["POCITOS"], [], null)).f).toBe("diet:vegan,neighborhood:POCITOS");
-    expect(read(setNeighborhoodsHref(state, ["POCITOS", "PARQUE RODO"], [], null)).f).toBe("diet:vegan,neighborhood:POCITOS,neighborhood:PARQUE RODO");
+    expect(read(setNeighborhoodsHref(state, ["POCITOS"], [])).f).toBe("diet:vegan,neighborhood:POCITOS");
+    expect(read(setNeighborhoodsHref(state, ["POCITOS", "PARQUE RODO"], [])).f).toBe("diet:vegan,neighborhood:POCITOS,neighborhood:PARQUE RODO");
     // "cafés en Pocitos" + Cordón en la barra: Pocitos se quita, así sacar Cordón no lo hace volver.
     const pocitos = [{ kind: "neighborhood", id: "POCITOS", fromText: true, fromFilter: false }];
-    expect(read(setNeighborhoodsHref({ q: "cafés en pocitos" }, ["CORDON"], pocitos, null))).toEqual({
+    expect(read(setNeighborhoodsHref({ q: "cafés en pocitos" }, ["CORDON"], pocitos))).toEqual({
       q: "cafés en pocitos",
       remove: "neighborhood:POCITOS",
       f: "neighborhood:CORDON",
     });
     // Elegir en la barra el mismo barrio del texto no lo quita.
-    expect(read(setNeighborhoodsHref({ q: "cafés en pocitos" }, ["POCITOS"], pocitos, null))).toEqual({ q: "cafés en pocitos", f: "neighborhood:POCITOS" });
-    const all = read(setNeighborhoodsHref({ q: "cafés en pocitos" }, [], [{ kind: "neighborhood", id: "POCITOS", fromText: true, fromFilter: false }], null));
+    expect(read(setNeighborhoodsHref({ q: "cafés en pocitos" }, ["POCITOS"], pocitos))).toEqual({ q: "cafés en pocitos", f: "neighborhood:POCITOS" });
+    const all = read(setNeighborhoodsHref({ q: "cafés en pocitos" }, [], [{ kind: "neighborhood", id: "POCITOS", fromText: true, fromFilter: false }]));
     expect(all).toEqual({ q: "cafés en pocitos", remove: "neighborhood:POCITOS" });
     // Sumar Cordón al Pocitos del texto: quedan los dos, y Pocitos deja de estar quitado si lo estaba.
-    expect(read(setNeighborhoodsHref({ q: "cafés en pocitos", remove: "neighborhood:POCITOS" }, ["POCITOS", "CORDON"], pocitos, null))).toEqual({
+    expect(read(setNeighborhoodsHref({ q: "cafés en pocitos", remove: "neighborhood:POCITOS" }, ["POCITOS", "CORDON"], pocitos))).toEqual({
       q: "cafés en pocitos",
       f: "neighborhood:POCITOS,neighborhood:CORDON",
     });
   });
 
-  it("barrios y cerca mío se excluyen: cada uno saca al otro", () => {
-    expect(read(setNeighborhoodsHref(state, ["POCITOS"], [], null)).near).toBeUndefined();
-    expect(read(setNeighborhoodsHref(state, [], [], "-34.9,-56.16"))).toEqual({ q: "pizza", remove: "tag:terrace", f: "diet:vegan", near: "-34.9,-56.16" });
+  it("barrios y la ubicación (cerca mío, todo Montevideo, zona) se excluyen: cada uno saca al otro", () => {
+    expect(read(setNeighborhoodsHref(state, ["POCITOS"], [])).loc).toBeUndefined();
+    expect(read(setLocationHref(state, "near", []))).toEqual({ q: "pizza", remove: "tag:terrace", f: "diet:vegan", loc: "near" });
+    expect(read(setLocationHref(state, "all", []))).toEqual({ q: "pizza", remove: "tag:terrace", f: "diet:vegan", loc: "all" });
+    // "Cerca mío" a mano con un barrio en el texto: el del texto se quita, así gana lo elegido.
+    const palermo = [{ kind: "neighborhood", id: "PALERMO", fromText: true, fromFilter: false }];
+    expect(read(setLocationHref({ q: "tragos en palermo" }, "near", palermo))).toEqual({ q: "tragos en palermo", remove: "neighborhood:PALERMO", loc: "near" });
+  });
+
+  it("buscar en esta zona reemplaza el barrio (de la barra y del texto) y conserva lo demás; la URL nunca lleva la ubicación", () => {
+    const palermo = [{ kind: "neighborhood", id: "PALERMO", fromText: true, fromFilter: false }];
+    const bounds = { south: -34.92049, west: -56.16051, north: -34.90012, east: -56.14001 };
+    expect(read(zoneHref({ q: "tragos en palermo", intent: "bars", sub: "cocktails", f: "open:today" }, bounds, palermo))).toEqual({
+      q: "tragos en palermo",
+      remove: "neighborhood:PALERMO",
+      intent: "bars",
+      sub: "cocktails",
+      f: "open:today",
+      loc: "-34.921,-56.161,-34.9,-56.14",
+    });
+    expect(read(zoneHref(state, { south: -34.92, west: -56.16, north: -34.9, east: -56.14 }, [])).f).toBe("diet:vegan");
   });
 
   it("precios: reemplazan los de f, quitan los del texto no elegidos y [] es cualquier precio", () => {
@@ -82,7 +100,7 @@ describe("chips y barra de filtros", () => {
       q: "pizza",
       remove: "tag:terrace",
       f: "diet:vegan,price:low,price:moderate",
-      near: "-34.905,-56.185",
+      loc: "near",
     });
     // "bar no muy caro" pide Accesible y Normal: dejar sólo Accesible quita Normal del texto.
     const noMuyCaro = [
@@ -111,8 +129,8 @@ describe("chips y barra de filtros", () => {
     expect(read(removeChipHref({ q: "", f: "tag:afternoon_snack,diet:vegan" }, chip))).toEqual({ f: "diet:vegan" });
   });
 
-  it("cerca mío redondea las coordenadas a 3 decimales", () => {
-    expect(read(nearHref({ q: "café" }, -34.9058123, -56.1847999)).near).toBe("-34.906,-56.185");
+  it("cerca mío en la URL es sólo loc=near: nunca coordenadas", () => {
+    expect(setLocationHref({ q: "café" }, "near", [])).toBe("/search?q=caf%C3%A9&loc=near");
   });
 });
 
@@ -128,7 +146,7 @@ describe("intención y sub-filtros", () => {
     ],
     extras: [{ kind: "dish", id: "pizza", fromText: true }],
   };
-  const state = { q: "bares con cócteles y pizza", f: "neighborhood:CORDON,diet:vegan", near: "-34.905,-56.185" };
+  const state = { q: "bares con cócteles y pizza", f: "neighborhood:CORDON,diet:vegan", loc: "near" };
 
   it("intent y sub van en la URL; sub sólo con intent", () => {
     expect(searchHref({ q: "", intent: "bars", sub: "cocktails,live_music" })).toBe("/search?intent=bars&sub=cocktails%2Clive_music");
@@ -142,7 +160,7 @@ describe("intención y sub-filtros", () => {
       remove: "intent:bars,tag:classic_cocktails,dish:pizza",
       intent: "cafes",
       f: "neighborhood:CORDON,diet:vegan",
-      near: "-34.905,-56.185",
+      loc: "near",
     });
   });
 

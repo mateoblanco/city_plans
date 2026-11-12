@@ -98,6 +98,7 @@ export function fakeStore(places: CandidateRow[], names: NameMatch[] = [], vecto
       filters.groups.every((group) => matchesGroup(group, place)) &&
       (!filters.discounts?.length || place.discounts.some((discount) => filters.discounts!.some((choice) => matchesChoice(discount, choice)))) &&
       (!filters.near || (place.distance ?? Infinity) <= filters.near.radiusM) &&
+      (!filters.zone || (place.lat >= filters.zone.south && place.lat <= filters.zone.north && place.lng >= filters.zone.west && place.lng <= filters.zone.east)) &&
       (!filters.nearby || (!filters.nearby.exclude.includes(place.neighborhoodId) && edgeOf(place) <= filters.nearby.radiusM)) &&
       (!filters.dishes.length || filters.dishMode === 'none' ||
         (filters.dishMode === 'related'

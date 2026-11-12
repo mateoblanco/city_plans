@@ -208,8 +208,13 @@ export const SEARCH_CONFIG = {
    */
   brunchFill: { minHas: 12, categories: ['cafe'], tags: ['breakfast', 'lunch'] },
 
-  /** Cerca mío: radio inicial y cómo se amplía (en metros) si no hay resultados. */
-  near: { radii: [1500, 3000, 5000] },
+  /**
+   * Cerca mío. radii: radio inicial y cómo se amplía (en metros): se usa el primero con al menos minResults resultados
+   * "has" (los tres se consultan en paralelo); si ninguno llega, el más chico que da tantos como el más grande. decay: multiplicador del puntaje por
+   * distancia, 1 − slope × km con piso floor (400 m ×0,88, 1 km ×0,70, 1,5 km o más ×0,55), dentro de cada nivel.
+   * outsideToleranceM: a más de esto del borde de Montevideo, la ubicación cuenta como fuera.
+   */
+  near: { radii: [1500, 3000, 5000], minResults: 8, decay: { slope: 0.3, floor: 0.55 }, outsideToleranceM: 500 },
   /**
    * Venue nombrado ("en el Mercado del Puerto"): además de sus locales, los que no tienen located_in a menos de esto de
    * alguno. 100 m cubre un mercado o un shopping desde el local cargado sin llegar a la cuadra de enfrente.

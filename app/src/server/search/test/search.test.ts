@@ -485,8 +485,8 @@ describe('runSearch', () => {
 
   it('"near me" pide ubicación y responde en español', async () => {
     const { store } = fakeStore(places)
-    const response = await runSearch('vegan near me', { store, cache: fakeCache().cache }, { now })
-    expect(response.needsLocation).toBe(true)
+    expect((await runSearch('vegan near me', { store, cache: fakeCache().cache }, { now })).location).toEqual({ kind: 'ask', explicit: true })
+    const response = await runSearch('vegan near me', { store, cache: fakeCache().cache }, { now, loc: 'all' })
     expect(response.results[0].reasons).toEqual(['Opciones veganas'])
   })
 
@@ -750,39 +750,151 @@ describe('barra de filtros y cerca mío', () => {
     }
   })
 
-  it('cerca mío: radio de 1,5 km, la distancia en los motivos y el chip', async () => {
-    const { store, calls } = fakeStore(places)
-    const response = await runSearch('', { store, cache: fakeCache().cache }, { now, intent: 'cafes', near: '-34.90512,-56.18471' })
+  // Cordón: dentro de Montevideo. La URL nunca lleva la coordenada: viene de la cookie `loc`.
+  const CORDON = '-34.905,-56.185'
+  const cafes = (count: number, distance: number, prefix: string) =>
+    Array.from({ length: count }, (_, index) => row({ id: `${prefix}-${index}`, categories: ['cafe'], distance: distance + index * 10 }))
+
+  it('cerca mío por defecto con la cookie: radio de 1,5 km si alcanza, la distancia en la card y el chip', async () => {
+    const { store, calls } = fakeStore([...cafes(8, 300, 'cerca'), ...cafes(3, 2500, 'lejos')])
+    const response = await runSearch('', { store, cache: fakeCache().cache }, { now, intent: 'cafes', userLocation: CORDON, defaultNear: true, debug: true })
+    expect(response.location).toEqual({ kind: 'near', origin: { lat: -34.905, lng: -56.185 }, radiusM: 1500 })
     expect(response.near).toEqual({ lat: -34.905, lng: -56.185 })
-    expect(calls[0].filters.near).toEqual({ lat: -34.905, lng: -56.185, radiusM: 1500 })
+    // Los tres radios en paralelo; se usa el primero con suficientes.
+    expect(calls.map((call) => call.filters.near?.radiusM)).toEqual([1500, 3000, 5000])
     expect(calls[0].scores.origins).toEqual([{ lat: -34.905, lng: -56.185 }])
-    expect(ids(response)).toEqual(['cafe-cordon'])
-    expect(response.results[0].reasons).toContain('a 400 m')
+    expect(response.debug?.near).toEqual({ tried: [{ radiusM: 1500, has: 8 }, { radiusM: 3000, has: 11 }, { radiusM: 5000, has: 11 }], chosen: 1500 })
+    expect(response.results.map((result) => result.id).every((id) => id.startsWith('cerca-'))).toBe(true)
+    expect(response.results.find((result) => result.id === 'cerca-0')?.distance).toBe('a 300 m')
     expect(response.interpreted.chips.at(-1)).toEqual({ kind: 'near', id: 'me', label: 'Cerca mío', fromText: false, fromFilter: false })
     expect(response.relaxed).toEqual([])
   })
 
-  it('sin nada en 1,5 km amplía a 3 km y después a 5 km, avisando', async () => {
-    const far = places.filter((place) => place.id !== 'cafe-cordon')
-    const { store, calls } = fakeStore(far)
-    const at3 = await runSearch('', { store, cache: fakeCache().cache }, { now, intent: 'cafes', near: '-34.9,-56.18' })
-    expect(calls.map((call) => call.filters.near?.radiusM)).toEqual([1500, 3000])
-    expect(ids(at3)).toEqual(['cafe-famoso'])
-    expect(at3.results[0].reasons).toContain('a 2,5 km')
-    expect(at3.relaxed.map((notice) => notice.message)).toEqual(['No encontramos a menos de 1,5 km; estos están a hasta 3 km.'])
+  it('con pocos a 1,5 km agranda el radio al primero que alcanza y avisa', async () => {
+    const { store } = fakeStore([...cafes(2, 400, 'cerca'), ...cafes(7, 2500, 'medio'), ...cafes(5, 4000, 'lejos')])
+    const at3 = await runSearch('', { store, cache: fakeCache().cache }, { now, intent: 'cafes', loc: 'near', userLocation: CORDON })
+    expect(at3.location).toMatchObject({ kind: 'near', radiusM: 3000 })
+    expect(at3.results).toHaveLength(9)
+    expect(at3.results.find((result) => result.id === 'medio-0')?.distance).toBe('a 2,5 km')
+    expect(at3.relaxed.map((notice) => notice.message)).toEqual(['Había pocos a 1,5 km: ampliamos a 3 km.'])
 
-    const onlyFar = fakeStore(far.filter((place) => place.id !== 'cafe-famoso'))
-    const at5 = await runSearch('', { store: onlyFar.store, cache: fakeCache().cache }, { now, intent: 'cafes', near: '-34.9,-56.18' })
-    expect(onlyFar.calls.map((call) => call.filters.near?.radiusM)).toEqual([1500, 3000, 5000])
-    expect(at5.relaxed.map((notice) => notice.message)).toEqual(['No encontramos a menos de 1,5 km; estos están a hasta 5 km.'])
+    // Si ninguno llega, el más chico que ya da todo lo que hay (acá, recién el último).
+    const few = fakeStore([...cafes(1, 400, 'cerca'), ...cafes(2, 4000, 'lejos')])
+    const at5 = await runSearch('', { store: few.store, cache: fakeCache().cache }, { now, intent: 'cafes', loc: 'near', userLocation: CORDON })
+    expect(at5.location).toMatchObject({ kind: 'near', radiusM: 5000 })
+    expect(at5.results).toHaveLength(3)
+    expect(at5.relaxed.map((notice) => notice.message)).toEqual(['Había pocos a 1,5 km: ampliamos a 5 km.'])
+
+    // 5 a 1,5 km y 6 a 3 y a 5 km: 3 km (ir a 5 no suma nada).
+    const mid = fakeStore([...cafes(5, 400, 'cerca'), ...cafes(1, 2500, 'medio')])
+    const at3Max = await runSearch('', { store: mid.store, cache: fakeCache().cache }, { now, intent: 'cafes', loc: 'near', userLocation: CORDON })
+    expect(at3Max.location).toMatchObject({ kind: 'near', radiusM: 3000 })
+    // Todo lo que hay ya está a 1,5 km: no se agranda ni se avisa.
+    const close = fakeStore(cafes(3, 400, 'cerca'))
+    const at15 = await runSearch('', { store: close.store, cache: fakeCache().cache }, { now, intent: 'cafes', loc: 'near', userLocation: CORDON })
+    expect(at15.location).toMatchObject({ kind: 'near', radiusM: 1500 })
+    expect(at15.relaxed).toEqual([])
   })
 
-  it('"café cerca mío" sin ubicación pide la ubicación y busca igual', async () => {
-    const { store } = fakeStore(places)
-    const response = await runSearch('café cerca mío', { store, cache: fakeCache().cache }, { now })
-    expect(response.needsLocation).toBe(true)
+  it('con cerca mío lo más cercano sube: la distancia multiplica el puntaje', async () => {
+    const { store } = fakeStore([
+      row({ id: 'lejos', categories: ['cafe'], prominence: 0.6, distance: 1400 }),
+      row({ id: 'cerca', categories: ['cafe'], prominence: 0.4, distance: 200 }),
+    ])
+    const near = await runSearch('', { store, cache: fakeCache().cache }, { now, intent: 'cafes', loc: 'near', userLocation: CORDON, debug: true })
+    expect(near.results.map((result) => result.id)).toEqual(['cerca', 'lejos'])
+    const [cerca, lejos] = near.debug!.results
+    expect(cerca.multiplier / qualityMultiplier(cerca, false)).toBeCloseTo(0.94)
+    expect(lejos.multiplier / qualityMultiplier(lejos, false)).toBeCloseTo(0.58)
+  })
+
+  it('sin cookie, la primera búsqueda pide la ubicación: sin resultados ni consultas de candidatos', async () => {
+    const { store, calls } = fakeStore(places)
+    const response = await runSearch('cafés', { store, cache: fakeCache().cache }, { now, defaultNear: true })
+    expect(response.location).toEqual({ kind: 'ask', explicit: false })
+    expect(response.results).toEqual([])
     expect(response.near).toBeNull()
-    expect(response.results.length).toBeGreaterThan(0)
+    expect(calls).toHaveLength(0)
+    // La barra igual se arma con lo del texto.
+    expect(response.bar.intent?.id).toBe('cafes')
+  })
+
+  it('con un barrio en el texto, el barrio: no hay cerca mío por defecto', async () => {
+    const { store, calls } = fakeStore(places)
+    const response = await runSearch('cafés en cordón', { store, cache: fakeCache().cache }, { now, userLocation: CORDON, defaultNear: true })
+    expect(response.location).toEqual({ kind: 'neighborhood' })
+    expect(calls[0].filters.near).toBeNull()
+    expect(response.near).toBeNull()
+    expect(response.results.every((result) => result.distance === null)).toBe(true)
+    // Sin cookie tampoco se pide: el barrio ya dice dónde.
+    expect((await runSearch('cafés en cordón', { store, cache: fakeCache().cache }, { now, defaultNear: true })).location).toEqual({ kind: 'neighborhood' })
+  })
+
+  it('permiso negado: todo Montevideo, sin volver a pedir', async () => {
+    const { store, calls } = fakeStore(places)
+    const response = await runSearch('', { store, cache: fakeCache().cache }, { now, intent: 'cafes', userLocation: 'denied', defaultNear: true })
+    expect(response.location).toEqual({ kind: 'all', reason: 'denied' })
+    expect(calls[0].filters.near).toBeNull()
+    expect(ids(response)).toHaveLength(4)
+    // Elegir "Cerca mío" a mano (o escribirlo) sí lo pide de nuevo.
+    expect((await runSearch('', { store, cache: fakeCache().cache }, { now, intent: 'cafes', loc: 'near', userLocation: 'denied', defaultNear: true })).location).toEqual({ kind: 'ask', explicit: true })
+  })
+
+  it('"café cerca mío" sin ubicación la pide; con "Todo Montevideo" elegido, no', async () => {
+    const { store } = fakeStore(places)
+    const asked = await runSearch('café cerca mío', { store, cache: fakeCache().cache }, { now })
+    expect(asked.location).toEqual({ kind: 'ask', explicit: true })
+    expect(asked.results).toEqual([])
+    const all = await runSearch('café cerca mío', { store, cache: fakeCache().cache }, { now, loc: 'all' })
+    expect(all.location).toEqual({ kind: 'all', reason: 'chosen' })
+    expect(all.results.length).toBeGreaterThan(0)
+  })
+
+  it('ubicación fuera de Montevideo: todo Montevideo con aviso', async () => {
+    const { store, calls } = fakeStore(places)
+    const response = await runSearch('', { store, cache: fakeCache().cache }, { now, intent: 'cafes', userLocation: '-34.603,-58.381', defaultNear: true })
+    expect(response.location).toEqual({ kind: 'all', reason: 'outside' })
+    expect(calls[0].filters.near).toBeNull()
+    expect(response.relaxed.map((notice) => notice.message)).toEqual(['Tu ubicación está fuera de Montevideo: mostramos todo Montevideo.'])
+  })
+
+  it('un near=lat,lng viejo es cerca mío con la ubicación de quien abre el link', async () => {
+    const { store, calls } = fakeStore(places)
+    const response = await runSearch('', { store, cache: fakeCache().cache }, { now, intent: 'cafes', near: '-34.85,-56.25', userLocation: CORDON })
+    expect(response.location).toMatchObject({ kind: 'near', origin: { lat: -34.905, lng: -56.185 } })
+    expect(calls[0].scores.origins).toEqual([{ lat: -34.905, lng: -56.185 }])
+  })
+
+  it('"Buscar en esta zona" reemplaza el barrio del texto y busca sólo dentro del área', async () => {
+    const inZone = { lat: -34.91, lng: -56.15 }
+    const zonePlaces = [
+      row({ id: 'tragos-zona', neighborhoodId: 'POCITOS', categories: ['bar'], ...inZone }),
+      row({ id: 'tragos-zona-palermo', neighborhoodId: 'PALERMO', categories: ['bar'], ...inZone }),
+      row({ id: 'tragos-palermo-afuera', neighborhoodId: 'PALERMO', categories: ['bar'], lat: -34.8, lng: -56.3 }),
+    ]
+    const { store, calls } = fakeStore(zonePlaces)
+    const response = await runSearch('bares en palermo', { store, cache: fakeCache().cache }, {
+      now,
+      remove: 'neighborhood:PALERMO',
+      loc: '-34.92,-56.16,-34.9,-56.14',
+      userLocation: CORDON,
+      defaultNear: true,
+    })
+    expect(response.location).toEqual({ kind: 'zone', bounds: { south: -34.92, west: -56.16, north: -34.9, east: -56.14 } })
+    expect(calls[0].filters.neighborhoods).toEqual([])
+    expect(calls[0].filters.zone).toEqual({ south: -34.92, west: -56.16, north: -34.9, east: -56.14 })
+    expect(ids(response).sort()).toEqual(['tragos-zona', 'tragos-zona-palermo'])
+    expect(response.near).toBeNull()
+    // Un texto nuevo que nombra un barrio (sin remove) gana sobre la zona.
+    const typed = await runSearch('bares en palermo', { store, cache: fakeCache().cache }, { now, loc: '-34.92,-56.16,-34.9,-56.14', defaultNear: true })
+    expect(typed.location).toEqual({ kind: 'neighborhood' })
+  })
+
+  it('zona sin nada: lo dice', async () => {
+    const { store } = fakeStore(places)
+    const response = await runSearch('', { store, cache: fakeCache().cache }, { now, intent: 'cafes', loc: '-34.8,-56.3,-34.79,-56.29' })
+    expect(response.results).toEqual([])
+    expect(response.relaxed.map((notice) => notice.message)).toContain('No encontramos lugares en esta zona.')
   })
 })
 
@@ -819,7 +931,7 @@ describe('sucursales de una marca', () => {
 
   it('con ubicación: la más cercana', async () => {
     const { store } = fakeStore(places)
-    const response = await runSearch('', { store, cache: fakeCache().cache }, { now, intent: 'cafes', near: '-34.9,-56.16' })
+    const response = await runSearch('', { store, cache: fakeCache().cache }, { now, intent: 'cafes', loc: 'near', userLocation: '-34.9,-56.16' })
     const costaCard = response.results.find((result) => result.branchCount === 4)
     expect(costaCard?.id).toBe('costa-cordon')
     expect(costaCard?.branches.map((branch) => branch.id).sort()).toEqual(['costa-malvin', 'costa-pocitos'])

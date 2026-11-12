@@ -13,8 +13,10 @@ import styles from "./ResultsView.module.scss";
 import { visiblePage } from "../../utils/pagination";
 import type { NearbyCount } from "../../utils/results-count";
 import { EAGER_SEARCH_CARDS } from "../../utils/eager-images";
-import type { SearchUrl } from "../../utils/search-href";
+import type { Bounds } from "@/lib/location";
+import type { ChipRef, SearchUrl } from "../../utils/search-href";
 import { usePublishSearchResults } from "../../utils/use-search-map";
+import { useRefreshLocation } from "../../utils/use-location";
 
 type Props = {
   results: SearchResponse["results"];
@@ -28,7 +30,11 @@ type Props = {
   notices: string[];
   scores: Map<string, CardDebug> | null;
   near: LatLng | null;
+  /** "Zona del mapa": el área con la que se buscó (el mapa no se reencuadra). */
+  zone?: Bounds | null;
   state: SearchUrl;
+  /** Los chips de barrio de la búsqueda: "Buscar en esta zona" quita los del texto. */
+  neighborhoodChips?: ChipRef[];
   /** El panel de debug, renderizado en el server. */
   children?: ReactNode;
 };
@@ -47,7 +53,11 @@ const ResultsView = (props: Props) => {
     if (nearbyOnly) return { label: nearbyOnly.label, count: results.length, only: true };
     return nearby ? { label: nearby.label, count: nearby.total, only: false } : null;
   }, [nearby, nearbyOnly, results.length]);
-  usePublishSearchResults(page.places, props.near, props.results.length, nearbyCount);
+  const { state, neighborhoodChips } = props;
+  const base = useMemo(() => ({ state, chips: neighborhoodChips ?? [] }), [state, neighborhoodChips]);
+  usePublishSearchResults(page.places, props.near, props.results.length, nearbyCount, { zone: props.zone ?? null, base });
+  // Cerca mío desde la cookie: si la persona se movió (y el permiso sigue), se actualiza en segundo plano.
+  useRefreshLocation(props.near);
   const anyResults = props.results.length > 0 || nearby !== null;
   // Con grupos, el StickyHeader pone el aire de arriba; sin ellos lo pone el contenedor.
   const grouped = props.results.length > 0 && Boolean(page.sections ?? page.forYou ?? nearbyOnly);

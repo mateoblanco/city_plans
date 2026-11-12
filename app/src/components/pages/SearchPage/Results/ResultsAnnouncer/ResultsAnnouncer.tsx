@@ -9,6 +9,8 @@ type Props = {
   nearby: NearbyCount | null;
   /** Sube con cada búsqueda nueva (no con el scroll infinito): ver la key de abajo. */
   fitKey: number;
+  /** Mientras busca, otro texto que "Buscando…" ("Buscando cerca tuyo…"). */
+  pendingLabel?: string;
 };
 
 /**
@@ -19,7 +21,7 @@ type Props = {
  */
 const ResultsAnnouncer = (props: Props) => (
   <p className={styles.announcer} role="status" aria-live="polite">
-    <span key={props.fitKey}>{resultsAnnouncement(props.pending ? null : props.count, props.nearby)}</span>
+    <span key={props.fitKey}>{resultsAnnouncement(props.pending ? null : props.count, props.nearby, props.pendingLabel)}</span>
   </p>
 );
 

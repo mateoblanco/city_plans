@@ -12,7 +12,7 @@ import { intentHref, subHref, type SearchUrl } from "../search-href";
 
 const now = new Date("2026-10-12T16:00:00Z");
 // Barrio, abierto ahora y dieta (todo en f) más cerca mío: lo que ningún cambio de intención puede tocar.
-const KEPT = { f: "neighborhood:CORDON,open:today,diet:vegan", near: "-34.905,-56.185" };
+const KEPT = { f: "neighborhood:CORDON,open:today,diet:vegan", loc: "near" };
 
 const places = [
   row({ id: "bar", categories: ["bar"], tags: ["classic_cocktails", "live_music"] }),
@@ -36,12 +36,12 @@ const list = (raw: string | null) => (raw ? raw.split(",") : []);
 
 const toUrl = (href: string): SearchUrl => {
   const params = read(href);
-  return { q: params.get("q") ?? "", remove: params.get("remove"), intent: params.get("intent"), sub: params.get("sub"), f: params.get("f"), near: params.get("near") };
+  return { q: params.get("q") ?? "", remove: params.get("remove"), intent: params.get("intent"), sub: params.get("sub"), f: params.get("f"), loc: params.get("loc") };
 };
 
 async function search(state: SearchUrl): Promise<SearchResponse> {
   const { store } = fakeStore(places);
-  return runSearch(state.q, { store, cache: fakeCache().cache }, { now, debug: true, remove: state.remove, intent: state.intent, sub: state.sub, filters: state.f, near: state.near });
+  return runSearch(state.q, { store, cache: fakeCache().cache }, { now, debug: true, remove: state.remove, intent: state.intent, sub: state.sub, filters: state.f, loc: state.loc, userLocation: "-34.905,-56.185" });
 }
 
 /** q, barrio, abierto ahora, dietas y cerca mío, iguales que antes. */
@@ -49,7 +49,7 @@ function expectKept(href: string, state: SearchUrl) {
   const params = read(href);
   expect(params.get("q") ?? "", "q").toBe(state.q);
   expect(list(params.get("f")).sort(), "f (barrio, abierto ahora, dietas)").toEqual(list(KEPT.f).sort());
-  expect(params.get("near"), "cerca mío").toBe(KEPT.near);
+  expect(params.get("loc"), "ubicación").toBe(KEPT.loc);
 }
 
 /**
@@ -148,5 +148,5 @@ describe.each(INTENT_IDS)("links de la barra: %s", (intentId) => {
 
 const optionsOf = (href: string) => {
   const url = toUrl(href);
-  return { remove: url.remove, intent: url.intent, sub: url.sub, filters: url.f, near: url.near };
+  return { remove: url.remove, intent: url.intent, sub: url.sub, filters: url.f, loc: url.loc };
 };

@@ -1,4 +1,4 @@
-import { roundCoord } from "@/lib/coords";
+import { normalizeBounds, zoneParam, type Bounds } from "@/lib/location";
 
 /** Todo el estado de /search vive en la URL: texto, chips quitados, intención, filtros de la barra y ubicación. */
 export type SearchUrl = {
@@ -10,8 +10,11 @@ export type SearchUrl = {
   sub?: string | null;
   /** Filtros de la barra (open:today,diet:vegan,neighborhood:CORDON). */
   f?: string | null;
-  /** Cerca mío: lat,lng redondeados a 3 decimales. */
-  near?: string | null;
+  /**
+   * Dónde (`src/lib/location.ts`): `near` (cerca mío; nunca coordenadas: usa la ubicación de quien abre el link), `all`
+   * (todo Montevideo) o una zona del mapa (`s,w,n,e`). Sin loc, la ubicación por defecto. Los barrios van en f.
+   */
+  loc?: string | null;
   debug?: boolean;
   /** false: profile=off (la misma búsqueda sin perfil); se conserva en los links, como debug. */
   profile?: boolean;
@@ -43,7 +46,7 @@ export function filterKey({ kind, id }: { kind: string; id: string }): string | 
 }
 
 /** URL de /search. `add` suma un chip a remove (lo que hacía antes quitar un chip). */
-export function searchHref({ q, remove, intent, sub, f, near, debug, profile, add }: SearchUrl & { add?: { kind: string; id: string } }): string {
+export function searchHref({ q, remove, intent, sub, f, loc, debug, profile, add }: SearchUrl & { add?: { kind: string; id: string } }): string {
   const removals = list(remove);
   if (add) removals.push(`${add.kind}:${add.id}`);
 
@@ -58,7 +61,7 @@ export function searchHref({ q, remove, intent, sub, f, near, debug, profile, ad
   }
   const filters = [...new Set(list(f))];
   if (filters.length) params.set("f", filters.join(","));
-  if (near) params.set("near", near);
+  if (loc) params.set("loc", loc);
   if (debug) params.set("debug", "1");
   if (profile === false) params.set("profile", "off");
   const query = params.toString();
@@ -69,10 +72,10 @@ const without = (raw: string | null | undefined, key: string) => list(raw).filte
 
 /**
  * Apagar un chip (o un toggle de la barra, que es lo mismo): lo de la barra se saca de f,
- * lo del texto se suma a remove, y "cerca mío" saca la ubicación.
+ * lo del texto se suma a remove, y "cerca mío" pasa a todo Montevideo (sin loc volvería a cerca mío, el valor por defecto).
  */
 export function removeChipHref(state: SearchUrl, chip: ChipRef): string {
-  if (chip.kind === "near") return searchHref({ ...state, near: null });
+  if (chip.kind === "near") return searchHref({ ...state, loc: "all" });
   const key = filterKey(chip);
   const f = chip.fromFilter && key ? without(state.f, key) : state.f;
   const fromText = chip.fromText ?? !chip.fromFilter;
@@ -98,9 +101,26 @@ function replaceFilter(state: SearchUrl, kind: string, ids: string[], chips: Chi
   return { ...state, f: f.join(","), remove };
 }
 
-/** Barrios o cerca mío: near pisa la ubicación (null la saca). [] sin near = "Todos los barrios". */
-export function setNeighborhoodsHref(state: SearchUrl, ids: string[], chips: ChipRef[], near: string | null): string {
-  return searchHref({ ...replaceFilter(state, "neighborhood", ids, chips), near });
+/** Barrios del filtro "Dónde": reemplazan a la ubicación (cerca mío, todo Montevideo o la zona). [] = sin elección. */
+export function setNeighborhoodsHref(state: SearchUrl, ids: string[], chips: ChipRef[]): string {
+  return searchHref({ ...replaceFilter(state, "neighborhood", ids, chips), loc: null });
+}
+
+/**
+ * "Cerca mío" o "Todo Montevideo" del filtro "Dónde": sacan los barrios de la barra y quitan los del texto (`remove`), así
+ * lo elegido gana. chips: los de barrio de la búsqueda.
+ */
+export function setLocationHref(state: SearchUrl, loc: "near" | "all", chips: ChipRef[]): string {
+  return searchHref({ ...replaceFilter(state, "neighborhood", [], chips), loc });
+}
+
+/**
+ * "Buscar en esta zona": el área visible del mapa (redondeada hacia afuera a 3 decimales y recortada a Montevideo) reemplaza al barrio (de la barra o del texto)
+ * y a cerca mío; todo lo demás (texto, intención, filtros) queda igual.
+ */
+export function zoneHref(state: SearchUrl, bounds: Bounds, chips: ChipRef[]): string {
+  const zone = normalizeBounds(bounds);
+  return searchHref({ ...replaceFilter(state, "neighborhood", [], chips), loc: zone ? zoneParam(zone) : null });
 }
 
 /** Precios del select de la barra. [] = "Cualquier precio". */
@@ -116,13 +136,6 @@ export function setDietsHref(state: SearchUrl, ids: string[], chips: ChipRef[]):
 /** Descuentos del panel de la barra (`itau.credit`, sin `discount:`). [] = sin filtro. No vienen del texto. */
 export function setDiscountsHref(state: SearchUrl, ids: string[]): string {
   return searchHref(replaceFilter(state, "discount", ids, []));
-}
-
-/** Cerca mío: las coordenadas van redondeadas a 3 decimales (unos 100 m). */
-export const nearParam = (lat: number, lng: number) => `${roundCoord(lat)},${roundCoord(lng)}`;
-
-export function nearHref(state: SearchUrl, lat: number, lng: number): string {
-  return searchHref({ ...state, near: nearParam(lat, lng) });
 }
 
 /**
@@ -142,7 +155,7 @@ const intentKeys = (bar: BarRef) => (bar.textIntent ? [`intent:${bar.textIntent}
 
 /**
  * Elegir una intención (o null = "Todo"): limpia los sub-filtros de la anterior, vengan de la URL o del texto,
- * pero conserva barrio, abre hoy, dietas (f) y cerca mío.
+ * pero conserva barrio, abre hoy, dietas (f) y la ubicación (loc).
  */
 export function intentHref(state: SearchUrl, id: string | null, bar: BarRef): string {
   return searchHref({ ...state, intent: id, sub: null, remove: [...list(state.remove), ...intentKeys(bar), ...textRow(bar)].join(",") });

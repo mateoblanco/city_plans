@@ -1,11 +1,13 @@
 "use client";
 
 import { AdvancedMarker, APIProvider, Map, useMap } from "@vis.gl/react-google-maps";
-import { memo, use, useEffect, useRef, useSyncExternalStore } from "react";
+import { memo, use, useEffect, useRef, useSyncExternalStore, type RefObject } from "react";
+import type { Bounds } from "@/lib/location";
 import type { IconCategory } from "@shared/icon-categories.ts";
 import MapMarker from "@/components/MapMarker/MapMarker";
 import { useIsActiveMarker } from "../../../utils/hover";
 import { SearchMapContext } from "../../../utils/use-search-map";
+import { movedEnough } from "../../../utils/viewport";
 import { MAPS_API_KEY, MAPS_LANGUAGE, MAPS_REGION } from "./maps-loader";
 import styles from "./SearchMap.module.scss";
 
@@ -24,6 +26,35 @@ type FitBoundsProps = {
   /** Cambia con cada búsqueda nueva: sólo entonces (o cuando el mapa queda listo) se encuadra. */
   fitKey: number;
   bottomInset: number;
+  /** "Zona del mapa": no se reencuadra (salvo la primera vez: un link compartido encuadra la zona). */
+  zone: Bounds | null;
+  camera: RefObject<CameraState>;
+};
+
+/**
+ * Lo que hizo el programa con la cámara, para distinguirlo de lo que hizo la persona: programmatic mientras dura un
+ * encuadre (hasta el próximo idle o un tope de tiempo) y reference, la vista después del último encuadre o búsqueda.
+ */
+type CameraState = { programmatic: boolean; reference: Bounds | null; fitted: boolean; timer: ReturnType<typeof setTimeout> | null };
+
+type GoogleMap = NonNullable<ReturnType<typeof useMap>>;
+
+const boundsOf = (map: GoogleMap): Bounds | null => {
+  const bounds = map.getBounds();
+  if (!bounds) return null;
+  const ne = bounds.getNorthEast();
+  const sw = bounds.getSouthWest();
+  return { south: sw.lat(), west: sw.lng(), north: ne.lat(), east: ne.lng() };
+};
+
+/** Marca el encuadre que viene como del programa; si la cámara no cambia (no hay idle), lo suelta igual. */
+const startProgrammatic = (map: GoogleMap, camera: CameraState) => {
+  camera.programmatic = true;
+  if (camera.timer) clearTimeout(camera.timer);
+  camera.timer = setTimeout(() => {
+    camera.programmatic = false;
+    camera.reference = boundsOf(map);
+  }, 1500);
 };
 
 /**
@@ -51,9 +82,19 @@ const FitBounds = (props: FitBoundsProps) => {
 
   useEffect(() => {
     if (!map) return;
-    const { places, bottomInset } = latest.current;
+    const { places, bottomInset, zone, camera } = latest.current;
+    const fitted = camera.current.fitted;
+    camera.current.fitted = true;
+    // Buscar en una zona no mueve el mapa: la persona ya eligió la vista. Esa vista pasa a ser la referencia.
+    if (zone && fitted) {
+      camera.current.reference = boundsOf(map);
+      return;
+    }
+    startProgrammatic(map, camera.current);
     const topInset = coveredByHeader(map);
-    if (places.length === 0) {
+    if (zone) {
+      map.fitBounds({ north: zone.north, south: zone.south, east: zone.east, west: zone.west }, 0);
+    } else if (places.length === 0) {
       map.setCenter(MONTEVIDEO);
       map.setZoom(13);
     } else if (places.length === 1) {
@@ -75,6 +116,40 @@ const FitBounds = (props: FitBoundsProps) => {
     }
   }, [map, props.fitKey]);
 
+  return null;
+};
+
+type ViewportWatcherProps = {
+  camera: RefObject<CameraState>;
+  onMoved: (bounds: Bounds) => void;
+};
+
+/**
+ * Cuando el mapa queda quieto (idle): si fue un encuadre del programa, esa vista es la referencia; si lo movió la
+ * persona (arrastre o zoom) lo suficiente, avisa el área visible ("Buscar en esta zona"). Mover el mapa no busca.
+ */
+const ViewportWatcher = (props: ViewportWatcherProps) => {
+  const map = useMap();
+  const latest = useRef(props);
+  useEffect(() => {
+    latest.current = props;
+  });
+  useEffect(() => {
+    if (!map) return;
+    const listener = map.addListener("idle", () => {
+      const camera = latest.current.camera.current;
+      const bounds = boundsOf(map);
+      if (!bounds) return;
+      if (camera.programmatic || !camera.reference) {
+        if (camera.timer) clearTimeout(camera.timer);
+        camera.programmatic = false;
+        camera.reference = bounds;
+        return;
+      }
+      if (movedEnough(camera.reference, bounds)) latest.current.onMoved(bounds);
+    });
+    return () => listener.remove();
+  }, [map]);
   return null;
 };
 
@@ -121,8 +196,9 @@ type Props = {
  */
 const MapContent = (props: Props) => {
   const store = use(SearchMapContext);
-  const { places, near, fitKey } = useSyncExternalStore(store.subscribe, store.getState, store.getState);
+  const { places, near, fitKey, zone } = useSyncExternalStore(store.subscribe, store.getState, store.getState);
   const points = near ? [...places, near] : places;
+  const camera = useRef<CameraState>({ programmatic: false, reference: null, fitted: false, timer: null });
   // El mapa se crea con la primera búsqueda (Maps JS ya se viene bajando desde antes: maps-loader). Creado antes,
   // bajaría los tiles de Montevideo y después, al encuadrar, todos de nuevo.
   if (fitKey === 0) return null;
@@ -146,7 +222,8 @@ const MapContent = (props: Props) => {
           <div className={styles.userMarker} />
         </AdvancedMarker>
       )}
-      <FitBounds places={points} fitKey={fitKey} bottomInset={props.bottomInset ?? 0} />
+      <FitBounds places={points} fitKey={fitKey} bottomInset={props.bottomInset ?? 0} zone={zone} camera={camera} />
+      <ViewportWatcher camera={camera} onMoved={store.setViewport} />
     </Map>
   );
 };

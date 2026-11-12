@@ -4,6 +4,7 @@ import DebugPanel from "../DebugPanel/DebugPanel";
 import EmptyMap from "./EmptyMap";
 import type { CardDebug } from "../PlaceCard/PlaceCard";
 import ResultsView from "../ResultsView/ResultsView";
+import LocationGate from "../LocationGate/LocationGate";
 import styles from "./SearchResults.module.scss";
 import { searchHref } from "../../utils/search-href";
 import { toSearchOptions, toSearchUrl, type Params } from "../../utils/search-params";
@@ -42,7 +43,17 @@ const SearchResults = async (props: Props) => {
   }
 
   // La barra de filtros se renderiza aparte (SearchFilters), con la misma búsqueda deduplicada.
-  const { interpreted, relaxed, results, sections, forYou, nearby, nearbyOnly } = response;
+  const { interpreted, relaxed, results, sections, forYou, nearby, nearbyOnly, location } = response;
+  const neighborhoodChips = interpreted.chips.filter((chip) => chip.kind === "neighborhood");
+  // Sin ubicación todavía: se pide y, con la respuesta, se vuelve a buscar (no hay resultados mientras tanto).
+  if (location.kind === "ask") {
+    return (
+      <>
+        <h1 className={styles.visuallyHidden}>{searchHeading(searchTitleInput(props.params.query, response))}</h1>
+        <LocationGate state={toSearchUrl(props.params)} chips={neighborhoodChips} explicit={location.explicit} />
+      </>
+    );
+  }
   return (
     <>
       {/* h1 para lectores de pantalla y buscadores (el título del <head> es el mismo): no cambia el diseño. */}
@@ -56,7 +67,9 @@ const SearchResults = async (props: Props) => {
         notices={relaxed.map((notice) => notice.message)}
         scores={cardScores(response)}
         near={response.near}
+        zone={location.kind === "zone" ? location.bounds : null}
         state={toSearchUrl(props.params)}
+        neighborhoodChips={neighborhoodChips}
       >
         {response.debug && <DebugPanel debug={response.debug} chips={interpreted.chips} bar={response.bar} response={response} />}
       </ResultsView>

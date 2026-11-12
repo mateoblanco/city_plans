@@ -1,0 +1,26 @@
+// Centrado; el botón es el de base/Button (secondary), con su sombra propia.
+.zone {
+  display: flex;
+  justify-content: center;
+  left: 50%;
+  pointer-events: auto;
+  position: absolute;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  z-index: 1;
+
+  // Desktop: arriba sobre el mapa (MapColumn tiene 24px de aire arriba).
+  &[data-placement='map'] {
+    top: 40px;
+  }
+
+  // Mobile: adentro del popup del panel, 12px arriba de su borde (se mueve con él en cualquier altura). Alto del botón sm: 32px.
+  &[data-placement='sheet'] {
+    top: -44px;
+  }
+
+  // Panel en la alta: arriba del borde quedaría debajo del header; va adentro, sobre el título.
+  &[data-placement='sheetHigh'] {
+    top: 12px;
+  }
+}

@@ -33,6 +33,8 @@ export type CandidateFilters = {
   dishMode: DishMode
   /** Cerca mío: sólo lugares a menos de radiusM metros. */
   near: { lat: number; lng: number; radiusM: number } | null
+  /** "Buscar en esta zona": sólo lugares dentro del área del mapa. Nunca se relaja. */
+  zone?: { south: number; west: number; north: number; east: number } | null
   /**
    * Intención, sub-filtros y la sección de "Ver todos": cada grupo es "cualquiera de" (categorías, tags, featured,
    * style); entre grupos, "y".
@@ -213,6 +215,10 @@ export function filterConditions(filters: CandidateFilters): SQL[] {
     conditions.push(today && moment.time ? opensTodaySql({ day: moment.day, time: moment.time }, night) : openAtSql(moment))
   }
   if (filters.near) conditions.push(sql`ST_DWithin(location, ${pointSql(filters.near)}, ${filters.near.radiusM})`)
+  if (filters.zone) {
+    const { south, west, north, east } = filters.zone
+    conditions.push(sql`ST_Intersects(location, ST_MakeEnvelope(${west}, ${south}, ${east}, ${north}, 4326)::geography)`)
+  }
   if (filters.nearby) conditions.push(nearbySql(filters.nearby))
   for (const group of filters.groups) conditions.push(groupSql(group))
   if (filters.discounts?.length) conditions.push(discountFilterSql(sql`places.id`, filters.discounts))

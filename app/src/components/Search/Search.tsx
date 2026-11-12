@@ -16,7 +16,8 @@ type Props = {
    * texto nuevo se combina con ellos. Los chips quitados (remove) sí se van: eran del texto anterior.
    */
   filters?: string | null;
-  near?: string | null;
+  /** Dónde (`loc`: cerca mío, todo Montevideo o la zona del mapa): se conserva al escribir otro texto. */
+  loc?: string | null;
   intent?: string | null;
   sub?: string | null;
   /**
@@ -31,7 +32,7 @@ const Search = (props: Props) => {
   const [empty, setEmpty] = useState(!props.defaultValue?.trim());
   // Sin texto se puede enviar igual si queda algo que buscar (intención, filtros o ubicación): borrar el texto mantiene
   // la intención.
-  const blocked = empty && !props.intent && !props.filters && !props.near;
+  const blocked = empty && !props.intent && !props.filters && !props.loc;
 
   const [placeholderIndex, setPlaceholderIndex] = useState(0);
   const [stopped, setStopped] = useState(false);
@@ -85,7 +86,7 @@ const Search = (props: Props) => {
           )}
         </div>
         {props.filters && <input type="hidden" name="f" value={props.filters} />}
-        {props.near && <input type="hidden" name="near" value={props.near} />}
+        {props.loc && <input type="hidden" name="loc" value={props.loc} />}
         {props.intent && <input type="hidden" name="intent" value={props.intent} />}
         {props.intent && props.sub && <input type="hidden" name="sub" value={props.sub} />}
         {/* Mobile: sólo la flecha (label queda como aria-label). Desde md: el texto. Se oculta con CSS, así que nunca hay dos visibles. */}

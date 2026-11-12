@@ -72,10 +72,12 @@ const PlaceCard = (props: Props) => {
           <Link href={`/place/${props.place.slug}`} className={styles.link}>{props.place.name}</Link>
         </h3>
 
+        {/* Con cerca mío, la distancia al final: "Pocitos · Café · a 400 m". */}
         <p className={styles.meta}>
           {[
             props.place.neighborhood,
             ...props.place.categories.map((id) => label(id, "es")),
+            props.place.distance,
           ]
             .filter(Boolean)
             .join(" · ")}

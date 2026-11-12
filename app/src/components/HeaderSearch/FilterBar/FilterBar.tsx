@@ -1,12 +1,12 @@
 import { INTENT_IDS, INTENTS } from "@shared/intents.ts";
 import { neighborhoodDisplayName } from "@shared/neighborhood-names.ts";
-import type { Chip, IntentBar } from "@/server/search";
+import type { Chip, IntentBar, SearchLocation } from "@/server/search";
 import { choiceKey } from "@/server/discounts/selection";
 import { parseFilters } from "@/server/search/filters";
 import { PRICES, type DietKey } from "@/server/search/interpretation";
 import { dietLabel, PRICE_FILTER_LABELS } from "@/server/search/labels";
 import FilterChip from "./FilterChip/FilterChip";
-import NeighborhoodSelect from "./NeighborhoodSelect/NeighborhoodSelect";
+import LocationSelect from "./LocationSelect/LocationSelect";
 import PriceSelect from "./PriceSelect/PriceSelect";
 import DietSelect from "./DietSelect/DietSelect";
 import DiscountFilter from "./DiscountFilter/DiscountFilter";
@@ -39,7 +39,8 @@ type Props = {
   chips: Chip[];
   /** Intención, sub-filtros y extras del texto. */
   bar: IntentBar;
-  needsLocation: boolean;
+  /** Dónde buscó (cerca mío, todo Montevideo, barrio o zona): lo activo del filtro "Dónde". */
+  location: SearchLocation;
   /** Barrios publicados y proveedores de descuento (loadFilterBarData), pedidos en paralelo con la búsqueda. */
   data: FilterBarData;
 };
@@ -78,7 +79,7 @@ const FilterBar = (props: Props) => {
           línea con su propio scroll horizontal y degradado, con las intenciones primero (la activa adelante). */}
       <ScrollFade className={styles.mainLine}>
         <div className={`${styles.filterRow} ${styles.selectRow}`}>
-          <NeighborhoodSelect options={neighborhoods} chips={neighborhoodChips} state={props.state} autoNear={props.needsLocation} />
+          <LocationSelect options={neighborhoods} chips={neighborhoodChips} state={props.state} location={props.location} />
           <PriceSelect options={prices} chips={priceChips} state={props.state} />
           <DietSelect options={diets} chips={dietChips} state={props.state} />
           {discountProviders.length > 0 && <DiscountFilter providers={discountProviders} active={activeDiscounts} state={props.state} />}

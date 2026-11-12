@@ -226,16 +226,101 @@ const chipFrom = (kind: string, id: string, from: { fromText: boolean; fromFilte
 
 /**
  * Clave de CHECKS: el texto y, opcional, los parámetros de la URL después de " ?" ("cafés ?f=diet:glutenFree",
- * " ?f=diet:vegan" sin texto). Pisan los --f, --intent y --sub de la línea de comandos.
+ * " ?f=diet:vegan" sin texto). Pisan los --f, --intent y --sub de la línea de comandos. Además de los de la URL (f,
+ * intent, sub, remove, loc): cookie, el valor de la cookie `loc` (la ubicación de la persona, `denied` o `skip`), y
+ * default=1, la ubicación por defecto de /search (cerca mío o pedirla).
  */
-export function parseCheckKey(key: string): { query: string; filters?: string | null; intent?: string | null; sub?: string | null } {
+export type CheckKey = {
+  query: string;
+  filters?: string | null;
+  intent?: string | null;
+  sub?: string | null;
+  remove?: string | null;
+  loc?: string | null;
+  userLocation?: string | null;
+  defaultNear?: boolean;
+};
+
+export function parseCheckKey(key: string): CheckKey {
   const index = key.indexOf(" ?");
   if (index === -1) return { query: key };
   const params = new URLSearchParams(key.slice(index + 2));
-  return { query: key.slice(0, index).trim(), filters: params.get("f"), intent: params.get("intent"), sub: params.get("sub") };
+  return {
+    query: key.slice(0, index).trim(),
+    filters: params.get("f"),
+    intent: params.get("intent"),
+    sub: params.get("sub"),
+    remove: params.get("remove"),
+    loc: params.get("loc"),
+    userLocation: params.get("cookie"),
+    defaultNear: params.get("default") === "1",
+  };
 }
 
+// Ubicaciones fijas (la cookie `loc`, 3 decimales): Pocitos, Carrasco (en el borde de la ciudad) y Buenos Aires.
+const POCITOS = "-34.911,-56.15";
+const CARRASCO = "-34.889,-56.056";
+const BUENOS_AIRES = "-34.603,-58.381";
+/** Una zona chica de Pocitos (s,w,n,e). */
+const POCITOS_ZONE = { south: -34.918, west: -56.16, north: -34.905, east: -56.14 };
+
+const locationIs = (kind: string, reason?: string): Check => ({
+  description: `ubicación ${kind}${reason ? ` (${reason})` : ""}`,
+  test: (_, response) => {
+    const location = response.location;
+    const ok = location.kind === kind && (reason === undefined || ("reason" in location && location.reason === reason));
+    return ok ? [] : [`ubicación: ${location.kind}${"reason" in location ? ` (${location.reason})` : ""}`];
+  },
+});
+
+const noResults: Check = { description: "sin resultados (esperando la ubicación)", test: (places) => (places.length ? [`${places.length} resultados`] : []) };
+
+/** Cerca mío: todos dentro del radio usado y con la distancia en la card. */
+const withinRadius: Check = {
+  description: "todos dentro del radio y con la distancia en la card",
+  test: (places, response) => {
+    if (response.location.kind !== "near") return [`ubicación: ${response.location.kind}`];
+    const radius = response.location.radiusM;
+    return [
+      ...places.filter((place) => !place.pinned && (place.distance ?? Infinity) > radius).map((place) => `a ${place.distance} m (radio ${radius}): ${place.name}`),
+      ...response.results.filter((result) => !result.distance).map((result) => `sin distancia: ${result.name}`),
+    ];
+  },
+};
+
+const noDistance: Check = {
+  description: "sin distancia en las cards",
+  test: (_, response) => response.results.filter((result) => result.distance !== null).map((result) => `${result.name}: ${result.distance}`),
+};
+
+const radiusGrew: Check = {
+  description: "el radio se agrandó, con aviso",
+  test: (_, response) => [
+    ...(response.location.kind === "near" && response.location.radiusM > SEARCH_CONFIG.near.radii[0] ? [] : [`radio: ${"radiusM" in response.location ? response.location.radiusM : "—"}`]),
+    ...(response.relaxed.some((notice) => notice.what === "radius") ? [] : ["sin aviso de radio"]),
+  ],
+};
+
+const insideZone = (zone: typeof POCITOS_ZONE): Check => ({
+  description: "todos dentro de la zona",
+  test: (_, response) =>
+    response.results
+      .filter((result) => result.lat < zone.south || result.lat > zone.north || result.lng < zone.west || result.lng > zone.east)
+      .map((result) => `fuera: ${result.name}`),
+});
+
+const zoneParamOf = (zone: typeof POCITOS_ZONE) => [zone.south, zone.west, zone.north, zone.east].join(",");
+
 export const CHECKS: Record<string, Check[]> = {
+  // Ubicación: "Cerca mío" por defecto, permiso negado, barrio en el texto, zona del mapa, radio que se agranda.
+  "cafés ?default=1": [locationIs("ask"), noResults],
+  [`cafés ?default=1&cookie=${POCITOS}`]: [locationIs("near"), nonEmpty, withinRadius],
+  [`tragos en palermo ?default=1&cookie=${POCITOS}`]: [locationIs("neighborhood"), nonEmpty, every("todos en Palermo", (place) => place.neighborhoodId === "PALERMO"), noDistance],
+  "cafés ?default=1&cookie=denied": [locationIs("all", "denied"), nonEmpty, noDistance],
+  [`cafés ?default=1&cookie=${BUENOS_AIRES}`]: [locationIs("all", "outside"), nonEmpty],
+  [`tragos en palermo ?remove=neighborhood:PALERMO&loc=${zoneParamOf(POCITOS_ZONE)}&default=1&cookie=${POCITOS}`]: [locationIs("zone"), nonEmpty, insideZone(POCITOS_ZONE), noDistance],
+  // Pocos sushi a 1,5 km de Carrasco: se agranda (al más chico que ya trae todos los que hay).
+  [`sushi ?default=1&cookie=${CARRASCO}`]: [locationIs("near"), nonEmpty, radiusGrew, withinRadius],
   "Bar Tasende": [isFirst("Bar Tasende")],
   // Sin texto, la intención y el sub-filtro ordenan por afinidad (dessertFit, subFit).
   " ?intent=desserts": [allInIntent("desserts"), topAll(5, "son heladerías o pastelerías (heladería o ícono de postre)", isDessertPlace)],

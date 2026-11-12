@@ -77,3 +77,44 @@ describe("el mapa persistente", () => {
     expect(store.getState()).toMatchObject({ pending: false, fitKey: 2 });
   });
 });
+
+describe("zona del mapa y Buscar en esta zona", () => {
+  const zone = { south: -34.92, west: -56.16, north: -34.9, east: -56.14 };
+
+  it("publica la zona de la búsqueda y la base para armar el link", () => {
+    const store = createSearchMapStore();
+    const base = { state: { q: "bares", loc: "near" }, chips: [] };
+    store.begin();
+    store.publish({ results: places(2), near: null, count: 2, zone, base });
+    expect(store.getState()).toMatchObject({ zone, base, fitKey: 1 });
+    // Una base igual (otro objeto) no cambia el estado.
+    const before = store.getState();
+    store.publish({ results: before.results, near: null, count: 2, zone: { ...zone }, base: { state: { q: "bares", loc: "near" }, chips: [] } });
+    expect(store.getState()).toBe(before);
+  });
+
+  it("mover el mapa deja el área visible; una búsqueda nueva la saca (el botón se va)", () => {
+    const store = createSearchMapStore();
+    store.begin();
+    store.publish({ results: places(2), near: null, count: 2 });
+    store.setViewport(zone);
+    expect(store.getState().viewport).toEqual(zone);
+    // "Ver más" (misma búsqueda) no la saca.
+    store.publish({ results: places(3), near: null, count: 3 });
+    expect(store.getState().viewport).toEqual(zone);
+    store.end();
+    store.begin();
+    store.publish({ results: places(1), near: null, count: 1, zone });
+    expect(store.getState().viewport).toBeNull();
+  });
+
+  it("esperando la ubicación: locating hasta que llega una lista", () => {
+    const store = createSearchMapStore();
+    store.setLocating(true);
+    expect(store.getState().locating).toBe(true);
+    store.begin();
+    store.publish({ results: places(1), near: { lat: -34.9, lng: -56.16 }, count: 1 });
+    expect(store.getState().locating).toBe(false);
+  });
+});
+

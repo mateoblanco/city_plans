@@ -1,11 +1,13 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { searchPlaces } from "@/server/search";
+import { LOCATION_COOKIE } from "@/lib/location";
 
 const Params = z.object({
   q: z.string().trim().max(500),
   remove: z.string().max(500).nullish(),
   f: z.string().max(500).nullish(),
+  loc: z.string().max(80).nullish(),
   near: z.string().max(50).nullish(),
   intent: z.string().max(50).nullish(),
   sub: z.string().max(500).nullish(),
@@ -21,6 +23,7 @@ export async function GET(request: NextRequest) {
     q: searchParams.get("q") ?? "",
     remove: searchParams.get("remove"),
     f: searchParams.get("f"),
+    loc: searchParams.get("loc"),
     near: searchParams.get("near"),
     intent: searchParams.get("intent"),
     sub: searchParams.get("sub"),
@@ -30,8 +33,10 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const { q, remove, f, near, intent, sub } = parsed.data;
-    const response = await searchPlaces(q, { remove, filters: f, near, intent, sub, widen: true });
+    const { q, remove, f, loc, near, intent, sub } = parsed.data;
+    // La misma ubicación que la búsqueda (cookie `loc`, redondeada; no se guarda).
+    const userLocation = request.cookies.get(LOCATION_COOKIE)?.value ?? null;
+    const response = await searchPlaces(q, { remove, filters: f, loc, near, userLocation, defaultNear: true, intent, sub, widen: true });
     return Response.json({ widen: response.widen ?? [] });
   } catch (error) {
     console.error("Error en /api/search/widen", error);

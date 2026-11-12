@@ -14,7 +14,7 @@ import { applyDictionary, interpretWithDictionary, mentionsParents, NEGATIONS } 
 import { applyWhen, TIME_WORDS } from './when'
 import { checkMust, intendedDiscards, reportMust, type Discard, type MustCheck } from './invariant'
 import { dishTargetFor, excludedIcons, preferredDiets, type DishTarget } from './dishes'
-import { applyFilters, filterChipKeys, parseFilters, parseNear, type LatLng } from './filters'
+import { applyFilters, filterChipKeys, parseFilters, type LatLng } from './filters'
 import { buildBar, intentGroups, parseIntent, resolveIntent, type IntentBar } from './intents'
 import { buildRankings, fuse, rareTagsOf, type Fused, type MatchLevel, type Rankings } from './fuse'
 import { keywordFilter } from './keywords'
@@ -30,7 +30,8 @@ import {
   validateInterpretation,
   type Interpretation,
 } from './interpretation'
-import { DISPLAY_LANG, openStateLabel, openStateText, type OpenStateText } from './labels'
+import { DISPLAY_LANG, distanceLabel, openStateLabel, openStateText, type OpenStateText } from './labels'
+import { EMPTY_ZONE_NOTICE, OUTSIDE_NOTICE, parseLocationChoice, parseLocationCookie, radiusNotice, resolveLocation, type SearchLocation } from './location'
 import { normalizeQuery, queryWords } from './normalize'
 import { buildReasons } from './reasons'
 import { logoUrl } from './logo'
@@ -46,11 +47,22 @@ import type { PlacesStore } from './store'
 import { applyVenues, type Venue } from './venues'
 
 export type SearchDeps = { store: PlacesStore; cache: SearchCache }
-/** filters: `f` de la URL (barra de filtros); near: `near=lat,lng` (cerca mío); intent / sub: intención y sub-filtros. */
+/**
+ * filters: `f` de la URL (barra de filtros); loc: `loc` de la URL (near, all o una zona; location.ts); near: el
+ * `near=lat,lng` viejo, que cuenta como `loc=near` (su coordenada se ignora); userLocation: la cookie `loc` (la
+ * ubicación de la persona, redondeada, `denied` o `skip`); intent / sub: intención y sub-filtros.
+ */
 export type SearchOptions = {
   remove?: string | null
   filters?: string | null
+  loc?: string | null
   near?: string | null
+  userLocation?: string | null
+  /**
+   * Sin `loc` ni barrio, cerca mío (o pedir la ubicación: `location.kind = 'ask'`). Sólo /search y /api/search; la home,
+   * los scripts y lo demás buscan en todo Montevideo.
+   */
+  defaultNear?: boolean
   intent?: string | null
   sub?: string | null
   debug?: boolean
@@ -98,6 +110,8 @@ export type SearchResult = {
   discounts: { id: string; name: string }[]
   openStatus: { state: OpenState['state']; closesAt: string | null; label: string } & OpenStateText
   matchLevel: MatchLevel
+  /** Con cerca mío: "a 400 m", "a 1,2 km" (la card lo suma a la línea de barrio y categoría); null en otra búsqueda. */
+  distance: string | null
 }
 
 /** filters: sin texto, sólo con la barra de filtros o cerca mío (sin modelo ni embedding). */
@@ -129,7 +143,11 @@ export type SearchDebug = {
     matching: number
     ms: number
     nearby?: { candidates: number; matching: number; ms: number }
+    /** Cerca mío: el radio de este intento (los del principio corren en paralelo, uno por radio). */
+    radiusM?: number
   }[]
+  /** Cerca mío: cuántos "has" dio cada radio y cuál se usó; null sin cerca mío. */
+  near: { tried: { radiusM: number; has: number }[]; chosen: number } | null
   rankings: Rankings
   results: {
     id: string
@@ -164,6 +182,8 @@ export type SearchDebug = {
     collapsedInto: string | null
     /** Metros al borde del barrio pedido: sólo los de "Cerca de" (también en su "Ver todos"). */
     edgeDistance: number | null
+    /** Metros desde la persona (cerca mío) o desde el venue relajado; null sin origen. */
+    distance: number | null
   }[]
   /** Los de "Cerca de <barrio>" en su orden (todos, no sólo los del grupo); vacío sin grupo o en su "Ver todos". */
   nearby: SearchDebug['results']
@@ -199,8 +219,9 @@ export type SearchResponse = {
   relaxed: { what: NoticeKind; message: string }[]
   /** Con cero resultados: los chips de dieta o exclude que hay que sacar para que aparezcan lugares. */
   suggestedRemovals: Chip[]
-  needsLocation: boolean
-  /** Ubicación con la que se buscó (ya redondeada), para el mapa. */
+  /** Dónde se buscó (lo que muestra el filtro "Dónde"); ask: hay que pedir la ubicación y no hay resultados. */
+  location: SearchLocation
+  /** Ubicación con la que se buscó (ya redondeada), para el punto del mapa; sólo con cerca mío. */
   near: LatLng | null
   /**
    * "Cerca de <barrio>": con un barrio pedido, los lugares de otros barrios a menos de SEARCH_CONFIG.nearby.radiusM del
@@ -357,7 +378,8 @@ async function blockingConditions(store: SearchDeps['store'], filters: Candidate
   const hasDiet = filters.diet.length > 0
   const hasExclude = filters.excludeCategories.length + filters.excludeTags.length + filters.excludeIcons.length > 0
   const hasIntent = filters.groups.length > 0
-  const none: CandidateFilters = { ...filters, diet: [], excludeCategories: [], excludeTags: [], excludeIcons: [], dishes: [], dishMode: 'none', groups: [] }
+  // Sin la zona del mapa: lo que se diagnostica es la dieta, los exclude o la intención, no el área elegida.
+  const none: CandidateFilters = { ...filters, diet: [], excludeCategories: [], excludeTags: [], excludeIcons: [], dishes: [], dishMode: 'none', groups: [], zone: null }
   const [withDiet, withExclude, withIntent] = await Promise.all([
     hasDiet ? store.count({ ...none, diet: filters.diet }) : null,
     hasExclude ? store.count({ ...none, excludeCategories: filters.excludeCategories, excludeTags: filters.excludeTags, excludeIcons: filters.excludeIcons }) : null,
@@ -397,7 +419,8 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   const normalized = normalizeQuery(rawQuery)
   const removals = parseRemove(options.remove)
   const filters = parseFilters(options.filters)
-  const near = parseNear(options.near)
+  const locationChoice = parseLocationChoice(options.loc, options.near)
+  const userLocation = parseLocationCookie(options.userLocation)
   const intentUrl = parseIntent(options.intent, options.sub)
   const textless = !normalized
   const nameWords = textless ? [] : nameWordsFor(normalized, removedWordsOf(removals))
@@ -499,6 +522,70 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   reportMust(must, rawQuery)
   if (removals.some((removal) => removal.kind === 'name')) pinned = null
 
+  // Dónde: el barrio (barra o texto) gana; después la zona, lo elegido en `loc` y, sin nada, cerca mío o pedir la ubicación.
+  const location = resolveLocation({
+    choice: locationChoice,
+    user: userLocation,
+    defaultNear: options.defaultNear ?? false,
+    neighborhoods: interpretation.must.neighborhoods,
+    venues: interpretation.must.venues,
+    pinned: pinned !== null,
+    textNear: interpretation.needsLocation,
+  })
+  const origin = location.kind === 'near' ? location.origin : null
+  const zone = location.kind === 'zone' ? location.bounds : null
+
+  // De dónde sale cada chip: del texto, de la barra o de los dos (así se sabe cómo apagarlo).
+  const textKeys = new Set(buildChips(fromText, today).map((chip) => `${chip.kind}:${chip.id}`))
+  const filterKeys = filterChipKeys(filters)
+  const chipsOf = (chips: Chip[]) =>
+    chips.map((chip) => ({ ...chip, fromText: textKeys.has(`${chip.kind}:${chip.id}`), fromFilter: filterKeys.has(`${chip.kind}:${chip.id}`) }))
+  // "Cerca de <barrio>": con un barrio pedido (nunca se relaja) y sin un lugar fijado por nombre (ver abajo).
+  const nearbyFilter = pinned ? null : nearbyFilterFor(interpretation.must.neighborhoods)
+  const nearbyView = filters.nearby && nearbyFilter !== null
+  const wanted = interpretation.must.neighborhoods
+  // Extras de la barra: lo que pidió el texto y no quedó representado por la intención ni sus sub-filtros. Los
+  // momentos y el style son preferencias, pero se muestran igual para poder quitarlos.
+  const barOf = (chips: Chip[]) => {
+    const subKeys = new Set(resolved.subs.flatMap((sub) => sub.removeKeys))
+    const shownPreference = (chip: Chip) => chip.kind === 'prefer' && (isOccasionTag(chip.id) || isStyleId(chip.id)) && !subKeys.has(`prefer:${chip.id}`)
+    // Un tag de f (las filas de la home: `tag:afternoon_snack`) también se ve y se apaga como extra.
+    const extras = chips.filter(
+      (chip) =>
+        (chip.fromText && (chip.kind === 'category' || chip.kind === 'tag' || chip.kind === 'venue' || shownPreference(chip) || (chip.kind === 'dish' && !resolved.absorbedDishes.includes(chip.id)))) ||
+        (chip.kind === 'tag' && chip.fromFilter),
+    )
+    // El "Ver todos" de un grupo se ve activo en la barra y se apaga sacándolo de f.
+    if (filters.section) {
+      extras.push({ kind: 'section', id: filters.section, label: sectionDef(filters.section).title[DISPLAY_LANG], fromText: false, fromFilter: true })
+    }
+    // El "Ver todos" de "Cerca de" también.
+    if (nearbyView) extras.push({ kind: 'nearby', id: '1', label: nearbyTitle(wanted), fromText: false, fromFilter: true })
+    return buildBar(resolved, extras)
+  }
+
+  // Sin ubicación todavía: no se buscan candidatos (no se muestra todo Montevideo mientras se espera). El cliente pide
+  // el permiso, guarda la cookie y vuelve a pedir la misma URL: la interpretación y el embedding ya están en la cache.
+  if (location.kind === 'ask') {
+    const chips = chipsOf(buildChips(interpretation, today))
+    timings.total = elapsed(started)
+    return {
+      query: rawQuery,
+      interpreted: { chips },
+      bar: barOf(chips),
+      results: [],
+      sections: null,
+      forYou: null,
+      nearby: null,
+      nearbyOnly: null,
+      relaxed: [],
+      suggestedRemovals: [],
+      location,
+      near: null,
+      ...(options.widen && { widen: [] }),
+    }
+  }
+
   // 2. Embedding del texto semántico; si falla, se sigue sin el ranking semántico.
   step = performance.now()
   const edits: TextEdits = { removed, removedWords: removedWordsOf(removals), shortcut: source === 'shortcut' }
@@ -519,90 +606,16 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     // Un nombre (del modelo o fijado) se busca difuso, con errores de tipeo; si no, sólo las palabras que quedan.
     name: nameQuery ?? (nameWords.length ? nameWords.join(' ') : null),
     // Con cerca mío, la distancia se mide desde la persona y entra al ranking desde el primer intento.
-    origins: near ? [near] : [],
+    origins: origin ? [origin] : [],
     pinnedId: pinned?.id ?? null,
   }
-
-  // De dónde sale cada chip: del texto, de la barra o de los dos (así se sabe cómo apagarlo).
-  const textKeys = new Set(buildChips(fromText, today).map((chip) => `${chip.kind}:${chip.id}`))
-  const filterKeys = filterChipKeys(filters)
-  const chipsOf = (chips: Chip[]) =>
-    chips.map((chip) => ({ ...chip, fromText: textKeys.has(`${chip.kind}:${chip.id}`), fromFilter: filterKeys.has(`${chip.kind}:${chip.id}`) }))
 
   // "Abre hoy" para cenar es a la noche, como "esta noche".
   const openFilterOf = (value: Interpretation) =>
     resolveOpenAt(value.must.openAt, now, { dinner: [...value.must.tags, ...value.prefer.tags].includes('dinner') })
 
-  // 3. Candidatos, relajando de a un paso mientras no haya ninguno.
-  const relaxedSteps: RelaxStep[] = []
-  const attempts: SearchDebug['attempts'] = []
-  const initial: SearchState = {
-    interpretation,
-    dishMode: 'dish',
-    nearRadius: near ? SEARCH_CONFIG.near.radii[0] : null,
-    intent: resolved.intent,
-    subs: resolved.subs.map((sub) => sub.id),
-  }
-  let state = initial
-  // El "Ver todos" de un grupo exige su regla; como la intención, nunca se relaja.
-  const sectionGroups: FilterGroup[] = filters.section ? [sectionDef(filters.section).match] : []
-  const filtersOf = (value: SearchState) =>
-    filtersFor(
-      value.interpretation,
-      openFilterOf(value.interpretation),
-      dishes,
-      value.dishMode,
-      near && value.nearRadius !== null ? { ...near, radiusM: value.nearRadius } : null,
-      [...intentGroups(value.intent, value.subs), ...sectionGroups],
-      venues,
-      // Como la sección, viene de la barra y nunca se relaja.
-      filters.discounts,
-    )
-  // "Cerca de <barrio>": con un barrio pedido (nunca se relaja) y sin un lugar fijado por nombre, los de otros barrios a
-  // menos de 500 m del borde, con los mismos filtros (los de este intento, ya relajados) y en paralelo con el barrio.
-  // Con `nearby:1` (su "Ver todos") son los resultados; el barrio se consulta igual porque decide qué se relaja.
-  const nearbyFilter = pinned ? null : nearbyFilterFor(interpretation.must.neighborhoods)
-  const nearbyView = filters.nearby && nearbyFilter !== null
-  const matchingOf = (list: CandidateRow[]) => list.filter((row) => row.matchesFilters).length
-  const fetchCandidates = async () => {
-    const attemptStart = performance.now()
-    const timedQuery = async (query: Promise<CandidateRow[]>) => {
-      const result = await query
-      return { result, ms: elapsed(attemptStart) }
-    }
-    const [main, close] = await Promise.all([
-      timedQuery(deps.store.candidates(filtersOf(state), scores)),
-      nearbyFilter ? timedQuery(deps.store.candidates({ ...filtersOf(state), neighborhoods: [], nearby: nearbyFilter }, { ...scores, pinnedId: null })) : null,
-    ])
-    attempts.push({
-      relaxed: [...relaxedSteps],
-      dishMode: state.dishMode,
-      candidates: main.result.length,
-      matching: matchingOf(main.result),
-      ms: elapsed(attemptStart),
-      ...(close && { nearby: { candidates: close.result.length, matching: matchingOf(close.result), ms: close.ms } }),
-    })
-    return { rows: main.result, nearbyRows: close?.result ?? [] }
-  }
-  let { rows, nearbyRows } = await fetchCandidates()
-  for (const relaxStep of RELAX_ORDER) {
-    // Los primeros pasos miran sólo el barrio, como siempre; el horario y el último recurso, también los cercanos.
-    if (rows.some((row) => row.matchesFilters) || !canRelax(state, relaxStep, dishes)) continue
-    if (NEARBY_STEPS.includes(relaxStep) && nearbyRows.some((row) => row.matchesFilters)) continue
-    // Sin el venue, la distancia a sus locales ordena.
-    if (relaxStep === 'venue' && !near) {
-      scores.origins = venues.filter((venue) => state.interpretation.must.venues.includes(venue.name)).flatMap((venue) => venue.points)
-    }
-    state = relax(state, relaxStep)
-    relaxedSteps.push(relaxStep)
-    ;({ rows, nearbyRows } = await fetchCandidates())
-  }
-  timings.candidates = attempts.reduce((sum, attempt) => sum + attempt.ms, 0)
-  if (nearbyFilter) timings.nearby = attempts.reduce((sum, attempt) => sum + (attempt.nearby?.ms ?? 0), 0)
-  const current = state.interpretation
-
-  // 4. Rankings, fusión, empujones, corte por relevancia y una card por marca. Se repite con widen, para contar
-  // cuántos más saldrían sin un filtro.
+  // Rankings, fusión, empujones, corte por relevancia y una card por marca (paso 4). Se repite con widen, para contar
+  // cuántos más saldrían sin un filtro, y con cerca mío, para elegir el radio.
   const rank = (candidates: CandidateRow[], value: SearchState) => {
     const wanted = value.interpretation
     const openAt = openFilterOf(wanted)
@@ -616,6 +629,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       [...(group.categories ?? []), ...(group.tags ?? [])].some((id) => dancing.includes(id)))
     const allFused = fuse(candidates, rankings, {
       pinnedId: pinned?.id ?? null,
+      nearDecay: origin !== null,
       dishes,
       categories: requestedCategories,
       requestedTags,
@@ -647,9 +661,106 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       venue: wanted.must.venues.length > 0,
     })
     // Una card por marca: las otras sucursales no ocupan lugar en la lista, las secciones ni los avisos.
-    const fused = collapseBranches(cut.kept, { neighborhoods: interpretation.must.neighborhoods, near: near !== null })
+    const fused = collapseBranches(cut.kept, { neighborhoods: interpretation.must.neighborhoods, near: origin !== null })
     return { openAt, rankings, cut, fused }
   }
+
+  // 3. Candidatos, relajando de a un paso mientras no haya ninguno.
+  const relaxedSteps: RelaxStep[] = []
+  const attempts: SearchDebug['attempts'] = []
+  const initial: SearchState = {
+    interpretation,
+    dishMode: 'dish',
+    nearRadius: origin ? SEARCH_CONFIG.near.radii[0] : null,
+    intent: resolved.intent,
+    subs: resolved.subs.map((sub) => sub.id),
+  }
+  let state = initial
+  // El "Ver todos" de un grupo exige su regla; como la intención, nunca se relaja.
+  const sectionGroups: FilterGroup[] = filters.section ? [sectionDef(filters.section).match] : []
+  const filtersOf = (value: SearchState): CandidateFilters => ({
+    ...filtersFor(
+      value.interpretation,
+      openFilterOf(value.interpretation),
+      dishes,
+      value.dishMode,
+      origin && value.nearRadius !== null ? { ...origin, radiusM: value.nearRadius } : null,
+      [...intentGroups(value.intent, value.subs), ...sectionGroups],
+      venues,
+      // Como la sección, viene de la barra y nunca se relaja.
+      filters.discounts,
+    ),
+    // La zona del mapa, como el barrio, nunca se relaja.
+    zone,
+  })
+  // "Cerca de <barrio>" (nearbyFilter): los de otros barrios a menos de 500 m del borde, con los mismos filtros (los de
+  // este intento, ya relajados) y en paralelo con el barrio. Con `nearby:1` (su "Ver todos") son los resultados; el
+  // barrio se consulta igual porque decide qué se relaja.
+  const matchingOf = (list: CandidateRow[]) => list.filter((row) => row.matchesFilters).length
+  const fetchCandidates = async () => {
+    const attemptStart = performance.now()
+    const timedQuery = async (query: Promise<CandidateRow[]>) => {
+      const result = await query
+      return { result, ms: elapsed(attemptStart) }
+    }
+    const [main, close] = await Promise.all([
+      timedQuery(deps.store.candidates(filtersOf(state), scores)),
+      nearbyFilter ? timedQuery(deps.store.candidates({ ...filtersOf(state), neighborhoods: [], nearby: nearbyFilter }, { ...scores, pinnedId: null })) : null,
+    ])
+    attempts.push({
+      relaxed: [...relaxedSteps],
+      dishMode: state.dishMode,
+      candidates: main.result.length,
+      matching: matchingOf(main.result),
+      ms: elapsed(attemptStart),
+      ...(close && { nearby: { candidates: close.result.length, matching: matchingOf(close.result), ms: close.ms } }),
+    })
+    return { rows: main.result, nearbyRows: close?.result ?? [] }
+  }
+  // Cerca mío: los radios en paralelo (mismo tiempo que uno); se usa el primero con suficientes "has" o, si ninguno llega,
+  // el más chico que ya da tantos como el más grande (agrandar más no suma nada). La relajación de siempre sigue sobre
+  // ese radio.
+  let nearDebug: SearchDebug['near'] = null
+  const chooseRadius = async () => {
+    const radiusStart = performance.now()
+    const tried = await Promise.all(
+      SEARCH_CONFIG.near.radii.map(async (radiusM) => {
+        const value: SearchState = { ...state, nearRadius: radiusM }
+        const result = await deps.store.candidates(filtersOf(value), scores)
+        return { radiusM, value, result, ms: elapsed(radiusStart) }
+      }),
+    )
+    const has = tried.map((entry) => rank(entry.result, entry.value).fused.filter((item) => item.matchLevel === 'has').length)
+    const enough = has.findIndex((count) => count >= SEARCH_CONFIG.near.minResults)
+    const chosen = tried[enough !== -1 ? enough : has.indexOf(Math.max(...has))]
+    for (const entry of tried) {
+      attempts.push({ relaxed: [], dishMode: state.dishMode, candidates: entry.result.length, matching: matchingOf(entry.result), ms: entry.ms, radiusM: entry.radiusM })
+    }
+    nearDebug = { tried: tried.map((entry, position) => ({ radiusM: entry.radiusM, has: has[position] })), chosen: chosen.radiusM }
+    state = chosen.value
+    return chosen.result
+  }
+  let { rows, nearbyRows } = origin ? { rows: await chooseRadius(), nearbyRows: [] as CandidateRow[] } : await fetchCandidates()
+  const chosenRadius = state.nearRadius
+  for (const relaxStep of RELAX_ORDER) {
+    // Los primeros pasos miran sólo el barrio, como siempre; el horario y el último recurso, también los cercanos.
+    if (rows.some((row) => row.matchesFilters) || !canRelax(state, relaxStep, dishes)) continue
+    if (NEARBY_STEPS.includes(relaxStep) && nearbyRows.some((row) => row.matchesFilters)) continue
+    // Sin el venue, la distancia a sus locales ordena.
+    if (relaxStep === 'venue' && !origin) {
+      scores.origins = venues.filter((venue) => state.interpretation.must.venues.includes(venue.name)).flatMap((venue) => venue.points)
+    }
+    state = relax(state, relaxStep)
+    relaxedSteps.push(relaxStep)
+    ;({ rows, nearbyRows } = await fetchCandidates())
+  }
+  // Los radios corren en paralelo: cuenta el más lento.
+  timings.candidates =
+    attempts.reduce((sum, attempt) => sum + (attempt.radiusM === undefined ? attempt.ms : 0), 0) +
+    Math.max(0, ...attempts.flatMap((attempt) => (attempt.radiusM === undefined ? [] : [attempt.ms])))
+  if (nearbyFilter) timings.nearby = attempts.reduce((sum, attempt) => sum + (attempt.nearby?.ms ?? 0), 0)
+  const current = state.interpretation
+
   step = performance.now()
   const inNeighborhood = rank(rows, state)
   // Los cercanos se rankean aparte: no cambian los puestos ni el corte por relevancia del barrio.
@@ -714,7 +825,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       lng: item.row.lng,
       branchCount: item.row.brandCount,
       branches: item.branches.map(({ row }) => ({ id: row.id, lat: row.lat, lng: row.lng })),
-      reasons: buildReasons(item, { interpretation: current, dishes, dishMode: state.dishMode, intent: state.intent, subs: state.subs, near: near !== null }),
+      reasons: buildReasons(item, { interpretation: current, dishes, dishMode: state.dishMode, intent: state.intent, subs: state.subs, near: origin !== null }),
       discounts: cardProviders(item.row.discounts, filters.discounts),
       openStatus: {
         state: open.state,
@@ -723,10 +834,10 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
         ...openStateText(open, DISPLAY_LANG, moment, isNow, next),
       },
       matchLevel: item.matchLevel,
+      distance: origin && item.row.distance !== null ? distanceLabel(item.row.distance, DISPLAY_LANG) : null,
     }
   }
   const results = fused.map(toResult)
-  const wanted = interpretation.must.neighborhoods
   const nearby: SearchResponse['nearby'] = nearbyItems.length
     ? { title: nearbyTitle(wanted), label: nearbyLabel(wanted), total: nearbyItems.length, results: nearbyItems.slice(0, SEARCH_CONFIG.nearby.maxPlaces).map(toResult) }
     : null
@@ -788,6 +899,12 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   // Lo relajado vale también para los cercanos: los avisos los miran a todos.
   const noticeRows = [...shownRows, ...nearbyItems.map((item) => item.row)]
   const relaxed: SearchResponse['relaxed'] = []
+  if (location.kind === 'all' && location.reason === 'outside') relaxed.push({ what: 'location', message: OUTSIDE_NOTICE[DISPLAY_LANG] })
+  // Cerca mío con un radio más grande que el inicial (y algún resultado más allá de él).
+  const firstRadius = SEARCH_CONFIG.near.radii[0]
+  if (chosenRadius !== null && chosenRadius > firstRadius && noticeRows.some((row) => row.distance !== null && row.distance > firstRadius)) {
+    relaxed.push({ what: 'radius', message: radiusNotice(firstRadius, chosenRadius) })
+  }
   // El barrio no tiene nada y cerca sí: se avisa y abajo va directo el grupo.
   if (fused.length === 0 && nearbyItems.length > 0) relaxed.push(emptyNeighborhoodNotice(wanted))
   // Los avisos sólo nombran la intención si la persona la eligió (barra) o la dijo con un verbo ("comer").
@@ -814,29 +931,15 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     const blocking = await blockingConditions(deps.store, filtersOf(state))
     const chips = chipsOf(buildChips(interpretation, today))
     suggestedRemovals = chips.filter((chip) => (blocking.diet && chip.kind === 'diet') || (blocking.exclude && chip.kind === 'exclude'))
-    relaxed.push(noMatchNotice(interpretation, blocking, intentNamed ? state.intent : null, rawQuery))
+    // La zona del mapa vacía (sin que bloqueen la dieta, los exclude ni la intención): se dice eso.
+    const zoneEmpty = zone !== null && !blocking.diet && !blocking.exclude && !blocking.intent
+    relaxed.push(zoneEmpty ? { what: 'zone', message: EMPTY_ZONE_NOTICE[DISPLAY_LANG] } : noMatchNotice(interpretation, blocking, intentNamed ? state.intent : null, rawQuery))
     timings.diagnose = elapsed(step)
   }
   timings.total = elapsed(started)
 
-  // Extras de la barra: lo que pidió el texto y no quedó representado por la intención ni sus sub-filtros. Los
-  // momentos y el style son preferencias, pero se muestran igual para poder quitarlos.
-  const chips = chipsOf(buildChips(interpretation, today, near !== null))
-  const subKeys = new Set(resolved.subs.flatMap((sub) => sub.removeKeys))
-  const shownPreference = (chip: Chip) => chip.kind === 'prefer' && (isOccasionTag(chip.id) || isStyleId(chip.id)) && !subKeys.has(`prefer:${chip.id}`)
-  // Un tag de f (las filas de la home: `tag:afternoon_snack`) también se ve y se apaga como extra.
-  const extras = chips.filter(
-    (chip) =>
-      (chip.fromText && (chip.kind === 'category' || chip.kind === 'tag' || chip.kind === 'venue' || shownPreference(chip) || (chip.kind === 'dish' && !resolved.absorbedDishes.includes(chip.id)))) ||
-      (chip.kind === 'tag' && chip.fromFilter),
-  )
-  // El "Ver todos" de un grupo se ve activo en la barra y se apaga sacándolo de f.
-  if (filters.section) {
-    extras.push({ kind: 'section', id: filters.section, label: sectionDef(filters.section).title[DISPLAY_LANG], fromText: false, fromFilter: true })
-  }
-  // El "Ver todos" de "Cerca de" también.
-  if (nearbyView) extras.push({ kind: 'nearby', id: '1', label: nearbyTitle(wanted), fromText: false, fromFilter: true })
-  const bar = buildBar(resolved, extras)
+  const chips = chipsOf(buildChips(interpretation, today, origin !== null))
+  const bar = barOf(chips)
 
   // Invitación a ampliar: cuántos lugares más saldrían sin cada filtro que sigue activo después de relajar (barrio,
   // horario, cada dieta, cada sub-filtro). Reusa la interpretación y el embedding: sólo SQL, un pedido por filtro.
@@ -880,8 +983,8 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     nearbyOnly: nearbyView ? { title: nearbyTitle(wanted), label: nearbyLabel(wanted) } : null,
     relaxed,
     suggestedRemovals,
-    needsLocation: interpretation.needsLocation,
-    near,
+    location: location.kind === 'near' && chosenRadius !== null ? { ...location, radiusM: chosenRadius } : location,
+    near: origin,
   }
   if (options.widen) {
     step = performance.now()
@@ -926,6 +1029,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       brandKey: item.row.brandKey,
       collapsedInto: collapsedInto.get(item.row.id) ?? null,
       edgeDistance: item.row.edgeDistance === null ? null : Math.round(item.row.edgeDistance),
+      distance: item.row.distance === null ? null : Math.round(item.row.distance),
     })
     response.debug = {
       source,
@@ -940,6 +1044,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       semanticText,
       keywords,
       attempts,
+      near: nearDebug,
       rankings: {
         semantic: rankings.semantic.slice(0, depth),
         keyword: rankings.keyword.slice(0, depth),

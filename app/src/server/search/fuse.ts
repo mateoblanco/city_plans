@@ -10,6 +10,7 @@ import type { DietKey, Price } from './interpretation'
 import { groupFit, matchesMoment, momentSignals } from './moments'
 import { sectionSignals } from './sections'
 import { hoursConfirmed, openStatus, type OpenFilter, type OpenState } from './hours'
+import { distanceFactor } from './location'
 
 export type RankingName = keyof typeof SEARCH_CONFIG.rrf.weights
 export type RankingEntry = { id: string; name: string; score: number }
@@ -19,6 +20,8 @@ export type MatchLevel = 'has' | 'maybe'
 
 export type FuseContext = {
   pinnedId: string | null
+  /** Cerca mío: el puntaje se multiplica también por la distancia (location.ts distanceFactor). */
+  nearDecay?: boolean
   dishes: DishTarget[]
   /** Categorías pedidas (must + prefer). */
   categories: string[]
@@ -76,7 +79,7 @@ export type Fused = {
   boosts: Partial<Record<keyof typeof SEARCH_CONFIG.boosts, number>>
   /** RRF + empujones, antes de la calidad. */
   baseScore: number
-  /** Multiplicador por prominence y featured. */
+  /** Multiplicador por prominence y featured (y, con cerca mío, por la distancia). */
   multiplier: number
   /** baseScore × multiplier: con esto se ordena dentro de cada nivel. */
   score: number
@@ -368,7 +371,7 @@ export function fuse(rows: CandidateRow[], rankings: Rankings, context: FuseCont
       const boosts = boostsFor(row, context, open)
       const base = rrf.get(row.id) ?? 0
       const baseScore = base + Object.values(boosts).reduce((sum, value) => sum + (value ?? 0), 0)
-      const multiplier = qualityMultiplier(row, context.wantsBest)
+      const multiplier = qualityMultiplier(row, context.wantsBest) * (context.nearDecay ? distanceFactor(row.distance) : 1)
       return {
         row,
         pinned: row.id === context.pinnedId,

@@ -74,6 +74,13 @@
   height: 134px;
 }
 
+// "Buscando cerca tuyo…": arriba de las cards, como el texto de los avisos.
+.label {
+  color: var(--color-text-muted);
+  font-size: 14px;
+  line-height: 20px;
+}
+
 .visuallyHidden {
   clip: rect(0 0 0 0);
   height: 1px;

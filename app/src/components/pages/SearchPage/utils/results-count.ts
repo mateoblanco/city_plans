@@ -11,8 +11,8 @@ const places = (count: number) => (count === 1 ? "1 lugar" : `${count.toLocaleSt
  * "Cerca de": "18 lugares en Palermo · 6 cerca", "6 cerca de Palermo" (nada en el barrio) o, en su "Ver todos", "12
  * lugares cerca de Palermo".
  */
-export function resultsCountLabel(count: number | null, nearby: NearbyCount | null = null): string {
-  if (count === null) return "Buscando…";
+export function resultsCountLabel(count: number | null, nearby: NearbyCount | null = null, pendingLabel = "Buscando…"): string {
+  if (count === null) return pendingLabel;
   if (nearby?.only) return `${places(count)} cerca de ${nearby.label}`;
   if (!nearby || nearby.count === 0) return places(count);
   if (count === 0) return `${nearby.count.toLocaleString("es-UY")} cerca de ${nearby.label}`;
@@ -20,7 +20,10 @@ export function resultsCountLabel(count: number | null, nearby: NearbyCount | nu
 }
 
 /** Lo que anuncia la región viva de /search (ResultsAnnouncer): como el título, pero sin resultados lo dice. */
-export function resultsAnnouncement(count: number | null, nearby: NearbyCount | null = null): string {
+export function resultsAnnouncement(count: number | null, nearby: NearbyCount | null = null, pendingLabel?: string): string {
   if (count === 0 && nearby && !nearby.only && nearby.count > 0) return `No encontramos en ${nearby.label} · ${nearby.count.toLocaleString("es-UY")} cerca`;
-  return count === 0 ? "No encontramos lugares" : resultsCountLabel(count, nearby);
+  return count === 0 ? "No encontramos lugares" : resultsCountLabel(count, nearby, pendingLabel);
 }
+
+/** Mientras se espera la ubicación de la persona (cerca mío): el skeleton, el título del panel y la región viva. */
+export const LOCATING_LABEL = "Buscando cerca tuyo…";

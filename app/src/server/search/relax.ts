@@ -1,25 +1,28 @@
 import { intentDef, type IntentId } from '@shared/intents.ts'
-import { SEARCH_CONFIG } from './config'
 import { neighborhoodDisplayName } from '@shared/neighborhood-names.ts'
 import type { CandidateRow, DishMode } from './candidates'
 import { hasBroaderRelated, relatedLabel, type DishTarget } from './dishes'
 import { openStatus, opensToday, type Moment, type OpenFilter } from './hours'
 import { intentGroups, matchesGroup, subTerms } from './intents'
 import { DIET_KEYS, type DietKey, type Interpretation, type Lang } from './interpretation'
-import { DAY_NAMES, dietLabel, DISPLAY_LANG, distanceText, excludedTerm } from './labels'
+import { DAY_NAMES, dietLabel, DISPLAY_LANG, excludedTerm } from './labels'
 
 // Orden fijo: los tags de must primero porque sus datos están incompletos; después los sub-filtros de la
 // intención (pasan a preferencias); el venue después porque para la persona pesa más. similarity es el último recurso.
 // Nunca se relajan la dieta, los exclude, la intención ni el barrio: del barrio se sale sólo por "Cerca de <barrio>"
 // (nearby.ts), con los lugares a menos de 500 m del borde. Los pasos de NEARBY_STEPS (el horario y el último recurso)
 // se dan sólo si tampoco hay nada cerca; los de antes miran sólo el barrio, como siempre.
-// Con "cerca mío", el radio se amplía (1,5 → 3 → 5 km) antes de soltar el horario.
-export const RELAX_ORDER = ['mustTags', 'subs', 'dishRelated', 'radius', 'radiusMax', 'venue', 'openAt', 'similarity'] as const
+// Con "cerca mío", el radio no es un paso: search.ts consulta los radios en paralelo y usa el primero con suficientes
+// resultados (SEARCH_CONFIG.near); acá sólo similarity lo suelta, como último recurso.
+export const RELAX_ORDER = ['mustTags', 'subs', 'dishRelated', 'venue', 'openAt', 'similarity'] as const
 export type RelaxStep = (typeof RELAX_ORDER)[number]
 /** Pasos que se dan sólo si el barrio y sus cercanos no tienen ningún resultado. */
 export const NEARBY_STEPS: readonly RelaxStep[] = ['openAt', 'similarity']
-/** neighborhood: el barrio pedido no tiene resultados y "Cerca de <barrio>" sí. */
-export type NoticeKind = RelaxStep | 'neighborhood' | 'noMatch'
+/**
+ * neighborhood: el barrio pedido no tiene resultados y "Cerca de <barrio>" sí. radius: cerca mío amplió el radio.
+ * location: la ubicación está fuera de Montevideo. zone: la zona del mapa no tiene nada.
+ */
+export type NoticeKind = RelaxStep | 'neighborhood' | 'noMatch' | 'radius' | 'location' | 'zone'
 
 /**
  * nearRadius: radio de "cerca mío" en metros; null sin ubicación o cuando ya no filtra.
@@ -27,13 +30,9 @@ export type NoticeKind = RelaxStep | 'neighborhood' | 'noMatch'
  */
 export type SearchState = { interpretation: Interpretation; dishMode: DishMode; nearRadius: number | null; intent: IntentId | null; subs: string[] }
 
-const RADII = SEARCH_CONFIG.near.radii
-const NEXT_RADIUS = { radius: RADII[1], radiusMax: RADII[2] } as const
-
 export function canRelax({ interpretation: value, dishMode, nearRadius, subs }: SearchState, step: RelaxStep, dishes: DishTarget[]) {
   const { must } = value
   if (step === 'subs') return subs.length > 0
-  if (step === 'radius' || step === 'radiusMax') return nearRadius !== null && nearRadius < NEXT_RADIUS[step]
   if (step === 'mustTags') return must.tags.length > 0
   if (step === 'dishRelated') return dishMode === 'dish' && dishes.some(hasBroaderRelated)
   if (step === 'venue') return must.venues.length > 0
@@ -60,7 +59,6 @@ export function relax(state: SearchState, step: RelaxStep): SearchState {
     return { ...state, subs: [], interpretation: { ...value, prefer } }
   }
   if (step === 'dishRelated') return { ...state, dishMode: 'related' }
-  if (step === 'radius' || step === 'radiusMax') return { ...state, nearRadius: NEXT_RADIUS[step] }
   if (step === 'venue') return { ...state, interpretation: { ...value, must: { ...value.must, venues: [] } } }
   if (step === 'openAt') return { ...state, interpretation: { ...value, must: { ...value.must, openAt: null } } }
   // similarity: sólo quedan la dieta, los exclude y el barrio; lo pedido sigue sumando como preferencia y la distancia ordena.
@@ -136,18 +134,6 @@ export function relaxNotice(step: RelaxStep, context: NoticeContext): { what: No
       ? es ? `No hay ${dishes}${where}, pero estos tienen ${labels}.` : `No ${dishes}${where}, but these have ${labels}.`
       : es ? `No hay ${dishes}${where}; estos son los más parecidos.` : `No ${dishes}${where}; these are the closest matches.`
     return { what: step, message }
-  }
-
-  // Un solo aviso por la ampliación del radio, del radio inicial al último que se usó.
-  if (step === 'radiusMax') return null
-  if (step === 'radius') {
-    const previous = context.before.nearRadius
-    if (previous === null || !rows.some((row) => row.distance !== null && row.distance > previous)) return null
-    const [from, to] = [distanceText(previous, lang), distanceText(context.after.nearRadius ?? RADII[RADII.length - 1], lang)]
-    return {
-      what: step,
-      message: es ? `No encontramos a menos de ${from}; estos están a hasta ${to}.` : `Nothing within ${from}; these are up to ${to} away.`,
-    }
   }
 
   if (step === 'venue') {

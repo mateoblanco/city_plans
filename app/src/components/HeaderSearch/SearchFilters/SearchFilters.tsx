@@ -21,7 +21,7 @@ const SearchFilters = async (props: Props) => {
   ]);
   // Si la búsqueda falla, el error con "Reintentar" lo muestra SearchResults.
   if (!response) return null;
-  return <FilterBar state={toSearchUrl(props.params)} chips={response.interpreted.chips} bar={response.bar} needsLocation={response.needsLocation} data={data} />;
+  return <FilterBar state={toSearchUrl(props.params)} chips={response.interpreted.chips} bar={response.bar} location={response.location} data={data} />;
 };
 
 export default SearchFilters;

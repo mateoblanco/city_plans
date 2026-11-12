@@ -12,6 +12,10 @@ type Props = {
   count: number | null;
   /** "Cerca de <barrio>": "18 lugares en Palermo · 6 cerca". */
   nearby: NearbyCount | null;
+  /** Mientras busca: el título ("Buscando…" o "Buscando cerca tuyo…"). */
+  pendingLabel?: string;
+  /** Lo que va pegado al borde de arriba del panel y se mueve con él ("Buscar en esta zona"). */
+  overlay?: ReactNode;
   snapPoint: SheetSnapPoint;
   onSnapPointChange: (snapPoint: SheetSnapPoint) => void;
   children: ReactNode;
@@ -65,6 +69,7 @@ const ResultsSheet = (props: Props) => {
             finalFocus={false}
             data-low={props.snapPoint === SHEET_LOW || undefined}
           >
+            {props.overlay}
             {/* La manija: se arrastra (Drawer) o se toca, con el dedo o con Enter/Espacio, para alternar entre la media y la
                 alta (desde la baja, a la media). Lo que se ve es el ::after; el botón es más ancho y su ::before agranda
                 el área táctil a 44px de alto sin mover nada. */}
@@ -81,7 +86,7 @@ const ResultsSheet = (props: Props) => {
                 if (tap) props.onSnapPointChange(nextSnapPoint(props.snapPoint));
               }}
             />
-            <Drawer.Title className={styles.title}>{resultsCountLabel(props.count, props.nearby)}</Drawer.Title>
+            <Drawer.Title className={styles.title}>{resultsCountLabel(props.count, props.nearby, props.pendingLabel)}</Drawer.Title>
             {/* Si el foco entra a la lista con el panel en la baja (Tab, "Ir a los resultados"), sube a la media: si no, se
                 enfocaría algo invisible. */}
             <Drawer.Content

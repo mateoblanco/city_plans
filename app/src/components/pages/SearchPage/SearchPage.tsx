@@ -6,11 +6,28 @@ import PageScrollLock from "./PageScrollLock/PageScrollLock";
 import MapSync from "./Results/Map/MapSync/MapSync";
 import ResultsSkeleton from "./Results/ResultsSkeleton/ResultsSkeleton";
 import SearchResults from "./Results/SearchResults/SearchResults";
-import { readParams, searchKey, type SearchParams } from "./utils/search-params";
+import { neighborhoodsIn } from "@shared/neighborhood-aliases.ts";
+import { parseLocationChoice, parseLocationCookie } from "@/lib/location";
+import { normalizeQuery } from "@/server/search/normalize";
+import { LOCATING_LABEL } from "./utils/results-count";
+import { isEmpty, readParams, searchKey, type Params, type SearchParams } from "./utils/search-params";
 import styles from "./SearchPage.module.scss";
 
 type ResultsProps = {
   searchParams: SearchParams;
+};
+
+/**
+ * ¿La búsqueda va a ser cerca mío? Para el skeleton ("Buscando cerca tuyo…" desde el primer byte): con la ubicación en
+ * la cookie, sin barrio en la barra ni en el texto (el barrio del modelo sólo vale si el texto lo nombra) y sin otra
+ * ubicación elegida. Es una estimación: lo decide el servidor (location.ts).
+ */
+const looksNear = (params: Params) => {
+  if (isEmpty(params) || parseLocationCookie(params.userLocation)?.kind !== "coords") return false;
+  const choice = parseLocationChoice(params.loc);
+  if (choice && choice.kind !== "near") return false;
+  if (params.filters?.split(",").some((part) => part.startsWith("neighborhood:"))) return false;
+  return neighborhoodsIn(normalizeQuery(params.query)).size === 0;
 };
 
 // Lee los parámetros (instantáneo) fuera del Suspense de la búsqueda: con ellos arma la key, para que el skeleton
@@ -20,7 +37,7 @@ const Results = async (props: ResultsProps) => {
   const params = await readParams(props.searchParams);
 
   return (
-    <Suspense key={searchKey(params)} fallback={<ResultsSkeleton />}>
+    <Suspense key={searchKey(params)} fallback={<ResultsSkeleton label={looksNear(params) ? LOCATING_LABEL : undefined} />}>
       <SearchResults params={params} />
     </Suspense>
   );

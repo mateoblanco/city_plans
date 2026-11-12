@@ -13,7 +13,7 @@ type Props = {
 const SearchBar = async (props: Props) => {
   const params = await readParams(props.searchParams);
   // Sin texto, filtros ni intención: la barra vacía, sin buscar.
-  if (isEmpty(params)) return <FilterBar state={{ q: "", debug: params.debug }} chips={[]} bar={emptyBar()} needsLocation={false} data={await loadFilterBarData()} />;
+  if (isEmpty(params)) return <FilterBar state={{ q: "", debug: params.debug }} chips={[]} bar={emptyBar()} location={{ kind: "all", reason: "default" }} data={await loadFilterBarData()} />;
 
   return (
     // Sin key: al refinar o quitar un chip la barra anterior queda visible hasta que llega la nueva.

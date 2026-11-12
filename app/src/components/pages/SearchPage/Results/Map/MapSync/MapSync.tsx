@@ -7,10 +7,12 @@ import MapColumn from "../MapColumn/MapColumn";
 import { startMapsLoad } from "../SearchMap/maps-loader";
 import ResultsAnnouncer from "../../ResultsAnnouncer/ResultsAnnouncer";
 import ResultsSheet from "../../ResultsSheet/ResultsSheet";
+import ZoneButton from "../ZoneButton/ZoneButton";
 import SelectedPlace from "../../SelectedPlace/SelectedPlace";
 import { SHEET_HIGH, SHEET_LOW, SHEET_MID, type SheetSnapPoint } from "../../../utils/sheet";
 import { cardId, createHoverStore, HoverContext } from "../../../utils/hover";
 import { createSearchMapStore, INITIAL_SEARCH_MAP_STATE } from "../../../utils/search-map-store";
+import { LOCATING_LABEL } from "../../../utils/results-count";
 import { SearchMapContext } from "../../../utils/use-search-map";
 import { useMobile } from "../../../utils/use-mobile";
 
@@ -87,6 +89,8 @@ const MapSync = (props: Props) => {
         onMapClick={closeSelected}
         bottomInset={bottomInset}
       />
+      {/* Desktop: arriba del mapa. En mobile va en el panel (sigue su borde). */}
+      {!mobile && <ZoneButton placement="map" />}
     </MapColumn>
   );
 
@@ -95,6 +99,8 @@ const MapSync = (props: Props) => {
   // Drawer se montara de entrada, mediría su alto con el header todavía sin la barra de filtros (llega con la búsqueda)
   // y el panel saltaría.
   const sheet = mobile && state.fitKey > 0;
+  // Esperando la ubicación de la persona (LocationGate).
+  const pendingLabel = state.locating ? LOCATING_LABEL : undefined;
 
   // Con el panel en la alta, el header esconde la barra de filtros (Header.module.scss, html[data-sheet-high]): la
   // lista gana ese alto (el popup mide siempre hasta el header sin esa barra: --header-offset-collapsed, HeaderOffset).
@@ -112,12 +118,19 @@ const MapSync = (props: Props) => {
   return (
     <SearchMapContext value={store}>
       <HoverContext value={hover}>
-        <ResultsAnnouncer pending={state.pending} count={state.count} nearby={state.nearby} fitKey={state.fitKey} />
+        <ResultsAnnouncer pending={state.pending || state.locating} count={state.count} nearby={state.nearby} fitKey={state.fitKey} pendingLabel={pendingLabel} />
         {!sheet && props.children}
         {map}
         {selected && <SelectedPlace place={selected} />}
         {sheet && (
-          <ResultsSheet count={state.pending ? null : state.count} nearby={state.nearby} snapPoint={snapPoint} onSnapPointChange={changeSnapPoint}>
+          <ResultsSheet
+            count={state.pending || state.locating ? null : state.count}
+            nearby={state.nearby}
+            pendingLabel={pendingLabel}
+            snapPoint={snapPoint}
+            onSnapPointChange={changeSnapPoint}
+            overlay={<ZoneButton placement={snapPoint === SHEET_HIGH ? "sheetHigh" : "sheet"} />}
+          >
             {props.children}
           </ResultsSheet>
         )}

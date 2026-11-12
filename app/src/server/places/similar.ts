@@ -124,6 +124,7 @@ export function similarCard(row: CardRow, now = new Date()): SearchResult {
       ...openStateText(open, DISPLAY_LANG, moment, true, next),
     },
     matchLevel: 'has',
+    distance: null,
   }
 }
 
