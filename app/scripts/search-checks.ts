@@ -1,6 +1,7 @@
 // Propiedades esperadas por consulta, para `yarn search:eval` y `yarn search:check` (sale con error si alguna falla).
+import { PARTIAL_TAGS } from "@shared/tags.ts";
 import { SEARCH_CONFIG } from "../src/server/search/config";
-import { dessertFitOf, isDanceOnly, isKidsNight } from "../src/server/search/fuse";
+import { dessertFitOf, isKidsNight } from "../src/server/search/fuse";
 import { intentGroups, matchesGroup } from "../src/server/search/intents";
 import { fitsGroup } from "../src/server/search/moments";
 import type { SearchDebug, SearchResponse } from "../src/server/search/search";
@@ -53,10 +54,15 @@ const grouped: Check = {
 
 const notGrouped: Check = { description: "sin agrupar", test: (_, response) => (response.sections ? ["tiene secciones"] : []) };
 
-const noDanceInTop = (count: number): Check => ({
-  description: `ningún boliche ni lugar sólo para bailar en los primeros ${count}`,
-  test: (places) => places.slice(0, count).filter(isDanceOnly).map(name),
-});
+/** Sin tags ni categorías en la interpretación: la consulta va sólo por la búsqueda semántica. */
+const noCatalogTerms: Check = {
+  description: "sin tags ni categorías en la interpretación",
+  test: (_, response) => {
+    const { must, prefer } = response.debug!.interpretation;
+    const ids = [...must.categories, ...must.tags, ...prefer.categories, ...prefer.tags];
+    return ids.length ? [ids.join(", ")] : [];
+  },
+};
 
 /** Sub-filtro de la intención activo y pedido por el texto (no sólo por la barra). */
 const subFromText = (id: string): Check => ({
@@ -114,6 +120,35 @@ const isFirst = (placeName: string): Check => ({
 });
 
 const SUNSET_TAGS = ["sea_view", "rooftop", "terrace"];
+
+/**
+ * "al aire libre" (shared/tags.ts PARTIAL_TAGS): primero los que tienen el tag outdoor y después los que sólo tienen
+ * terraza, patio o azotea; ninguno sin uno de los dos.
+ */
+const outdoorFirst: Check = {
+  description: "primero los de al aire libre (los primeros 5 con el tag) y después los de sólo terraza, patio o azotea",
+  test: (places) => {
+    const isOutdoor = (place: Place) => place.tags.includes("outdoor");
+    const isPartial = (place: Place) => !isOutdoor(place) && PARTIAL_TAGS.outdoor.some((tag) => place.tags.includes(tag));
+    const firstPartial = places.findIndex(isPartial);
+    return [
+      ...(places.length < 5 ? [`sólo ${places.length} resultados`] : []),
+      ...places.slice(0, 5).filter((place) => !isOutdoor(place)).map((place) => `sin al aire libre en el top 5: ${name(place)}`),
+      ...(firstPartial === -1 ? ["ningún lugar de sólo terraza, patio o azotea"] : []),
+      ...(firstPartial === -1 ? [] : places.slice(firstPartial).filter(isOutdoor).map((place) => `al aire libre después de uno de terraza o patio: ${name(place)}`)),
+      ...places.filter((place) => !isOutdoor(place) && !isPartial(place)).map((place) => `sin al aire libre, terraza, patio ni azotea: ${name(place)}`),
+    ];
+  },
+};
+
+/** Tags exigidos de la interpretación final. */
+const mustTagsAre = (tags: string[]): Check => ({
+  description: `must.tags: ${tags.join(", ")}`,
+  test: (_, response) => {
+    const must = response.debug!.interpretation.must.tags;
+    return JSON.stringify(must) === JSON.stringify(tags) ? [] : [`must.tags: ${must.join(", ") || "—"}`];
+  },
+});
 
 /** Los primeros count cumplen ok (y hay al menos count resultados). */
 const topAll = (count: number, description: string, ok: (place: Place) => boolean): Check => ({
@@ -337,8 +372,11 @@ export const CHECKS: Record<string, Check[]> = {
         return [...must.tags, ...prefer.tags].includes("kids_friendly") ? [`must: ${must.tags.join(", ") || "—"}; prefer: ${prefer.tags.join(", ") || "—"}`] : [];
       },
     },
-    noneInTop(10, "ninguno con dj o dancing ni bar nocturno (late_night sin restaurant)", isKidsNight),
+    noneInTop(10, "ningún bar nocturno (late_night sin restaurant)", isKidsNight),
   ],
+  // Al aire libre: el tag entero, terraza, patio y azotea la mitad (después). "mesas afuera" ya no es un tag aparte.
+  "al aire libre": [nonEmpty, mustTagsAre(["outdoor"]), outdoorFirst],
+  "mesas afuera": [nonEmpty, mustTagsAre(["outdoor"]), hasChip("tag", "outdoor")],
   "lugar para ver el atardecer": [
     nonEmpty,
     {
@@ -376,9 +414,12 @@ export const CHECKS: Record<string, Check[]> = {
       },
     },
   ],
-  "comer con amigos": [nonEmpty, allInIntent("eat"), noDanceInTop(5), every("ningún lugar que sea sólo cafetería (cafe sin restaurante ni bar)", (place) => !place.categories.includes("cafe") || place.categories.includes("restaurant") || place.categories.includes("bar")), grouped],
-  "tomar algo con amigos": [nonEmpty, allInIntent("bars"), noDanceInTop(5), grouped],
+  "comer con amigos": [nonEmpty, allInIntent("eat"), every("ningún lugar que sea sólo cafetería (cafe sin restaurante ni bar)", (place) => !place.categories.includes("cafe") || place.categories.includes("restaurant") || place.categories.includes("bar")), grouped],
+  "tomar algo con amigos": [nonEmpty, allInIntent("bars"), grouped],
   "bar con amigos": [nonEmpty, allInIntent("bars")],
+  // Boliche, DJ y "para bailar" salieron del catálogo: van por la búsqueda semántica, sin error.
+  bailar: [nonEmpty, noCatalogTerms],
+  boliche: [nonEmpty, noCatalogTerms],
   pizza: [topHaveCategory(3, "pizzeria"), notGrouped],
   vegano: [nonEmpty, every("todos con opciones veganas", veganOk)],
   "sin tacc": [nonEmpty, every("todos con opciones sin TACC", glutenFreeOk)],
@@ -400,7 +441,7 @@ export const CHECKS: Record<string, Check[]> = {
   "con niños": [
     nonEmpty,
     inTop(3, "Café Kids"),
-    noneInTop(10, "ninguno con dj o dancing ni bar nocturno (late_night sin restaurant)", isKidsNight),
+    noneInTop(10, "ningún bar nocturno (late_night sin restaurant)", isKidsNight),
     { description: "sin grupo de bares", test: (_, response) => (response.sections ?? []).filter((section) => section.id === "drinks").map((section) => section.title) },
   ],
   "pizza a la leña": [nonEmpty, every("todos con horno a leña", (place) => place.tags.includes("wood_fired_oven")), topHaveCategory(3, "pizzeria")],

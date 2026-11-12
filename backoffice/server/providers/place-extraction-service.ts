@@ -22,6 +22,7 @@ import {
   findDef,
   groupOf,
   isStyleId,
+  RETIRED_TAGS,
 } from '../../src/data/tags.ts'
 import { PlaceDraft } from '../../src/data/place-schema.ts'
 import { ICON_CATEGORIES, ICON_CATEGORY_KEYS } from '../../src/data/icon-categories.ts'
@@ -90,7 +91,7 @@ const MAX_HIGHLIGHTS = 8
 const MAX_DISHES = 15
 const MAX_SIGNATURE = 3
 // Servicios y logística no definen a un lugar: nunca van en signature.
-const SIGNATURE_EXCLUDED = new Set(['delivery', 'takeaway', 'wifi', 'outlets', 'accessible', 'pet_friendly', 'menu_of_the_day'])
+const SIGNATURE_EXCLUDED = new Set(['delivery', 'takeaway', 'wifi', 'accessible', 'pet_friendly', 'menu_of_the_day'])
 // Momentos: sólo si el lugar se define por ese momento (un lugar de brunch).
 const SIGNATURE_MOMENTS = new Set(['lunch', 'dinner', 'breakfast', 'brunch', 'afternoon_snack'])
 export { DEFAULT_RESERVATION_HOSTS }
@@ -373,10 +374,10 @@ PASO 2 — el resto del JSON, sólo a partir de facts
 - proposedTag: en cada fact que no cites en ningún tag ni support, completá proposedTag: el id existente que debería haberse usado, un id nuevo en snake_case si ningún tag encaja, o null. proposedTag es null solo para anécdotas, historia de la marca, nombre o dirección del local, datos de contacto, medios de pago o información de otras sucursales. Si el fact describe comida, bebida, actividades o características del lugar, proponé un tag existente o uno nuevo. En los facts citados, null.
 - Platos y bebidas concretos nunca van con proposedTag null: mapealos al tag más cercano (tapas o platos pequeños → tapas, y además picada si mencionan tablas, fiambres o quesos para compartir; postres dulces → desserts; jugos o licuados → smoothies; yogur, tostadas o similares → breakfast).
 - Cada tag tiene que corresponder a al menos un fact. No pongas tags sin un fact que los respalde. Usá solamente los ids permitidos.
-- Inferí tags razonables a partir de los facts. Ejemplo inventado: "pasan música con DJs los viernes y se llena a la salida de la oficina" → dj, after_office; "ideal para trabajar con la compu" → work. Pero foods, cuisines y dietary sólo con menciones explícitas o, en cuisines, platos típicos (ver abajo): nunca deduzcas platos, tipo de cocina ni opciones dietarias por el tipo de local. cuisines tiene máximo tres valores.
+- Inferí tags razonables a partir de los facts. Ejemplo inventado: "tocan bandas en vivo los viernes y se llena a la salida de la oficina" → live_music, after_office; "ideal para trabajar con la compu" → work. Pero foods, cuisines y dietary sólo con menciones explícitas o, en cuisines, platos típicos (ver abajo): nunca deduzcas platos, tipo de cocina ni opciones dietarias por el tipo de local. cuisines tiene máximo tres valores.
 - cuisines sólo si es el estilo principal del lugar o una parte relevante de la carta, nunca por un plato suelto: una parrilla que tiene una pasta no es italian, ni un bar con unos tacos es mexican. Una cocina va si un fact la nombra ("cocina italiana", "comida mexicana", "taquería") o si al menos dos platos típicos distintos de ella (ver PLATOS TÍPICOS DE CADA COCINA) la identifican claramente: tacos y burritos → mexican; ceviche y lomo saltado → peruvian; arepas y tequeños → venezuelan; shawarma y falafel → middle_eastern; curry y naan → indian; kimchi y bibimbap → korean. Si no, no la pongas.
 - Un lugar nikkei lleva nikkei y, además, japanese si sirve sushi u otro plato japonés, y peruvian si sirve ceviche u otro plato peruano.
-- features, atmosphere y los goodFor work, solo, after_office y lgbtq_friendly también necesitan un fact que nombre el tag con palabras de esa idea ("tiene terraza", "ideal para trabajar", "ambiente tranquilo"). El RESUMEN ESTRUCTURADO DE EXA no alcanza solo para features, goodFor, offers ni atmosphere: necesitan un fact de otra fuente.
+- features, atmosphere y los goodFor work, solo y after_office también necesitan un fact que nombre el tag con palabras de esa idea ("tiene terraza", "ideal para trabajar", "ambiente tranquilo"). El RESUMEN ESTRUCTURADO DE EXA no alcanza solo para features, goodFor, offers ni atmosphere: necesitan un fact de otra fuente.
 - atmosphere (quiet, lively, cozy, elegant) sólo con un fact que describa el ambiente del lugar. cozy sólo si la fuente dice textualmente acogedor o cozy: no lo deduzcas de otras palabras. neighborhood_spot (de barrio) sólo si la fuente dice textualmente "bar de barrio", "boliche de barrio", "restaurante de barrio", "bodegón de barrio", "bodegón" o "clásico del barrio": nunca por el precio, la categoría ni la estética.
 - rooftop (azotea), wood_fired_oven (horno a leña) y shared_afternoon_tea (merienda para compartir) sólo si la fuente lo dice textualmente: "rooftop", "azotea" o "terraza en la azotea"; "horno a leña", "pizza a la leña" o "pizzas a la leña" ("carne a la leña" o "parrilla a la leña" no son horno); "merienda para dos", "merienda para compartir" o "tabla de merienda". No los deduzcas de otras palabras.
 - Los momentos de goodFor (groups, date, kids_friendly, celebration, quick) van si un fact los nombra ("ideal para ir con amigos", "para una cita", "menú para chicos") o, por inferencia, sólo con señales concretas en los facts que cites: una señal fuerte, o dos débiles distintas.
@@ -392,13 +393,12 @@ PASO 2 — el resto del JSON, sólo a partir de facts
 - Si hay facts de bebidas, tiene que haber al menos un tag de bebida. Una mención genérica de tragos o cócteles → classic_cocktails. Tragos propios de la casa, de autor, o cócteles con una base especial (ej. a base de vino) → signature_cocktails.
 - moments: no devuelvas late_night; lo decide el código con los horarios.
 - features: open_kitchen sólo si se menciona una cocina a la vista o abierta; bar_seating sólo si se puede comer en la barra, no por tener una barra para pedir bebidas. delivery y takeaway sólo para comida del local, nunca envíos de una tienda online.
-- Distinguí espacios al aire libre: patio = espacio interno o trasero; terrace = terraza elevada; rooftop = azotea (sólo si la fuente dice azotea o rooftop); sidewalk = mesas en la vereda. No los uses como sinónimos.
-- Usá patio, terrace o sidewalk solo si la fuente dice explícitamente patio, terraza/azotea o vereda. Si solo dice al aire libre o mesas afuera sin detalle, usá outdoor.
+- Distinguí espacios al aire libre: patio = espacio interno o trasero; terrace = terraza elevada; rooftop = azotea (sólo si la fuente dice azotea o rooftop); outdoor = al aire libre, mesas afuera o mesas en la vereda. No los uses como sinónimos.
+- Usá patio o terrace solo si la fuente dice explícitamente patio o terraza/azotea. Si dice al aire libre, mesas afuera o vereda, usá outdoor.
 - Sesiones de discos o escucha de vinilos → vinyl.
-- Si una fuente dice que solo se paga en efectivo, usá cash_only.
 - Jams, toques o bandas → live_music además de events.
 - dishes: platos concretos de comida que aparecen en los facts, en español, en minúscula y con el nombre normalizado, sin artículos ni conectores sobrantes ("milanesas a la napolitana" → "milanesa napolitana"; "chivito al pan canadiense" → "chivito canadiense"). Cada plato tiene que estar en el texto de un fact. Máximo 15. Nada de bebidas, productos de tienda online ni categorías genéricas (comida casera, minutas).
-- signature: hasta 3 ids de los tags que ya pusiste y que mejor definen al lugar (por qué es conocido), de cualquier grupo salvo categories. Tienen que estar en tags. Nunca servicios o logística (delivery, takeaway, wifi, outlets, accessible, pet_friendly, menu_of_the_day). Momentos (lunch, dinner, breakfast, brunch, afternoon_snack) sólo si el lugar se define por ese momento, por ejemplo un lugar de brunch.
+- signature: hasta 3 ids de los tags que ya pusiste y que mejor definen al lugar (por qué es conocido), de cualquier grupo salvo categories. Tienen que estar en tags. Nunca servicios o logística (delivery, takeaway, wifi, accessible, pet_friendly, menu_of_the_day). Momentos (lunch, dinner, breakfast, brunch, afternoon_snack) sólo si el lugar se define por ese momento, por ejemplo un lugar de brunch.
 - offers: sólo promociones o formatos concretos (merienda para dos, menú del día o ejecutivo, tenedor libre, happy hour).
 - dietary no se infiere: has_options si un fact menciona opciones veganas, vegetarianas o sin TACC; fully sólo con una frase inequívoca de que todo el local cumple; "no" sólo si se dice explícitamente; si no, unknown. Si el menú menciona queso, huevo, manteca, leche o crema que no sean veganos, vegan no puede ser fully.
 - Una versión vegetal explícita de un plato (de soja, de seitán, veggie, de lentejas) cuenta como vegetarian has_options.
@@ -424,7 +424,7 @@ HORARIOS
 HIGHLIGHTS Y DESCRIPCIÓN
 - highlights son platos o tragos concretos y cortos que aparecen en los facts; nunca productos de tienda online. Cada uno es { es, en, facts }: facts son los ids de los facts donde aparece; es siempre en español aunque la fuente esté en otro idioma (usá el nombre conocido en español si existe); en siempre en inglés. Para nombres locales sin traducción, conservá el nombre y, si hace falta, agregá sólo en en una aclaración breve entre paréntesis.
 - description.es: 2-3 frases en rioplatense, cercanas y sin exagerar, con palabras propias: qué es el lugar, su ambiente y por qué es conocido. Puede nombrar los platos o bebidas característicos, pero no enumerar la carta. Sin horarios y sin mencionar empresas ni terceros irrelevantes. description.en: la misma idea en inglés natural.
-- La descripción sólo puede mencionar cosas que estén en facts, y todo lo que mencione tiene que estar en los tags: si decís DJ → dj; tragos o cócteles → classic_cocktails o signature_cocktails; after office → after_office; celebraciones → celebration; patio → patio. No menciones nada que no hayas tagueado.
+- La descripción sólo puede mencionar cosas que estén en facts, y todo lo que mencione tiene que estar en los tags: si decís música en vivo → live_music; tragos o cócteles → classic_cocktails o signature_cocktails; after office → after_office; celebraciones → celebration; patio → patio. No menciones nada que no hayas tagueado.
 - doubts: anotá en doubts lo que no supiste resolver (máx. 5). No inventes dudas.
 - Si no podés confirmar que los datos que usaste son de este local (las fuentes pueden ser de otro local o de otra sucursal: otra dirección, otro barrio u otro negocio con el mismo nombre), anotalo en doubts empezando con «Local no confirmado:». Es sobre los datos que QUEDARON, no sobre los que descartaste.
   - SÍ lleva el prefijo: «Local no confirmado: las fuentes hablan de Mob Garden en el Prado y no puedo confirmar que los datos que usé sean de la sucursal de Punta Carretas.» o «Local no confirmado: las fuentes nombran otra marca parecida y no está claro que sea este local.»
@@ -1764,6 +1764,14 @@ export function postProcess(
   const sources = context.sources ?? []
   const sourcesById = new Map(sources.map((source) => [source.id, source]))
   const result = { ...structuredClone(data), contact: contactFromModel(data.contact) }
+  // Tags que salieron del catálogo, en respuestas viejas (cache/extractions): sidewalk es outdoor; lgbtq_friendly no va.
+  const current = (id: string) => (Object.hasOwn(RETIRED_TAGS, id.trim()) ? RETIRED_TAGS[id.trim()] : id)
+  result.tags = result.tags.flatMap((item) => {
+    const id = current(item.id)
+    return id ? [{ ...item, id }] : []
+  })
+  result.signature = result.signature.flatMap((id) => current(id) ?? [])
+  for (const fact of result.facts) if (fact.proposedTag) fact.proposedTag = current(fact.proposedTag)
 
   // Facts: id sin repetir, fuente existente y texto, hasta MAX_FACTS.
   const seenFactIds = new Set<string>()
@@ -1852,9 +1860,9 @@ export function postProcess(
   }
   // Para el tag: el resumen de Exa siempre es débil; las de plantilla, también para LOW_TRUST_GATED_TAGS.
   const weakSource = (id: string, source: Source) => source.url === EXA_SUMMARY_URL || (LOW_TRUST_GATED_TAGS.has(id) && isLowTrustSource(source.url))
-  // Lugar de noche (trasnoche por horario, dj o dancing): ahí no cuentan las señales de NOT_AT_NIGHT (sillas altas).
+  // Lugar de noche (trasnoche por horario): ahí no cuentan las señales de NOT_AT_NIGHT (sillas altas).
   const nightSlots = branchOnly('hours') && (support.get('hours') ?? []).length > 0 ? slotsFromBlocks(result.hours.blocks) : []
-  const night = lateNightFromSlots(nightSlots) || result.tags.some((item) => (item.id === 'dj' || item.id === 'dancing') && knownTag(item) && supported(`${item.group}.${item.id}`))
+  const night = lateNightFromSlots(nightSlots)
   // Un tag que el modelo sólo respaldó con el resumen de Exa se queda si una fuente real (web,
   // Instagram, páginas de Exa) lo nombra: la línea que lo nombra pasa a ser su respaldo.
   const backedBySourceText = (id: string, field: string, accept: (source: Source) => boolean = () => true) => {
@@ -2243,7 +2251,7 @@ export function withRecoveredHours(data: PlaceExtraction, retry: HoursRetryExtra
  * número, todas las palabras de la calle.
  */
 // Features que dependen del local físico: en una cadena varían de una sucursal a otra.
-const BRANCH_FEATURES = new Set<string>(['terrace', 'rooftop', 'wood_fired_oven', 'sidewalk', 'patio', 'sea_view', 'kids_area', 'accessible', 'pool_table'])
+const BRANCH_FEATURES = new Set<string>(['terrace', 'rooftop', 'wood_fired_oven', 'outdoor', 'patio', 'sea_view', 'kids_area', 'accessible', 'pool_table'])
 const MULTI_BRANCH_TEXT = /\b(?:sucursales|nuestros locales|nuestras tiendas|todos los locales|otros locales|otras sucursales)\b/
 const MULTI_BRANCH_PATH = /\/(?:store|stores|locales|sucursales|tiendas)\//
 

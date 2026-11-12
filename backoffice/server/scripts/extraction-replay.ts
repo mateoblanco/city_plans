@@ -9,7 +9,7 @@
 // --moments lista los lugares guardados donde cambiarían los momentos (groups, date…: +agregados −sacados y el costo del
 // embedding), sin escribir; --apply-moments escribe en esos lugares sólo los tags de momento (los demás tags quedan),
 // keyword_text, embedding_text y el embedding, igual que --apply-style y sin Place Details.
-// --tags <id>,… lista lo mismo para esos tags (dancing, accessible…), sin escribir; --apply-tags <id>,… los escribe.
+// --tags <id>,… lista lo mismo para esos tags (events, accessible…), sin escribir; --apply-tags <id>,… los escribe.
 // Con --tags, --report <archivo.md> escribe por tag cuántos lo pierden, lo mantienen y lo ganan, 10 ejemplos de los que
 // lo pierden y de los que lo mantienen con la fuente que lo sostenía, y cuántos quedan sostenidos sólo por fuentes de
 // baja confianza (resumen de Exa o de plantilla); --json <archivo> escribe los cambios.

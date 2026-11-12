@@ -41,6 +41,14 @@ const PlacePageSkeleton = () => (
             </div>
           </div>
 
+          <div className={pageStyles.location}>
+            <div className={styles.map} />
+            <div className={styles.location}>
+              <div className={styles.line} />
+              <div className={styles.lineShort} />
+            </div>
+          </div>
+
           <div className={styles.section}>
             <div className={styles.sectionTitle} />
             <div className={styles.cards}>
@@ -53,11 +61,6 @@ const PlacePageSkeleton = () => (
 
         <aside className={pageStyles.side}>
           <div className={styles.infoCard} />
-          <div className={styles.map} />
-          <div className={styles.location}>
-            <div className={styles.line} />
-            <div className={styles.lineShort} />
-          </div>
         </aside>
       </div>
     </div>

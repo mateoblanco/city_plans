@@ -34,7 +34,7 @@ export const SECTIONS = {
   },
   share: { title: { es: 'Para compartir', en: 'To share' }, rule: 'picadas, tablas y tapas', match: { tags: ['picada', 'tapas'] }, bonus: { tags: ['groups'] } },
   live_music: { title: { es: 'Con música en vivo', en: 'Live music' }, rule: 'música en vivo', match: { tags: ['live_music'] } },
-  outdoor: { title: { es: 'Al aire libre', en: 'Outdoor' }, rule: 'terraza, patio, vereda o mesas afuera', match: { tags: [...TAG_FILTERS.outdoor.tags] } },
+  outdoor: { title: { es: 'Al aire libre', en: 'Outdoor' }, rule: 'al aire libre, terraza, patio o azotea', match: { tags: [...TAG_FILTERS.outdoor.tags] } },
   discover: { title: { es: 'Descubrí', en: 'Discover' }, rule: 'lugares menos conocidos que coinciden bien con la búsqueda', match: { discover: true } },
 } satisfies Record<string, SectionDef>
 

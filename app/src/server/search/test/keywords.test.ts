@@ -34,7 +34,8 @@ describe('sinónimos de varias palabras como frase completa', () => {
   })
 
   it('no arma frases que to_tsquery no acepta', () => {
-    expect(keywordFilter(['lgbtq'], 'lgbtq')).toBeNull()
+    expect(keywordFilter(['hi'], 'hi')).toBeNull()
+    expect(keywordFilter(['side'], 'side')).toBeNull()
   })
 
   it('el SQL sólo agrega la condición si hay filtro', () => {

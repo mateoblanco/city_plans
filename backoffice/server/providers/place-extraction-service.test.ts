@@ -1179,23 +1179,23 @@ describe('PlaceExtractionService', () => {
   })
 
   it('acepta signature sólo con ids que quedaron en tags, sin repetir y hasta 3', () => {
-    const facts = [{ id: 'F1', text: 'bar acogedor con cerveza artesanal y DJ', sourceId: 'S1', kind: 'drink' as const, proposedTag: null }]
+    const facts = [{ id: 'F1', text: 'bar acogedor con cerveza artesanal y música en vivo', sourceId: 'S1', kind: 'drink' as const, proposedTag: null }]
     const place = postProcess(target, {
       ...emptyExtraction,
       facts,
       tags: [
         { group: 'categories', id: 'bar', facts: ['F1'] }, { group: 'drinks', id: 'craft_beer', facts: ['F1'] },
-        { group: 'atmosphere', id: 'cozy', facts: ['F1'] }, { group: 'features', id: 'dj', facts: ['F1'] },
+        { group: 'atmosphere', id: 'cozy', facts: ['F1'] }, { group: 'features', id: 'live_music', facts: ['F1'] },
         { group: 'atmosphere', id: 'elegant', facts: [] },
       ],
-      signature: ['craft_beer', 'craft_beer', 'inventado', 'elegant', 'cozy', 'bar', 'dj'],
-    }, { sources: [{ id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://guia.example/', text: 'Un bar acogedor con cerveza artesanal y DJ' }] })
-    expect(place.tags).toEqual(expect.arrayContaining(['craft_beer', 'cozy', 'dj']))
+      signature: ['craft_beer', 'craft_beer', 'inventado', 'elegant', 'cozy', 'bar', 'live_music'],
+    }, { sources: [{ id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://guia.example/', text: 'Un bar acogedor con cerveza artesanal y música en vivo' }] })
+    expect(place.tags).toEqual(expect.arrayContaining(['craft_beer', 'cozy', 'live_music']))
     expect(place.tags).not.toContain('elegant')
-    expect(place.signature).toEqual(['craft_beer', 'cozy', 'dj'])
+    expect(place.signature).toEqual(['craft_beer', 'cozy', 'live_music'])
     expect(place.embeddingText).toContain('Cerveza artesanal')
     expect(place.embeddingText).toContain('Acogedor')
-    expect(place.embeddingText).toContain('DJ')
+    expect(place.embeddingText).toContain('Música en vivo')
   })
 
   it('features, goodFor, offers y atmosphere no salen sólo del resumen de Exa; features, goodFor y atmosphere necesitan nombrarse', () => {
@@ -1315,7 +1315,7 @@ describe('PlaceExtractionService', () => {
     }, { sources: [{ id: 'S1', kind: 'exa', trust: 'third_party', url: 'https://guia.example/', text: 'pizzas' }] })
     expect(place.tags).toEqual(expect.arrayContaining(['delivery', 'dinner']))
     expect(place.signature).toEqual(['pizza', 'live_music'])
-    expect(SYSTEM_PROMPT).toContain('Nunca servicios o logística (delivery, takeaway, wifi, outlets, accessible, pet_friendly, menu_of_the_day)')
+    expect(SYSTEM_PROMPT).toContain('Nunca servicios o logística (delivery, takeaway, wifi, accessible, pet_friendly, menu_of_the_day)')
   })
 
   it('el prompt dice que cozy, kids_friendly y groups no se sostienen sólo con fuentes de plantilla', () => {
@@ -1714,9 +1714,10 @@ describe('PlaceExtractionService', () => {
     expect(SYSTEM_PROMPT).toContain('Cada fact tiene id (F1, F2, F3… en orden, sin repetir)')
     expect(SYSTEM_PROMPT).not.toContain('índices')
     expect(SYSTEM_PROMPT).toContain('Una mención genérica de tragos o cócteles → classic_cocktails. Tragos propios de la casa, de autor, o cócteles con una base especial (ej. a base de vino) → signature_cocktails.')
-    expect(SYSTEM_PROMPT).toContain('Si solo dice al aire libre o mesas afuera sin detalle, usá outdoor.')
-    expect(SYSTEM_PROMPT).toContain('- features: terrace, sidewalk, outdoor, patio')
-    expect(SYSTEM_PROMPT).toContain('Distinguí espacios al aire libre: patio = espacio interno o trasero; terrace = terraza elevada; rooftop = azotea (sólo si la fuente dice azotea o rooftop); sidewalk = mesas en la vereda. No los uses como sinónimos.')
+    expect(SYSTEM_PROMPT).toContain('Si dice al aire libre, mesas afuera o vereda, usá outdoor.')
+    expect(SYSTEM_PROMPT).toContain('- features: terrace, outdoor, patio')
+    expect(SYSTEM_PROMPT).not.toContain('sidewalk')
+    expect(SYSTEM_PROMPT).toContain('Distinguí espacios al aire libre: patio = espacio interno o trasero; terrace = terraza elevada; rooftop = azotea (sólo si la fuente dice azotea o rooftop); outdoor = al aire libre, mesas afuera o mesas en la vereda. No los uses como sinónimos.')
     expect(SYSTEM_PROMPT).toContain('Nunca estimes ni inventes horas que no estén en las fuentes.')
     expect(SYSTEM_PROMPT).toContain('no agregues ningún dato que no esté en raw')
     expect(SYSTEM_PROMPT).toContain('vegan no puede ser fully')
@@ -1740,14 +1741,14 @@ describe('PlaceExtractionService', () => {
     expect(SYSTEM_PROMPT).toContain('Transmisiones deportivas → el tag de pantallas para fútbol (watch_football).')
     expect(SYSTEM_PROMPT).toContain('- Platos y bebidas concretos nunca van con proposedTag null: mapealos al tag más cercano (tapas o platos pequeños → tapas, y además picada si mencionan tablas, fiambres o quesos para compartir; postres dulces → desserts; jugos o licuados → smoothies; yogur, tostadas o similares → breakfast).')
     expect(SYSTEM_PROMPT).toMatch(/- foods: .*picada, tapas/)
-    expect(SYSTEM_PROMPT).toMatch(/- goodFor: .*lgbtq_friendly/)
+    expect(SYSTEM_PROMPT).not.toContain('lgbtq')
     expect(SYSTEM_PROMPT).toMatch(/- features: .*shop/)
-    expect(SYSTEM_PROMPT).toMatch(/- features: .*events, books, dancing/)
+    expect(SYSTEM_PROMPT).toMatch(/- features: .*events, books, board_games/)
+    for (const id of ['cash_only', 'accepts_meal_vouchers', 'outlets', 'dancing', 'night_club', 'cider', 'medio_y_medio', 'non_alcoholic']) expect(SYSTEM_PROMPT).not.toContain(id)
     expect(HOURS_RETRY_PROMPT).toContain('Solo usá horarios que correspondan a la sucursal de esta dirección. Si la fuente lista varias sucursales, elegí la que coincide con la dirección. Si no podés confirmar la sucursal, devolvé vacío.')
     expect(SYSTEM_PROMPT).toContain('- doubts: anotá en doubts lo que no supiste resolver (máx. 5). No inventes dudas.')
     expect(SYSTEM_PROMPT).toContain('- Si las fuentes dicen que el local está dentro de otro lugar (shopping, mercado, galería, hotel, museo, polo gastronómico), completá locatedIn con el nombre de ese lugar. Si no lo dicen claramente, null. No lo deduzcas solo de la dirección.')
     expect(SYSTEM_PROMPT).toContain('- Si completás locatedIn, citá en support los facts que lo dicen, con field locatedIn.')
-    expect(SYSTEM_PROMPT).toContain('- Si una fuente dice que solo se paga en efectivo, usá cash_only.')
     expect(SYSTEM_PROMPT).toContain('kids_friendly: fuertes: menú infantil, juegos o espacio para niños. Débiles: sillas altas')
     for (const example of ['Oriundo', 'Culto', 'Namasté', 'Palenque', 'Berracos', 'Oviedo', 'Galician', 'Feira', 'Padrón', 'polenta', 'canilla', ['can', 'elones'].join('')]) {
       expect(SYSTEM_PROMPT.toLowerCase()).not.toContain(example.toLowerCase())
@@ -1812,14 +1813,14 @@ describe('PlaceExtractionService', () => {
       ...emptyExtraction,
       facts: [
         { id: 'F1', text: 'hace pizzas a la leña', sourceId: 'S1', kind: 'food', proposedTag: null },
-        { id: 'F2', text: 'pone DJ los viernes', sourceId: 'S1', kind: 'feature', proposedTag: null },
+        { id: 'F2', text: 'hay karaoke los viernes', sourceId: 'S1', kind: 'feature', proposedTag: null },
         { id: 'F3', text: 'acepta reservas', sourceId: 'S9', kind: 'reservations', proposedTag: null },
       ],
       tags: [
         { group: 'categories', id: 'pizzeria', facts: ['F1'] }, { group: 'categories', id: 'bar', facts: [] },
         { group: 'foods', id: 'pizza', facts: ['F1'] }, { group: 'foods', id: 'pasta', facts: [] }, { group: 'foods', id: 'id_inventado', facts: ['F1'] },
         { group: 'foods', id: 'constructor', facts: ['F1'] },
-        { group: 'features', id: 'dj', facts: ['F2', 'F100'] }, { group: 'features', id: 'pizza', facts: ['F1'] },
+        { group: 'features', id: 'karaoke', facts: ['F2', 'F100'] }, { group: 'features', id: 'pizza', facts: ['F1'] },
         { group: 'goodFor', id: 'work', facts: [] },
       ],
       dietary: { vegan: 'has_options', vegetarian: 'unknown', glutenFree: 'unknown' },
@@ -1833,7 +1834,7 @@ describe('PlaceExtractionService', () => {
     }, { sources: [source] })
 
     expect(place.categories).toEqual(['pizzeria', 'restaurant'])
-    expect(place.tags).toEqual(expect.arrayContaining(['pizza', 'dj']))
+    expect(place.tags).toEqual(expect.arrayContaining(['pizza', 'karaoke']))
     expect(place.tags).not.toContain('pasta')
     expect(place.tags).not.toContain('work')
     expect(place.dietary.vegan).toBe('unknown')
@@ -1861,7 +1862,7 @@ describe('PlaceExtractionService', () => {
 
   it('devuelve placeFacts con id y lo que respalda cada uno, hasta 40, y sin usarlos para la búsqueda', () => {
     const sources = [
-      { id: 'S1', kind: 'instagram' as const, trust: 'official' as const, url: 'https://www.instagram.com/local/', text: 'DJ los viernes' },
+      { id: 'S1', kind: 'instagram' as const, trust: 'official' as const, url: 'https://www.instagram.com/local/', text: 'Karaoke los viernes' },
       { id: 'S2', kind: 'exa' as const, trust: 'third_party' as const, url: 'https://exa.ai/', text: 'Resumen' },
     ]
     const facts = Array.from({ length: 45 }, (_, index) => ({ id: `F${index + 1}`, text: `fact ${index} FACT_NO_EN_BUSQUEDA`, sourceId: index === 1 ? 'S2' : 'S1', kind: 'other' as const, proposedTag: null }))
@@ -1870,15 +1871,15 @@ describe('PlaceExtractionService', () => {
     const place = postProcess(target, {
       ...emptyExtraction,
       facts,
-      tags: [{ group: 'features', id: 'dj', facts: ['F1', 'F2', 'F99'] }, { group: 'categories', id: 'bar', facts: ['F2'] }],
+      tags: [{ group: 'features', id: 'karaoke', facts: ['F1', 'F2', 'F99'] }, { group: 'categories', id: 'bar', facts: ['F2'] }],
     }, { sources })
 
     // 40 facts como máximo, menos el de fuente inexistente y el de id repetido.
     expect(place.placeFacts).toHaveLength(38)
     expect(place.placeFacts[0]).toEqual({
-      id: 'F1', text: 'fact 0 FACT_NO_EN_BUSQUEDA', kind: 'other', sourceId: 'S1', sourceUrl: 'https://www.instagram.com/local/', trust: 'official', supports: ['features.dj'],
+      id: 'F1', text: 'fact 0 FACT_NO_EN_BUSQUEDA', kind: 'other', sourceId: 'S1', sourceUrl: 'https://www.instagram.com/local/', trust: 'official', supports: ['features.karaoke'],
     })
-    expect(place.placeFacts[1]).toMatchObject({ id: 'F2', sourceId: 'S2', trust: 'third_party', supports: ['features.dj', 'categories.bar'] })
+    expect(place.placeFacts[1]).toMatchObject({ id: 'F2', sourceId: 'S2', trust: 'third_party', supports: ['features.karaoke', 'categories.bar'] })
     expect(place.placeFacts.some((fact) => fact.text === 'fact inválido' || fact.text === 'fact con id repetido')).toBe(false)
     expect(place.embeddingText).not.toContain('FACT_NO_EN_BUSQUEDA')
     expect(place.keywordText).not.toContain('FACT_NO_EN_BUSQUEDA')

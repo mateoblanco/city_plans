@@ -62,6 +62,17 @@ const Details = async (props: DetailsProps) => {
               chips={placeChips(place)}
               instagram={place.instagram}
             />
+            {/* Mapa, dirección y ómnibus, debajo del resumen. */}
+            <div className={styles.location}>
+              <PlaceMap name={place.name} lat={place.lat} lng={place.lng} iconCategory={place.icon_category} />
+              <PlaceLocation
+                address={google?.address ?? null}
+                neighborhood={data.neighborhood}
+                locatedIn={place.located_in}
+                lines={transitLines(place.transit_lines)}
+                mapsHref={place.google_place_id ? googleMapsHref(place.name, place.google_place_id) : null}
+              />
+            </div>
             <PlaceDiscounts providers={data.discounts} />
           </div>
 
@@ -76,17 +87,9 @@ const Details = async (props: DetailsProps) => {
               />
               {google?.week && <PlaceHours bare week={google.week} today={now.day} />}
             </PlaceInfoCard>
-            <PlaceMap name={place.name} lat={place.lat} lng={place.lng} iconCategory={place.icon_category} />
-            <PlaceLocation
-              address={google?.address ?? null}
-              neighborhood={data.neighborhood}
-              locatedIn={place.located_in}
-              lines={transitLines(place.transit_lines)}
-              mapsHref={place.google_place_id ? googleMapsHref(place.name, place.google_place_id) : null}
-            />
           </aside>
 
-          {/* Sucursales y similares: en mobile, al final (después de contacto, horarios, mapa y dirección); en desktop,
+          {/* Sucursales y similares: en mobile, al final (después de contacto y horarios); en desktop,
               en la columna izquierda debajo de .main (grid-template-areas en PlacePage.module.scss). El DOM sigue el
               orden de mobile, así el Tab va en el orden en que se ve. */}
           <div className={styles.more}>
@@ -104,8 +107,8 @@ type Props = {
 };
 
 /**
- * Ficha del lugar. Desktop: info y secciones a la izquierda; horarios, mapa y dirección fijos a la derecha. Mobile: una
- * sola columna (el mismo DOM, reordenado con CSS) y en el header sólo la flecha de volver.
+ * Ficha del lugar. Desktop: info, mapa con dirección y secciones a la izquierda; contacto y horarios fijos a la
+ * derecha. Mobile: una sola columna (el mismo DOM, reordenado con CSS) y en el header sólo la flecha de volver.
  */
 const PlacePage = (props: Props) => {
   return (

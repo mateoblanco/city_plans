@@ -16,7 +16,7 @@ import { everyDay, fakeCache, fakeStore, llmOutput, row } from './fixtures'
 const now = new Date('2026-10-12T16:00:00Z')
 const dictionary = (query: string) => interpretWithDictionary(normalizeQuery(query))
 const context = (overrides: Partial<FuseContext> = {}): FuseContext => ({
-  pinnedId: null, dishes: [], categories: [], requestedTags: [], preferTags: [], moments: [], cuisines: [], preferStyle: null, price: [], openAt: null, wantsBest: false, wantsDancing: false, intent: null, section: null, diet: [], preferDiet: [], ...overrides,
+  pinnedId: null, dishes: [], categories: [], requestedTags: [], preferTags: [], moments: [], cuisines: [], preferStyle: null, price: [], openAt: null, wantsBest: false, intent: null, section: null, diet: [], preferDiet: [], ...overrides,
 })
 
 describe('momentos y style en la interpretación', () => {
@@ -44,13 +44,14 @@ describe('momentos y style en la interpretación', () => {
     expect(dictionary('restaurante de autor')?.prefer.style).toBe('cuidado')
   })
 
-  it('"bolichito" y "boliche de barrio" son de barrio, no boliche; "boliche" solo sí', () => {
+  it('"bolichito" y "boliche de barrio" son de barrio; "boliche" solo y "bailar" no son del catálogo', () => {
     for (const query of ['bolichito', 'boliche de barrio', 'clasico del barrio', 'bodegon de barrio']) {
       const result = dictionary(query)
       expect(result?.prefer.tags, query).toEqual(['neighborhood_spot'])
-      expect(result?.must.categories, query).not.toContain('night_club')
+      expect(result?.must.categories, query).toEqual([])
     }
-    expect(dictionary('boliche')?.must.categories).toEqual(['night_club'])
+    // Sin tag: el atajo no la cubre y va por el LLM y la búsqueda semántica.
+    for (const query of ['boliche', 'para bailar', 'dj']) expect(dictionary(query), query).toBeNull()
     expect(dictionary('algo especial')).toBeNull()
   })
 
@@ -329,23 +330,6 @@ describe('búsqueda con momentos y style', () => {
   })
 })
 
-describe('boliches abajo', () => {
-  it('baja un boliche, un lugar "para bailar" y un dj sin comida', () => {
-    for (const place of [
-      row({ id: 'boliche', categories: ['bar', 'night_club'] }),
-      row({ id: 'para-bailar', categories: ['bar'], tags: ['dancing', 'classic_cocktails'] }),
-      row({ id: 'dj-solo', categories: ['bar'], tags: ['dj', 'classic_cocktails'] }),
-    ]) expect(boostsFor(place, context(), null).danceOnly, place.id).toBe(SEARCH_CONFIG.boosts.danceOnly)
-  })
-
-  it('un dj o "para bailar" con comida no baja, y nada baja si la consulta pide bailar', () => {
-    expect(boostsFor(row({ id: 'demode', categories: ['bar'], tags: ['dj', 'pizza'] }), context(), null).danceOnly).toBeUndefined()
-    expect(boostsFor(row({ id: 'brickel', categories: ['bar'], tags: ['dancing', 'dj', 'burgers', 'picada'] }), context(), null).danceOnly).toBeUndefined()
-    expect(boostsFor(row({ id: 'resto-dj', categories: ['restaurant'], tags: ['dj'] }), context(), null).danceOnly).toBeUndefined()
-    expect(boostsFor(row({ id: 'boliche', categories: ['night_club'] }), context({ wantsDancing: true }), null).danceOnly).toBeUndefined()
-  })
-})
-
 describe('con niños', () => {
   const kids = context({ requestedTags: ['kids_friendly'], preferTags: ['kids_friendly'], moments: ['kids_friendly'] })
 
@@ -353,34 +337,23 @@ describe('con niños', () => {
     const { kidsArea, kidsNight } = SEARCH_CONFIG.boosts
     expect(boostsFor(row({ id: 'cafe-kids', categories: ['cafe'], tags: ['kids_friendly', 'kids_area'] }), kids, null).kidsArea).toBe(kidsArea)
     expect(boostsFor(row({ id: 'resto', categories: ['restaurant'], tags: ['kids_friendly'] }), kids, null)).not.toHaveProperty('kidsNight')
-    for (const tags of [['late_night'], ['dj'], ['dancing'], ['late_night', 'dj', 'dancing']]) {
-      expect(boostsFor(row({ id: 'bar', categories: ['bar'], tags: ['kids_friendly', 'pizza', ...tags] }), kids, null).kidsNight, tags.join()).toBe(kidsNight)
-    }
+    expect(boostsFor(row({ id: 'bar', categories: ['bar'], tags: ['kids_friendly', 'pizza', 'late_night'] }), kids, null).kidsNight).toBe(kidsNight)
   })
 
-  it('trasnoche sólo baja a un bar sin restaurant; dj o dancing bajan siempre', () => {
+  it('trasnoche sólo baja a un bar sin restaurant', () => {
     const { kidsNight } = SEARCH_CONFIG.boosts
     expect(boostsFor(row({ id: 'biga', categories: ['restaurant', 'pizzeria'], tags: ['kids_friendly', 'late_night'] }), kids, null).kidsNight).toBeUndefined()
     expect(boostsFor(row({ id: 'resto-bar', categories: ['bar', 'restaurant'], tags: ['kids_friendly', 'late_night'] }), kids, null).kidsNight).toBeUndefined()
     expect(boostsFor(row({ id: 'cerveceria', categories: ['brewery'], tags: ['kids_friendly', 'late_night'] }), kids, null).kidsNight).toBeUndefined()
-    expect(boostsFor(row({ id: 'resto-dj', categories: ['restaurant'], tags: ['kids_friendly', 'dj'] }), kids, null).kidsNight).toBe(kidsNight)
+    expect(boostsFor(row({ id: 'bar-de-noche', categories: ['bar'], tags: ['kids_friendly', 'late_night'] }), kids, null).kidsNight).toBe(kidsNight)
+    // dj y dancing salieron del catálogo: un id viejo que quedara en la base ya no baja.
+    expect(boostsFor(row({ id: 'resto-dj', categories: ['restaurant'], tags: ['kids_friendly', 'dj', 'dancing'] }), kids, null).kidsNight).toBeUndefined()
   })
 
   it('sin niños pedido no aplica', () => {
     const boosts = boostsFor(row({ id: 'bar', categories: ['bar'], tags: ['kids_area', 'late_night'] }), context(), null)
     expect(boosts.kidsArea).toBeUndefined()
     expect(boosts.kidsNight).toBeUndefined()
-  })
-
-  it('"comer con amigos" deja al boliche detrás; "para bailar" no lo baja', async () => {
-    const places = [
-      row({ id: 'living', categories: ['bar', 'night_club'], tags: ['dancing', 'picada', 'groups'], semantic: 0.6 }),
-      row({ id: 'bisiesto', categories: ['restaurant'], tags: ['picada', 'groups'], semantic: 0.5 }),
-    ]
-    const eat = await runSearch('comer con amigos', { store: fakeStore(places).store, cache: fakeCache().cache }, { now, debug: true })
-    expect(eat.results.map((result) => result.id)).toEqual(['bisiesto', 'living'])
-    const dance = await runSearch('bar para bailar', { store: fakeStore(places).store, cache: fakeCache().cache }, { now, debug: true })
-    expect(dance.debug!.results.find((result) => result.id === 'living')!.boosts.danceOnly).toBeUndefined()
   })
 })
 
@@ -544,7 +517,6 @@ describe('con los padres', () => {
     const { kidsNight } = SEARCH_CONFIG.boosts
     const parents = context({ avoidNight: true })
     expect(boostsFor(row({ id: 'bar', categories: ['bar'], tags: ['late_night'] }), parents, null).kidsNight).toBe(kidsNight)
-    expect(boostsFor(row({ id: 'dj', categories: ['restaurant'], tags: ['dj'] }), parents, null).kidsNight).toBe(kidsNight)
     expect(boostsFor(row({ id: 'resto', categories: ['restaurant'], tags: ['late_night'] }), parents, null).kidsNight).toBeUndefined()
     expect(boostsFor(row({ id: 'kids', tags: ['kids_area'] }), parents, null).kidsArea).toBeUndefined()
     expect(boostsFor(row({ id: 'bar', categories: ['bar'], tags: ['late_night'] }), context(), null).kidsNight).toBeUndefined()

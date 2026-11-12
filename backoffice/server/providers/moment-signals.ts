@@ -69,7 +69,7 @@ export const MOMENT_SIGNALS: Record<MomentId, Signal[]> = {
  */
 export const NOT_FOR_DEDUCTION: Partial<Record<MomentId, string[]>> = { date: ['reservas'], quick: ['mostrador'] }
 
-/** Señales que no cuentan en un lugar de noche (late_night por horario, dj o dancing): un bar con sillas altas no es para chicos. */
+/** Señales que no cuentan en un lugar de noche (late_night por horario): un bar con sillas altas no es para chicos. */
 export const NOT_AT_NIGHT: Partial<Record<MomentId, string[]>> = { kids_friendly: ['sillas altas'] }
 
 /** Las señales de un momento sin las que no cuentan: las de NOT_FOR_DEDUCTION al deducir y las de NOT_AT_NIGHT de noche. */

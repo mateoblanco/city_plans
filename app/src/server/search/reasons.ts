@@ -1,4 +1,4 @@
-import { CUISINES, DRINKS, FOODS, isOccasionTag, isStyleId, label } from '@shared/tags.ts'
+import { CUISINES, DRINKS, FOODS, isOccasionTag, isStyleId, label, PARTIAL_TAGS } from '@shared/tags.ts'
 import type { IntentId } from '@shared/intents.ts'
 import type { DishMode } from './candidates'
 import { relatedLabel, type DishTarget } from './dishes'
@@ -22,7 +22,7 @@ export type ReasonContext = {
 /** Cuántos motivos muestra cada resultado. */
 export const MAX_REASONS = 3
 
-const NOT_BAR_DRINKS = new Set(['specialty_coffee', 'tea', 'non_alcoholic'])
+const NOT_BAR_DRINKS = new Set(['specialty_coffee', 'tea'])
 
 /** Signature que dicen algo dentro de cada intención: los platos para Comer, las bebidas para Bares… */
 const INTENT_SIGNATURE: Record<IntentId, Set<string>> = {
@@ -83,6 +83,12 @@ export function buildReasons(item: Fused, context: ReasonContext): string[] {
   for (const id of row.signature) if (wanted.has(id) || domain.has(id)) reasons.push(label(id, lang))
 
   for (const id of row.tags) if (wantedTags.includes(id) && !isOccasionTag(id)) reasons.push(label(id, lang))
+  // Pidió "al aire libre" y el lugar sólo tiene un parecido: dice cuál (Terraza, Patio, Azotea).
+  for (const id of wantedTags) {
+    if (row.tags.includes(id)) continue
+    const partial = PARTIAL_TAGS[id]?.find((tag) => row.tags.includes(tag))
+    if (partial) reasons.push(label(partial, lang))
+  }
   // Relleno de brunch: no tiene el tag, así que no dice "Brunch".
   if (item.filledAs === 'breakfast_lunch') reasons.push('Desayuno y almuerzo')
   const style = row.style && isStyleId(row.style) ? STYLE_REASON[lang][row.style] : undefined

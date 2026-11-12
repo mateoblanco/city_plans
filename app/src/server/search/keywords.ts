@@ -5,7 +5,7 @@ const SAFE_WORD = /^[a-z0-9]+$/
 /**
  * Palabra → frases: las palabras que en el catálogo sólo aparecen dentro de sinónimos de varias palabras ("ver" → "ver
  * futbol", "ver el partido"…) y nunca como label o sinónimo de una sola. Sólo frases de letras y números: to_tsquery no
- * acepta el resto ("hi-fi", "lgbtq+").
+ * acepta el resto ("hi-fi", "street-side").
  */
 function buildPhraseOnlyWords(): Map<string, string[]> {
   const single = new Set<string>()

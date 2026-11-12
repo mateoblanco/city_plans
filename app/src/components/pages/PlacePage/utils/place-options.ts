@@ -1,4 +1,4 @@
-import { ATMOSPHERE, FEATURES, GOOD_FOR, label, OFFERS } from "@shared/tags.ts";
+import { FEATURES, GOOD_FOR, label, OFFERS } from "@shared/tags.ts";
 
 type DietLevel = "fully" | "has_options";
 
@@ -32,10 +32,11 @@ export function dietChips(place: DietInput): string[] {
 
 /**
  * Los grupos del catálogo que salen como chips, de más a menos distintivo: lo que hay en el lugar (terraza, wifi, música en
- * vivo), lo que ofrece, para qué sirve y su ambiente. Quedan afuera las categorías (van en la línea de info), las dietas
- * (tienen sus chips), las cocinas, comidas y bebidas y los momentos del día (los dicen los horarios).
+ * vivo), lo que ofrece y para qué sirve. Es una lista de grupos, no de ids: un tag nuevo de otro grupo no sale. Quedan
+ * afuera las categorías (van en la línea de info), las dietas (tienen sus chips), las cocinas, comidas y bebidas, los
+ * momentos del día (los dicen los horarios), el ambiente y el estilo (subjetivos: sólo sirven para la búsqueda).
  */
-const OPTION_GROUPS = [FEATURES, OFFERS, GOOD_FOR, ATMOSPHERE];
+const OPTION_GROUPS = [FEATURES, OFFERS, GOOD_FOR];
 const OPTION_TAG_ORDER: string[] = OPTION_GROUPS.flatMap((group) => Object.keys(group));
 
 /** Los tags del lugar que se muestran, del más distintivo al menos (orden de grupos y del catálogo), en español. */

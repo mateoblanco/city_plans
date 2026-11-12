@@ -7,8 +7,8 @@ type Props = {
   name: string;
   logoUrl: string | null;
   logoBgColor: string | null;
-  /** lg: el logo grande de la ficha del lugar; sin size, el de la card. */
-  size?: "lg";
+  /** lg: el logo grande de la ficha del lugar; sm: el de la card mini (Lugares similares); sin size, el de la card. */
+  size?: "lg" | "sm";
   /** Ficha sobre una barra blanca o casi blanca: el borde del logo pasa a ser el de borde, no el de superficie. */
   onLightBar?: boolean;
   /** Visible al cargar (primeras cards, logo de la ficha): se pide ya, y con "high" además antes que el resto; sin load, lazy. */

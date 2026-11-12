@@ -14,7 +14,7 @@ import { fakeCache, fakeStore, llmOutput, row } from './fixtures'
 const now = new Date('2026-10-12T16:00:00Z')
 const dictionary = (query: string) => interpretWithDictionary(normalizeQuery(query))
 const context = (overrides: Partial<FuseContext> = {}): FuseContext => ({
-  pinnedId: null, dishes: [], categories: [], requestedTags: [], preferTags: [], moments: [], cuisines: [], preferStyle: null, price: [], openAt: null, wantsBest: false, wantsDancing: false, intent: null, section: null, diet: [], preferDiet: [], ...overrides,
+  pinnedId: null, dishes: [], categories: [], requestedTags: [], preferTags: [], moments: [], cuisines: [], preferStyle: null, price: [], openAt: null, wantsBest: false, intent: null, section: null, diet: [], preferDiet: [], ...overrides,
 })
 const filters = (overrides: Partial<CandidateFilters> = {}): CandidateFilters => ({
   categories: [], tags: [], diet: [], neighborhoods: [], venues: [], price: [], openAt: null, excludeCategories: [], excludeTags: [], excludeIcons: [], dishes: [], dishMode: 'dish', near: null, groups: [], ...overrides,
@@ -150,7 +150,7 @@ describe('barFit según la bebida pedida', () => {
 
   it('sin bebida pedida (o una sin bar propio), como siempre: entero para cualquier bar con Bares', () => {
     expect(boostsFor(cerveceria, context({ intent: 'bars' }), null).barFit).toBe(barFit)
-    expect(boostsFor(cerveceria, context({ intent: 'bars', requestedTags: ['cider'] }), null).barFit).toBe(barFit)
+    expect(boostsFor(cerveceria, context({ intent: 'bars', requestedTags: ['tea'] }), null).barFit).toBe(barFit)
     expect(boostsFor(cerveceria, context({ requestedTags: ['terrace'] }), null).barFit).toBeUndefined()
   })
 })

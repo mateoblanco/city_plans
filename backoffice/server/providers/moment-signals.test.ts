@@ -209,11 +209,8 @@ describe('postProcess: fuentes de plantilla para cozy, kids_friendly y groups', 
     expect(run(['Tiene sillas altas'], kids(1)).tags).not.toContain('kids_friendly')
     expect(run(['Tiene sillas altas'], []).tags).not.toContain('kids_friendly')
     expect(run(['Tiene sillas altas', 'Tiene un patio'], kids(2)).tags).toContain('kids_friendly')
-    const dj: PlaceExtraction['tags'] = [{ group: 'features', id: 'dj', facts: ['F3'] }]
-    expect(run(['Tiene sillas altas', 'Tiene un patio', 'Los sábados hay dj'], [...kids(2), ...dj]).tags).not.toContain('kids_friendly')
-    expect(run(['Tiene sillas altas', 'Tiene un patio', 'Los sábados hay dj'], dj).tags).not.toContain('kids_friendly')
-    // Con menú infantil (fuerte) sigue siendo apto aunque haya dj.
-    expect(run(['Tiene menú infantil', 'Los sábados hay dj'], [...kids(1), ...dj]).tags).toContain('kids_friendly')
+    // De noche es sólo por horario (trasnoche): un dj ya no es un tag ni lo hace de noche.
+    expect(run(['Tiene sillas altas', 'Tiene un patio', 'Los sábados hay dj'], kids(2)).tags).toContain('kids_friendly')
   })
 
   it('trasnoche por horario también es de noche', () => {
@@ -257,6 +254,18 @@ describe('postProcess: de barrio (neighborhood_spot)', () => {
     const tags: PlaceExtraction['tags'] = [{ group: 'atmosphere', id: 'neighborhood_spot', facts: ['F1'] }]
     expect(spot(run(['Ambiente sencillo y precios bajos'], tags))).toBe(false)
     expect(spot(run(['Un bar de barrio con mesas de fórmica'], tags))).toBe(true)
+  })
+})
+
+describe('postProcess: tags retirados del catálogo', () => {
+  it('una respuesta vieja con sidewalk da outdoor y lgbtq_friendly se descarta', () => {
+    const place = run(['Mesas en la vereda', 'Ambiente diverso'], [
+      { group: 'features', id: 'sidewalk', facts: ['F1'] },
+      { group: 'goodFor', id: 'lgbtq_friendly', facts: ['F2'] },
+    ])
+    expect(place.tags).toContain('outdoor')
+    expect(place.tags).not.toContain('sidewalk' as never)
+    expect(place.tags).not.toContain('lgbtq_friendly' as never)
   })
 })
 

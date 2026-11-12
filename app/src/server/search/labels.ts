@@ -62,11 +62,11 @@ export function dietGroupTitle(lang: Lang): string {
 const CATEGORY_PLURALS: Record<Lang, Record<string, string>> = {
   es: {
     restaurant: 'restaurantes', cafe: 'cafés', bar: 'bares', brewery: 'cervecerías', wine_bar: 'vinotecas', bakery: 'panaderías',
-    ice_cream_shop: 'heladerías', grill: 'parrillas', chiviteria: 'chiviterías', pizzeria: 'pizzerías', night_club: 'boliches', bodegon: 'bodegones',
+    ice_cream_shop: 'heladerías', grill: 'parrillas', chiviteria: 'chiviterías', pizzeria: 'pizzerías', bodegon: 'bodegones',
   },
   en: {
     restaurant: 'restaurants', cafe: 'cafés', bar: 'bars', brewery: 'breweries', wine_bar: 'wine bars', bakery: 'bakeries',
-    ice_cream_shop: 'ice cream shops', grill: 'steakhouses', chiviteria: 'chivito spots', pizzeria: 'pizzerias', night_club: 'night clubs', bodegon: 'bodegones',
+    ice_cream_shop: 'ice cream shops', grill: 'steakhouses', chiviteria: 'chivito spots', pizzeria: 'pizzerias', bodegon: 'bodegones',
   },
 }
 
@@ -182,7 +182,6 @@ const TRAIT_PHRASES: Record<string, TraitPhrase> = {
   late_night: { slot: 'para', text: 'para el trasnoche' },
   date: { slot: 'para', text: 'para una cita' },
   work: { slot: 'para', text: 'para trabajar' },
-  lgbtq_friendly: { slot: 'adj', text: 'LGBTQ+ friendly' },
   after_office: { slot: 'para', text: 'para el after office' },
   groups: { slot: 'para', text: 'para ir en grupo' },
   kids_friendly: { slot: 'para', text: 'para ir con niños' },
@@ -190,14 +189,10 @@ const TRAIT_PHRASES: Record<string, TraitPhrase> = {
   celebration: { slot: 'para', text: 'para festejar' },
   quick: { slot: 'para', text: 'para algo rápido' },
   outdoor: { slot: 'adj', text: 'al aire libre' },
-  dancing: { slot: 'para', text: 'para bailar' },
   pet_friendly: { slot: 'adj', text: 'pet friendly' },
   accessible: { slot: 'adj', text: 'accesibles' },
-  cash_only: { slot: 'adj', text: 'de solo efectivo' },
   takeaway: { slot: 'para', text: 'para llevar' },
   bar_seating: { slot: 'para', text: 'para comer en la barra' },
-  accepts_meal_vouchers: { slot: 'con', text: 'tickets alimentación' },
-  non_alcoholic: { slot: 'con', text: 'tragos sin alcohol' },
   vegan: { slot: 'adj', text: 'veganos' },
   vegetarian: { slot: 'adj', text: 'vegetarianos' },
   gluten_free: { slot: 'adj', text: 'sin TACC' },

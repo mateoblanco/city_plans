@@ -4,7 +4,7 @@ import {
   MONTEVIDEO_NEIGHBORHOODS,
   isMontevideoNeighborhood,
 } from './neighborhoods'
-import { CUISINES, FEATURES, GOOD_FOR, TAG_IDS, buildEmbeddingText, buildKeywordText, groupOf, tagsForFilter, toCanonical, type TagDef } from './tags'
+import { CATEGORIES, CUISINES, FEATURES, GOOD_FOR, RETIRED_TAGS, TAG_IDS, buildEmbeddingText, buildKeywordText, groupOf, tagsForFilter, toCanonical, withPartialTags, type TagDef } from './tags'
 
 describe('catálogos permitidos', () => {
   it('incluye los 166 tipos oficiales de Food and Drink sin duplicados', () => {
@@ -23,8 +23,8 @@ describe('catálogos permitidos', () => {
 
   it('separa el texto semántico de las palabras clave sin repeticiones', () => {
     expect(FEATURES.open_kitchen.label.es).toBe('Cocina a la vista')
-    expect(FEATURES.cash_only.label).toEqual({ es: 'Solo efectivo', en: 'Cash only' })
-    expect(FEATURES.cash_only.synonyms.es).toContain('no acepta tarjetas')
+    expect(FEATURES.pool_table.label).toEqual({ es: 'Pool', en: 'Pool' })
+    expect(FEATURES.pool_table.synonyms.es).toContain('metegol')
     expect(FEATURES.bar_seating.synonyms.en).toContain('counter')
     const input = {
       name: 'Brunch.', neighborhood: 'Cordón',
@@ -126,7 +126,7 @@ describe('catálogos permitidos', () => {
     expect(toCanonical('a la sombra')).toEqual({ group: 'features', id: 'outdoor' })
     expect(toCanonical('tenedor libre')).toEqual({ group: 'offers', id: 'all_you_can_eat' })
     expect(toCanonical('happy hour')).toEqual({ group: 'offers', id: 'happy_hour' })
-    expect(toCanonical('Pluxee')).toEqual({ group: 'features', id: 'accepts_meal_vouchers' })
+    expect(toCanonical('Pluxee')).toBeNull()
     expect(toCanonical('para llevar')).toEqual({ group: 'features', id: 'takeaway' })
     expect(toCanonical('family friendly')).toEqual({ group: 'goodFor', id: 'kids_friendly' })
     expect(toCanonical('bodegon')).toEqual({ group: 'categories', id: 'bodegon' })
@@ -138,7 +138,7 @@ describe('catálogos permitidos', () => {
     for (const term of ['de barrio', 'bolichito', 'boliche de barrio', 'clásico del barrio', 'bodegón de barrio']) {
       expect(toCanonical(term), term).toEqual({ group: 'atmosphere', id: 'neighborhood_spot' })
     }
-    expect(toCanonical('boliche')).toEqual({ group: 'categories', id: 'night_club' })
+    expect(toCanonical('boliche')).toBeNull()
     expect(toCanonical('bodegón')).toEqual({ group: 'categories', id: 'bodegon' })
     expect(toCanonical('upscale')).toEqual({ group: 'atmosphere', id: 'elegant' })
     expect(GOOD_FOR.work.synonyms.en).toEqual(expect.arrayContaining(['remote workers', 'laptop', 'work from']))
@@ -151,19 +151,32 @@ describe('catálogos permitidos', () => {
     expect(groupOf('outdoor')).toBe('features')
     expect(toCanonical('al aire libre')).toEqual({ group: 'features', id: 'outdoor' })
     expect(toCanonical('mesas afuera')).toEqual({ group: 'features', id: 'outdoor' })
-    expect(toCanonical('vereda')).toEqual({ group: 'features', id: 'sidewalk' })
-    expect(tagsForFilter('outdoor')).toEqual(['outdoor', 'patio', 'terrace', 'sidewalk'])
-    for (const id of ['events', 'books', 'dancing', 'shop']) expect(groupOf(id)).toBe('features')
-    expect(groupOf('lgbtq_friendly')).toBe('goodFor')
+    // "mesas afuera" ya no es un tag aparte: sus sinónimos son de al aire libre.
+    for (const term of ['mesas en la vereda', 'vereda', 'sidewalk', 'outside tables']) expect(toCanonical(term)).toEqual({ group: 'features', id: 'outdoor' })
+    expect(groupOf('sidewalk')).toBeNull()
+    expect(tagsForFilter('outdoor')).toEqual(['outdoor', 'terrace', 'patio', 'rooftop'])
+    expect(withPartialTags('outdoor')).toEqual(['outdoor', 'terrace', 'patio', 'rooftop'])
+    expect(withPartialTags('terrace')).toEqual(['terrace'])
+    for (const id of ['events', 'books', 'shop']) expect(groupOf(id)).toBe('features')
+    expect(groupOf('lgbtq_friendly')).toBeNull()
+    expect(TAG_IDS).not.toContain('lgbtq_friendly')
+    expect(toCanonical('lgbtq')).toBeNull()
+    // Segunda tanda de retirados: fuera del catálogo y en RETIRED_TAGS (la migración los saca de la base).
+    for (const id of ['cider', 'medio_y_medio', 'non_alcoholic', 'dj', 'accepts_meal_vouchers', 'outlets', 'cash_only', 'dancing', 'night_club']) {
+      expect(groupOf(id), id).toBeNull()
+      expect(RETIRED_TAGS[id], id).toBeNull()
+    }
+    expect(Object.keys(CATEGORIES)).not.toContain('night_club')
+    for (const term of ['sidra', 'medio y medio', 'tragos sin alcohol', 'dj', 'enchufes', 'solo efectivo', 'para bailar', 'discoteca']) expect(toCanonical(term), term).toBeNull()
+    expect(toCanonical('metegol')).toEqual({ group: 'features', id: 'pool_table' })
     expect(groupOf('tapas')).toBe('foods')
     expect(toCanonical('platitos')).toEqual({ group: 'foods', id: 'tapas' })
     expect(toCanonical('small plates')).toEqual({ group: 'foods', id: 'tapas' })
     expect(toCanonical('tabla')).toEqual({ group: 'foods', id: 'picada' })
-    expect(toCanonical('gay friendly')).toEqual({ group: 'goodFor', id: 'lgbtq_friendly' })
     expect(toCanonical('bazar')).toEqual({ group: 'features', id: 'shop' })
     expect(toCanonical('talleres')).toEqual({ group: 'features', id: 'events' })
     expect(toCanonical('workshops')).toEqual({ group: 'features', id: 'events' })
     expect(toCanonical('librería')).toEqual({ group: 'features', id: 'books' })
-    expect(toCanonical('funciona como boliche')).toEqual({ group: 'features', id: 'dancing' })
+    expect(toCanonical('funciona como boliche')).toBeNull()
   })
 })

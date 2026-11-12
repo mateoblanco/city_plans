@@ -3,7 +3,7 @@
 .main{
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
 .summary {
@@ -22,8 +22,8 @@
   padding-right: 132px;
 
   @include media(ml) {
-    font-size: 40px;
-    line-height: 56px;
+    font-size: 32px;
+    line-height: 38px;
     padding-right: 0;
   }
 }

@@ -24,8 +24,8 @@
   width: 100%;
 }
 
-// Mobile: una columna en el orden del DOM (que es el que se ve, también para el Tab): resumen y descuentos (.main);
-// contacto + horarios, mapa y dirección (.side); sucursales y similares (.more). .main y .side no son cajas
+// Mobile: una columna en el orden del DOM (que es el que se ve, también para el Tab): resumen, mapa con dirección y
+// descuentos (.main); contacto + horarios (.side); sucursales y similares (.more). .main y .side no son cajas
 // (display: contents), así sus hijos quedan en esta columna con su gap. Sin sticky.
 // Desde ml, dos columnas con áreas: .main arriba y .more debajo a la izquierda; .side a la derecha ocupando las dos
 // filas (sticky). La segunda fila es 1fr: si .side es más alto, el sobrante va abajo de .more y no entre .main y .more.
@@ -38,7 +38,7 @@
   @include media(ml) {
     align-items: start;
     display: grid;
-    gap: 48px;
+    gap: 40px;
     grid-template-areas:
       "main side"
       "more side";
@@ -56,9 +56,16 @@
 
 .main {
   display: contents;
-  flex-direction: column;
   gap: 48px;
   min-width: 0;
+
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border-card);
+  border-radius: 16px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
 
   @include media(ml) {
     display: flex;
@@ -66,26 +73,33 @@
   }
 }
 
-// Horarios y mapa quedan a la vista mientras se baja por las secciones (desde ml).
+// Mapa y dirección (con ómnibus), debajo del resumen: la dirección va pegada al mapa.
+.location {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+// Contacto y horarios quedan a la vista mientras se baja por las secciones (desde ml).
 .side {
   display: contents;
   flex-direction: column;
   gap: 24px;
 
-  // Mobile: la dirección (siempre la última) va pegada al mapa, no a 32px.
-  > :last-child {
-    margin-top: -16px;
-
-    @include media(ml) {
-      margin-top: 0;
-    }
-  }
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border-card);
+  border-radius: 16px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  // flex-direction: column;
+  padding: 24px;
 
   @include media(ml) {
     display: flex;
     grid-area: side;
-    position: sticky;
-    top: calc(var(--header-offset) + 24px);
+    // position: sticky;
+    // top: calc(var(--header-offset) + 24px);
   }
 }
 

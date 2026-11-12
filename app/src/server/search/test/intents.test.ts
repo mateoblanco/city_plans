@@ -61,7 +61,6 @@ describe('detectIntent', () => {
     expect(detectIntent(read('pizza en cordón'))).toBe('eat')
     expect(detectIntent(read('cafés en pocitos'))).toBe('cafes')
     expect(detectIntent(read('cócteles'))).toBe('bars')
-    expect(detectIntent(read('boliche'))).toBe('bars')
     expect(detectIntent(read('helado'))).toBe('desserts')
     expect(detectIntent(read('café con medialunas'))).toBe('cafes')
   })
@@ -129,15 +128,15 @@ describe('resolveIntent', () => {
 
 describe('SQL de la intención', () => {
   it('cada grupo es "cualquiera de" y los grupos se suman con "y"', () => {
-    const groups = intentGroups('bars', ['cocktails', 'dancing'])
+    const groups = intentGroups('desserts', ['pastries', 'ice_cream'])
     const query = new PgDialect().sqlToQuery(
       candidatesQuery(
         { categories: [], tags: [], diet: [], neighborhoods: [], venues: [], price: [], openAt: null, excludeCategories: [], excludeTags: [], excludeIcons: [], dishes: [], dishMode: 'dish', near: null, groups },
         { embedding: null, keywords: [], name: null, origins: [], pinnedId: null },
       ),
     )
-    expect(query.sql).toContain('(categories && $1::text[]) and (tags && $2::text[]) and (categories && $3::text[] or tags && $4::text[])')
-    expect(query.params.slice(0, 4)).toEqual([['bar', 'brewery', 'wine_bar', 'night_club'], ['signature_cocktails', 'classic_cocktails'], ['night_club'], ['dj']])
+    expect(query.sql).toContain('(categories && $1::text[] or tags && $2::text[]) and (tags && $3::text[]) and (categories && $4::text[] or tags && $5::text[])')
+    expect(query.params.slice(0, 5)).toEqual([['ice_cream_shop'], ['desserts', 'ice_cream'], ['pastries', 'desserts'], ['ice_cream_shop'], ['ice_cream']])
   })
 
   // Top picks está comentado en shared/intents.ts; el filtro por featured sigue disponible para una intención.
@@ -295,14 +294,14 @@ describe('verbos que piden una intención', () => {
 
 describe('Comer incluye bares con comida', () => {
   const places = [
-    row({ id: 'bar-con-pizza', categories: ['bar'], tags: ['pizza', 'dj'] }),
+    row({ id: 'bar-con-pizza', categories: ['bar'], tags: ['pizza', 'live_music'] }),
     row({ id: 'bar-de-tragos', categories: ['bar'], tags: ['classic_cocktails'] }),
-    row({ id: 'boliche', categories: ['bar', 'night_club'], tags: ['groups'] }),
+    row({ id: 'bar-de-noche', categories: ['bar'], tags: ['groups', 'late_night'] }),
     row({ id: 'cafe-almuerzo', categories: ['cafe'], tags: ['lunch', 'desserts'] }),
     row({ id: 'resto', categories: ['restaurant'] }),
   ]
 
-  it('un bar con algún plato entra; uno sólo de tragos, un boliche y un café no', async () => {
+  it('un bar con algún plato entra; uno sólo de tragos o de noche y un café no', async () => {
     const response = await runSearch('comer con amigos', { store: fakeStore(places).store, cache: fakeCache().cache }, { now })
     expect(response.bar.intent).toEqual({ id: 'eat', fromText: true })
     expect(response.results.map((result) => result.id).sort()).toEqual(['bar-con-pizza', 'resto'])

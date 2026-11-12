@@ -34,7 +34,6 @@ export const CATEGORIES = {
   grill: tag('Parrilla', 'Steakhouse', ['parrilla', 'parrillada', 'asador'], ['steakhouse', 'grill', 'barbecue', 'bbq'], 'Uruguayan wood-fired grill restaurant'),
   chiviteria: tag('Chivitería', 'Chivito spot', ['chivitería'], ['chivito place'], "Place specialized in chivitos, Uruguay's signature steak sandwich"),
   pizzeria: tag('Pizzería', 'Pizzeria', ['pizzería'], ['pizzeria', 'pizza place']),
-  night_club: tag('Boliche', 'Night club', ['boliche', 'disco', 'discoteca'], ['night club', 'club', 'dance club']),
   bodegon: tag('Bodegón', 'Bodegón', ['bodegón', 'bodegones'], ['traditional tavern', 'old-school eatery'], 'Old-school neighborhood restaurant with home-style dishes'),
 } satisfies TagGroup
 
@@ -138,41 +137,32 @@ export const DRINKS = {
   vermouth: tag('Vermut', 'Vermouth', ['vermut', 'vermú', 'vermouth', 'vermutería'], ['vermouth', 'vermut']),
   gin: tag('Gin', 'Gin', ['gin', 'gin tonic', 'gintonic'], ['gin', 'gin and tonic']),
   whisky: tag('Whisky', 'Whisky', ['whisky', 'whiskey'], ['whisky', 'whiskey', 'bourbon']),
-  cider: tag('Sidra', 'Cider', ['sidra'], ['cider']),
-  medio_y_medio: tag('Medio y medio', 'Medio y medio', ['medio y medio', 'medio medio'], ['medio y medio'], 'Uruguayan blend of sparkling and white wine'),
   specialty_coffee: tag('Café de especialidad', 'Specialty coffee', ['café de especialidad', 'flat white', 'filtrado', 'v60'], ['specialty coffee', 'third wave coffee', 'flat white', 'pour over']),
   tea: tag('Té', 'Tea', ['té', 'tés', 'matcha'], ['tea', 'matcha']),
-  non_alcoholic: tag('Sin alcohol', 'Non-alcoholic', ['sin alcohol', 'tragos sin alcohol', 'kombucha'], ['non alcoholic', 'mocktails', 'alcohol free', 'kombucha']),
 } satisfies TagGroup
 
 export const FEATURES = {
   terrace: tag('Terraza', 'Terrace', ['terraza'], ['terrace']),
-  sidewalk: tag('Mesas en la vereda', 'Sidewalk tables', ['mesas en la vereda', 'vereda'], ['sidewalk', 'outside tables', 'street-side tables']),
-  outdoor: tag('Al aire libre', 'Outdoor seating', ['mesas afuera', 'al aire libre', 'exterior', 'a la sombra'], ['outdoor seating']),
+  outdoor: tag('Al aire libre', 'Outdoor seating', ['mesas afuera', 'al aire libre', 'mesas en la vereda', 'vereda', 'exterior', 'a la sombra'], ['outdoor seating', 'sidewalk', 'outside tables', 'street-side tables']),
   patio: tag('Patio', 'Patio', ['patio', 'jardín', 'patio interno'], ['patio', 'garden', 'courtyard']),
   rooftop: tag('Azotea', 'Rooftop', ['rooftop', 'azotea', 'terraza en la azotea'], ['rooftop', 'rooftop bar', 'rooftop terrace']),
   sea_view: tag('Vista al mar', 'Sea view', ['vista al mar', 'frente al mar', 'frente a la rambla', 'sobre la rambla', 'vista al río'], ['sea view', 'ocean view', 'waterfront', 'rambla']),
   live_music: tag('Música en vivo', 'Live music', ['música en vivo', 'bandas', 'bandas en vivo', 'shows', 'toques', 'jazz en vivo', 'tributos musicales'], ['live music', 'live band', 'gigs', 'live jazz']),
-  dj: tag('DJ', 'DJ', ['dj', 'djs', 'dj set', 'con dj'], ['dj', 'djs', 'dj set']),
   vinyl: tag('Vinilos', 'Vinyl', ['vinilos', 'discos', 'listening bar'], ['vinyl', 'records', 'listening bar', 'hi-fi bar']),
   karaoke: tag('Karaoke', 'Karaoke', ['karaoke'], ['karaoke']),
   shop: tag('Tienda', 'Shop', ['bazar', 'tienda', 'boutique', 'venta de productos'], ['shop', 'store', 'boutique']),
   events: tag('Eventos', 'Events', ['eventos', 'talleres', 'charlas', 'actividades culturales', 'ciclos', 'exposiciones'], ['workshops', 'events']),
   books: tag('Libros', 'Books', ['libros', 'librería', 'biblioteca', 'para leer'], ['books']),
-  dancing: tag('Para bailar', 'Dancing', ['para bailar', 'funciona como boliche', 'pista de baile', 'modo boliche', 'como boliche', 'baile hasta tarde'], ['dancing']),
   board_games: tag('Juegos de mesa', 'Board games', ['juegos de mesa', 'juegos'], ['board games', 'games']),
   watch_football: tag('Deportes en vivo', 'Live sports', ['ver fútbol', 'ver el partido', 'pantallas', 'pantalla gigante', 'pantalla grande', 'fútbol', 'básquet', 'basket', 'deportes', 'ver deportes', 'rugby', 'partido'], ['live sports', 'sports', 'sports bar', 'watch football', 'watch the game', 'big screen', 'basketball', 'soccer', 'rugby']),
-  pool_table: tag('Pool y metegol', 'Pool and foosball', ['pool', 'metegol', 'billar'], ['pool table', 'billiards', 'foosball']),
+  pool_table: tag('Pool', 'Pool', ['pool', 'metegol', 'billar'], ['pool table', 'billiards', 'foosball']),
   kids_area: tag('Espacio para niños', 'Kids area', ['espacio para niños', 'juegos para niños'], ['kids area', 'playground']),
   wifi: tag('Wifi', 'Wifi', ['wifi', 'internet'], ['wifi', 'wi-fi', 'internet']),
-  outlets: tag('Enchufes', 'Power outlets', ['enchufes', 'para cargar la compu'], ['power outlets', 'plugs', 'charging']),
   pet_friendly: tag('Pet friendly', 'Pet friendly', ['pet friendly', 'se aceptan perros', 'con mascotas'], ['pet friendly', 'dog friendly', 'dogs allowed']),
   accessible: tag('Accesible', 'Accessible', ['accesible', 'silla de ruedas', 'rampa'], ['wheelchair accessible', 'accessible']),
   wood_fired_oven: tag('Horno a leña', 'Wood-fired oven', ['horno a leña', 'pizza a la leña', 'pizzas a la leña'], ['wood-fired oven', 'wood-fired pizza']),
   open_kitchen: tag('Cocina a la vista', 'Open kitchen', ['cocina a la vista', 'cocina abierta'], ['open kitchen', 'visible kitchen']),
   bar_seating: tag('Para comer en la barra', 'Bar seating', ['barra central', 'barra larga', 'comer en la barra'], ['bar seating', 'long bar', 'counter']),
-  accepts_meal_vouchers: tag('Acepta tickets alimentación', 'Accepts meal vouchers', ['acepta tickets', 'tickets alimentación', 'edenred', 'sodexo', 'pluxee'], ['meal vouchers', 'meal tickets', 'edenred', 'sodexo', 'pluxee']),
-  cash_only: tag('Solo efectivo', 'Cash only', ['solo efectivo', 'no acepta tarjetas', 'únicamente efectivo'], ['cash only']),
   delivery: tag('Delivery', 'Delivery', ['delivery', 'envíos', 'envío a domicilio', 'entrega a domicilio', 'pedidosya', 'pedidos ya'], ['delivery', 'home delivery']),
   takeaway: tag('Para llevar', 'Takeaway', ['para llevar', 'take away'], ['takeaway', 'take away', 'to go']),
 } satisfies TagGroup
@@ -180,7 +170,6 @@ export const FEATURES = {
 export const GOOD_FOR = {
   date: tag('Cita', 'Date', ['cita', 'primera cita', 'romántico', 'en pareja', 'ir en pareja'], ['date', 'first date', 'date night', 'romantic', 'couples']),
   work: tag('Para trabajar', 'Remote work', ['trabajar', 'para trabajar', 'laburar', 'con la compu', 'notebook', 'home office', 'estudiar', 'cowork', 'coworking'], ['work', 'laptop', 'cowork', 'coworking', 'laptop friendly', 'remote work', 'remote workers', 'work from', 'study', 'work from cafe']),
-  lgbtq_friendly: tag('LGBTQ+ friendly', 'LGBTQ+ friendly', ['lgbt', 'lgbtq', 'lgbtq+', 'diversidad'], ['gay friendly', 'lgbtq']),
   after_office: tag('After office', 'After work', ['after office', 'after', 'salida del trabajo'], ['after work', 'after office']),
   groups: tag('Grupos', 'Groups', ['grupos', 'en grupo', 'con amigos', 'juntarse con amigos', 'mesa larga'], ['groups', 'friends', 'with friends', 'big table']),
   kids_friendly: tag('Apto niños', 'Kids friendly', ['apto niños', 'para ir con niños', 'con niños', 'con los chicos', 'en familia', 'con chicos', 'menú infantil', 'menú para niños'], ['kids friendly', 'kid friendly', 'family friendly', 'family', 'with kids']),
@@ -194,7 +183,7 @@ export const ATMOSPHERE = {
   lively: tag('Animado', 'Lively', ['animado', 'con onda', 'movido', 'bullicioso'], ['lively', 'buzzy', 'vibrant']),
   cozy: tag('Acogedor', 'Cozy', ['acogedor', 'acogedora'], ['cozy', 'cosy']),
   elegant: tag('Elegante', 'Elegant', ['elegante', 'sofisticado', 'refinado'], ['elegant', 'upscale', 'refined']),
-  // Sin pretensiones, tradicional, con clientes de siempre. No es lo mismo que barato. "boliche" solo es night_club.
+  // Sin pretensiones, tradicional, con clientes de siempre. No es lo mismo que barato.
   neighborhood_spot: tag('De barrio', 'Neighborhood spot', ['de barrio', 'bolichito', 'boliche de barrio', 'clásico del barrio', 'bodegón de barrio'], ['neighborhood spot', 'local haunt', 'old-school local']),
 } satisfies TagGroup
 
@@ -239,9 +228,45 @@ export const isStyleId = (value: string): value is StyleId => Object.hasOwn(STYL
 export const ALL_GROUPS = { categories: CATEGORIES, moments: MOMENTS, cuisines: CUISINES, foods: FOODS, drinks: DRINKS, features: FEATURES, atmosphere: ATMOSPHERE, goodFor: GOOD_FOR, offers: OFFERS, dietary: DIETARY, style: STYLES } as const
 export type GroupName = keyof typeof ALL_GROUPS
 
+/**
+ * Tags parecidos a uno pedido, que la búsqueda acepta con la mitad del peso: "al aire libre" también trae terrazas,
+ * patios y azoteas, debajo de los que tienen el tag. Sólo amplían el filtro y ordenan: no son tags implícitos (una
+ * terraza no gana "al aire libre").
+ */
+export const PARTIAL_TAGS: Readonly<Record<string, readonly string[]>> = {
+  outdoor: ['terrace', 'patio', 'rooftop'],
+}
+
+/** El tag y sus parecidos ([id] si no tiene). */
+export function withPartialTags(id: string): string[] {
+  return [id, ...(PARTIAL_TAGS[id] ?? [])]
+}
+
+/** Si el tag pedido tiene parecidos que también se aceptan. */
+export const hasPartialTags = (id: string) => Object.hasOwn(PARTIAL_TAGS, id)
+
+/**
+ * Tags y categorías que salieron del catálogo: el reemplazo (o null si se eliminan). Los lee la migración de datos
+ * (`yarn search-text:recompute` en el backoffice) y la extracción, para respuestas viejas del modelo o del cache.
+ */
+export const RETIRED_TAGS: Readonly<Record<string, string | null>> = {
+  sidewalk: 'outdoor',
+  lgbtq_friendly: null,
+  cider: null,
+  medio_y_medio: null,
+  non_alcoholic: null,
+  dj: null,
+  accepts_meal_vouchers: null,
+  outlets: null,
+  cash_only: null,
+  dancing: null,
+  // Categoría: sale de categories (y de manual_overrides.categories).
+  night_club: null,
+}
+
 /** Filtros de búsqueda que agrupan varios tags. */
 export const TAG_FILTERS = {
-  outdoor: { label: { es: 'Al aire libre', en: 'Outdoor' }, tags: ['outdoor', 'patio', 'terrace', 'sidewalk'] },
+  outdoor: { label: { es: 'Al aire libre', en: 'Outdoor' }, tags: withPartialTags('outdoor') as TagId[] },
 } as const
 
 export function tagsForFilter(filter: keyof typeof TAG_FILTERS) { return TAG_FILTERS[filter].tags }

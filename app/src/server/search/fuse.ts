@@ -1,4 +1,4 @@
-import { CUISINES, FOODS, isOccasionTag, normalize } from '@shared/tags.ts'
+import { hasPartialTags, isOccasionTag, normalize, withPartialTags } from '@shared/tags.ts'
 import type { IconCategory } from '@shared/icon-categories.ts'
 import type { IntentId, INTENTS } from '@shared/intents.ts'
 import type { SectionId } from '@shared/sections.ts'
@@ -8,7 +8,7 @@ import { isMainCuisine } from './cuisines'
 import { singularForms, type DishTarget } from './dishes'
 import type { DietKey, Price } from './interpretation'
 import { groupFit, matchesMoment, momentSignals } from './moments'
-import { sectionSignals } from './sections'
+import { sectionPartialTags, sectionSignals } from './sections'
 import { hoursConfirmed, openStatus, type OpenFilter, type OpenState } from './hours'
 import { distanceFactor } from './location'
 
@@ -46,8 +46,6 @@ export type FuseContext = {
   openAt: OpenFilter | null
   /** La consulta pide lo mejor: rango de calidad más amplio. */
   wantsBest: boolean
-  /** La consulta pide bailar (boliche, dancing, dj o el sub-filtro Para bailar): los boliches no bajan. */
-  wantsDancing: boolean
   /** Lo de la noche baja aunque no se pidan niños: "con mis viejos" (dictionary.ts mentionsParents). */
   avoidNight?: boolean
   /**
@@ -59,6 +57,11 @@ export type FuseContext = {
   subs?: string[]
   /** "Ver todos" de una sección (`f=section:<id>`): sus señales suman sectionFit. */
   section: SectionId | null
+  /**
+   * Tags exigidos que aceptan parecidos (PARTIAL_TAGS), de must o de la regla de la sección del "Ver todos": el lugar
+   * que sólo tiene un parecido (terraza con "al aire libre") es maybe, siempre después de los que tienen el tag.
+   */
+  partialTags?: string[]
 }
 
 export type Fused = {
@@ -147,8 +150,10 @@ export function matchLevelOf(
   price: readonly string[] = [],
   moments: readonly string[] = [],
   cuisines: readonly string[] = [],
+  partialTags: readonly string[] = [],
 ): MatchLevel {
   if (price.length > 0 && row.price === 'unknown') return 'maybe'
+  if (partialTags.some((id) => !row.tags.includes(id))) return 'maybe'
   if (moments.length > 0 && !matchesMoment(moments, row)) return 'maybe'
   if (cuisines.length > 0 && !cuisines.some((id) => isMainCuisine(row, id))) return 'maybe'
   if (dishes.length === 0) return 'has'
@@ -179,7 +184,7 @@ const BEER: DrinkFit = { icons: ['beer', 'beer_pub'], categories: ['brewery'] }
 const COCKTAILS: DrinkFit = { icons: ['cocktails'], categories: [] }
 const CLASSIC: DrinkFit = { icons: ['classic_bar'], categories: [] }
 export const DRINK_FIT: Record<string, DrinkFit> = {
-  wine: WINE, medio_y_medio: WINE,
+  wine: WINE,
   craft_beer: BEER, draft_beer: BEER,
   signature_cocktails: COCKTAILS, classic_cocktails: COCKTAILS, gin: COCKTAILS,
   vermouth: CLASSIC, whisky: CLASSIC,
@@ -249,7 +254,6 @@ export const SUB_SIGNALS: { [K in IntentId]: Record<keyof (typeof INTENTS)[K]['s
     beer: { icons: ['beer', 'beer_pub'], categories: ['brewery'], tags: ['craft_beer'] },
     live_music: { signature: ['live_music'] },
     live_sports: { signature: ['watch_football'] },
-    dancing: { categories: ['night_club'], signature: ['dj'] },
   },
   desserts: {
     ice_cream: { icons: ['ice_cream'], categories: ['ice_cream_shop'] },
@@ -274,31 +278,30 @@ export function subSignalCount(row: Pick<CandidateRow, 'categories' | 'tags' | '
   }).length
 }
 
+/**
+ * Por cada tag pedido que acepta parecidos (PARTIAL_TAGS): partialTag entero si el lugar tiene el tag y partialTagShare
+ * del entero si sólo tiene un parecido ("al aire libre": primero los del tag, después terrazas, patios y azoteas). Ordena
+ * con el tag en prefer; exigido (partialTags), además el parecido es maybe.
+ */
+export function partialTagFit(row: Pick<CandidateRow, 'tags'>, wanted: readonly string[]): number {
+  const { partialTag, partialTagShare } = SEARCH_CONFIG.boosts
+  return [...new Set(wanted)].filter(hasPartialTags).reduce((sum, id) => {
+    if (row.tags.includes(id)) return sum + partialTag
+    return withPartialTags(id).some((tag) => row.tags.includes(tag)) ? sum + partialTag * partialTagShare : sum
+  }, 0)
+}
+
 /** Tags de prefer, sin momentos, que tienen rareTagMaxPlaces lugares o menos entre los que cumplen los filtros. */
 export function rareTagsOf(rows: Pick<CandidateRow, 'tags' | 'matchesFilters'>[], preferTags: string[]): string[] {
   const matching = rows.filter((row) => row.matchesFilters)
   return preferTags.filter((id) => !isOccasionTag(id) && matching.filter((row) => row.tags.includes(id)).length <= SEARCH_CONFIG.boosts.rareTagMaxPlaces)
 }
 
-const FOOD_TAGS = new Set<string>([...Object.keys(FOODS), ...Object.keys(CUISINES)])
-const FOOD_CATEGORIES = new Set(['restaurant', 'grill', 'pizzeria', 'chiviteria', 'bodegon'])
-
 /**
- * Boliche, o "para bailar" o un dj sin nada de comida: lo que se busca es bailar, no comer ni tomar algo. Un pub que
- * sirve comida y después se vuelve boliche no cuenta.
- */
-export function isDanceOnly(row: Pick<CandidateRow, 'categories' | 'tags'>): boolean {
-  if (row.categories.includes('night_club')) return true
-  const food = row.tags.some((id) => FOOD_TAGS.has(id)) || row.categories.some((id) => FOOD_CATEGORIES.has(id))
-  return (row.tags.includes('dancing') || row.tags.includes('dj')) && !food
-}
-
-/**
- * Lo de la noche que baja con niños pedido (kidsNight): dj o dancing siempre; trasnoche sólo en un bar sin restaurant
- * (un restaurante que cierra tarde sigue siendo para ir con chicos).
+ * Lo de la noche que baja con niños pedido (kidsNight): trasnoche sólo en un bar sin restaurant (un restaurante que
+ * cierra tarde sigue siendo para ir con chicos).
  */
 export function isKidsNight(row: Pick<CandidateRow, 'categories' | 'tags'>): boolean {
-  if (row.tags.includes('dj') || row.tags.includes('dancing')) return true
   return row.tags.includes('late_night') && row.categories.includes('bar') && !row.categories.includes('restaurant')
 }
 
@@ -311,6 +314,8 @@ export function boostsFor(row: CandidateRow, context: FuseContext, open: OpenSta
   const prefer = count(row.tags, context.preferTags)
   if (prefer > 0) result.preferTag = prefer * boosts.preferTag
   if (context.rareTags && count(row.tags, context.rareTags) > 0) result.rareTag = boosts.rareTag
+  const partial = partialTagFit(row, [...context.requestedTags, ...(context.section ? sectionPartialTags(context.section) : [])])
+  if (partial > 0) result.partialTag = partial
   if (context.preferStyle && row.style === context.preferStyle) result.preferStyle = boosts.preferStyle
   if (row.dishExact.some(Boolean)) result.exactDish = boosts.exactDish
   const knownFor = context.dishes.some((target) =>
@@ -340,7 +345,6 @@ export function boostsFor(row: CandidateRow, context: FuseContext, open: OpenSta
   if (group > 0) result.groupFit = group
   // "Abre hoy" no empuja a los abiertos: ordena la relevancia y la card dice si abre más tarde.
   if (!context.openAt?.today && open?.state === 'open' && hoursConfirmed(row.hours)) result.confirmedOpen = boosts.confirmedOpen
-  if (!context.wantsDancing && isDanceOnly(row)) result.danceOnly = boosts.danceOnly
   const kids = context.requestedTags.includes('kids_friendly')
   if (kids && row.tags.includes('kids_area')) result.kidsArea = boosts.kidsArea
   if ((kids || context.avoidNight) && isKidsNight(row)) result.kidsNight = boosts.kidsNight
@@ -375,7 +379,7 @@ export function fuse(rows: CandidateRow[], rankings: Rankings, context: FuseCont
       return {
         row,
         pinned: row.id === context.pinnedId,
-        matchLevel: matchLevelOf(row, context.dishes, context.price, context.moments, context.cuisines),
+        matchLevel: matchLevelOf(row, context.dishes, context.price, context.moments, context.cuisines, context.partialTags),
         dishLevel: matchLevelOf(row, context.dishes),
         open,
         rrf: base,

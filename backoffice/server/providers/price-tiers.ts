@@ -14,7 +14,7 @@ export const PRICE_CUTS: Record<PriceKind, { low: number; high: number }> = {
 
 export const PRICE_KIND_LABELS: Record<PriceKind, string> = { restaurant: 'restaurante', bar: 'bar', cafe: 'café' }
 
-const BAR_CATEGORIES = ['bar', 'brewery', 'wine_bar', 'night_club']
+const BAR_CATEGORIES = ['bar', 'brewery', 'wine_bar']
 
 const RESTAURANT_CATEGORIES = ['restaurant', 'pizzeria']
 

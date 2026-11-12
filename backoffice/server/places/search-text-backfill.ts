@@ -19,8 +19,11 @@ export type SearchTextRow = Pick<Place,
 
 export type StyleBasis = NonNullable<TagEvidence['basis']>
 
-/** Lo que se escribe del lugar además de los textos: el style o los tags (y signature, si pierde un tag sacado). */
-export type SearchTextValues = Partial<Pick<Place, 'style' | 'tags' | 'signature'>>
+/**
+ * Lo que se escribe del lugar además de los textos: el style o los tags (y signature, si pierde un tag sacado), o
+ * categories y manual_overrides en la migración de tags retirados (retired-tags.ts).
+ */
+export type SearchTextValues = Partial<Pick<Place, 'style' | 'categories' | 'tags' | 'signature' | 'manualOverrides'>>
 
 /** Cambio de un lugar guardado que regenera sus textos de búsqueda y el embedding. */
 export type SearchTextChange = {
@@ -34,6 +37,8 @@ export type SearchTextChange = {
   keywordText: string | null
   embeddingText: string | null
   estimatedEmbeddingUsd: number
+  /** false: se escribe embedding_text pero no se pide el embedding (el hash guardado ya es el del texto nuevo). */
+  embed?: boolean
 }
 
 export type StyleChange = SearchTextChange & { before: StyleId | null; after: StyleId; basis: StyleBasis | null }
@@ -109,15 +114,19 @@ const fragmentDiff = (before: string | null, after: string) => {
   return { removed: old.filter((part) => !next.includes(part)), added: next.filter((part) => !old.includes(part)) }
 }
 
+const sha256 = (text: string) => createHash('sha256').update(text).digest('hex')
+
 /**
  * Textos de búsqueda de un lugar guardado rearmados con lo guardado y el catálogo actual, o null si son los mismos. Un
  * texto que no cambia va en null: no se escribe y, si es el del embedding, no se paga. search_tsv sale de keyword_text.
+ * Con embeddingTextHash, el embedding se pide sólo si el hash del texto nuevo es otro (como savePlaces).
  */
-export function planTextRefresh(row: SearchTextRow & { keywordText: string | null; embeddingText: string | null }): TextRefreshChange | null {
+export function planTextRefresh(row: SearchTextRow & { keywordText: string | null; embeddingText: string | null; embeddingTextHash?: string | null }): TextRefreshChange | null {
   const { keywordText, embeddingText } = placeSearchTexts(row)
   const keywordChanged = keywordText !== row.keywordText
   const embeddingChanged = embeddingText !== row.embeddingText
   if (!keywordChanged && !embeddingChanged) return null
+  const embed = embeddingChanged && (row.embeddingTextHash === undefined || row.embeddingTextHash !== sha256(embeddingText))
   return {
     id: row.id,
     googlePlaceId: row.googlePlaceId,
@@ -126,7 +135,8 @@ export function planTextRefresh(row: SearchTextRow & { keywordText: string | nul
     values: {},
     keywordText: keywordChanged ? keywordText : null,
     embeddingText: embeddingChanged ? embeddingText : null,
-    estimatedEmbeddingUsd: embeddingChanged ? estimatedEmbeddingUsd(embeddingText) : 0,
+    estimatedEmbeddingUsd: embed ? estimatedEmbeddingUsd(embeddingText) : 0,
+    embed,
     before: { keywordText: row.keywordText, embeddingText: row.embeddingText },
     keyword: keywordChanged ? fragmentDiff(row.keywordText, keywordText) : { removed: [], added: [] },
     embedding: embeddingChanged ? fragmentDiff(row.embeddingText, embeddingText) : { removed: [], added: [] },
@@ -144,7 +154,7 @@ export async function applySearchTextChanges(
   deps: { write(id: string, values: SearchTextWrite): Promise<void>; embed: Embedder; now?: () => Date },
 ): Promise<{ written: number; embedError: string | null }> {
   const pending = changes.filter((change) => !change.skipped)
-  const toEmbed = pending.filter((change) => change.embeddingText !== null)
+  const toEmbed = pending.filter((change) => change.embeddingText !== null && change.embed !== false)
   let vectors: number[][] = []
   let embedError: string | null = null
   if (toEmbed.length > 0) {
@@ -164,7 +174,7 @@ export async function applySearchTextChanges(
       ...(vector ? {
         embedding: vector,
         embeddingModel: EMBEDDING_MODEL,
-        embeddingTextHash: createHash('sha256').update(change.embeddingText!).digest('hex'),
+        embeddingTextHash: sha256(change.embeddingText!),
         embeddedAt,
       } : {}),
     })

@@ -44,7 +44,7 @@ const hasTag = (row: GroupRow, ...ids: string[]) => ids.some((id) => row.tags.in
 
 /**
  * Señales de que un lugar sirve para ir en grupo aunque no tenga el tag groups. Cada familia cuenta una vez. Quedan
- * afuera las muy comunes (el tag pizza, drinks, casual solo) y lo que no distingue a un grupo (late_night, dj).
+ * afuera las muy comunes (el tag pizza, drinks, casual solo) y lo que no distingue a un grupo (late_night).
  */
 const GROUP_SIGNALS: ((row: GroupRow) => boolean)[] = [
   (row) => hasTag(row, 'draft_beer', 'craft_beer'),

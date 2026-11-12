@@ -1,4 +1,4 @@
-import { findDef, isOccasionTag, isStyleId, label, normalize, withSubcuisines } from '@shared/tags.ts'
+import { findDef, hasPartialTags, isOccasionTag, isStyleId, label, normalize, withPartialTags, withSubcuisines } from '@shared/tags.ts'
 import { neighborhoodDisplayName } from '@shared/neighborhood-names.ts'
 import { sectionDef } from '@shared/sections.ts'
 import { INTENT_VERB_WORDS } from '@shared/intents.ts'
@@ -36,7 +36,7 @@ import { normalizeQuery, queryWords } from './normalize'
 import { buildReasons } from './reasons'
 import { logoUrl } from './logo'
 import { relevanceCut, type Relevance } from './relevance'
-import { buildSections, notBroadReason, requestedSections, type Section, type SectionsDebug } from './sections'
+import { buildSections, notBroadReason, requestedSections, sectionPartialTags, type Section, type SectionsDebug } from './sections'
 import { discountSections } from '../discounts/sections'
 import { cardProviders, type PlaceDiscount } from '../discounts/selection'
 import { momentsOf } from './moments'
@@ -624,9 +624,6 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     const requestedCategories = [...wanted.must.categories, ...wanted.prefer.categories]
     // Una cocina paraguas cuenta con sus hijas: un japonés con japanese en signature es asiático.
     const requestedTags = [...new Set([...wanted.must.tags, ...wanted.prefer.tags, ...relatedTags].flatMap(withSubcuisines))]
-    const dancing = ['night_club', 'dancing', 'dj']
-    const wantsDancing = [...requestedCategories, ...requestedTags].some((id) => dancing.includes(id)) || intentGroups(value.intent, value.subs).slice(1).some((group) =>
-      [...(group.categories ?? []), ...(group.tags ?? [])].some((id) => dancing.includes(id)))
     const allFused = fuse(candidates, rankings, {
       pinnedId: pinned?.id ?? null,
       nearDecay: origin !== null,
@@ -643,17 +640,18 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       price: wanted.must.price,
       openAt,
       wantsBest: wanted.wantsBest,
-      wantsDancing,
       avoidNight: mentionsParents(normalized),
       intent: value.intent,
       subs: value.subs,
       section: filters.section,
+      partialTags: [...new Set([...wanted.must.tags.filter(hasPartialTags), ...(filters.section ? sectionPartialTags(filters.section) : [])])],
     })
     // Sin tope: se muestran todos los que pasan el corte por relevancia (los de horario sin confirmar, al final).
     const cut = relevanceCut(allFused, {
       hasEmbedding: embedding !== null,
       categories: requestedCategories,
-      tags: requestedTags,
+      // Una terraza pasa el corte con "al aire libre" pedido: el filtro la acepta (PARTIAL_TAGS).
+      tags: [...new Set(requestedTags.flatMap(withPartialTags))],
       moments: momentsOf(wanted.prefer.tags),
       hasDishes: dishes.length > 0,
       // La intención del verbo del texto (no la que sólo pide la URL).

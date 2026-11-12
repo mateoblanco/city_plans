@@ -49,7 +49,7 @@ export const INTENTS = {
   eat: {
     label: { es: 'Comer', en: 'Eat' },
     noun: { es: 'lugares para comer', en: 'places to eat' },
-    // Un bar con comida (Demodé, Bar Kfe) también es para comer; uno sólo de tragos o un boliche, no.
+    // Un bar con comida (Demodé, Bar Kfe) también es para comer; uno sólo de tragos, no.
     match: { categories: ['restaurant', 'grill', 'pizzeria', 'chiviteria', 'bodegon'], all: [{ categories: ['bar', 'brewery', 'wine_bar'], tags: FOOD_TAGS }] },
     aliases: ['restaurant'],
     detect: ['menu_of_the_day', 'all_you_can_eat'],
@@ -78,9 +78,9 @@ export const INTENTS = {
   bars: {
     label: { es: 'Tomar algo', en: 'Bars' },
     noun: { es: 'bares', en: 'bars' },
-    match: { categories: ['bar', 'brewery', 'wine_bar', 'night_club'] },
+    match: { categories: ['bar', 'brewery', 'wine_bar'] },
     aliases: ['bar'],
-    detect: ['drinks', 'late_night', 'happy_hour', 'after_office', 'vermouth', 'gin', 'whisky', 'cider', 'medio_y_medio'],
+    detect: ['drinks', 'late_night', 'happy_hour', 'after_office', 'vermouth', 'gin', 'whisky'],
     verbs: {
       es: ['tomar algo', 'salir a tomar algo', 'salir a tomar', 'tomar unas cervezas', 'tomar unas birras', 'unas cervezas', 'unas birras', 'unos tragos', 'tomar unos tragos', 'tomar unos vinos', 'un trago', 'tomar un trago'],
       en: ['grab a drink', 'have drinks', 'have a drink', 'get drinks'],
@@ -91,7 +91,6 @@ export const INTENTS = {
       beer: sub('Cerveza', 'Beer', 'con cerveza', 'with beer', { tags: ['craft_beer', 'draft_beer'] }),
       live_music: sub('Música en vivo', 'Live music', 'con música en vivo', 'with live music', { tags: ['live_music'] }),
       live_sports: sub('Deportes en vivo', 'Live sports', 'con deportes en vivo', 'showing live sports', { tags: ['watch_football'] }),
-      dancing: sub('Para bailar', 'Dancing', 'para bailar', 'for dancing', { categories: ['night_club'], tags: ['dj'] }),
     },
   },
   desserts: {

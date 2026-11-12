@@ -44,7 +44,7 @@ describe("JSON-LD de la ficha", () => {
   });
 
   it("lo que no es restaurante, café ni bar es LocalBusiness, sin servesCuisine", () => {
-    for (const categories of [["bakery"], ["ice_cream_shop"], ["night_club"], []]) {
+    for (const categories of [["bakery"], ["ice_cream_shop"], []]) {
       const data = ld({ categories, tags: ["italian"] });
       expect(data["@type"]).toBe("LocalBusiness");
       expect(data).not.toHaveProperty("servesCuisine");

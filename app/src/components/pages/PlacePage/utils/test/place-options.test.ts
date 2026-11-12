@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ATMOSPHERE, STYLES } from "@shared/tags.ts";
 import { dietChips, optionTags, placeChips } from "../place-options";
 
 const diet = (vegetarian: string, vegan: string, glutenFree: string) => ({
@@ -26,8 +27,13 @@ describe("dietChips", () => {
 });
 
 describe("optionTags", () => {
-  it("de más a menos distintivo: lo del lugar, ofertas, para qué sirve y ambiente, en español", () => {
-    expect(optionTags(["quiet", "work", "happy_hour", "wifi", "terrace"])).toEqual(["Terraza", "Wifi", "Happy hour", "Para trabajar", "Tranquilo"]);
+  it("de más a menos distintivo: lo del lugar, ofertas y para qué sirve, en español", () => {
+    expect(optionTags(["quiet", "work", "happy_hour", "wifi", "terrace"])).toEqual(["Terraza", "Wifi", "Happy hour", "Para trabajar"]);
+  });
+
+  it("no muestra ningún tag de ambiente ni de estilo (por grupo: tampoco uno nuevo)", () => {
+    expect(optionTags([...Object.keys(ATMOSPHERE), ...Object.keys(STYLES)])).toEqual([]);
+    expect(optionTags(["cozy", "neighborhood_spot", "casual", "pet_friendly"])).toEqual(["Pet friendly"]);
   });
 
   it("deja afuera dietas, cocinas, comidas, bebidas y momentos", () => {

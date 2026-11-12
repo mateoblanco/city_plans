@@ -1,0 +1,66 @@
+// Versión chica de PlaceCard para "Lugares similares": menos protagonista que el contenido de la ficha.
+.card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--color-border-card);
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
+  background-color: var(--color-surface);
+  transition: border-color 0.15s ease-out;
+
+  &:hover {
+    border-color: var(--color-selected);
+  }
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.name {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 20px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+.meta {
+  font-size: 14px;
+  line-height: 18px;
+  color: var(--color-text-subtle);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// Toda la card es el link: el ::after la cubre entera.
+.link {
+  color: inherit;
+  text-decoration: none;
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 12px;
+  }
+
+  &:focus-visible {
+    outline: none;
+
+    &::after {
+      outline: 2px solid var(--color-focus-ring);
+    }
+  }
+}

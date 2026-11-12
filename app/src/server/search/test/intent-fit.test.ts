@@ -12,7 +12,7 @@ import { fakeCache, fakeStore, row } from './fixtures'
 // Lunes 12/10/2026 13:00 en Montevideo.
 const now = new Date('2026-10-12T16:00:00Z')
 const context = (overrides: Partial<FuseContext> = {}): FuseContext => ({
-  pinnedId: null, dishes: [], categories: [], requestedTags: [], preferTags: [], moments: [], cuisines: [], preferStyle: null, price: [], openAt: null, wantsBest: false, wantsDancing: false, intent: null, section: null, diet: [], preferDiet: [], ...overrides,
+  pinnedId: null, dishes: [], categories: [], requestedTags: [], preferTags: [], moments: [], cuisines: [], preferStyle: null, price: [], openAt: null, wantsBest: false, intent: null, section: null, diet: [], preferDiet: [], ...overrides,
 })
 const { dessertFit, dessertFitPartial, subFit } = SEARCH_CONFIG.boosts
 const noLlm = () => fakeCache(new Error('no debería llamar al modelo')).cache

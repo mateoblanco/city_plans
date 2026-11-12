@@ -90,6 +90,15 @@ export const SEARCH_CONFIG = {
     dessertFit: 0.03,
     dessertFitPartial: 0.4,
     /**
+     * Tag pedido que acepta parecidos (shared/tags.ts PARTIAL_TAGS: "al aire libre" → terraza, patio, azotea; fuse.ts
+     * partialTagFit): entero si el lugar tiene el tag, partialTagShare del entero si sólo tiene un parecido. Pedido como
+     * preferencia, ordena. Exigido (texto, `tag:` o el "Ver todos" de Al aire libre) el filtro deja entrar a los dos y el
+     * que sólo tiene un parecido es además maybe (fuse.ts matchLevelOf): va siempre después; el empujón no alcanza solo
+     * para eso, porque el RRF separa más. En el grupo Al aire libre, los parecidos van al final (sections.ts).
+     */
+    partialTag: 0.03,
+    partialTagShare: 0.5,
+    /**
      * Por cada sub-filtro activo cuya señal específica tiene el lugar (fuse.ts SUB_SIGNALS: Tragos → signature_cocktails o
      * ícono de coctelería, no classic_cocktails). El filtro ya lo cumplen todos: esto ordena dentro. Como barFit.
      */
@@ -118,16 +127,11 @@ export const SEARCH_CONFIG = {
     maxGroupSignals: 3,
     minGroupSignals: 3,
     confirmedOpen: 0.01,
-    /**
-     * Principalmente para bailar (boliche, tag dancing, o dj sin comida) y la consulta no pide bailar: baja un poco
-     * menos que un primer puesto en un ranking. No se excluye.
-     */
-    danceOnly: -0.015,
     /** Con niños pedido (kids_friendly en must o prefer) y el lugar tiene espacio para niños: más que un primer puesto. */
     kidsArea: 0.02,
     /**
-     * Con niños pedido y el lugar es de noche (fuse.ts isKidsNight: dj o dancing, o trasnoche en un bar sin restaurant; una
-     * sola vez): baja debajo de los restaurantes y cafés aptos, más que danceOnly. No se excluye.
+     * Con niños pedido y el lugar es de noche (fuse.ts isKidsNight: trasnoche en un bar sin restaurant; una sola
+     * vez): baja debajo de los restaurantes y cafés aptos. No se excluye.
      */
     kidsNight: -0.025,
   },
@@ -261,7 +265,7 @@ export const SEARCH_CONFIG = {
    * grupo", "juntada"…), en el prompt y en el diccionario. 9: "con mis viejos" no es kids_friendly, "atardecer" pide vista
    * o terraza, y sin una etiqueta que corresponda de verdad no se inventa un mapeo aproximado ("bohemia", "escondido").
    */
-  interpretationCacheVersion: 9,
+  interpretationCacheVersion: 10,
 
   timeZone: 'America/Montevideo',
   /** Faltando esto o menos para el cierre o la apertura, la card dice "Cierra pronto" / "Abre pronto". */

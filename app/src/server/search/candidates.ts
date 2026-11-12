@@ -1,5 +1,5 @@
 import { sql, type SQL } from 'drizzle-orm'
-import { withSubcuisines } from '@shared/tags.ts'
+import { withPartialTags, withSubcuisines } from '@shared/tags.ts'
 import { SEARCH_CONFIG } from './config'
 import type { DishTarget } from './dishes'
 import { opensTodayFrom, type Hours, type Moment, type OpenFilter } from './hours'
@@ -201,10 +201,12 @@ function venueSql(venues: Venue[]): SQL {
 export function filterConditions(filters: CandidateFilters): SQL[] {
   const conditions: SQL[] = []
   if (filters.categories.length) conditions.push(sql`categories && ${textArray(filters.categories)}`)
-  // Una cocina paraguas ("asiática") se cumple con ella o con cualquiera de sus hijas; los demás tags, todos.
-  const plainTags = filters.tags.filter((id) => withSubcuisines(id).length === 1)
+  // Una cocina paraguas ("asiática") se cumple con ella o con cualquiera de sus hijas, y un tag con parecidos ("al aire
+  // libre") con él o con uno de ellos (terraza, patio, azotea; fuse.ts partialTagFit los ordena); los demás tags, todos.
+  const accepted = (id: string) => [...new Set([...withSubcuisines(id), ...withPartialTags(id)])]
+  const plainTags = filters.tags.filter((id) => accepted(id).length === 1)
   if (plainTags.length) conditions.push(sql`tags @> ${textArray(plainTags)}`)
-  for (const id of filters.tags.filter((tag) => withSubcuisines(tag).length > 1)) conditions.push(sql`tags && ${textArray(withSubcuisines(id))}`)
+  for (const id of filters.tags.filter((tag) => accepted(tag).length > 1)) conditions.push(sql`tags && ${textArray(accepted(id))}`)
   for (const key of filters.diet) conditions.push(sql`${sql.identifier(DIET_COLUMN[key])} in ('has_options', 'fully')`)
   if (filters.neighborhoods.length) conditions.push(sql`neighborhood_id = any(${textArray(filters.neighborhoods)})`)
   if (filters.venues.length) conditions.push(venueSql(filters.venues))

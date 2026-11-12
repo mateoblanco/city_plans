@@ -169,12 +169,12 @@ describe("intención y sub-filtros", () => {
   });
 
   it("apagar la intención del texto no pierde la categoría", () => {
-    // "bar con amigos" (o "boliche" → Para bailar, por categoría): sólo se quita la intención.
+    // "bar con amigos" (o "cervecería" → Cerveza, por categoría): sólo se quita la intención.
     const bar: BarRef = {
       ...empty,
       intent: { id: "bars", fromText: true },
       textIntent: "bars",
-      subs: [{ id: "dancing", active: true, fromText: true, removeKeys: ["category:night_club"] }],
+      subs: [{ id: "beer", active: true, fromText: true, removeKeys: ["category:brewery"] }],
       extras: [{ kind: "category", id: "wine_bar", fromText: true }],
     };
     expect(read(intentHref({ q: "bar con amigos" }, null, bar))).toEqual({ q: "bar con amigos", remove: "intent:bars" });

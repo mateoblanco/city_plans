@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { applySearchTextChanges, planMomentsChange, planStyleChange, planTagsChange, planTextRefresh, type SearchTextRow } from './search-text-backfill.ts'
 import { placeSearchTexts } from './manual-overrides.ts'
@@ -129,17 +130,17 @@ describe('planMomentsChange', () => {
 
 describe('planTagsChange', () => {
   const brickel = row({ name: 'Brickel Irish Pub', tags: ['burgers', 'live_music', 'groups'] })
-  const dancing = (id: string): id is 'dancing' => id === 'dancing'
+  const karaoke = (id: string): id is 'karaoke' => id === 'karaoke'
 
   it('reemplaza sólo los tags pedidos; los demás quedan como están guardados', () => {
-    const change = planTagsChange(brickel, { tags: ['burgers', 'dancing', 'date'] }, dancing)!
-    expect(change).toMatchObject({ before: [], after: ['dancing'], added: ['dancing'], removed: [] })
-    expect(change.values).toEqual({ tags: ['burgers', 'live_music', 'groups', 'dancing'] })
-    expect(change.keywordText).toContain('Para bailar')
+    const change = planTagsChange(brickel, { tags: ['burgers', 'karaoke', 'date'] }, karaoke)!
+    expect(change).toMatchObject({ before: [], after: ['karaoke'], added: ['karaoke'], removed: [] })
+    expect(change.values).toEqual({ tags: ['burgers', 'live_music', 'groups', 'karaoke'] })
+    expect(change.keywordText).toContain('Karaoke')
   })
 
   it('sin cambios en los tags pedidos, null', () => {
-    expect(planTagsChange(brickel, { tags: ['burgers', 'date'] }, dancing)).toBeNull()
+    expect(planTagsChange(brickel, { tags: ['burgers', 'date'] }, karaoke)).toBeNull()
   })
 
   it('un tag que sale también sale de signature, y los textos se arman sin él', () => {
@@ -187,5 +188,18 @@ describe('planTextRefresh', () => {
     await applySearchTextChanges([planTextRefresh({ ...place, keywordText: 'viejo' })!], { write, embed })
     expect(embed).not.toHaveBeenCalled()
     expect(write).toHaveBeenCalledWith(place.id, { keywordText: place.keywordText })
+  })
+
+  it('con el hash guardado del texto nuevo se escribe embedding_text sin pedir el embedding', async () => {
+    const place = saved()
+    const hash = createHash('sha256').update(place.embeddingText).digest('hex')
+    const change = planTextRefresh({ ...place, embeddingText: 'viejo', embeddingTextHash: hash })!
+    expect(change).toMatchObject({ embeddingText: place.embeddingText, embed: false, estimatedEmbeddingUsd: 0 })
+    expect(planTextRefresh({ ...place, embeddingText: 'viejo', embeddingTextHash: 'otro' })!.embed).toBe(true)
+    const write = vi.fn(async () => {})
+    const embed = vi.fn(async (texts: string[]) => texts.map(() => [0.1]))
+    await applySearchTextChanges([change], { write, embed })
+    expect(embed).not.toHaveBeenCalled()
+    expect(write).toHaveBeenCalledWith(place.id, { embeddingText: place.embeddingText })
   })
 })

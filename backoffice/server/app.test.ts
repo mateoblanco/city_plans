@@ -299,7 +299,7 @@ describe('exploración multi-fuente', () => {
   it('GET /api/places valida los filtros, pasa la página al reader y 500 si falla', async () => {
     const page = {
       places: [{
-        id: 'uuid-1', name: 'El Palenque', neighborhoodId: 'CIUDAD VIEJA', categories: ['restaurant'], tags: ['cash_only'],
+        id: 'uuid-1', name: 'El Palenque', neighborhoodId: 'CIUDAD VIEJA', categories: ['restaurant'], tags: ['wifi'],
         status: 'published', hoursStatus: 'exact', updatedAt: '2026-10-12T15:00:00.000Z', hasEmbedding: true,
         prominence: 0.54, igFollowers: 999, featured: false, iconCategory: 'grill', editedFields: ['name'],
       }],
