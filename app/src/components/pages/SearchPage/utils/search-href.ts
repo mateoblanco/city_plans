@@ -34,12 +34,12 @@ const list = (raw: string | null | undefined) =>
     .filter(Boolean);
 
 /**
- * Clave del chip en `f`; null si ese chip no es un filtro de la barra. section es el "Ver todos" de un grupo y tag, el
- * de una fila de la home (Merienda).
+ * Clave del chip en `f`; null si ese chip no es un filtro de la barra. section es el "Ver todos" de un grupo, nearby el de
+ * "Cerca de <barrio>" y tag, el de una fila de la home (Merienda).
  */
 export function filterKey({ kind, id }: { kind: string; id: string }): string | null {
   if (kind === "openAt") return id === "today" ? "open:today" : null;
-  return kind === "diet" || kind === "neighborhood" || kind === "price" || kind === "section" || kind === "tag" ? `${kind}:${id}` : null;
+  return kind === "diet" || kind === "neighborhood" || kind === "price" || kind === "section" || kind === "nearby" || kind === "tag" ? `${kind}:${id}` : null;
 }
 
 /** URL de /search. `add` suma un chip a remove (lo que hacía antes quitar un chip). */
@@ -181,6 +181,12 @@ export function extraHref(state: SearchUrl, chip: ChipRef, bar: BarRef): string 
 export function sectionHref(state: SearchUrl, id: string): string {
   const f = list(state.f).filter((item) => !item.startsWith("section:"));
   return searchHref({ ...state, f: [...f, `section:${id}`].join(",") });
+}
+
+/** "Ver todos" de "Cerca de <barrio>": la misma búsqueda con sólo los lugares cercanos (`f=nearby:1`). */
+export function nearbyHref(state: SearchUrl): string {
+  const f = list(state.f).filter((item) => !item.startsWith("nearby:"));
+  return searchHref({ ...state, f: [...f, "nearby:1"].join(",") });
 }
 
 /** La misma búsqueda contra /api/search/widen (la invitación a ampliar del final de la lista), sin debug. */

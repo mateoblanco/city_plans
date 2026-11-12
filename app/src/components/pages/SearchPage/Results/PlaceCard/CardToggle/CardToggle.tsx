@@ -8,13 +8,15 @@ type Props = {
   active: boolean;
   /** Nombre accesible (el botón es sólo ícono): fijo; el estado va en aria-pressed. */
   label: string;
+  /** Tooltip visual con el estado ("Guardar" / "Guardado"); no cambia el nombre accesible. */
+  tooltip: string;
   icon: ReactElement;
   onToggle: () => void;
 };
 
 /**
- * Botón de ícono de la card que prende o apaga algo del lugar (me gusta, guardar): aparece al pasar el mouse por la card,
- * con foco de teclado o si está activo; en touch, siempre. Queda por encima del link que cubre la card.
+ * Botón de ícono de la card que prende o apaga algo del lugar (guardar): aparece al pasar el mouse por la card, con foco
+ * de teclado o si está activo; en touch, siempre. Queda por encima del link que cubre la card.
  */
 const CardToggle = (props: Props) => (
   <span className={styles.toggle} data-active={props.active || undefined}>
@@ -24,6 +26,7 @@ const CardToggle = (props: Props) => (
       size="sm"
       onlyIcon
       label={props.label}
+      tooltip={props.tooltip}
       pressed={props.active}
       icon={props.icon}
       onClick={props.onToggle}

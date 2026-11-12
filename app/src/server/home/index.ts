@@ -31,10 +31,11 @@ const savedDeps = (): SavedDeps => ({
 })
 
 /**
- * Las filas de la home: "Guardados" (los de la cookie, sin caché: es de cada persona), "Para vos" (si hay perfil, sólo
- * con los likes) y las del config, sin repetir lugares entre estas dos y sin las de menos de 4.
+ * Las filas de la home con los guardados de la cookie (sin caché: son de cada persona): "Guardados" (todos), "Para vos"
+ * (los mismos guardados como señal de gustos, si arman perfil) y las del config, sin repetir lugares entre estas dos y
+ * sin las de menos de 4.
  */
-export async function homeRows(likes: string[], saved: string[] = []): Promise<HomeRow[]> {
+export async function homeRows(saved: string[]): Promise<HomeRow[]> {
   const deps = searchDeps()
   const [savedRow, forYou, sections] = await Promise.all([
     homeSavedRow(savedDeps(), saved).catch((error: unknown) => {
@@ -42,7 +43,7 @@ export async function homeRows(likes: string[], saved: string[] = []): Promise<H
       console.error('Falló "Guardados" de la home', error)
       return null
     }),
-    homeForYouRow(deps, likes).catch((error: unknown) => {
+    homeForYouRow(deps, saved).catch((error: unknown) => {
       // Sin "Para vos" la home sigue.
       console.error('Falló "Para vos" de la home', error)
       return null

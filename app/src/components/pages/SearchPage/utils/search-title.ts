@@ -13,6 +13,8 @@ export type SearchTitleInput = {
   chips: Pick<Chip, "kind" | "label" | "fromText" | "fromFilter">[];
   /** Opciones de la intención elegidas en la barra ("Tragos"), en su orden. Las del texto no: ya están en la consulta. */
   subs?: string[];
+  /** El "Ver todos" de "Cerca de <barrio>": el barrio ("Palermo"). El título dice "… cerca de Palermo". */
+  nearby?: string | null;
 };
 
 const SITE = "Salimos";
@@ -74,6 +76,12 @@ export function searchHeading(input: SearchTitleInput): string {
     const ownQuery = query !== "" && !verb;
     subject = ownQuery ? `${capitalize(query)} (${subList(subs).toLocaleLowerCase("es")})` : subList(subs);
   }
+  // "Ver todos" de "Cerca de": "Lugares para comer cerca de Palermo"; si el barrio vino del texto ("tragos en Palermo"),
+  // repetirlo se lee mal: "Cerca de Palermo (tragos en Palermo)".
+  if (input.nearby) {
+    const textNeighborhood = query !== "" && input.chips.some((chip) => chip.kind === "neighborhood" && chip.fromText);
+    return textNeighborhood ? `Cerca de ${input.nearby} (${query})` : `${subject} cerca de ${input.nearby}`;
+  }
   return `${subject}${placeSuffix(input.chips)}`;
 }
 
@@ -81,9 +89,10 @@ export function searchHeading(input: SearchTitleInput): string {
 export const searchTitle = (input: SearchTitleInput) => `${searchHeading(input)} · ${SITE}`;
 
 /** La entrada del título desde la respuesta de la búsqueda; sin respuesta (falló), sólo con el texto. */
-export const searchTitleInput = (query: string, response: Pick<SearchResponse, "bar" | "interpreted"> | null): SearchTitleInput => ({
+export const searchTitleInput = (query: string, response: (Pick<SearchResponse, "bar" | "interpreted"> & Partial<Pick<SearchResponse, "nearbyOnly">>) | null): SearchTitleInput => ({
   query,
   intent: response?.bar.intent?.id ?? null,
   chips: response?.interpreted.chips ?? [],
   subs: response?.bar.subs.filter((sub) => sub.active && !sub.fromText).map((sub) => sub.label) ?? [],
+  nearby: response?.nearbyOnly?.label ?? null,
 });

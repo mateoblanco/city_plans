@@ -6,9 +6,9 @@ import { dietLabel, DISPLAY_LANG, excludeLabel, momentLabel, PRICE_LABELS } from
 /**
  * fromText / fromFilter: de dónde salió el chip (puede ser de los dos). Con eso la UI sabe cómo apagarlo:
  * lo del texto se suma a `remove`, lo de la barra se saca de `f`, "cerca mío" saca `near`. section (el "Ver todos"
- * de un grupo) sólo viene de `f`: no se puede quitar con `remove`.
+ * de un grupo) y nearby (el de "Cerca de <barrio>") sólo vienen de `f`: no se pueden quitar con `remove`.
  */
-export type Chip = { kind: ChipKind | 'section'; id: string; label: string; fromText?: boolean; fromFilter?: boolean }
+export type Chip = { kind: ChipKind | 'section' | 'nearby'; id: string; label: string; fromText?: boolean; fromFilter?: boolean }
 
 /** Lo que se entendió de la consulta, en el orden en que conviene mostrarlo. El id es el que acepta `remove`. */
 export function buildChips(value: Interpretation, today: number, near = false): Chip[] {

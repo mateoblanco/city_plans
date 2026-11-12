@@ -116,7 +116,7 @@ describe('búsquedas de la home', () => {
     expect(rows.find((entry) => entry.id === 'drinks')!.places).toEqual([])
   })
 
-  it('"Para vos": sin likes no busca', async () => {
+  it('"Para vos": sin guardados no busca', async () => {
     const { store, calls } = fakeStore(places)
     expect(await homeForYouRow({ store, cache: fakeCache().cache }, [], now)).toBeNull()
     expect(calls).toEqual([])
@@ -127,5 +127,20 @@ describe('búsquedas de la home', () => {
     await homeForYouRow({ store, cache: fakeCache().cache }, ['r0', 'r1'], now)
     expect(calls.length).toBeGreaterThan(0)
     expect(calls.every((call) => call.filters.openAt?.today)).toBe(true)
+  })
+
+  it('"Para vos" usa los guardados como señal de gustos: perfil del tipo guardado y sin los guardados', async () => {
+    // 14 bares y 6 cafés, en barrios distintos (la variedad no recorta): guardar 2 bares arma el perfil de bares.
+    const bars = Array.from({ length: 14 }, (_, index) => row({ id: `bar${index}`, categories: ['bar'], iconCategory: 'beer', tags: ['drinks'], neighborhoodId: `N${index}` }))
+    const cafes = Array.from({ length: 6 }, (_, index) => row({ id: `cafe${index}`, categories: ['cafe'], iconCategory: 'coffee', neighborhoodId: `M${index}` }))
+    const vectors = Object.fromEntries([...bars.map((bar) => [bar.id, [1, 0, 0]]), ...cafes.map((cafe) => [cafe.id, [0, 1, 0]])])
+    const { store } = fakeStore([...bars, ...cafes], [], vectors)
+    const saved = ['bar0', 'bar1']
+    const forYou = await homeForYouRow({ store, cache: fakeCache().cache }, saved, now)
+    expect(forYou?.id).toBe('for_you')
+    expect(forYou!.places.length).toBeGreaterThanOrEqual(4)
+    expect(forYou!.places.every((item) => item.id.startsWith('bar') && !saved.includes(item.id))).toBe(true)
+    // Con un solo guardado del tipo no hay perfil.
+    expect(await homeForYouRow({ store, cache: fakeCache().cache }, ['bar0'], now)).toBeNull()
   })
 })

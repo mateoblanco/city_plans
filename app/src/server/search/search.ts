@@ -2,13 +2,12 @@ import { findDef, isOccasionTag, isStyleId, label, normalize, withSubcuisines } 
 import { neighborhoodDisplayName } from '@shared/neighborhood-names.ts'
 import { sectionDef } from '@shared/sections.ts'
 import { INTENT_VERB_WORDS } from '@shared/intents.ts'
-import centroids from '@shared/neighborhood-centroids.json'
 import type { IconCategory } from '@shared/icon-categories.ts'
 import { SEARCH_CONFIG } from './config'
 import type { CacheSource, EmbeddingResult, SearchCache } from './cache'
 import type { CandidateFilters, CandidateRow, DishMode, FilterGroup, NameMatch, ScoreInputs } from './candidates'
 import { summarizeCost, type CostEntry, type SearchCost } from './cost'
-import { collapseBranches } from './branches'
+import { collapseBranches, type Collapsed } from './branches'
 import { requestedCuisines } from './cuisines'
 import { buildChips, type Chip } from './chips'
 import { applyDictionary, interpretWithDictionary, mentionsParents, NEGATIONS } from './dictionary'
@@ -41,7 +40,8 @@ import { discountSections } from '../discounts/sections'
 import { cardProviders, type PlaceDiscount } from '../discounts/selection'
 import { momentsOf } from './moments'
 import { emptyPersonalDebug, personalize, type PersonalDebug } from './personal'
-import { canRelax, noMatchNotice, relax, RELAX_ORDER, relaxNotice, type NoticeKind, type RelaxStep, type SearchState } from './relax'
+import { canRelax, NEARBY_STEPS, noMatchNotice, relax, RELAX_ORDER, relaxNotice, type NoticeKind, type RelaxStep, type SearchState } from './relax'
+import { emptyNeighborhoodNotice, nearbyFilterFor, nearbyLabel, nearbyTitle, orderNearby } from './nearby'
 import type { PlacesStore } from './store'
 import { applyVenues, type Venue } from './venues'
 
@@ -118,7 +118,18 @@ export type SearchDebug = {
   nameMatches: NameMatch[]
   semanticText: string | null
   keywords: string[]
-  attempts: { relaxed: RelaxStep[]; dishMode: DishMode; candidates: number; matching: number; ms: number }[]
+  /**
+   * Cada intento de candidatos. Con barrio, la consulta de "Cerca de" va en paralelo (nearby); ms es lo que tardó el
+   * intento entero (la más lenta de las dos).
+   */
+  attempts: {
+    relaxed: RelaxStep[]
+    dishMode: DishMode
+    candidates: number
+    matching: number
+    ms: number
+    nearby?: { candidates: number; matching: number; ms: number }
+  }[]
   rankings: Rankings
   results: {
     id: string
@@ -151,7 +162,11 @@ export type SearchDebug = {
     brandKey: string | null
     /** Sucursal escondida: el id de la card de su marca; null si tiene card propia (o quedó cortada). */
     collapsedInto: string | null
+    /** Metros al borde del barrio pedido: sólo los de "Cerca de" (también en su "Ver todos"). */
+    edgeDistance: number | null
   }[]
+  /** Los de "Cerca de <barrio>" en su orden (todos, no sólo los del grupo); vacío sin grupo o en su "Ver todos". */
+  nearby: SearchDebug['results']
   /** Corte por relevancia: la similitud más alta y desde dónde se corta; null si no hubo embedding. */
   relevance: { best: number; threshold: number; gap: number } | null
   timings: Record<string, number>
@@ -187,6 +202,14 @@ export type SearchResponse = {
   needsLocation: boolean
   /** Ubicación con la que se buscó (ya redondeada), para el mapa. */
   near: LatLng | null
+  /**
+   * "Cerca de <barrio>": con un barrio pedido, los lugares de otros barrios a menos de SEARCH_CONFIG.nearby.radiusM del
+   * borde, con los mismos filtros. results son los del grupo (hasta nearby.maxPlaces) y total, todos (el contador y "Ver
+   * todos"). label: el barrio ("Palermo", "Palermo y Cordón"). null: sin barrio o sin ninguno cerca.
+   */
+  nearby: { title: string; label: string; total: number; results: SearchResult[] } | null
+  /** El "Ver todos" de "Cerca de" (`f=nearby:1`): results son todos los cercanos. null en cualquier otra búsqueda. */
+  nearbyOnly: { title: string; label: string } | null
   /** Sólo con la opción widen: hasta WIDEN_MAX filtros para sacar, de los que más suman a los que menos (count > 0). */
   widen?: WidenOption[]
   debug?: SearchDebug
@@ -198,8 +221,6 @@ const STOPWORDS = new Set([
   'comida', 'comidas', 'lugares', 'sitio', 'sitios', 'local', 'locales', 'opcion', 'opciones',
   'in', 'at', 'near', 'the', 'an', 'with', 'for', 'and', 'or', 'of', 'to', 'best', 'place', 'places', 'spot', 'food', 'something', 'somewhere', 'me',
 ])
-
-const CENTROIDS = centroids as Record<string, { lat: number; lng: number }>
 
 /** Palabras de todos los nombres de un tag, para no buscar por keyword lo que se excluyó. */
 function termWords(id: string): string[] {
@@ -537,27 +558,47 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       // Como la sección, viene de la barra y nunca se relaja.
       filters.discounts,
     )
+  // "Cerca de <barrio>": con un barrio pedido (nunca se relaja) y sin un lugar fijado por nombre, los de otros barrios a
+  // menos de 500 m del borde, con los mismos filtros (los de este intento, ya relajados) y en paralelo con el barrio.
+  // Con `nearby:1` (su "Ver todos") son los resultados; el barrio se consulta igual porque decide qué se relaja.
+  const nearbyFilter = pinned ? null : nearbyFilterFor(interpretation.must.neighborhoods)
+  const nearbyView = filters.nearby && nearbyFilter !== null
+  const matchingOf = (list: CandidateRow[]) => list.filter((row) => row.matchesFilters).length
   const fetchCandidates = async () => {
     const attemptStart = performance.now()
-    const result = await deps.store.candidates(filtersOf(state), scores)
-    attempts.push({ relaxed: [...relaxedSteps], dishMode: state.dishMode, candidates: result.length, matching: result.filter((row) => row.matchesFilters).length, ms: elapsed(attemptStart) })
-    return result
+    const timedQuery = async (query: Promise<CandidateRow[]>) => {
+      const result = await query
+      return { result, ms: elapsed(attemptStart) }
+    }
+    const [main, close] = await Promise.all([
+      timedQuery(deps.store.candidates(filtersOf(state), scores)),
+      nearbyFilter ? timedQuery(deps.store.candidates({ ...filtersOf(state), neighborhoods: [], nearby: nearbyFilter }, { ...scores, pinnedId: null })) : null,
+    ])
+    attempts.push({
+      relaxed: [...relaxedSteps],
+      dishMode: state.dishMode,
+      candidates: main.result.length,
+      matching: matchingOf(main.result),
+      ms: elapsed(attemptStart),
+      ...(close && { nearby: { candidates: close.result.length, matching: matchingOf(close.result), ms: close.ms } }),
+    })
+    return { rows: main.result, nearbyRows: close?.result ?? [] }
   }
-  let rows = await fetchCandidates()
+  let { rows, nearbyRows } = await fetchCandidates()
   for (const relaxStep of RELAX_ORDER) {
+    // Los primeros pasos miran sólo el barrio, como siempre; el horario y el último recurso, también los cercanos.
     if (rows.some((row) => row.matchesFilters) || !canRelax(state, relaxStep, dishes)) continue
-    // Sin el venue, la distancia a sus locales ordena; sin el barrio, la distancia a su centro.
+    if (NEARBY_STEPS.includes(relaxStep) && nearbyRows.some((row) => row.matchesFilters)) continue
+    // Sin el venue, la distancia a sus locales ordena.
     if (relaxStep === 'venue' && !near) {
       scores.origins = venues.filter((venue) => state.interpretation.must.venues.includes(venue.name)).flatMap((venue) => venue.points)
     }
-    if (relaxStep === 'neighborhood' && !near) {
-      scores.origins = state.interpretation.must.neighborhoods.flatMap((id) => (CENTROIDS[id] ? [CENTROIDS[id]] : []))
-    }
     state = relax(state, relaxStep)
     relaxedSteps.push(relaxStep)
-    rows = await fetchCandidates()
+    ;({ rows, nearbyRows } = await fetchCandidates())
   }
   timings.candidates = attempts.reduce((sum, attempt) => sum + attempt.ms, 0)
+  if (nearbyFilter) timings.nearby = attempts.reduce((sum, attempt) => sum + (attempt.nearby?.ms ?? 0), 0)
   const current = state.interpretation
 
   // 4. Rankings, fusión, empujones, corte por relevancia y una card por marca. Se repite con widen, para contar
@@ -610,7 +651,12 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     return { openAt, rankings, cut, fused }
   }
   step = performance.now()
-  const { openAt, rankings, cut, fused: matched } = rank(rows, state)
+  const inNeighborhood = rank(rows, state)
+  // Los cercanos se rankean aparte: no cambian los puestos ni el corte por relevancia del barrio.
+  const nearbyRanked = nearbyFilter ? rank(nearbyRows, state) : null
+  const { openAt, rankings, cut, fused: matched } = nearbyView
+    ? { ...nearbyRanked!, fused: orderNearby(nearbyRanked!.fused, inNeighborhood.fused) }
+    : inNeighborhood
   timings.fuse = elapsed(step)
 
   // Brunch con pocos "has": el tag lo tienen pocos lugares (sólo con la palabra explícita). Se completa debajo, como
@@ -620,7 +666,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   let brunchFill: { has: number; added: number; cut: ReturnType<typeof rank>['cut'] } | null = null
   const matchedHas = matched.filter((item) => item.matchLevel === 'has').length
   const wantsBrunch = current.must.tags.includes('brunch') || state.subs.includes('brunch')
-  if (wantsBrunch && matchedHas < SEARCH_CONFIG.brunchFill.minHas) {
+  if (wantsBrunch && !nearbyView && matchedHas < SEARCH_CONFIG.brunchFill.minHas) {
     step = performance.now()
     const { categories, tags } = SEARCH_CONFIG.brunchFill
     const fillState: SearchState = {
@@ -648,7 +694,9 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   // "Abre hoy" se muestra como ahora: "Abierto · cierra 23:00" o "Abre 20:00".
   const moment = openAt?.moment ?? montevideoNow(now)
   const isNow = openAt === null || openAt.today
-  const results = fused.map((item): SearchResult => {
+  // En el grupo, sin lo que ya salió en el barrio (tampoco una marca).
+  const nearbyItems = nearbyRanked && !nearbyView ? orderNearby(nearbyRanked.fused, fused) : []
+  const toResult = (item: Collapsed): SearchResult => {
     const open = item.open ?? openStatus(item.row.hours, moment)
     const next = isNow && open.state === 'closed' && moment.time ? nextOpening(item.row.hours, { day: moment.day, time: moment.time }) : null
     return {
@@ -676,14 +724,19 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       },
       matchLevel: item.matchLevel,
     }
-  })
+  }
+  const results = fused.map(toResult)
+  const wanted = interpretation.must.neighborhoods
+  const nearby: SearchResponse['nearby'] = nearbyItems.length
+    ? { title: nearbyTitle(wanted), label: nearbyLabel(wanted), total: nearbyItems.length, results: nearbyItems.slice(0, SEARCH_CONFIG.nearby.maxPlaces).map(toResult) }
+    : null
 
   // Con 2 o más proveedores de descuento elegidos, los grupos son por proveedor (un lugar puede ir en varios) y
   // reemplazan a los del catálogo y a los bloques personales.
-  const byDiscount = discountSections(fused.map((item) => ({ id: item.row.id, discounts: item.row.discounts })), filters.discounts)
+  const byDiscount = nearbyView ? null : discountSections(fused.map((item) => ({ id: item.row.id, discounts: item.row.discounts })), filters.discounts)
   // Secciones: sólo en búsquedas amplias y con suficientes resultados.
   const minResults = SEARCH_CONFIG.sections.minResults
-  const notGrouped = (byDiscount ? 'agrupado por descuento' : null) ?? notBroadReason(interpretation, { pinned: pinned !== null, section: filters.section !== null }) ??
+  const notGrouped = (nearbyView ? '"Ver todos" de Cerca de' : null) ?? (byDiscount ? 'agrupado por descuento' : null) ?? notBroadReason(interpretation, { pinned: pinned !== null, section: filters.section !== null }) ??
     (fused.length < minResults ? `menos de ${minResults} resultados` : null)
   const sectionSubs = state.subs.map((id) => ({ id, fromText: resolved.subs.some((sub) => sub.id === id && sub.fromText) }))
   const sectionChoice = notGrouped ? null : requestedSections(interpretation, { fromLlm: source === 'llm', intent: state.intent, subs: sectionSubs })
@@ -703,6 +756,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     options.profile === false ? 'profile=off'
     : likes.length === 0 ? 'sin likes'
     : nameSearch ? 'búsqueda por nombre'
+    : nearbyView ? '"Ver todos" de Cerca de'
     : byDiscount ? 'agrupado por descuento'
     : fused.length === 0 ? 'sin resultados'
     : hasCount < minHas ? `${hasCount} resultados "has" (mínimo ${minHas})`
@@ -731,7 +785,11 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
 
   // Avisos: cada paso se arma con el estado previo y sólo si algún resultado no cumple lo relajado.
   const shownRows = fused.filter((item) => !item.pinned).map((item) => item.row)
+  // Lo relajado vale también para los cercanos: los avisos los miran a todos.
+  const noticeRows = [...shownRows, ...nearbyItems.map((item) => item.row)]
   const relaxed: SearchResponse['relaxed'] = []
+  // El barrio no tiene nada y cerca sí: se avisa y abajo va directo el grupo.
+  if (fused.length === 0 && nearbyItems.length > 0) relaxed.push(emptyNeighborhoodNotice(wanted))
   // Los avisos sólo nombran la intención si la persona la eligió (barra) o la dijo con un verbo ("comer").
   const intentNamed = state.intent !== null && (intentUrl.intent === state.intent || fromText.intent === state.intent)
   let before = initial
@@ -739,19 +797,19 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     const notice = relaxNotice(relaxStep, {
       before,
       after: state,
-      rows: shownRows,
+      rows: noticeRows,
       dishes,
       openAt: openFilterOf(before.interpretation),
       intentNamed,
     })
-    if (notice && shownRows.length) relaxed.push(notice)
+    if (notice && noticeRows.length) relaxed.push(notice)
     before = relax(before, relaxStep)
   }
 
   // Cero resultados (un lugar fijado por nombre cuenta): sólo pueden bloquear la dieta o los exclude, que nunca se
   // relajan.
   let suggestedRemovals: Chip[] = []
-  if (fused.length === 0) {
+  if (fused.length === 0 && nearbyItems.length === 0) {
     step = performance.now()
     const blocking = await blockingConditions(deps.store, filtersOf(state))
     const chips = chipsOf(buildChips(interpretation, today))
@@ -776,12 +834,14 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   if (filters.section) {
     extras.push({ kind: 'section', id: filters.section, label: sectionDef(filters.section).title[DISPLAY_LANG], fromText: false, fromFilter: true })
   }
+  // El "Ver todos" de "Cerca de" también.
+  if (nearbyView) extras.push({ kind: 'nearby', id: '1', label: nearbyTitle(wanted), fromText: false, fromFilter: true })
   const bar = buildBar(resolved, extras)
 
   // Invitación a ampliar: cuántos lugares más saldrían sin cada filtro que sigue activo después de relajar (barrio,
   // horario, cada dieta, cada sub-filtro). Reusa la interpretación y el embedding: sólo SQL, un pedido por filtro.
   const widenOptions = async (): Promise<WidenOption[]> => {
-    if (shownRows.length === 0) return []
+    if (noticeRows.length === 0) return []
     const value = state.interpretation
     const withMust = (must: Partial<Interpretation['must']>): SearchState => ({ ...state, interpretation: { ...value, must: { ...value.must, ...must } } })
     const chipOption = (chip: Chip | undefined, kind: WidenOption['kind'], next: SearchState) =>
@@ -800,7 +860,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
         return [{ option: { kind: 'sub' as const, id, label: sub.label, fromText: sub.fromText, fromFilter: false }, state: { ...state, subs: state.subs.filter((other) => other !== id) } }]
       }),
     ]
-    const shownIds = new Set(fused.flatMap((item) => [item.row.id, ...item.branches.map((branch) => branch.row.id)]))
+    const shownIds = new Set([...fused, ...nearbyItems].flatMap((item) => [item.row.id, ...item.branches.map((branch) => branch.row.id)]))
     const counted = await Promise.all(
       removable.map(async ({ option, state: next }) => {
         const wider = rank(await deps.store.candidates(filtersOf(next), scores), next).fused
@@ -816,6 +876,8 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     results,
     sections: byDiscount ?? grouped?.sections ?? null,
     forYou,
+    nearby,
+    nearbyOnly: nearbyView ? { title: nearbyTitle(wanted), label: nearbyLabel(wanted) } : null,
     relaxed,
     suggestedRemovals,
     needsLocation: interpretation.needsLocation,
@@ -836,7 +898,35 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       if (llm.ok) costs.push({ step: 'interpret', model: llm.value.model, usd: llm.value.cost, cached: wasCached(llm.value, startedAt), ...(llm.value.cacheSource && { source: llm.value.cacheSource }), discarded: true })
     }
     const depth = SEARCH_CONFIG.debugDepth
-    const collapsedInto = new Map(fused.flatMap((item) => item.branches.map((branch) => [branch.row.id, item.row.id] as const)))
+    const collapsedInto = new Map([...fused, ...nearbyItems].flatMap((item) => item.branches.map((branch) => [branch.row.id, item.row.id] as const)))
+    const debugEntry = (item: Fused, relevance: Relevance | undefined): SearchDebug['results'][number] => ({
+      id: item.row.id,
+      name: item.row.name,
+      categories: item.row.categories,
+      tags: item.row.tags,
+      diet: item.row.diet,
+      price: item.row.price,
+      iconCategory: item.row.iconCategory,
+      style: item.row.style,
+      neighborhoodId: item.row.neighborhoodId,
+      locatedIn: item.row.locatedIn,
+      discounts: item.row.discounts,
+      rrf: item.rrf,
+      boosts: item.boosts,
+      baseScore: item.baseScore,
+      prominence: item.row.prominence,
+      featured: item.row.featured,
+      multiplier: item.multiplier,
+      score: item.score,
+      positionWithoutQuality: item.positionWithoutQuality,
+      matchLevel: item.matchLevel,
+      pinned: item.pinned,
+      similarity: item.row.semantic,
+      relevance: relevance!,
+      brandKey: item.row.brandKey,
+      collapsedInto: collapsedInto.get(item.row.id) ?? null,
+      edgeDistance: item.row.edgeDistance === null ? null : Math.round(item.row.edgeDistance),
+    })
     response.debug = {
       source,
       model,
@@ -857,33 +947,9 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
         distance: rankings.distance.slice(0, depth),
         quality: rankings.quality.slice(0, depth),
       },
-      results: [...cut.kept, ...(brunchFill?.cut.kept ?? []), ...cut.cut].map((item) => ({
-        id: item.row.id,
-        name: item.row.name,
-        categories: item.row.categories,
-        tags: item.row.tags,
-        diet: item.row.diet,
-        price: item.row.price,
-        iconCategory: item.row.iconCategory,
-        style: item.row.style,
-        neighborhoodId: item.row.neighborhoodId,
-        locatedIn: item.row.locatedIn,
-        discounts: item.row.discounts,
-        rrf: item.rrf,
-        boosts: item.boosts,
-        baseScore: item.baseScore,
-        prominence: item.row.prominence,
-        featured: item.row.featured,
-        multiplier: item.multiplier,
-        score: item.score,
-        positionWithoutQuality: item.positionWithoutQuality,
-        matchLevel: item.matchLevel,
-        pinned: item.pinned,
-        similarity: item.row.semantic,
-        relevance: (cut.relevance.get(item.row.id) ?? brunchFill?.cut.relevance.get(item.row.id))!,
-        brandKey: item.row.brandKey,
-        collapsedInto: collapsedInto.get(item.row.id) ?? null,
-      })),
+      // En el "Ver todos" de "Cerca de", en el orden en que se muestran; después, las sucursales escondidas y lo cortado.
+      results: (nearbyView ? [...new Map([...matched, ...cut.kept, ...cut.cut].map((item) => [item.row.id, item as Fused])).values()] : [...cut.kept, ...(brunchFill?.cut.kept ?? []), ...cut.cut]).map((item) => debugEntry(item, cut.relevance.get(item.row.id) ?? brunchFill?.cut.relevance.get(item.row.id))),
+      nearby: nearbyItems.map((item) => debugEntry(item, nearbyRanked!.cut.relevance.get(item.row.id))),
       relevance: cut.summary,
       timings,
       cost: summarizeCost(costs),

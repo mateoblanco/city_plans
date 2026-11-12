@@ -49,7 +49,7 @@ const intent = args.find((arg) => arg.startsWith("--intent="))?.slice("--intent=
 const sub = args.find((arg) => arg.startsWith("--sub="))?.slice("--sub=".length) ?? null;
 // --top: cuántos resultados mostrar de cada consulta (5 si no se pide).
 const top = Number(args.find((arg) => arg.startsWith("--top="))?.slice("--top=".length)) || 5;
-// --likes: ids de lugares como si te hubieran gustado (lo que manda la cookie), para ver los bloques personales.
+// --likes: ids de lugares como si los hubieras guardado (lo que manda la cookie `saved`), para ver los bloques personales.
 const likes = args.find((arg) => arg.startsWith("--likes="))?.slice("--likes=".length).split(",").filter(Boolean) ?? [];
 const queries = args.filter((arg) => !arg.startsWith("--"));
 
@@ -265,11 +265,18 @@ for (const query of queries.length ? queries : checkOnly ? Object.keys(CHECKS) :
     const names = new Map(response.results.map((result) => [result.id, result.name]));
     console.log(`  ${response.forYou.title}: ${response.forYou.placeIds.map((id) => names.get(id)).join(", ")}`);
   }
+  if (response.nearby) {
+    // "Cerca de <barrio>": el grupo, con la distancia al borde de cada uno.
+    const edges = new Map((response.debug?.nearby ?? []).map((place) => [place.id, place.edgeDistance]));
+    const shown = response.nearby.results.map((result) => `${result.name} ${edges.get(result.id)} m${result.matchLevel === "maybe" ? " (maybe)" : ""}`);
+    console.log(`  ${response.nearby.title} (${response.nearby.total}): ${shown.join(", ")}`);
+  }
   if (!checkOnly && response.results.length) {
     // Lo que ve la página de entrada (de a 12, grupos completos), los "Ver todos" y la invitación a ampliar.
     const page = visiblePage(response, 1);
     const shown = page.sections ? page.sections.map((section) => `${section.title} ${section.places.length}`).join(" · ") : `lista ${page.list?.length}`;
-    console.log(`  de entrada: ${page.places.length} de ${response.results.length} (${shown})${page.hasMore ? " · con Ver más" : ""}`);
+    const nearbyShown = page.nearby ? ` + ${page.nearby.title} ${page.nearby.places.length}` : "";
+    console.log(`  de entrada: ${page.places.length} de ${response.results.length + (response.nearby?.results.length ?? 0)} (${shown}${nearbyShown})${page.hasMore ? " · con Ver más" : ""}`);
     for (const section of page.sections ?? []) {
       // Los grupos por proveedor de descuento no tienen regla de sección: su "Ver todos" es la búsqueda con un proveedor.
       if (!hasViewAll(section) || section.id.startsWith("discount:")) continue;

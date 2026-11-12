@@ -171,12 +171,13 @@ describe('runSearch', () => {
   })
 
   it('"best" en inglés: "Recomendado" (lo que se muestra, siempre en español)', async () => {
-    const withFeatured = places.map((place) => (place.id === 'cafe-rodo' ? { ...place, featured: true } : place))
+    // En Pocitos no hay cafés: el de Parque Rodó sale en "Cerca de Pocitos".
+    const withFeatured = places.map((place) => (place.id === 'cafe-rodo' ? { ...place, featured: true, edgeDistance: 250 } : place))
     const { store } = fakeStore(withFeatured)
     const response = await runSearch('best cafe in pocitos', { store, cache: fakeCache().cache }, { now, debug: true })
     expect(response.debug?.source).toBe('shortcut')
     expect(response.debug?.interpretation.wantsBest).toBe(true)
-    expect(response.results.find((result) => result.id === 'cafe-rodo')?.reasons[0]).toBe('Recomendado')
+    expect(response.nearby?.results.find((result) => result.id === 'cafe-rodo')?.reasons[0]).toBe('Recomendado')
   })
 
   it('debug suma lo que cobró el Gateway; lo que vino de la cache cuenta 0', async () => {
@@ -300,29 +301,38 @@ describe('runSearch', () => {
     expect(response.results[1].reasons[0]).toBe('Puede que tengan milanesa napolitana')
   })
 
-  it('relaja en orden: tags de must a prefer, barrio (ordenando por distancia) y openAt', async () => {
-    // Con horario confirmado los dos cafés están cerrados a las 23, así que hace falta relajar openAt.
-    const confirmed = places.map((place) => (place.id === 'cafe-rodo' ? { ...place, hours: everyDay('08:00', '18:00') } : place))
-    const { store, calls } = fakeStore(confirmed)
+  it('relaja en orden: tags de must a prefer (mirando sólo el barrio) y openAt (si tampoco hay nada cerca); el barrio nunca', async () => {
+    // Con horario confirmado los dos cafés están cerrados a las 23, así que hace falta relajar openAt. Café Rodó está a
+    // 300 m de Pocitos; Café del Cordón, lejos.
+    const confirmed = places.map((place) => (place.id === 'cafe-rodo' ? { ...place, hours: everyDay('08:00', '18:00'), edgeDistance: 300 } : place))
+    const { store, calls, nearbyCalls } = fakeStore(confirmed)
     const { cache } = fakeCache(
       llmOutput({ must: { categories: ['cafe'], tags: ['live_music'], diet: { vegan: false, vegetarian: false, glutenFree: false }, neighborhoods: ['Pocitos'], price: [], openAt: { today: false, tonight: false, day: 1, time: '23:00' } } }),
     )
     const response = await runSearch('cafe con musica en pocitos a las 23', { store, cache }, { now })
-    expect(calls.map((call) => [call.filters.tags.length, call.filters.neighborhoods.length, call.filters.openAt !== null])).toEqual([
+    const shape = (call: (typeof calls)[number]) => [call.filters.tags.length, call.filters.neighborhoods.length, call.filters.openAt !== null]
+    expect(calls.map(shape)).toEqual([
       [1, 1, true],
       [0, 1, true],
+      [0, 1, false],
+    ])
+    // Cada intento consulta también los cercanos, con los mismos filtros y sin el barrio.
+    expect(nearbyCalls.map(shape)).toEqual([
+      [1, 0, true],
       [0, 0, true],
       [0, 0, false],
     ])
-    expect(calls[2].scores.origins).toHaveLength(1)
-    // Las categorías no se relajan antes del último recurso.
-    expect(calls[3].filters.categories).toEqual(['cafe'])
-    // Que la música en vivo pase a ser preferencia no se avisa; el barrio y el horario sí, en lenguaje de usuario.
+    expect(nearbyCalls.every((call) => call.filters.nearby?.exclude.includes('POCITOS') && call.filters.nearby.radiusM === 500)).toBe(true)
+    // Ya hay algo cerca: no se llega al último recurso y las categorías siguen.
+    expect(calls[2].filters.categories).toEqual(['cafe'])
+    // Que la música en vivo pase a ser preferencia no se avisa; el barrio vacío y el horario sí, en lenguaje de usuario.
     expect(response.relaxed).toEqual([
       { what: 'neighborhood', message: 'No encontramos en Pocitos; estos están cerca.' },
       { what: 'openAt', message: 'No hay nada abierto el lunes a las 23:00; te mostramos también los cerrados.' },
     ])
-    expect(response.results.map((result) => result.id).sort()).toEqual(['cafe-cordon', 'cafe-rodo'])
+    expect(response.results).toEqual([])
+    expect(response.nearby).toMatchObject({ title: 'Cerca de Pocitos', label: 'Pocitos', total: 1 })
+    expect(response.nearby?.results.map((result) => result.id)).toEqual(['cafe-rodo'])
   })
 
   it('con los tags relajados se queda en el barrio pedido', async () => {
@@ -339,7 +349,8 @@ describe('runSearch', () => {
     const { cache } = fakeCache(llmOutput({ language: 'en', dishes: [{ name: 'ceviche', related: ['peruvian'] }] }))
     const response = await runSearch('ceviche please', { store, cache }, { now })
     expect(response.relaxed.map((step) => step.message)).toEqual(['No hay ceviche, pero estos tienen cocina peruana.'])
-    const nearby = await runSearch('cafe in pocitos', { store: fakeStore(places).store, cache: fakeCache().cache }, { now })
+    const rodoNearPocitos = places.map((place) => (place.id === 'cafe-rodo' ? { ...place, edgeDistance: 250 } : place))
+    const nearby = await runSearch('cafe in pocitos', { store: fakeStore(rodoNearPocitos).store, cache: fakeCache().cache }, { now })
     expect(nearby.relaxed.map((step) => step.message)).toEqual(['No encontramos en Pocitos; estos están cerca.'])
   })
 
@@ -416,8 +427,9 @@ describe('runSearch', () => {
     ])
   })
 
-  it('hay resultados siempre que existan publicados que cumplan dieta y exclude', async () => {
-    const { store } = fakeStore(places)
+  it('hay resultados siempre que existan publicados que cumplan dieta y exclude, en el barrio o cerca', async () => {
+    // Café del Cordón está a 400 m de Pocitos: el último recurso conserva el barrio y sus cercanos.
+    const { store } = fakeStore(places.map((place) => (place.id === 'cafe-cordon' ? { ...place, edgeDistance: 400 } : place)))
     const { cache } = fakeCache(
       llmOutput({
         must: { categories: ['bar'], tags: ['karaoke'], diet: { vegan: true, vegetarian: false, glutenFree: false }, neighborhoods: ['Pocitos'], price: ['high'], openAt: { today: true, tonight: false, day: null, time: null } },
@@ -425,7 +437,9 @@ describe('runSearch', () => {
       }),
     )
     const response = await runSearch('bar vegano con karaoke y ceviche en pocitos abierto ahora', { store, cache }, { now })
-    expect(response.results.map((result) => result.id)).toEqual(['cafe-cordon'])
+    expect(response.results).toEqual([])
+    expect(response.nearby?.results.map((result) => result.id)).toEqual(['cafe-cordon'])
+    expect(response.relaxed.at(0)?.what).toBe('neighborhood')
     expect(response.relaxed.at(-1)?.what).toBe('similarity')
   })
 
@@ -865,14 +879,113 @@ describe('invitación a ampliar (widen)', () => {
   })
 
   it('lo que ya se relajó o no suma nada no se ofrece', async () => {
-    const { store } = fakeStore(places)
-    // En Carrasco no hay nada: el barrio ya se soltó y no se ofrece. Sin "Abre hoy" suma el que cierra hoy.
-    const relaxed = await runSearch('comer', { store, cache: fakeCache().cache }, { now, filters: 'neighborhood:CARRASCO,open:today', widen: true })
-    expect(relaxed.relaxed.map((notice) => notice.what)).toContain('neighborhood')
-    expect(relaxed.widen).toEqual([{ kind: 'openAt', id: 'today', label: expect.any(String), fromText: false, fromFilter: true, count: 1 }])
+    // En Cordón el único vegano cierra hoy y no hay nada cerca: "Abre hoy" se suelta y ya no se ofrece. El barrio nunca
+    // se suelta: se sigue ofreciendo (los 5 de Pocitos), y la dieta suma los 2 de Cordón.
+    const { store } = fakeStore(places.filter((place) => !/^cordon-vegan-\d$/.test(place.id)))
+    const relaxed = await runSearch('comer', { store, cache: fakeCache().cache }, { now, filters: 'neighborhood:CORDON,diet:vegan,open:today', widen: true })
+    expect(relaxed.relaxed.map((notice) => notice.what)).toEqual(['openAt'])
+    expect(relaxed.results.map((result) => result.id)).toEqual(['cordon-vegan-closed'])
+    expect(relaxed.widen).toEqual([
+      { kind: 'neighborhood', id: 'CORDON', label: 'Cordón', fromText: false, fromFilter: true, count: 5 },
+      { kind: 'diet', id: 'vegan', label: expect.any(String), fromText: false, fromFilter: true, count: 2 },
+    ])
 
     const nothing = await runSearch('comer', { store: fakeStore(places.slice(0, 3)).store, cache: fakeCache().cache }, { now, filters: 'neighborhood:CORDON', widen: true })
     expect(nothing.widen).toEqual([])
+  })
+})
+
+describe('Cerca de <barrio>', () => {
+  const dish = ['milanesa napolitana']
+  const inPocitos = [
+    row({ id: 'pocitos-has', neighborhoodId: 'POCITOS', dishes: dish }),
+    row({ id: 'pocitos-club', neighborhoodId: 'POCITOS', dishes: dish, brandKey: 'club', brandCount: 2 }),
+  ]
+  const around = [
+    row({ id: 'cerca-maybe', neighborhoodId: 'PUNTA CARRETAS', tags: ['milanesa'], edgeDistance: 50 }),
+    row({ id: 'cerca-has-lejos', neighborhoodId: 'BUCEO', dishes: dish, edgeDistance: 400 }),
+    row({ id: 'cerca-has', neighborhoodId: 'PARQUE RODO', dishes: dish, edgeDistance: 120 }),
+    // Otra sucursal de una marca que ya salió en el barrio: no se repite.
+    row({ id: 'cerca-club', neighborhoodId: 'PARQUE RODO', dishes: dish, brandKey: 'club', brandCount: 2, edgeDistance: 10 }),
+    // Lejos: no tiene edgeDistance.
+    row({ id: 'lejos', neighborhoodId: 'CARRASCO', dishes: dish }),
+  ]
+  const search = (places: ReturnType<typeof row>[], options: Parameters<typeof runSearch>[2] = {}, query = 'milanesa napolitana', names: Parameters<typeof fakeStore>[1] = []) => {
+    const store = fakeStore(places, names)
+    return { ...store, response: runSearch(query, { store: store.store, cache: fakeCache().cache }, { now, filters: 'neighborhood:POCITOS', ...options }) }
+  }
+
+  it('el barrio queda igual y abajo van los cercanos: primero los "has", por distancia al borde, sin repetir marcas', async () => {
+    const { response, calls, nearbyCalls } = search([...inPocitos, ...around])
+    const { response: alone } = search(inPocitos)
+    const [withNearby, withoutNearby] = await Promise.all([response, alone])
+    expect(withNearby.results).toEqual(withoutNearby.results)
+    expect(withNearby.relaxed).toEqual([])
+    expect(withNearby.nearby).toMatchObject({ title: 'Cerca de Pocitos', label: 'Pocitos', total: 3 })
+    expect(withNearby.nearby?.results.map((result) => [result.id, result.matchLevel])).toEqual([['cerca-has', 'has'], ['cerca-has-lejos', 'has'], ['cerca-maybe', 'maybe']])
+    expect(withNearby.nearbyOnly).toBeNull()
+    // Una consulta del barrio y otra de los cercanos, con los mismos filtros salvo el barrio.
+    expect(calls).toHaveLength(1)
+    expect(nearbyCalls).toHaveLength(1)
+    const { nearby, neighborhoods, ...rest } = nearbyCalls[0].filters
+    const { nearby: none, neighborhoods: wanted, ...same } = calls[0].filters
+    expect([neighborhoods, wanted, none, nearby?.exclude, nearby?.polygons.length]).toEqual([[], ['POCITOS'], undefined, ['POCITOS'], 1])
+    expect(rest).toEqual(same)
+  })
+
+  it('las dos consultas van en paralelo', async () => {
+    const { store } = fakeStore([...inPocitos, ...around])
+    let inFlight = 0
+    let most = 0
+    const slow = {
+      ...store,
+      async candidates(...args: Parameters<typeof store.candidates>) {
+        most = Math.max(most, ++inFlight)
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        inFlight--
+        return store.candidates(...args)
+      },
+    }
+    await runSearch('milanesa napolitana', { store: slow, cache: fakeCache().cache }, { now, filters: 'neighborhood:POCITOS' })
+    expect(most).toBe(2)
+  })
+
+  it('el grupo muestra hasta maxPlaces y total cuenta todos', async () => {
+    const many = Array.from({ length: 8 }, (_, index) => row({ id: `cerca-${index}`, neighborhoodId: 'BUCEO', dishes: dish, edgeDistance: 100 + index }))
+    const response = await search([...inPocitos, ...many]).response
+    expect(response.nearby?.total).toBe(8)
+    expect(response.nearby?.results.map((result) => result.id)).toEqual(['cerca-0', 'cerca-1', 'cerca-2', 'cerca-3', 'cerca-4', 'cerca-5'])
+  })
+
+  it('el barrio sin resultados: el aviso y el grupo, sin "no encontramos" de cero', async () => {
+    const response = await search(around).response
+    expect(response.results).toEqual([])
+    expect(response.relaxed).toEqual([{ what: 'neighborhood', message: 'No encontramos en Pocitos; estos están cerca.' }])
+    expect(response.nearby?.results.map((result) => result.id)).toEqual(['cerca-club', 'cerca-has', 'cerca-has-lejos', 'cerca-maybe'])
+  })
+
+  it('"Ver todos" (nearby:1): todos los cercanos en el orden del grupo, sin agrupar, con el extra para quitarlo', async () => {
+    const response = await search([...inPocitos, ...around], { filters: 'neighborhood:POCITOS,nearby:1', debug: true }).response
+    expect(response.results.map((result) => result.id)).toEqual(['cerca-has', 'cerca-has-lejos', 'cerca-maybe'])
+    expect(response.nearby).toBeNull()
+    expect(response.nearbyOnly).toEqual({ title: 'Cerca de Pocitos', label: 'Pocitos' })
+    expect(response.sections).toBeNull()
+    expect(response.bar.extras).toContainEqual({ kind: 'nearby', id: '1', label: 'Cerca de Pocitos', fromText: false, fromFilter: true })
+    // Debug, en el mismo orden; después, lo que no se muestra (la sucursal de la marca del barrio).
+    expect(response.debug?.results.map((result) => [result.id, result.edgeDistance])).toEqual([['cerca-has', 120], ['cerca-has-lejos', 400], ['cerca-maybe', 50], ['cerca-club', 10]])
+  })
+
+  it('sin barrio, o con un lugar fijado por nombre, no hay grupo ni consulta de cercanos', async () => {
+    const noNeighborhood = search([...inPocitos, ...around], { filters: null })
+    expect((await noNeighborhood.response).nearby).toBeNull()
+    expect(noNeighborhood.nearbyCalls).toHaveLength(0)
+    // nearby:1 sin barrio no hace nada.
+    const orphan = await search([...inPocitos, ...around], { filters: 'nearby:1' }).response
+    expect([orphan.nearbyOnly, orphan.bar.extras.some((chip) => chip.kind === 'nearby')]).toEqual([null, false])
+
+    const pinned = search([...inPocitos, ...around], {}, 'la pasiva', [{ id: 'pocitos-has', name: 'La Pasiva', similarity: 0.95, wordSimilarity: 1 }])
+    expect((await pinned.response).nearby).toBeNull()
+    expect(pinned.nearbyCalls).toHaveLength(0)
   })
 })
 

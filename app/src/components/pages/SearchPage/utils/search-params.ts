@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import type { SearchOptions } from "@/server/search/search";
-import { LIKES_COOKIE, parseLikesCookie } from "./likes-cookie";
+import { parseSavedCookie, SAVED_COOKIE } from "./saved-cookie";
 import type { SearchUrl } from "./search-href";
 
 /** Parámetros de /search: los leen el header (input y barra) y los resultados. */
@@ -21,8 +21,8 @@ export async function readParams(searchParams: SearchParams) {
   const debug = firstString(params.debug) === "1";
   // profile=off: la misma búsqueda sin perfil, para comparar.
   const profile = firstString(params.profile) !== "off";
-  // Likes de la cookie espejo de localStorage: se usan en este pedido y no se guardan.
-  const likes = parseLikesCookie((await cookies()).get(LIKES_COOKIE)?.value);
+  // Guardados de la cookie espejo de localStorage (la señal de gustos del perfil): se usan en este pedido y no se guardan.
+  const likes = parseSavedCookie((await cookies()).get(SAVED_COOKIE)?.value);
   return { query, remove, filters, near, intent, sub, debug, profile, likes };
 }
 

@@ -1,7 +1,7 @@
 import type { Chip, IntentBar, SearchDebug, SearchResponse } from "@/server/search";
 import { formatUsd } from "@/server/search/cost";
 import { DAY_NAMES } from "@/server/search/labels";
-import ClearLikes from "./ClearLikes/ClearLikes";
+import ClearSaved from "./ClearSaved/ClearSaved";
 import CopyResponse from "./CopyResponse/CopyResponse";
 import styles from "./DebugPanel.module.scss";
 
@@ -132,14 +132,14 @@ const Profile = (props: ProfileProps) => {
   return (
     <div>
       <p>
-        Perfil: {skipped ? `no se usó (${skipped})` : `${likes.length} likes`} · umbrales: perfil sim + {decimal(thresholds.beta)}·afinidad ≥ {decimal(thresholds.profile)} (sim ≥{" "}
+        Perfil: {skipped ? `no se usó (${skipped})` : `${likes.length} guardados`} · umbrales: perfil sim + {decimal(thresholds.beta)}·afinidad ≥ {decimal(thresholds.profile)} (sim ≥{" "}
         {decimal(thresholds.simFloor)}) entre los primeros {thresholds.profileMaxPosition}; parecido a un lugar, entre los primeros {thresholds.similarMaxPosition}, misma
         familia, style y precio y su top {Math.round(thresholds.similarTopShare * 100)} % de la base con piso {decimal(thresholds.similarFloor)}
       </p>
-      <ClearLikes />
+      <ClearSaved />
       {likes.length > 0 && (
         <p>
-          Likes usados: {likes.map((like) => `${like.name} [${like.kind ?? "sin tipo"}] (${like.position === null ? "no salió" : `#${like.position}`})`).join(", ")}
+          Guardados usados: {likes.map((like) => `${like.name} [${like.kind ?? "sin tipo"}] (${like.position === null ? "no salió" : `#${like.position}`})`).join(", ")}
         </p>
       )}
       {ignored.length > 0 && <p>Ignorados (no publicados o sin embedding): {ignored.join(", ")}</p>}

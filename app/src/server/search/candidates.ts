@@ -40,7 +40,14 @@ export type CandidateFilters = {
   groups: FilterGroup[]
   /** Descuentos de la barra: algún beneficio de cualquiera de estas elecciones (sólo filtro; nunca se relaja). Sin esto, ninguno. */
   discounts?: DiscountChoice[]
+  /**
+   * "Cerca de <barrio>": lugares de otros barrios (no en exclude) a menos de radiusM de alguno de los polígonos (GeoJSON
+   * de shared/neighborhood-polygons.json). Con esto, edgeDistance es la distancia al borde más cercano.
+   */
+  nearby?: NearbyFilter | null
 }
+
+export type NearbyFilter = { exclude: string[]; polygons: string[]; radiusM: number }
 
 /** Un grupo de filtros: el match de una intención o sub-filtro, o la regla de una sección (que puede pedir style o íconos). */
 export type FilterGroup = IntentMatch & { style?: string; icons?: string[] }
@@ -103,6 +110,8 @@ export type CandidateRow = {
   keyword: number
   nameScore: number
   distance: number | null
+  /** Metros al borde del barrio pedido (filters.nearby); null sin él. */
+  edgeDistance: number | null
   /** Por plato pedido (mismo orden): está en dishes o en el texto del lugar. */
   dishHas: boolean[]
   /** Por plato pedido: está exacto en dishes. */
@@ -166,6 +175,14 @@ function groupSql(group: FilterGroup): SQL {
 }
 
 const pointSql = ({ lat, lng }: { lat: number; lng: number }) => sql`ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)::geography`
+const polygonSql = (geoJson: string) => sql`ST_GeomFromGeoJSON(${geoJson})::geography`
+
+/** Fuera de los barrios pedidos y a menos de radiusM de alguno de sus bordes. */
+function nearbySql({ exclude, polygons, radiusM }: NearbyFilter): SQL {
+  if (!polygons.length) return sql`false`
+  const within = sql.join(polygons.map((polygon) => sql`ST_DWithin(location, ${polygonSql(polygon)}, ${radiusM})`), sql` or `)
+  return sql`(not (neighborhood_id = any(${textArray(exclude)})) and (${within}))`
+}
 
 /**
  * Dentro de un venue: located_in es uno de los pedidos o, sin located_in cargado, está a menos de venue.radiusM de uno
@@ -196,6 +213,7 @@ export function filterConditions(filters: CandidateFilters): SQL[] {
     conditions.push(today && moment.time ? opensTodaySql({ day: moment.day, time: moment.time }, night) : openAtSql(moment))
   }
   if (filters.near) conditions.push(sql`ST_DWithin(location, ${pointSql(filters.near)}, ${filters.near.radiusM})`)
+  if (filters.nearby) conditions.push(nearbySql(filters.nearby))
   for (const group of filters.groups) conditions.push(groupSql(group))
   if (filters.discounts?.length) conditions.push(discountFilterSql(sql`places.id`, filters.discounts))
   if (filters.excludeCategories.length) conditions.push(sql`not (categories && ${textArray(filters.excludeCategories)})`)
@@ -250,6 +268,9 @@ export function candidatesQuery(filters: CandidateFilters, scores: ScoreInputs):
         sql`, `,
       )})`
     : sql`null::float`
+  const edgeDistance = filters.nearby?.polygons.length
+    ? sql`least(${sql.join(filters.nearby.polygons.map((polygon) => sql`ST_Distance(location, ${polygonSql(polygon)})`), sql`, `)})`
+    : sql`null::float`
   const dishHas = filters.dishes.length ? sql`array[${sql.join(filters.dishes.map((target) => dishHasSql(target.dish)), sql`, `)}]` : sql`'{}'::boolean[]`
   const dishExact = filters.dishes.length ? sql`array[${sql.join(filters.dishes.map((target) => dishExactSql(target.dish)), sql`, `)}]` : sql`'{}'::boolean[]`
   const order = vector ? sql`embedding <=> ${vector}` : tsQuery ? sql`${keyword} desc` : sql`name`
@@ -269,6 +290,7 @@ export function candidatesQuery(filters: CandidateFilters, scores: ScoreInputs):
       ${keyword} as keyword,
       ${nameScore} as "nameScore",
       ${distance} as distance,
+      ${edgeDistance} as "edgeDistance",
       ${dishHas} as "dishHas",
       ${dishExact} as "dishExact"
     from places

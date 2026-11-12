@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { LIKES_KEY, readLikes, toggleLike } from "../likes";
 import { clearSaved, readSaved, readSavedEntries, SAVED_KEY, savedMembership, toggleSaved } from "../saved";
-import { parseSavedCookie, savedCookieValue } from "../saved-cookie";
+import { MAX_SAVED, parseSavedCookie, savedCookieValue } from "../saved-cookie";
+import { SEARCH_CONFIG } from "@/server/search/config";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 
@@ -48,21 +48,15 @@ describe("guardados en localStorage", () => {
     expect(readSaved(storage)).toEqual([]);
   });
 
-  it("es independiente de los likes: guardar no toca los likes ni al revés", () => {
+  it("es la única lista: localStorage guarda id y fecha, la cookie sólo ids", () => {
     const storage = memoryStorage();
     toggleSaved(id(1), storage, day(1));
-    expect(storage.data.has(LIKES_KEY)).toBe(false);
-    expect(readLikes(storage)).toEqual([]);
-    toggleLike(id(1), storage);
-    expect(readLikes(storage)).toEqual([id(1)]);
-    expect(readSaved(storage)).toEqual([id(1)]);
-    toggleLike(id(1), storage);
-    expect(readSaved(storage)).toEqual([id(1)]);
-    // Los likes siguen siendo sólo ids.
-    expect(JSON.parse(storage.data.get(LIKES_KEY)!)).toEqual([]);
-    clearSaved(storage);
-    toggleLike(id(2), storage);
-    expect(readLikes(storage)).toEqual([id(2)]);
+    expect([...storage.data.keys()]).toEqual([SAVED_KEY]);
+    expect(JSON.parse(storage.data.get(SAVED_KEY)!)).toEqual([{ id: id(1), savedAt: day(1).toISOString() }]);
+  });
+
+  it("MAX_SAVED (cliente) es el mismo que SEARCH_CONFIG.personal.maxLikes (servidor)", () => {
+    expect(MAX_SAVED).toBe(SEARCH_CONFIG.personal.maxLikes);
   });
 
   it("si localStorage falla, la app sigue sin guardados y nada tira error", () => {
@@ -119,11 +113,10 @@ describe("cookie espejo de guardados", () => {
   });
 });
 
-describe("botón de guardar de cada card (por id)", () => {
-  it("sólo dice si ese lugar está guardado, sin mezclarse con los likes", () => {
+describe("corazón de cada card (por id)", () => {
+  it("sólo dice si ese lugar está guardado", () => {
     const storage = memoryStorage();
     toggleSaved(id(1), storage, day(1));
-    toggleLike(id(2), storage);
     expect(savedMembership(id(1), storage)).toBe(1);
     expect(savedMembership(id(2), storage)).toBe(0);
     expect(savedMembership(id(1), broken)).toBe(-1);

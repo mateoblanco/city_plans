@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addFilterHref, barIntentHref, extraHref, intentHref, nearHref, removeChipHref, searchHref, sectionHref, setDietsHref, setNeighborhoodsHref, setPricesHref, subHref, widenUrl, type BarRef } from "../search-href";
+import { addFilterHref, barIntentHref, extraHref, intentHref, nearbyHref, nearHref, removeChipHref, searchHref, sectionHref, setDietsHref, setNeighborhoodsHref, setPricesHref, subHref, widenUrl, type BarRef } from "../search-href";
 
 describe("searchHref", () => {
   it("suma el chip a los remove que ya estaban, sin duplicar", () => {
@@ -230,6 +230,13 @@ describe("Ver todos e invitación a ampliar", () => {
   it("el chip de la sección se apaga sacándolo de f", () => {
     const chip = { kind: "section", id: "outdoor", fromText: false, fromFilter: true };
     expect(removeChipHref({ ...state, f: "neighborhood:CORDON,section:outdoor" }, chip)).toBe(searchHref(state));
+  });
+
+  it("Ver todos de Cerca de suma nearby:1 a f (una sola vez) y su extra se apaga sacándolo", () => {
+    expect(nearbyHref(state)).toBe("/search?q=salir+a+comer+con+amigos&f=neighborhood%3ACORDON%2Cnearby%3A1&debug=1");
+    expect(nearbyHref({ ...state, f: "neighborhood:CORDON,nearby:1" })).toBe(nearbyHref(state));
+    const chip = { kind: "nearby", id: "1", fromText: false, fromFilter: true };
+    expect(removeChipHref({ ...state, f: "neighborhood:CORDON,nearby:1" }, chip)).toBe(searchHref(state));
   });
 
   it("widen pide la misma búsqueda a /api/search/widen, sin debug", () => {

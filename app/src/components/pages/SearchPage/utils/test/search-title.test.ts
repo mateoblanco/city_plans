@@ -40,4 +40,9 @@ describe("título de /search", () => {
     expect(heading.endsWith("… en Montevideo")).toBe(true);
     expect(heading.length).toBeLessThan(80);
   });
+
+  it("Ver todos de Cerca de: el lugar es cerca del barrio", () => {
+    expect(searchHeading({ query: "", intent: "eat", chips: [barrio("Palermo", "bar")], nearby: "Palermo" })).toBe("Lugares para comer cerca de Palermo");
+    expect(searchHeading({ query: "tragos en palermo", intent: "bars", chips: [barrio("Palermo", "text")], nearby: "Palermo" })).toBe("Cerca de Palermo (tragos en palermo)");
+  });
 });

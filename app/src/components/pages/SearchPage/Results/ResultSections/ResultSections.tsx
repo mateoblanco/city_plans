@@ -5,8 +5,8 @@ import type { CardDebug } from "../PlaceCard/PlaceCard";
 import PlacesGrid from "../PlacesGrid/PlacesGrid";
 import StickyHeader from "./StickyHeader/StickyHeader";
 import styles from "./ResultSections.module.scss";
-import { hasViewAll, type VisibleSection } from "../../utils/pagination";
-import { sectionHref, type SearchUrl } from "../../utils/search-href";
+import { hasViewAll, NEARBY_SECTION_ID, type VisibleSection } from "../../utils/pagination";
+import { nearbyHref, sectionHref, type SearchUrl } from "../../utils/search-href";
 import { discountViewAllHref } from "../../utils/discount-sections";
 
 type Props = {
@@ -17,8 +17,12 @@ type Props = {
   eagerCount?: number;
 };
 
-/** "Ver todos": la búsqueda con la regla del grupo o, en un grupo por proveedor de descuento, sólo con ese proveedor. */
-const viewAllHref = (state: SearchUrl, id: string) => discountViewAllHref(state, id) ?? sectionHref(state, id);
+/**
+ * "Ver todos": la búsqueda con la regla del grupo; en un grupo por proveedor de descuento, sólo con ese proveedor; en
+ * "Cerca de <barrio>", sólo con los cercanos.
+ */
+const viewAllHref = (state: SearchUrl, id: string) =>
+  id === NEARBY_SECTION_ID ? nearbyHref(state) : (discountViewAllHref(state, id) ?? sectionHref(state, id));
 
 /**
  * Búsqueda amplia: los resultados en secciones con título, una debajo de la otra y cada lugar una sola vez (salvo los

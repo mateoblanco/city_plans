@@ -17,9 +17,9 @@
   font-size: 28px;
   font-weight: 700;
   line-height: 34px;
-  // Mobile: lugar para me gusta y guardar, que van a la derecha (PlaceHeader .like): 2 × 32px + 8px entre ellos + 8px
-  // de aire. Un nombre largo baja de línea sin pisarlos.
-  padding-right: 80px;
+  // Mobile: lugar para "Guardar" / "Guardado", que va a la derecha (PlaceHeader .like): el botón md con corazón y
+  // "Guardado" mide unos 120px, + 12px de aire. Un nombre largo baja de línea sin pisarlo.
+  padding-right: 132px;
 
   @include media(ml) {
     font-size: 40px;

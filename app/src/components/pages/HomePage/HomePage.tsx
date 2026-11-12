@@ -21,7 +21,7 @@ const HomePage = () => {
         {/* Mobile: el hero (con el h1) no se muestra; el mismo h1, visualmente oculto. Desde md no está (va el del hero). */}
         <h1 className={styles.mobileHeading}>{HOME_HEADING}</h1>
         <HeroSearch />
-        {/* Lee las cookies de guardados y likes ("Guardados", "Para vos"): el resto de la home no espera por ellas. */}
+        {/* Lee la cookie de guardados ("Guardados", "Para vos"): el resto de la home no espera por ellas. */}
         <Suspense fallback={<HomeSectionsSkeleton />}>
           <HomeSections />
         </Suspense>

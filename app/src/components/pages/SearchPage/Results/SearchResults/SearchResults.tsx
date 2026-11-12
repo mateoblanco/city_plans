@@ -42,7 +42,7 @@ const SearchResults = async (props: Props) => {
   }
 
   // La barra de filtros se renderiza aparte (SearchFilters), con la misma búsqueda deduplicada.
-  const { interpreted, relaxed, results, sections, forYou } = response;
+  const { interpreted, relaxed, results, sections, forYou, nearby, nearbyOnly } = response;
   return (
     <>
       {/* h1 para lectores de pantalla y buscadores (el título del <head> es el mismo): no cambia el diseño. */}
@@ -51,6 +51,8 @@ const SearchResults = async (props: Props) => {
         results={results}
         sections={sections}
         forYou={forYou}
+        nearby={nearby}
+        nearbyOnly={nearbyOnly}
         notices={relaxed.map((notice) => notice.message)}
         scores={cardScores(response)}
         near={response.near}

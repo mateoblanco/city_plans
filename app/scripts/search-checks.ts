@@ -5,6 +5,7 @@ import { intentGroups, matchesGroup } from "../src/server/search/intents";
 import { fitsGroup } from "../src/server/search/moments";
 import type { SearchDebug, SearchResponse } from "../src/server/search/search";
 import { matchesChoice, type DiscountChoice } from "../src/server/discounts/selection";
+import { visiblePage } from "../src/components/pages/SearchPage/utils/pagination";
 
 type Place = SearchDebug["results"][number];
 type Check = { description: string; test: (places: Place[], response: SearchResponse) => string[] };
@@ -165,6 +166,54 @@ const includesPlace = (placeName: string): Check => ({
   test: (places) => (places.some((place) => place.name === placeName) ? [] : ["no está"]),
 });
 
+/** "Cerca de <barrio>": el grupo existe, con su título, y ninguno de sus lugares es del barrio ni sale arriba. */
+const nearbyGroup = (neighborhood: string, title: string): Check => ({
+  description: `grupo "${title}" sin lugares del barrio ni repetidos`,
+  test: (_, response) => {
+    if (!response.nearby) return ["sin grupo Cerca de"];
+    const nearby = response.debug?.nearby ?? [];
+    const shown = new Set([...response.results.map((result) => result.id), ...(response.sections ?? []).flatMap((section) => section.placeIds)]);
+    return [
+      ...(response.nearby.title === title ? [] : [`título: ${response.nearby.title}`]),
+      ...nearby.filter((place) => place.neighborhoodId === neighborhood).map((place) => `del barrio: ${place.name}`),
+      ...response.nearby.results.filter((result) => shown.has(result.id)).map((result) => `repetido: ${result.name}`),
+      ...nearby.filter((place) => (place.edgeDistance ?? Infinity) > SEARCH_CONFIG.nearby.radiusM).map((place) => `a ${place.edgeDistance} m: ${place.name}`),
+    ];
+  },
+});
+
+const inNearby = (placeName: string): Check => ({
+  description: `${placeName} en el grupo Cerca de`,
+  test: (_, response) => (response.nearby?.results.some((result) => result.name === placeName) ? [] : [`cercanos: ${response.nearby?.results.map((result) => result.name).join(", ") || "—"}`]),
+});
+
+/** El grupo va al final de todo (después de "Más opciones" o de la lista) y no desplaza a los del barrio. */
+const nearbyLast: Check = {
+  description: "Cerca de va al final y no desplaza a los del barrio",
+  test: (places, response) => {
+    const page = visiblePage(response, Number.MAX_SAFE_INTEGER);
+    const nearbyIds = response.nearby?.results.map((result) => result.id) ?? [];
+    const tail = page.places.slice(-nearbyIds.length).map((place) => place.id);
+    const neighborhood = response.debug?.interpretation.must.neighborhoods ?? [];
+    return [
+      ...(nearbyIds.length && JSON.stringify(tail) === JSON.stringify(nearbyIds) ? [] : ["el grupo no es lo último"]),
+      ...(page.places.length === places.length + nearbyIds.length ? [] : [`${page.places.length} cards para ${places.length} del barrio + ${nearbyIds.length} cerca`]),
+      ...places.filter((place) => !neighborhood.includes(place.neighborhoodId)).map((place) => `fuera del barrio arriba: ${place.name}`),
+    ];
+  },
+};
+
+/** El barrio no tiene nada: el aviso y, directo, el grupo. */
+const emptyNeighborhood: Check = {
+  description: "barrio vacío: aviso y grupo Cerca de",
+  test: (places, response) => [
+    ...(places.length === 0 ? [] : [`${places.length} en el barrio`]),
+    ...(response.relaxed[0]?.what === "neighborhood" ? [] : [`avisos: ${response.relaxed.map((notice) => notice.what).join(", ") || "—"}`]),
+    ...(response.relaxed.some((notice) => notice.what === "noMatch") ? ["avisa que no hay nada"] : []),
+    ...((response.nearby?.total ?? 0) > 0 ? [] : ["sin cercanos"]),
+  ],
+};
+
 /** Chip con su origen: del texto, de la barra (f) o de los dos. */
 const chipFrom = (kind: string, id: string, from: { fromText: boolean; fromFilter: boolean }): Check => ({
   description: `chip ${kind}:${id} ${from.fromText ? "del texto" : ""}${from.fromText && from.fromFilter ? " y " : ""}${from.fromFilter ? "de la barra" : ""}`.trim(),
@@ -301,6 +350,20 @@ export const CHECKS: Record<string, Check[]> = {
   " ?intent=cafes&sub=brunch": [nonEmpty, allInIntent("cafes"), subFromBar("brunch"), every("todos con brunch", (place) => place.tags.includes("brunch"))],
   "salir con mi pareja ?intent=cafes": [nonEmpty, intentFromBar("cafes"), allInIntent("cafes"), preferTag("date")],
   "salir con mi pareja": [nonEmpty, preferTag("date")],
+  // "Cerca de <barrio>": los de otros barrios a menos de 500 m del borde, con los mismos filtros.
+  // Bonus (Barrio Sur, a una cuadra de Palermo) para Sin TACC en Palermo.
+  " ?intent=eat&f=diet:glutenFree,neighborhood:PALERMO": [
+    allInIntent("eat"),
+    every("todos con opciones sin TACC", glutenFreeOk),
+    every("todos en Palermo", (place) => place.neighborhoodId === "PALERMO"),
+    nearbyGroup("PALERMO", "Cerca de Palermo"),
+    inNearby("Bonus"),
+    { description: "los cercanos también sin TACC", test: (_, response) => (response.debug?.nearby ?? []).filter((place) => !glutenFreeOk(place)).map(name) },
+  ],
+  // Un barrio con muchos resultados: el grupo va al final.
+  " ?intent=bars&f=neighborhood:POCITOS": [nonEmpty, allInIntent("bars"), nearbyGroup("POCITOS", "Cerca de Pocitos"), nearbyLast],
+  // Nada barato para comer en el Centro: el aviso y el grupo (antes se salía a toda la ciudad).
+  " ?intent=eat&f=price:low,neighborhood:CENTRO": [emptyNeighborhood, nearbyGroup("CENTRO", "Cerca de Centro"), { description: "los cercanos son Accesibles", test: (_, response) => (response.debug?.nearby ?? []).filter((place) => place.price !== "low").map(name) }],
   "Mercado del Puerto": [
     nonEmpty,
     hasChip("venue", "Mercado del Puerto"),

@@ -80,6 +80,34 @@ it("el mapa tiene un punto por card y por cada sucursal, apuntando a su card", (
   expect(points.map(({ id, cardId }) => [id, cardId])).toEqual([["a", "a"], ["a2", "a"], ["b", "b"]]);
 });
 
+describe("Cerca de <barrio>", () => {
+  const nearby = { title: "Cerca de Palermo", label: "Palermo", total: 9, results: places(6, "c") };
+
+  it("con grupos va después de Más opciones, recién al final, y entra al mapa", () => {
+    const results = [...places(6, "g"), ...places(20, "m")];
+    const sections: SearchResponse["sections"] = [
+      { id: "share", title: "Para compartir", placeIds: ids(results.slice(0, 6)), total: null },
+      { id: "more", title: "Más opciones", placeIds: ids(results.slice(6)), total: null },
+    ];
+    const first = visiblePage({ results, sections, forYou: null, nearby }, 1);
+    expect([first.hasMore, first.nearby, first.places.some((item) => item.id.startsWith("c"))]).toEqual([true, null, false]);
+    const last = visiblePage({ results, sections, forYou: null, nearby }, 2);
+    expect(last.nearby).toEqual({ id: "nearby", title: "Cerca de Palermo", places: nearby.results, total: 9 });
+    expect(last.sections?.map((section) => section.id)).toEqual(["share", "more"]);
+    expect(last.places.slice(-6).map((item) => item.id)).toEqual(ids(nearby.results));
+    expect(hasViewAll(last.nearby!)).toBe(true);
+  });
+
+  it("en lista, después de la grilla; con el barrio vacío, directo", () => {
+    const short = visiblePage({ results: places(5), sections: null, forYou: null, nearby }, 1);
+    expect(ids(short.list)).toHaveLength(5);
+    expect(short.nearby?.places).toHaveLength(6);
+    expect(short.places).toHaveLength(11);
+    const empty = visiblePage({ results: [], sections: null, forYou: null, nearby: { ...nearby, total: 6 } }, 1);
+    expect([empty.nearby?.places.length, hasViewAll(empty.nearby!)]).toEqual([6, false]);
+  });
+});
+
 describe("grupos por proveedor de descuento", () => {
   it("un lugar en dos grupos sale en los dos, pero en el mapa una sola vez", () => {
     const results = places(3);

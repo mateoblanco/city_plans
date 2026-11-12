@@ -215,6 +215,11 @@ export const SEARCH_CONFIG = {
    * alguno. 100 m cubre un mercado o un shopping desde el local cargado sin llegar a la cuadra de enfrente.
    */
   venue: { radiusM: 100 },
+  /**
+   * "Cerca de <barrio>": con un barrio pedido, además de sus resultados, los de otros barrios a menos de radiusM del
+   * borde (shared/neighborhood-polygons.json), con los mismos filtros. El grupo muestra hasta maxPlaces.
+   */
+  nearby: { radiusM: 500, maxPlaces: 6 },
 
   llm: {
     model: process.env.SEARCH_MODEL?.trim() || 'anthropic/claude-haiku-5.5',

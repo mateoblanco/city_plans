@@ -39,6 +39,7 @@ export function row(overrides: Partial<CandidateRow> & { id: string }): Candidat
     keyword: 0,
     nameScore: 0,
     distance: null,
+    edgeDistance: null,
     dishHas: [],
     dishExact: [],
     ...overrides,
@@ -69,6 +70,8 @@ const cosine = (a: number[], b: number[]) => {
  */
 export function fakeStore(places: CandidateRow[], names: NameMatch[] = [], vectors: Record<string, number[]> = {}) {
   const calls: { filters: CandidateFilters; scores: ScoreInputs }[] = []
+  // Las consultas de "Cerca de <barrio>" (filters.nearby) van aparte: calls son las del barrio, como siempre.
+  const nearbyCalls: { filters: CandidateFilters; scores: ScoreInputs }[] = []
   // Misma regla que openAtSql / opensTodaySql.
   const matchesOpenAt = (place: CandidateRow, { moment, today, night }: OpenFilter) =>
     today && moment.time ? opensToday(place.hours, { day: moment.day, time: moment.time }, night) !== 'no' : openStatus(place.hours, moment).state !== 'closed'
@@ -76,6 +79,9 @@ export function fakeStore(places: CandidateRow[], names: NameMatch[] = [], vecto
   const inVenue = (place: CandidateRow, venues: Venue[]) =>
     venues.some((venue) => place.locatedIn === venue.name) ||
     (place.locatedIn === null && venues.some((venue) => venue.points.some((point) => meters(point, place) <= SEARCH_CONFIG.venue.radiusM)))
+  // Como nearbySql, sin geometría: un lugar está cerca del barrio pedido sólo si el fixture le pone edgeDistance (los
+  // metros al borde); sin él, lejos de todo.
+  const edgeOf = (place: CandidateRow) => place.edgeDistance ?? Infinity
   const matches = (place: CandidateRow, filters: CandidateFilters) => {
     const has = (place: CandidateRow, dish: string) => place.dishes.some((item) => item.includes(dish))
     return (
@@ -92,6 +98,7 @@ export function fakeStore(places: CandidateRow[], names: NameMatch[] = [], vecto
       filters.groups.every((group) => matchesGroup(group, place)) &&
       (!filters.discounts?.length || place.discounts.some((discount) => filters.discounts!.some((choice) => matchesChoice(discount, choice)))) &&
       (!filters.near || (place.distance ?? Infinity) <= filters.near.radiusM) &&
+      (!filters.nearby || (!filters.nearby.exclude.includes(place.neighborhoodId) && edgeOf(place) <= filters.nearby.radiusM)) &&
       (!filters.dishes.length || filters.dishMode === 'none' ||
         (filters.dishMode === 'related'
           ? filters.dishes.some((target) => target.related.tags.some((id) => place.tags.includes(id)) || target.related.categories.some((id) => place.categories.includes(id)))
@@ -100,7 +107,7 @@ export function fakeStore(places: CandidateRow[], names: NameMatch[] = [], vecto
   }
   const store: PlacesStore = {
     async candidates(filters, scores) {
-      calls.push({ filters: structuredClone(filters), scores: structuredClone(scores) })
+      ;(filters.nearby ? nearbyCalls : calls).push({ filters: structuredClone(filters), scores: structuredClone(scores) })
       return places.flatMap((place) => {
         const ok = matches(place, filters)
         if (!ok && place.id !== scores.pinnedId) return []
@@ -110,6 +117,7 @@ export function fakeStore(places: CandidateRow[], names: NameMatch[] = [], vecto
           dishHas: filters.dishes.map((target) => place.dishes.some((item) => item.includes(target.dish))),
           dishExact: filters.dishes.map((target) => place.dishes.includes(target.dish)),
           distance: scores.origins.length ? place.distance ?? 1000 : null,
+          edgeDistance: filters.nearby?.polygons.length ? place.edgeDistance : null,
         }]
       })
     },
@@ -169,7 +177,7 @@ export function fakeStore(places: CandidateRow[], names: NameMatch[] = [], vecto
       }
     },
   }
-  return { store, calls }
+  return { store, calls, nearbyCalls }
 }
 
 export function llmOutput(overrides: Partial<LlmInterpretation> = {}): LlmInterpretation {

@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { searchPlaces } from "@/server/search";
-import { LIKES_COOKIE, parseLikesCookie } from "@/components/pages/SearchPage/utils/likes-cookie";
+import { parseSavedCookie, SAVED_COOKIE } from "@/components/pages/SearchPage/utils/saved-cookie";
 
 const Params = z.object({
   q: z.string().trim().max(500),
@@ -33,8 +33,8 @@ export async function GET(request: NextRequest) {
 
   try {
     const { q, remove, f, near, intent, sub, debug, profile } = parsed.data;
-    // Likes de la cookie espejo de localStorage: sólo para este pedido.
-    const likes = parseLikesCookie(request.cookies.get(LIKES_COOKIE)?.value);
+    // Guardados de la cookie espejo de localStorage (la señal de gustos del perfil): sólo para este pedido.
+    const likes = parseSavedCookie(request.cookies.get(SAVED_COOKIE)?.value);
     return Response.json(await searchPlaces(q, { remove, filters: f, near, intent, sub, debug: Boolean(debug), likes, profile: profile !== "off" }));
   } catch (error) {
     console.error("Error en /api/search", error);

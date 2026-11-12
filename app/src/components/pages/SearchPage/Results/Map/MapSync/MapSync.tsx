@@ -112,12 +112,12 @@ const MapSync = (props: Props) => {
   return (
     <SearchMapContext value={store}>
       <HoverContext value={hover}>
-        <ResultsAnnouncer pending={state.pending} count={state.count} fitKey={state.fitKey} />
+        <ResultsAnnouncer pending={state.pending} count={state.count} nearby={state.nearby} fitKey={state.fitKey} />
         {!sheet && props.children}
         {map}
         {selected && <SelectedPlace place={selected} />}
         {sheet && (
-          <ResultsSheet count={state.pending ? null : state.count} snapPoint={snapPoint} onSnapPointChange={changeSnapPoint}>
+          <ResultsSheet count={state.pending ? null : state.count} nearby={state.nearby} snapPoint={snapPoint} onSnapPointChange={changeSnapPoint}>
             {props.children}
           </ResultsSheet>
         )}

@@ -6,7 +6,7 @@ $bar-height-md: 180px;
 $logo-overlap: 44px;
 $logo-overlap-md: 96px;
 
-// Mobile: me gusta y guardar van a la derecha del título (que está en PlaceSummary, 16px debajo de este header: el
+// Mobile: "Guardar" va a la derecha del título (que está en PlaceSummary, 16px debajo de este header: el
 // padding-top de .columns en PlacePage.module.scss). El título deja lugar con su padding-right.
 .header {
   display: flex;
@@ -80,15 +80,15 @@ $logo-overlap-md: 96px;
   position: relative;
 }
 
-// Mobile: a la altura de la primera línea del título (16px debajo del header; +1 porque el título tiene 34px de alto
-// de línea y los botones 32px). Desde ml, con barra, van debajo de ella, no encima del color.
+// Mobile: a la altura de la primera línea del título (16px debajo del header; el título tiene 34px de alto de línea,
+// como el botón). Desde ml, con barra, van debajo de ella, no encima del color.
 .like {
   align-items: center;
   display: flex;
   gap: 8px;
   position: absolute;
   right: var(--place-gutter);
-  top: calc(100% + 17px);
+  top: calc(100% + 16px);
 
   @include media(ml) {
     gap: 16px;

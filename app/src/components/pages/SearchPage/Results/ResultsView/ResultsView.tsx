@@ -11,6 +11,7 @@ import LoadMore from "../LoadMore/LoadMore";
 import EndOfResults from "../EndOfResults/EndOfResults";
 import styles from "./ResultsView.module.scss";
 import { visiblePage } from "../../utils/pagination";
+import type { NearbyCount } from "../../utils/results-count";
 import { EAGER_SEARCH_CARDS } from "../../utils/eager-images";
 import type { SearchUrl } from "../../utils/search-href";
 import { usePublishSearchResults } from "../../utils/use-search-map";
@@ -19,6 +20,10 @@ type Props = {
   results: SearchResponse["results"];
   sections: SearchResponse["sections"];
   forYou: SearchResponse["forYou"];
+  /** "Cerca de <barrio>": el grupo del final. */
+  nearby?: SearchResponse["nearby"];
+  /** El "Ver todos" de "Cerca de": la lista va bajo su título. */
+  nearbyOnly?: SearchResponse["nearbyOnly"];
   /** Avisos de relajación, en lenguaje de usuario. */
   notices: string[];
   scores: Map<string, CardDebug> | null;
@@ -36,11 +41,16 @@ type Props = {
  */
 const ResultsView = (props: Props) => {
   const [pages, setPages] = useState(1);
-  const { results, sections, forYou } = props;
-  const page = useMemo(() => visiblePage({ results, sections, forYou }, pages), [results, sections, forYou, pages]);
-  usePublishSearchResults(page.places, props.near, props.results.length);
+  const { results, sections, forYou, nearby = null, nearbyOnly = null } = props;
+  const page = useMemo(() => visiblePage({ results, sections, forYou, nearby }, pages), [results, sections, forYou, nearby, pages]);
+  const nearbyCount = useMemo((): NearbyCount | null => {
+    if (nearbyOnly) return { label: nearbyOnly.label, count: results.length, only: true };
+    return nearby ? { label: nearby.label, count: nearby.total, only: false } : null;
+  }, [nearby, nearbyOnly, results.length]);
+  usePublishSearchResults(page.places, props.near, props.results.length, nearbyCount);
+  const anyResults = props.results.length > 0 || nearby !== null;
   // Con grupos, el StickyHeader pone el aire de arriba; sin ellos lo pone el contenedor.
-  const grouped = props.results.length > 0 && Boolean(page.sections ?? page.forYou);
+  const grouped = props.results.length > 0 && Boolean(page.sections ?? page.forYou ?? nearbyOnly);
 
   return (
     <div id={SKIP_TARGETS.results} className={clsx(styles.results, !grouped && styles.ungrouped)} data-skip-target>
@@ -55,7 +65,15 @@ const ResultsView = (props: Props) => {
       )}
 
       {props.results.length === 0 ? (
-        <div className={styles.empty}>{props.notices.length === 0 && <p>No encontramos lugares para esta búsqueda.</p>}</div>
+        <div className={styles.empty}>{props.notices.length === 0 && !nearby && <p>No encontramos lugares para esta búsqueda.</p>}</div>
+      ) : nearbyOnly ? (
+        // "Ver todos" de "Cerca de": la lista bajo su título, de a 12 con "Ver más".
+        <ResultSections
+          sections={[{ id: "nearby-all", title: nearbyOnly.title, places: page.list ?? [], total: null }]}
+          scores={props.scores}
+          state={props.state}
+          eagerCount={EAGER_SEARCH_CARDS}
+        />
       ) : page.sections ? (
         // Búsqueda amplia: grupos con título y "Más opciones", que es lo único que pagina.
         <ResultSections sections={page.sections} scores={props.scores} state={props.state} eagerCount={EAGER_SEARCH_CARDS} />
@@ -69,10 +87,13 @@ const ResultsView = (props: Props) => {
         </>
       )}
 
+      {/* "Cerca de <barrio>": al final de todo (visiblePage lo da recién sin más páginas), después de "Más opciones". */}
+      {page.nearby && <ResultSections sections={[page.nearby]} scores={props.scores} state={props.state} eagerCount={props.results.length === 0 ? EAGER_SEARCH_CARDS : undefined} />}
+
       {page.hasMore ? (
         <LoadMore key={pages} onReach={() => setPages((current) => current + 1)} />
       ) : (
-        props.results.length > 0 && <EndOfResults />
+        anyResults && <EndOfResults />
       )}
 
       {props.children}

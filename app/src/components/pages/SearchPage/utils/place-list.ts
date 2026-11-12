@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 import { idsCookieValue, parseIds } from "./place-list-cookie";
 
 /**
- * Una lista de lugares del navegador (likes, guardados): ids en localStorage, el más reciente primero, con una cookie
+ * La lista de lugares del navegador (los guardados, utils/saved.ts): ids en localStorage, el más reciente primero, con una cookie
  * espejo de los max más recientes para que el servidor la lea en ese pedido (el servidor no guarda nada). Con dated,
  * cada entrada lleva también la fecha en que se agregó (sólo en localStorage: con fechas la cookie no entra en 4 KB).
  * Si localStorage falla, la app sigue sin la lista.
@@ -77,7 +77,7 @@ export function createPlaceList({ storageKey, cookieName, max, dated }: Options)
 
   /**
    * La lista ya leída, cacheada por el texto de localStorage: sólo se vuelve a parsear y validar cuando ese texto cambia.
-   * Cada botón de la card (me gusta, guardar) la consulta en cada render y en cada cambio; sin esto, 42 cards eran 42
+   * El corazón de cada card la consulta en cada render y en cada cambio; sin esto, 42 cards eran 42
    * JSON.parse y 42 validaciones por toque.
    */
   type ListState = { entries: PlaceListEntry[] | null; ids: Set<string>; json: string };

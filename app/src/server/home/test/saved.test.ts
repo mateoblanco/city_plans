@@ -72,13 +72,13 @@ describe('assembleHomeWithSaved', () => {
   const homeRow = (id: string, ids: string[]): HomeRow => ({ id, title: id, places: ids.map(place), href: null })
   const ids = (rows: HomeRow[]) => rows.map((entry) => [entry.id, entry.places.map((item) => item.id)])
 
-  it('"Guardados" va primero y sus lugares pueden repetirse en "Para vos" y en las filas siguientes', () => {
+  it('"Guardados" va primero y sus lugares pueden repetirse en las filas siguientes ("Para vos" ya los saca el perfil)', () => {
     const saved = homeRow('saved', ['a', 'b'])
-    const rows = assembleHomeWithSaved(saved, [homeRow('for_you', ['a', 'c', 'd', 'e']), homeRow('lunch', ['b', 'f', 'g', 'h'])])
+    const rows = assembleHomeWithSaved(saved, [homeRow('for_you', ['c', 'd', 'e', 'f']), homeRow('lunch', ['b', 'f', 'g', 'h', 'i'])])
     expect(ids(rows)).toEqual([
       ['saved', ['a', 'b']],
-      ['for_you', ['a', 'c', 'd', 'e']],
-      ['lunch', ['b', 'f', 'g', 'h']],
+      ['for_you', ['c', 'd', 'e', 'f']],
+      ['lunch', ['b', 'g', 'h', 'i']],
     ])
   })
 

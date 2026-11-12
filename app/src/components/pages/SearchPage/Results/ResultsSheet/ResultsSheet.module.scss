@@ -90,8 +90,13 @@
   font-size: 16px;
   font-weight: 600;
   margin: 0;
+  // Una sola línea: la altura baja (sheet.ts) cuenta con ella. "18 lugares en Punta Carretas · 6 cerca" se corta con "…"
+  // en pantallas muy angostas.
+  overflow: hidden;
   padding: 8px 16px;
   text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 // El área con scroll, en la media y en la alta (el padding de abajo del popup la achica a lo que se ve). Abajo, la

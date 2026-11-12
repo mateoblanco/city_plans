@@ -13,6 +13,7 @@ describe('parseFilters', () => {
       section: null,
       tags: [],
       discounts: [],
+      nearby: false,
     })
     // Las categorías ya no son filtros de la barra: van por la intención.
     // open:now era el filtro viejo ("Abierto ahora"): ya no existe.
@@ -24,8 +25,17 @@ describe('parseFilters', () => {
       section: null,
       tags: [],
       discounts: [],
+      nearby: false,
     })
     expect(parseFilters(null)).toEqual(parseFilters(''))
+  })
+
+  it('nearby:1 es el "Ver todos" de "Cerca de": sólo con 1, y sale como clave de chip', () => {
+    const filters = parseFilters('neighborhood:PALERMO,nearby:1')
+    expect(filters.nearby).toBe(true)
+    expect(hasFilters(parseFilters('nearby:1'))).toBe(true)
+    expect(parseFilters('nearby:0,nearby:si').nearby).toBe(false)
+    expect([...filterChipKeys(filters)]).toEqual(['neighborhood:PALERMO', 'nearby:1'])
   })
 
   it('discount: proveedor y tipo de tarjeta del catálogo, sin repetir; no es un chip ni toca la interpretación', () => {

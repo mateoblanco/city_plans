@@ -51,7 +51,7 @@
 	--color-status-closed: #{palette.get(status-closed)}; // PlaceCard, PlaceSummary
 	--color-rating: #{palette.get(yellow-500)}; // PlaceSummary (estrella del puntaje de Google)
 
-	--color-like: #{palette.get(red-600)}; // LikeButton
+	--color-like: #{palette.get(red-600)}; // SaveButton (corazón lleno)
 	--color-map-user: #{palette.get(blue-600)}; // SearchMap (punto de la ubicación del usuario)
 	// MapColumn: el fondo del mapa de /search hasta que dibuja Google; el color de tierra del estilo del Map ID (no una imagen)
 	--color-map-placeholder: #f7f7f7;

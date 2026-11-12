@@ -2,9 +2,11 @@ import { createPlaceList } from "./place-list";
 import { MAX_SAVED, SAVED_COOKIE } from "./saved-cookie";
 
 /**
- * Guardados ("quiero ir"): una lista de pendientes, independiente de los likes. En localStorage cada entrada lleva la
- * fecha en que se guardó (para ordenar y, más adelante, preguntar "¿fuiste?"); la cookie espejo lleva sólo los ids, del
- * más reciente al más viejo, para que la home renderice "Guardados" en el servidor. No alimenta el perfil de gustos.
+ * Guardados: la única lista de lugares del navegador (el corazón de la card y de la ficha). En localStorage cada entrada
+ * lleva la fecha en que se guardó (para ordenar y, más adelante, preguntar "¿Fuiste?"); la cookie espejo lleva sólo los
+ * ids, del más reciente al más viejo, para que el servidor los lea en ese pedido: la home ("Guardados", "Para vos") y la
+ * búsqueda (perfil de gustos, bloques personales). El servidor no guarda nada. Si localStorage falla, la app sigue sin
+ * guardados (y sin corazón).
  */
 export const SAVED_KEY = "cityPlans.saved";
 
@@ -22,10 +24,10 @@ export const toggleSaved = saved.toggle;
 /** Borra todos los guardados (localStorage y cookie). */
 export const clearSaved = saved.clear;
 
-/** Guardados actuales; available false si localStorage no funciona (no se muestra el botón). */
+/** Guardados actuales; available false si localStorage no funciona (no se muestra el corazón). */
 export const useSaved = saved.useList;
 
-/** Si este lugar está guardado (para el botón de su card): sólo se vuelve a renderizar cuando cambia el de este id. */
+/** Si este lugar está guardado (para el corazón de su card o de la ficha): sólo se vuelve a renderizar cuando cambia el de este id. */
 export const useIsSaved = (id: string) => saved.useHas(id);
 
 /** Lo que lee useIsSaved: -1 sin localStorage, 1 guardado, 0 no. */

@@ -32,14 +32,19 @@ export type SearchFilters = {
    * es parte de la interpretación ni un chip: es sólo filtro y nunca se relaja.
    */
   discounts: DiscountChoice[]
+  /**
+   * "Ver todos" de "Cerca de <barrio>" (`nearby:1`): sólo los lugares de otros barrios a menos de nearby.radiusM del borde
+   * del barrio pedido. Sin barrio no hace nada.
+   */
+  nearby: boolean
 }
 
 export type LatLng = { lat: number; lng: number }
 
-export const emptyFilters = (): SearchFilters => ({ opensToday: false, diet: [], neighborhoods: [], price: [], section: null, tags: [], discounts: [] })
+export const emptyFilters = (): SearchFilters => ({ opensToday: false, diet: [], neighborhoods: [], price: [], section: null, tags: [], discounts: [], nearby: false })
 
 export const hasFilters = (filters: SearchFilters) =>
-  filters.opensToday || filters.diet.length > 0 || filters.neighborhoods.length > 0 || filters.price.length > 0 || filters.section !== null || filters.tags.length > 0 || filters.discounts.length > 0
+  filters.opensToday || filters.diet.length > 0 || filters.neighborhoods.length > 0 || filters.price.length > 0 || filters.section !== null || filters.tags.length > 0 || filters.discounts.length > 0 || filters.nearby
 
 const FILTER_TAGS = new Set<string>(TAG_IDS.filter((id) => !isOccasionTag(id)))
 
@@ -56,6 +61,7 @@ export function parseFilters(raw: string | null | undefined): SearchFilters {
     else if (kind === 'neighborhood' && id in NEIGHBORHOOD_NAMES && !filters.neighborhoods.includes(id)) filters.neighborhoods.push(id)
     else if (kind === 'price' && (PRICES as readonly string[]).includes(id) && !filters.price.includes(id as Price)) filters.price.push(id as Price)
     else if (kind === 'section' && isSectionId(id) && id !== 'discover') filters.section = id
+    else if (kind === 'nearby' && id === '1') filters.nearby = true
     else if (kind === 'tag' && FILTER_TAGS.has(id) && !filters.tags.includes(id as TagId)) filters.tags.push(id as TagId)
     else if (kind === 'discount') {
       const choice = parseChoice(id)
@@ -100,5 +106,6 @@ export function filterChipKeys(filters: SearchFilters): Set<string> {
     ...filters.price.map((id) => `price:${id}`),
     ...(filters.section ? [`section:${filters.section}`] : []),
     ...filters.tags.map((id) => `tag:${id}`),
+    ...(filters.nearby ? ['nearby:1'] : []),
   ])
 }

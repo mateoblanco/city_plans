@@ -26,7 +26,7 @@ export async function homeSectionRows(deps: SearchDeps, now?: Date): Promise<Hom
 }
 
 /**
- * "Para vos" de la home con los likes de la cookie: el perfil con más likes, de 4 a 8 lugares, sólo entre los que abren
+ * "Para vos" de la home con los guardados de la cookie como señal de gustos: el perfil con más guardados, de 4 a 8 lugares, sólo entre los que abren
  * hoy (como las demás filas). null sin perfil.
  */
 export async function homeForYouRow(deps: SearchDeps, likes: string[], now?: Date): Promise<HomeRow | null> {

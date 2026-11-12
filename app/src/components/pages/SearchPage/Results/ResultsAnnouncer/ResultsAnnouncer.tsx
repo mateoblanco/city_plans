@@ -1,10 +1,12 @@
-import { resultsAnnouncement } from "../../utils/results-count";
+import { resultsAnnouncement, type NearbyCount } from "../../utils/results-count";
 import styles from "./ResultsAnnouncer.module.scss";
 
 type Props = {
   /** Entre búsquedas (o antes de la primera): "Buscando…". */
   pending: boolean;
   count: number;
+  /** "Cerca de <barrio>": "18 lugares en Palermo · 6 cerca". */
+  nearby: NearbyCount | null;
   /** Sube con cada búsqueda nueva (no con el scroll infinito): ver la key de abajo. */
   fitKey: number;
 };
@@ -17,7 +19,7 @@ type Props = {
  */
 const ResultsAnnouncer = (props: Props) => (
   <p className={styles.announcer} role="status" aria-live="polite">
-    <span key={props.fitKey}>{resultsAnnouncement(props.pending ? null : props.count)}</span>
+    <span key={props.fitKey}>{resultsAnnouncement(props.pending ? null : props.count, props.nearby)}</span>
   </p>
 );
 

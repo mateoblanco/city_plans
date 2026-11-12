@@ -15,7 +15,7 @@ type Props = {
 
 /**
  * Encabezado de la ficha: con logo, una barra del color del logo y el logo encima; sin logo, sin barra y lo mismo que
- * muestra la card (el nombre). "← Volver" va arriba del logo en los dos casos; a la derecha, me gusta y guardar.
+ * muestra la card (el nombre). "← Volver" va arriba del logo en los dos casos; a la derecha, "Guardar" (el corazón).
  */
 const PlaceHeader = (props: Props) => {
   const barColor = props.logoUrl ? props.logoBgColor : null;

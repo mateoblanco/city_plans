@@ -1,4 +1,4 @@
-// Los botones van en el grupo de acciones de la card (card > acciones > botón), fuera del flujo, arriba a la derecha.
+// El botón va en el grupo de acciones de la card (card > acciones > botón), fuera del flujo, arriba a la derecha.
 .toggle {
   // Arriba del link que cubre la card: el click acá no navega.
   position: relative;
@@ -14,13 +14,6 @@
     &:focus-within,
     &[data-active] {
       opacity: 1;
-    }
-
-    // Sólo con me gusta, guardar (apagado e invisible) se oculta: el corazón queda a la derecha, donde iría guardar.
-    // Al pasar el mouse (o con foco en la card) vuelven los dos en su lugar. Como el grupo está fuera del flujo, sólo
-    // se mueve el corazón; el contenido de la card no cambia.
-    :not(:hover, :focus-within) > * > &[data-active] + &:not([data-active]) {
-      display: none;
     }
   }
 }

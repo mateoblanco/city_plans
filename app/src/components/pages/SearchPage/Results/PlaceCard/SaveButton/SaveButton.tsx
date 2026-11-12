@@ -1,8 +1,9 @@
 "use client";
 
-import Bookmark from "@/assets/bookmark.svg";
-import BookmarkFill from "@/assets/bookmark_fill.svg";
+import Heart from "@/assets/heart.svg";
+import HeartFill from "@/assets/heart_fill.svg";
 import CardToggle from "../CardToggle/CardToggle";
+import styles from "./SaveButton.module.scss";
 import { toggleSaved, useIsSaved } from "../../../utils/saved";
 
 type Props = {
@@ -11,8 +12,9 @@ type Props = {
 };
 
 /**
- * Guardar ("quiero ir"): agrega o saca el lugar de la lista de pendientes (sólo en el navegador), independiente del
- * like y sin tocar el perfil de gustos. Sin localStorage no se muestra.
+ * Corazón de la card: guarda o saca el lugar (sólo en el navegador, con la fecha). Los guardados salen en "Guardados" de
+ * la home y son la señal de gustos del perfil; no vuelve a buscar: lo usa la búsqueda siguiente. Sin localStorage no se
+ * muestra.
  */
 const SaveButton = (props: Props) => {
   const saved = useIsSaved(props.placeId);
@@ -23,7 +25,8 @@ const SaveButton = (props: Props) => {
     <CardToggle
       active={isSaved}
       label={`Guardar ${props.name}`}
-      icon={isSaved ? <BookmarkFill aria-hidden /> : <Bookmark aria-hidden />}
+      tooltip={isSaved ? "Guardado" : "Guardar"}
+      icon={isSaved ? <HeartFill className={styles.heartSaved} aria-hidden /> : <Heart aria-hidden />}
       onToggle={() => toggleSaved(props.placeId)}
     />
   );

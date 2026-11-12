@@ -9,13 +9,17 @@ import { DIET_KEYS, type DietKey, type Interpretation, type Lang } from './inter
 import { DAY_NAMES, dietLabel, DISPLAY_LANG, distanceText, excludedTerm } from './labels'
 
 // Orden fijo: los tags de must primero porque sus datos están incompletos; después los sub-filtros de la
-// intención (pasan a preferencias); el venue y el barrio después porque para la persona pesan más (primero el venue,
-// que es lo más chico). similarity es el último recurso.
-// Nunca se relajan la dieta, los exclude ni la intención.
-// Con "cerca mío", el radio se amplía (1,5 → 3 → 5 km) antes de soltar el barrio o el horario.
-export const RELAX_ORDER = ['mustTags', 'subs', 'dishRelated', 'radius', 'radiusMax', 'venue', 'neighborhood', 'openAt', 'similarity'] as const
+// intención (pasan a preferencias); el venue después porque para la persona pesa más. similarity es el último recurso.
+// Nunca se relajan la dieta, los exclude, la intención ni el barrio: del barrio se sale sólo por "Cerca de <barrio>"
+// (nearby.ts), con los lugares a menos de 500 m del borde. Los pasos de NEARBY_STEPS (el horario y el último recurso)
+// se dan sólo si tampoco hay nada cerca; los de antes miran sólo el barrio, como siempre.
+// Con "cerca mío", el radio se amplía (1,5 → 3 → 5 km) antes de soltar el horario.
+export const RELAX_ORDER = ['mustTags', 'subs', 'dishRelated', 'radius', 'radiusMax', 'venue', 'openAt', 'similarity'] as const
 export type RelaxStep = (typeof RELAX_ORDER)[number]
-export type NoticeKind = RelaxStep | 'noMatch'
+/** Pasos que se dan sólo si el barrio y sus cercanos no tienen ningún resultado. */
+export const NEARBY_STEPS: readonly RelaxStep[] = ['openAt', 'similarity']
+/** neighborhood: el barrio pedido no tiene resultados y "Cerca de <barrio>" sí. */
+export type NoticeKind = RelaxStep | 'neighborhood' | 'noMatch'
 
 /**
  * nearRadius: radio de "cerca mío" en metros; null sin ubicación o cuando ya no filtra.
@@ -33,11 +37,10 @@ export function canRelax({ interpretation: value, dishMode, nearRadius, subs }: 
   if (step === 'mustTags') return must.tags.length > 0
   if (step === 'dishRelated') return dishMode === 'dish' && dishes.some(hasBroaderRelated)
   if (step === 'venue') return must.venues.length > 0
-  if (step === 'neighborhood') return must.neighborhoods.length > 0
   if (step === 'openAt') return must.openAt !== null
   return (
     (dishes.length > 0 && dishMode !== 'none') ||
-    must.categories.length + must.tags.length + must.neighborhoods.length + must.venues.length + must.price.length > 0 ||
+    must.categories.length + must.tags.length + must.venues.length + must.price.length > 0 ||
     must.openAt !== null ||
     nearRadius !== null
   )
@@ -59,16 +62,15 @@ export function relax(state: SearchState, step: RelaxStep): SearchState {
   if (step === 'dishRelated') return { ...state, dishMode: 'related' }
   if (step === 'radius' || step === 'radiusMax') return { ...state, nearRadius: NEXT_RADIUS[step] }
   if (step === 'venue') return { ...state, interpretation: { ...value, must: { ...value.must, venues: [] } } }
-  if (step === 'neighborhood') return { ...state, interpretation: { ...value, must: { ...value.must, neighborhoods: [] } } }
   if (step === 'openAt') return { ...state, interpretation: { ...value, must: { ...value.must, openAt: null } } }
-  // similarity: sólo quedan la dieta y los exclude; lo pedido sigue sumando como preferencia y la distancia ordena.
+  // similarity: sólo quedan la dieta, los exclude y el barrio; lo pedido sigue sumando como preferencia y la distancia ordena.
   return {
     ...state,
     dishMode: 'none',
     nearRadius: null,
     interpretation: {
       ...value,
-      must: { ...value.must, categories: [], tags: [], neighborhoods: [], venues: [], price: [], openAt: null },
+      must: { ...value.must, categories: [], tags: [], venues: [], price: [], openAt: null },
       prefer: { categories: [...new Set([...value.prefer.categories, ...value.must.categories])], tags: mustTagsToPrefer.tags, style: value.prefer.style },
     },
   }
@@ -79,7 +81,7 @@ const list = (values: string[], lang: Lang, joiner = lang === 'es' ? 'y' : 'and'
   return `${values.slice(0, -1).join(', ')} ${joiner} ${values.at(-1)}`
 }
 
-const neighborhoodNames = (ids: string[], lang: Lang) => list(ids.map((id) => neighborhoodDisplayName(id) ?? id), lang)
+export const neighborhoodNames = (ids: string[], lang: Lang) => list(ids.map((id) => neighborhoodDisplayName(id) ?? id), lang)
 
 export type NoticeContext = {
   /** Estado antes de aplicar el paso. */
@@ -152,13 +154,6 @@ export function relaxNotice(step: RelaxStep, context: NoticeContext): { what: No
     const wanted = value.must.venues
     if (!rows.some((row) => row.locatedIn === null || !wanted.includes(row.locatedIn))) return null
     const names = list(wanted, lang)
-    return { what: step, message: es ? `No encontramos en ${names}; estos están cerca.` : `Nothing in ${names}; these are nearby.` }
-  }
-
-  if (step === 'neighborhood') {
-    const wanted = value.must.neighborhoods
-    if (!rows.some((row) => !wanted.includes(row.neighborhoodId))) return null
-    const names = neighborhoodNames(wanted, lang)
     return { what: step, message: es ? `No encontramos en ${names}; estos están cerca.` : `Nothing in ${names}; these are nearby.` }
   }
 

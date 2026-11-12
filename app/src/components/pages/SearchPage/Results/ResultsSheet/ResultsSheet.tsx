@@ -4,12 +4,14 @@ import { useRef, type ReactNode } from "react";
 import { Button } from "@base-ui/react/button";
 import { Drawer } from "@base-ui/react/drawer";
 import styles from "./ResultsSheet.module.scss";
-import { resultsCountLabel } from "../../utils/results-count";
+import { resultsCountLabel, type NearbyCount } from "../../utils/results-count";
 import { isTap, nextSnapPoint, SHEET_HIGH, SHEET_LOW, SHEET_MID, SHEET_SNAP_POINTS, toSnapPoint, type SheetSnapPoint } from "../../utils/sheet";
 
 type Props = {
   /** Cuántos lugares trajo la búsqueda: el título del panel ("N lugares"). Mientras busca, null ("Buscando…"). */
   count: number | null;
+  /** "Cerca de <barrio>": "18 lugares en Palermo · 6 cerca". */
+  nearby: NearbyCount | null;
   snapPoint: SheetSnapPoint;
   onSnapPointChange: (snapPoint: SheetSnapPoint) => void;
   children: ReactNode;
@@ -79,7 +81,7 @@ const ResultsSheet = (props: Props) => {
                 if (tap) props.onSnapPointChange(nextSnapPoint(props.snapPoint));
               }}
             />
-            <Drawer.Title className={styles.title}>{resultsCountLabel(props.count)}</Drawer.Title>
+            <Drawer.Title className={styles.title}>{resultsCountLabel(props.count, props.nearby)}</Drawer.Title>
             {/* Si el foco entra a la lista con el panel en la baja (Tab, "Ir a los resultados"), sube a la media: si no, se
                 enfocaría algo invisible. */}
             <Drawer.Content

@@ -7,7 +7,6 @@ import type { SearchResult } from "@/server/search";
 import type { KeptBy } from "@/server/search/relevance";
 import PlaceImage from "./PlaceImage/PlaceImage";
 import type { ImageLoad } from "../../utils/eager-images";
-import LikeButton from "./LikeButton/LikeButton";
 import SaveButton from "./SaveButton/SaveButton";
 import CardDiscounts from "./CardDiscounts/CardDiscounts";
 import { cardId, useIsHovered, useSetHovered } from "../../utils/hover";
@@ -100,9 +99,8 @@ const PlaceCard = (props: Props) => {
         {props.debug && <p className={styles.debug}>{debugLine(props.debug)}</p>}
       </div>
 
-      {/* Fuera del flujo: que aparezcan con el hover no reacomoda el texto ni los chips. */}
+      {/* Fuera del flujo: que aparezca con el hover no reacomoda el texto ni los chips. */}
       <div className={styles.actions}>
-        <LikeButton placeId={props.place.id} name={props.place.name} />
         <SaveButton placeId={props.place.id} name={props.place.name} />
       </div>
     </article>

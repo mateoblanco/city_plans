@@ -39,6 +39,20 @@ describe("el mapa persistente", () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
+  it("el contador de Cerca de: igual no avisa, distinto sí", () => {
+    const store = createSearchMapStore();
+    const results = places(3);
+    store.begin();
+    store.publish({ results, near: null, count: 3, nearby: { label: "Palermo", count: 6, only: false } });
+    const listener = vi.fn();
+    store.subscribe(listener);
+    store.publish({ results, near: null, count: 3, nearby: { label: "Palermo", count: 6, only: false } });
+    expect(listener).not.toHaveBeenCalled();
+    store.publish({ results, near: null, count: 3, nearby: { label: "Palermo", count: 7, only: false } });
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(store.getState().nearby).toEqual({ label: "Palermo", count: 7, only: false });
+  });
+
   it("entre búsquedas quedan los puntos anteriores hasta que llega la nueva, y la nueva encuadra", () => {
     const store = createSearchMapStore();
     store.begin();

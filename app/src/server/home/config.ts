@@ -20,7 +20,7 @@ export type HomeSearch = {
 export type HomeSectionDef = { id: string; title: string; search: HomeSearch }
 
 /**
- * Filas de la home, en este orden; "Guardados" (server/home/saved.ts) y "Para vos" (likes, sale del perfil) van antes
+ * Filas de la home, en este orden; "Guardados" (server/home/saved.ts) y "Para vos" (guardados, sale del perfil) van antes
  * de todas y no están acá.
  */
 export const HOME_SECTIONS: HomeSectionDef[] = [

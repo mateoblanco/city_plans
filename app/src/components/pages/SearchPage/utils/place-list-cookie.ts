@@ -1,11 +1,11 @@
 /**
- * Cookies espejo de las listas de lugares del navegador (likes, guardados): sólo ids en orden, el más reciente primero,
+ * Cookie espejo de la lista de lugares del navegador (los guardados): sólo ids en orden, el más reciente primero,
  * separados por punto (100 × 37 caracteres entran en los 4 KB). Sin hooks: las importan server components y rutas.
  */
 const SEPARATOR = ".";
 
 // Cualquier uuid con formato válido, sin exigir versión ni variante RFC (como z.guid()). Regex y no zod: este módulo lo
-// importa el cliente (likes, guardados) y zod suma ~130 KB gzip a todas las páginas.
+// importa el cliente (utils/saved.ts) y zod suma ~130 KB gzip a todas las páginas.
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Ids válidos (formato uuid), sin repetidos, como mucho los max primeros (los más recientes). */
