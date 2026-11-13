@@ -4,6 +4,7 @@ import SkipLinks from "@/components/SkipLinks/SkipLinks";
 import { SKIP_TARGETS } from "@/components/SkipLinks/utils/skip-targets";
 import HomeLocation from "./HomeLocation/HomeLocation";
 import HomeWelcome from "./HomeWelcome/HomeWelcome";
+import HomeDishes from "./HomeSections/HomeDishes/HomeDishes";
 import HomeSections from "./HomeSections/HomeSections";
 import HomeSectionsSkeleton from "./HomeSections/HomeSectionsSkeleton/HomeSectionsSkeleton";
 import styles from "./HomePage.module.scss";
@@ -19,10 +20,14 @@ const HomePage = () => {
       <HeaderSearch />
       <main id={SKIP_TARGETS.content} data-skip-target>
         <h1 className={styles.heading}>{HOME_HEADING}</h1>
-        {/* Lee las cookies de guardados y de ubicación: el resto de la home no espera por ellas. */}
-        <Suspense fallback={<HomeSectionsSkeleton />}>
-          <HomeSections />
-        </Suspense>
+        <div className={styles.content}>
+          {/* Primera fila, sin cookies: va en el shell estático (su primera foto es el LCP), sin esperar a las filas. */}
+          <HomeDishes eager />
+          {/* Lee las cookies de guardados y de ubicación: el resto de la home no espera por ellas. */}
+          <Suspense fallback={<HomeSectionsSkeleton />}>
+            <HomeSections />
+          </Suspense>
+        </div>
         {/* Con el permiso ya dado, actualiza la ubicación sin preguntar; nunca la pide. */}
         <HomeLocation />
       </main>

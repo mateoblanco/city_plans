@@ -1,14 +1,13 @@
 @use '../../../../styles/breakpoints' as *;
 
+// Dentro de `.content` de HomePage (ancho, márgenes y padding), debajo de los platos: el mismo gap entre filas.
 .sections {
   display: flex;
   flex-direction: column;
   gap: 24px;
-  margin: 0 auto;
-  max-width: 1200px;
   min-width: 0;
-  padding: 40px 0 64px;
 
   @include media(md) {
-gap: 40px; }
+    gap: 40px;
+  }
 }

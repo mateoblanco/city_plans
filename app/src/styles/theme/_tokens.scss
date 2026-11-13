@@ -21,7 +21,7 @@
 	--color-surface: #{palette.get(white)};
 	--color-surface-hover: #{palette.get(gray-50)}; // Header, FilterChip, Select, Popover, DiscountChoices, WelcomePlaceCard
 	--color-surface-muted: #{palette.get(gray-50)}; // LocationSelect, DebugPanel, ResultsView, PlaceHours (hoy)
-	--color-surface-chip: #{palette.get(gray-50)}; // FilterChip, Select (trigger), Popover (trigger), DiscountChoices, PlaceTags
+	--color-surface-chip: #{palette.get(gray-50)}; // FilterChip, Select (trigger), Popover (trigger), DiscountChoices, PlaceTags, DishCard (fondo de la foto)
 	--color-skeleton: #{palette.get(gray-100)}; // ResultsSkeleton, PlaceMap, WelcomePlaces
 	--color-backdrop: #{shade(0.4)}; // Dialog (fondo detrás del diálogo)
 
@@ -37,7 +37,7 @@
 	// Button, Select, Header, FilterBar, FilterChip, PlaceImage, ResultSections, PlaceTags, DiscountChoices, Dialog
 	--color-border: #{palette.get(gray-175)};
 	--color-border-input: #{palette.get(gray-200)}; // Header, Search, PlaceCard, SearchMap, MapView, WelcomePlaces, WelcomePlaceCard
-	--color-border-card: #{palette.get(gray-175)}; // PlaceCard, BranchCard, PlaceHours, PlaceDiscounts, WelcomePlaceCard
+	--color-border-card: #{palette.get(gray-175)}; // PlaceCard, BranchCard, PlaceHours, PlaceDiscounts, WelcomePlaceCard, DishCard
 	--color-border-popover: #{palette.get(gray-200)}; // Select (popup), Popover, Tooltip
 	--color-border-debug: #{palette.get(gray-300)}; // DebugPanel
 
@@ -81,7 +81,7 @@
 	--color-control-focus: #{palette.get(neutral-950)}; // Button
 
 	// Sombras
-	--shadow-card: 0 4px 4px 0 #{shade(0.05)}; // PlaceCard, PlaceImage (lg), BranchCard, PlaceHours, PlaceDiscounts
+	--shadow-card: 0 4px 4px 0 #{shade(0.05)}; // PlaceCard, PlaceImage (lg), BranchCard, PlaceHours, PlaceDiscounts, DishCard
 	--shadow-popover: 2px 2px 4px #{shade(0.12)}; // Select (popup), Popover, Tooltip
 	--shadow-panel: 0 4px 16px #{shade(0.12)}; // DebugPanel, Dialog
 	--shadow-sheet: 0 -4px 16px #{shade(0.12)}; // ResultsSheet (panel de resultados de /search en mobile)

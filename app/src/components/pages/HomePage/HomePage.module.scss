@@ -1,3 +1,5 @@
+@use '../../../styles/breakpoints' as *;
+
 // h1 de la home, sólo para lectores de pantalla y buscadores.
 .heading {
   clip: rect(0 0 0 0);
@@ -7,4 +9,19 @@
   position: absolute;
   white-space: nowrap;
   width: 1px;
+}
+
+// Platos (en el shell) y las filas de HomeSections (en streaming), con el mismo gap entre filas que HomeSections.
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  margin: 0 auto;
+  max-width: 1200px;
+  min-width: 0;
+  padding: 40px 0 64px;
+
+  @include media(md) {
+    gap: 40px;
+  }
 }

@@ -1,13 +1,11 @@
 @use '../../../../../styles/breakpoints' as *;
 
-// El mismo layout que HomeSections y PlaceRow, para que el skeleton ocupe lo mismo.
+// El mismo layout que HomeSections y PlaceRow, para que el skeleton ocupe lo mismo (ancho y padding: `.content` de HomePage).
 .sections {
   display: flex;
   flex-direction: column;
   gap: 40px;
-  margin: 0 auto;
-  max-width: 1200px;
-  padding: 40px 0 64px;
+  min-width: 0;
 }
 
 .row {

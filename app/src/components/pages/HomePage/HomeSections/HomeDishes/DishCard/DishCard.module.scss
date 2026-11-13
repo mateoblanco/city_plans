@@ -1,0 +1,83 @@
+@use '../../../../../../styles/breakpoints' as *;
+
+$size: 88px;
+$size-md: 112px;
+$padding: 16px;
+
+// Como PlaceCard: superficie blanca con borde, sombra y el mismo padding. Toda la card es el link; el foco usa el
+// anillo global (`:where(:focus-visible)`), con el radio de la card.
+.card {
+  align-items: center;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border-card);
+  border-radius: 16px;
+  box-shadow: var(--shadow-card);
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: $padding;
+  text-decoration: none;
+  transition: border-color 0.15s ease-out, transform 0.1s ease-in-out;
+  // Todas del mismo ancho (foto + padding + borde): un nombre largo ("Hamburguesas" en mobile) no la ensancha.
+  width: $size + 2 * $padding + 2px;
+
+  @include media(md) {
+    width: $size-md + 2 * $padding + 2px;
+  }
+
+  // Como la card activa de PlaceCard y el hover de FilterChip.
+  &:hover {
+    border-color: var(--color-selected);
+  }
+
+  // Como FilterChip.
+  &:active {
+    transform: scale(0.95);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: border-color 0.15s ease-out;
+
+    &:active {
+      transform: none;
+    }
+  }
+}
+
+// La foto, con el radio del logo de PlaceCard (PlaceImage).
+.frame {
+  aspect-ratio: 1;
+  background-color: var(--color-surface-chip);
+  border-radius: 8px;
+  display: block;
+  overflow: hidden;
+  width: 100%;
+}
+
+.image {
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.2s ease-out;
+  width: 100%;
+
+  .card:hover & {
+    transform: scale(1.05);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+
+    .card:hover & {
+      transform: none;
+    }
+  }
+}
+
+.text {
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: center;
+}

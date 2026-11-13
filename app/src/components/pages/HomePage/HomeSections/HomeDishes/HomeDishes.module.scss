@@ -22,16 +22,16 @@
 
 .scroller {
   display: flex;
-  gap: 8px;
+  gap: 16px;
   list-style: none;
   margin: 0;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 4px 16px;
+  padding: 4px 16px 12px;
   scrollbar-width: none;
 
   @include media(md) {
-    padding: 4px 48px;
+    padding: 4px 48px 12px;
   }
 
   &::-webkit-scrollbar {
