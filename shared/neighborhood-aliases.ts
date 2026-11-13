@@ -1,4 +1,4 @@
-import { NEIGHBORHOOD_NAMES } from './neighborhood-names.ts'
+import { NEIGHBORHOOD_NAMES, neighborhoodNameForms } from './neighborhood-names.ts'
 import { normalize } from './tags.ts'
 
 // Formas cortas o parciales con las que la gente nombra barrios cuyo id del INE es compuesto.
@@ -39,8 +39,8 @@ const ALIASES: Record<string, string> = {
 }
 
 const LOOKUP = new Map<string, string>()
-for (const [id, name] of Object.entries(NEIGHBORHOOD_NAMES)) {
-  LOOKUP.set(normalize(name), id)
+for (const id of Object.keys(NEIGHBORHOOD_NAMES)) {
+  for (const name of neighborhoodNameForms(id)) LOOKUP.set(normalize(name), id)
   LOOKUP.set(normalize(id), id)
 }
 for (const [alias, id] of Object.entries(ALIASES)) LOOKUP.set(alias, id)

@@ -78,6 +78,37 @@ describe('subFit y la señal de cada sub-filtro', () => {
     expect(boostsFor(row({ id: 'r', categories: ['restaurant'], tags: ['lunch', 'menu_of_the_day'] }), context({ intent: 'eat', subs: ['lunch'] }), null).subFit).toBeUndefined()
   })
 
+  it('Al aire libre: el tag suma entero; terraza, patio o azotea sin el tag, la mitad', () => {
+    const { partialTagShare } = SEARCH_CONFIG.boosts
+    for (const intent of ['eat', 'cafes', 'bars'] as const) {
+      const value = context({ intent, subs: ['outdoor'] })
+      expect(boostsFor(row({ id: 'afuera', tags: ['outdoor'] }), value, null).subFit, intent).toBe(subFit)
+      expect(boostsFor(row({ id: 'ambos', tags: ['outdoor', 'terrace'] }), value, null).subFit).toBe(subFit)
+      for (const tag of ['terrace', 'patio', 'rooftop']) expect(boostsFor(row({ id: tag, tags: [tag] }), value, null).subFit).toBeCloseTo(subFit * partialTagShare)
+      expect(boostsFor(row({ id: 'adentro', tags: ['wifi'] }), value, null).subFit).toBeUndefined()
+    }
+  })
+
+  it('Al aire libre sin texto: primero los del tag, después las terrazas; el motivo dice cuál tiene', async () => {
+    const places = [
+      row({ id: 'terraza', categories: ['cafe'], tags: ['terrace'], prominence: 1 }),
+      row({ id: 'patio', categories: ['cafe'], tags: ['patio'], prominence: 0.9 }),
+      row({ id: 'afuera', categories: ['cafe'], tags: ['outdoor'], prominence: 0.1 }),
+      row({ id: 'ambos', categories: ['cafe'], tags: ['outdoor', 'terrace'], prominence: 0.2 }),
+      row({ id: 'adentro', categories: ['cafe'], tags: ['wifi'], prominence: 1 }),
+    ]
+    const response = await runSearch('', { store: fakeStore(places).store, cache: noLlm() }, { now, intent: 'cafes', sub: 'outdoor' })
+    const ids = response.results.map((result) => result.id)
+    expect(ids.slice(0, 2).sort()).toEqual(['afuera', 'ambos'])
+    expect(ids.slice(2).sort()).toEqual(['patio', 'terraza'])
+    const reasons = Object.fromEntries(response.results.map((result) => [result.id, result.reasons]))
+    expect(reasons.afuera).toContain('Al aire libre')
+    expect(reasons.ambos).toContain('Al aire libre')
+    expect(reasons.ambos).not.toContain('Terraza')
+    expect(reasons.terraza).toContain('Terraza')
+    expect(reasons.patio).toContain('Patio')
+  })
+
   it('Tragos sin texto: los de autor primero y el motivo es el tag del sub-filtro, no la cerveza', async () => {
     const places = [
       row({ id: 'cerveceria', categories: ['bar', 'brewery'], tags: ['craft_beer', 'classic_cocktails'], signature: ['craft_beer'], iconCategory: 'beer', prominence: 1 }),

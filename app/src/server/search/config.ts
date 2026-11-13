@@ -100,7 +100,8 @@ export const SEARCH_CONFIG = {
     partialTagShare: 0.5,
     /**
      * Por cada sub-filtro activo cuya señal específica tiene el lugar (fuse.ts SUB_SIGNALS: Tragos → signature_cocktails o
-     * ícono de coctelería, no classic_cocktails). El filtro ya lo cumplen todos: esto ordena dentro. Como barFit.
+     * ícono de coctelería, no classic_cocktails). El filtro ya lo cumplen todos: esto ordena dentro. Como barFit. Con
+     * Al aire libre, la terraza, el patio o la azotea sin el tag suman partialTagShare (y son maybe, como exigido).
      */
     subFit: 0.015,
     /**

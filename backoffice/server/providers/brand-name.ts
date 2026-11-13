@@ -1,4 +1,4 @@
-import { NEIGHBORHOOD_NAMES } from '../../src/data/neighborhood-names.ts'
+import { NEIGHBORHOOD_DISPLAY_NAMES, NEIGHBORHOOD_NAMES } from '../../src/data/neighborhood-names.ts'
 import { toCanonical } from '../../src/data/tags.ts'
 
 const canonical = (value: string) => value.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -7,6 +7,7 @@ const words = (value: string) => canonical(value).split(/[^a-z0-9]+/).filter(Boo
 // Sufijos de sucursal: barrios, nombres cortos de barrios compuestos, shoppings y la ciudad.
 const PLACE_SUFFIXES = [
   ...Object.values(NEIGHBORHOOD_NAMES),
+  ...Object.values(NEIGHBORHOOD_DISPLAY_NAMES).filter((name) => name !== undefined),
   'Prado', 'Parque Batlle', 'Colón', 'Maroñas', 'Peñarol', 'Capurro', 'Bella Vista',
   'Nuevocentro', 'Portones', 'Costa Urbana', 'Montevideo',
 ].map(words).sort((left, right) => right.length - left.length)

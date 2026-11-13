@@ -237,16 +237,22 @@ export function dessertFitOf(row: Pick<CandidateRow, 'categories' | 'tags' | 'ic
  * más angosto o el tag en signature (lo que define al lugar). null: no hay una señal mejor que el tag del filtro
  * (almuerzo y cena los tiene casi todo lugar para comer y nunca están en signature).
  */
-export type SubSignal = { icons?: IconCategory[]; categories?: string[]; tags?: string[]; signature?: string[] }
+/**
+ * partialTags: tags con parecidos (PARTIAL_TAGS) que son la señal: entera con el tag y partialTagShare con sólo un
+ * parecido (Al aire libre: primero los del tag, después terrazas); además el parecido es maybe, como exigido.
+ */
+export type SubSignal = { icons?: IconCategory[]; categories?: string[]; tags?: string[]; signature?: string[]; partialTags?: string[] }
+const OUTDOOR_SIGNAL: SubSignal = { partialTags: ['outdoor'] }
 const BREAKFAST_SIGNAL: SubSignal = { icons: ['breakfast', 'pancakes'], signature: ['breakfast'] }
 const BRUNCH_SIGNAL: SubSignal = { icons: ['pancakes'], signature: ['brunch'] }
 export const SUB_SIGNALS: { [K in IntentId]: Record<keyof (typeof INTENTS)[K]['subs'], SubSignal | null> } = {
-  eat: { breakfast: BREAKFAST_SIGNAL, brunch: BRUNCH_SIGNAL, lunch: null, dinner: null },
+  eat: { breakfast: BREAKFAST_SIGNAL, brunch: BRUNCH_SIGNAL, lunch: null, dinner: null, outdoor: OUTDOOR_SIGNAL },
   cafes: {
     specialty: { icons: ['coffee'], signature: ['specialty_coffee'] },
     pastries: { icons: [...PASTRY_ICONS, ...DESSERT_ICONS].filter((icon) => icon !== 'ice_cream'), categories: ['bakery'], signature: ['pastries'] },
     brunch: BRUNCH_SIGNAL,
     work: { signature: ['work'] },
+    outdoor: OUTDOOR_SIGNAL,
   },
   bars: {
     cocktails: { icons: ['cocktails'], tags: ['signature_cocktails'] },
@@ -254,6 +260,7 @@ export const SUB_SIGNALS: { [K in IntentId]: Record<keyof (typeof INTENTS)[K]['s
     beer: { icons: ['beer', 'beer_pub'], categories: ['brewery'], tags: ['craft_beer'] },
     live_music: { signature: ['live_music'] },
     live_sports: { signature: ['watch_football'] },
+    outdoor: OUTDOOR_SIGNAL,
   },
   desserts: {
     ice_cream: { icons: ['ice_cream'], categories: ['ice_cream_shop'] },
@@ -270,12 +277,27 @@ const hasSubSignal = (row: Pick<CandidateRow, 'categories' | 'tags' | 'signature
   (signal.tags ?? []).some((id) => row.tags.includes(id)) ||
   (signal.signature ?? []).some((id) => row.signature.includes(id))
 
-/** Cuántos sub-filtros activos tienen su señal específica en el lugar. */
-export function subSignalCount(row: Pick<CandidateRow, 'categories' | 'tags' | 'signature' | 'iconCategory'>, intent: IntentId | null, subs: string[]): number {
-  return subs.filter((id) => {
+/**
+ * Cuántos sub-filtros activos tienen su señal específica en el lugar: 1 por cada uno, o la parte de partialTagShareOf
+ * si la señal es un tag con parecidos (una terraza con Al aire libre suma la mitad).
+ */
+export function subSignalScore(row: Pick<CandidateRow, 'categories' | 'tags' | 'signature' | 'iconCategory'>, intent: IntentId | null, subs: string[]): number {
+  return subs.reduce((sum, id) => {
     const signal = subSignal(intent, id)
-    return signal !== null && hasSubSignal(row, signal)
-  }).length
+    if (signal === null) return sum
+    if (hasSubSignal(row, signal)) return sum + 1
+    return sum + Math.max(0, ...(signal.partialTags ?? []).map((tag) => partialTagShareOf(row, tag)))
+  }, 0)
+}
+
+/** Tags con parecidos de las señales de los sub-filtros activos: el lugar con sólo un parecido es maybe (matchLevelOf). */
+export const subPartialTags = (intent: IntentId | null, subs: string[]): string[] =>
+  [...new Set(subs.flatMap((id) => subSignal(intent, id)?.partialTags ?? []))]
+
+/** 1 si el lugar tiene el tag, partialTagShare si sólo tiene un parecido (PARTIAL_TAGS), 0 si ninguno. */
+export function partialTagShareOf(row: Pick<CandidateRow, 'tags'>, id: string): number {
+  if (row.tags.includes(id)) return 1
+  return withPartialTags(id).some((tag) => row.tags.includes(tag)) ? SEARCH_CONFIG.boosts.partialTagShare : 0
 }
 
 /**
@@ -284,11 +306,7 @@ export function subSignalCount(row: Pick<CandidateRow, 'categories' | 'tags' | '
  * con el tag en prefer; exigido (partialTags), además el parecido es maybe.
  */
 export function partialTagFit(row: Pick<CandidateRow, 'tags'>, wanted: readonly string[]): number {
-  const { partialTag, partialTagShare } = SEARCH_CONFIG.boosts
-  return [...new Set(wanted)].filter(hasPartialTags).reduce((sum, id) => {
-    if (row.tags.includes(id)) return sum + partialTag
-    return withPartialTags(id).some((tag) => row.tags.includes(tag)) ? sum + partialTag * partialTagShare : sum
-  }, 0)
+  return [...new Set(wanted)].filter(hasPartialTags).reduce((sum, id) => sum + partialTagShareOf(row, id) * SEARCH_CONFIG.boosts.partialTag, 0)
 }
 
 /** Tags de prefer, sin momentos, que tienen rareTagMaxPlaces lugares o menos entre los que cumplen los filtros. */
@@ -335,7 +353,7 @@ export function boostsFor(row: CandidateRow, context: FuseContext, open: OpenSta
     const dessertFit = dessertFitOf(row)
     if (dessertFit > 0) result.dessertFit = dessertFit
   }
-  const subSignals = subSignalCount(row, context.intent, context.subs ?? [])
+  const subSignals = subSignalScore(row, context.intent, context.subs ?? [])
   if (subSignals > 0) result.subFit = subSignals * boosts.subFit
   const signals = context.section ? sectionSignals(context.section, row) : 0
   if (signals > 0) result.sectionFit = signals * boosts.sectionFit

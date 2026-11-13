@@ -1,5 +1,5 @@
 import { findDef, hasPartialTags, isOccasionTag, isStyleId, label, normalize, withPartialTags, withSubcuisines } from '@shared/tags.ts'
-import { neighborhoodDisplayName } from '@shared/neighborhood-names.ts'
+import { neighborhoodDisplayName, neighborhoodNameForms } from '@shared/neighborhood-names.ts'
 import { sectionDef } from '@shared/sections.ts'
 import { INTENT_VERB_WORDS } from '@shared/intents.ts'
 import type { IconCategory } from '@shared/icon-categories.ts'
@@ -16,7 +16,7 @@ import { checkMust, intendedDiscards, reportMust, type Discard, type MustCheck }
 import { dishTargetFor, excludedIcons, preferredDiets, type DishTarget } from './dishes'
 import { applyFilters, filterChipKeys, parseFilters, type LatLng } from './filters'
 import { buildBar, intentGroups, parseIntent, resolveIntent, type IntentBar } from './intents'
-import { buildRankings, fuse, rareTagsOf, type Fused, type MatchLevel, type Rankings } from './fuse'
+import { buildRankings, fuse, rareTagsOf, subPartialTags, type Fused, type MatchLevel, type Rankings } from './fuse'
 import { keywordFilter } from './keywords'
 import { singularForms } from './dishes'
 import { montevideoNow, nextOpening, openStatus, resolveOpenAt, type OpenFilter, type OpenState } from './hours'
@@ -259,7 +259,7 @@ export function removedWordsOf(removals: { kind: string; id: string }[]): Set<st
     removals.flatMap(({ kind, id }) => {
       if (kind === 'category' || kind === 'tag' || kind === 'prefer') return termWords(id)
       if (kind === 'dish') return queryWords(normalize(id))
-      if (kind === 'neighborhood') return queryWords(normalize(neighborhoodDisplayName(id) ?? id))
+      if (kind === 'neighborhood') return neighborhoodNameForms(id).flatMap((name) => queryWords(normalize(name)))
       if (kind === 'venue') return queryWords(normalize(id))
       return []
     }),
@@ -296,7 +296,7 @@ const isGenericNameWord = (word: string) => singularForms(word).some((form) => G
  * y sin las del barrio pedido ("milanesa en pocitos" sigue empujando a El Club de la Milanesa).
  */
 export function distinctiveNameWords(words: string[], neighborhoods: string[]): string[] {
-  const place = new Set(neighborhoods.flatMap((id) => queryWords(normalize(neighborhoodDisplayName(id) ?? id))))
+  const place = new Set(neighborhoods.flatMap((id) => neighborhoodNameForms(id).flatMap((name) => queryWords(normalize(name)))))
   return words.filter((word) => !isGenericNameWord(word) && !place.has(word))
 }
 
@@ -644,7 +644,12 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       intent: value.intent,
       subs: value.subs,
       section: filters.section,
-      partialTags: [...new Set([...wanted.must.tags.filter(hasPartialTags), ...(filters.section ? sectionPartialTags(filters.section) : [])])],
+      // Exigidos con parecidos: del texto, del "Ver todos" de la sección o de un sub-filtro (Al aire libre).
+      partialTags: [...new Set([
+        ...wanted.must.tags.filter(hasPartialTags),
+        ...(filters.section ? sectionPartialTags(filters.section) : []),
+        ...subPartialTags(value.intent, value.subs),
+      ])],
     })
     // Sin tope: se muestran todos los que pasan el corte por relevancia (los de horario sin confirmar, al final).
     const cut = relevanceCut(allFused, {

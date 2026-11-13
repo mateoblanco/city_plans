@@ -1,4 +1,5 @@
-// IDs tal como vienen del shapefile del INE (incluye la codificación histórica del archivo).
+// IDs tal como vienen del shapefile del INE (incluye la codificación histórica del archivo), con su nombre oficial.
+// Para mostrar se usa neighborhoodDisplayName, que aplica NEIGHBORHOOD_DISPLAY_NAMES.
 export const NEIGHBORHOOD_NAMES: Record<string, string> = {
   AGUADA: 'Aguada', 'AIRES PUROS': 'Aires Puros', ATAHUALPA: 'Atahualpa', 'BAÃ‘ADOS DE CARRASCO': 'Bañados de Carrasco',
   'BARRIO SUR': 'Barrio Sur', BELVEDERE: 'Belvedere', 'BRAZO ORIENTAL': 'Brazo Oriental', BUCEO: 'Buceo',
@@ -22,6 +23,17 @@ export const NEIGHBORHOOD_NAMES: Record<string, string> = {
   'VILLA MUÃ‘OZ RETIRO': 'Villa Muñoz Retiro',
 }
 
+// Nombre para mostrar cuando no es el oficial. Cambiar uno acá no toca el id (URLs, filtros, datos) ni los polígonos;
+// el nombre oficial sigue funcionando en la búsqueda por texto (neighborhood-aliases.ts).
+export const NEIGHBORHOOD_DISPLAY_NAMES: Partial<Record<string, string>> = {
+  'PRADO NUEVA SAVONA': 'Prado',
+}
+
 export function neighborhoodDisplayName(id: string | null): string | null {
-  return id ? NEIGHBORHOOD_NAMES[id] ?? id : null
+  return id ? NEIGHBORHOOD_DISPLAY_NAMES[id] ?? NEIGHBORHOOD_NAMES[id] ?? id : null
+}
+
+/** Todos los nombres de un barrio (el que se muestra y el oficial), para reconocerlo o sacarlo de un texto. */
+export function neighborhoodNameForms(id: string): string[] {
+  return [...new Set([neighborhoodDisplayName(id) ?? id, NEIGHBORHOOD_NAMES[id] ?? id])]
 }

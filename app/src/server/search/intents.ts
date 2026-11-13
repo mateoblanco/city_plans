@@ -1,4 +1,5 @@
-import { DEFAULT_DISH_INTENT, INTENT_IDS, INTENTS, isIntentId, type IntentDef, type IntentId, type IntentMatch } from '@shared/intents.ts'
+import { DEFAULT_DISH_INTENT, INTENT_IDS, INTENTS, isIntentId, type IntentDef, type IntentId, type IntentMatch, type SubFilterDef } from '@shared/intents.ts'
+import { PARTIAL_TAGS } from '@shared/tags.ts'
 import type { FilterGroup } from './candidates'
 import type { Chip } from './chips'
 import type { ChipKind, Interpretation } from './interpretation'
@@ -44,13 +45,23 @@ const placeHits = (match: IntentMatch, categories: string[], tags: string[]) =>
   hits(match, categories, tags) ||
   (match.all ?? []).some((pair) => pair.categories.some((id) => categories.includes(id)) && pair.tags.some((id) => tags.includes(id)))
 
-/** ¿Lo pedido (categorías y tags) apunta a esta intención? Por su match, sus sub-filtros o detect. */
+/**
+ * Lo del sub-filtro que, pedido en el texto, lo elige: sin los parecidos de otro de sus tags (Al aire libre lo elige
+ * "al aire libre", no "terraza": "con terraza" sigue pidiendo terraza).
+ */
+function textMatch(sub: SubFilterDef): IntentMatch {
+  const tags = sub.tags ?? []
+  const partial = new Set(tags.flatMap((id) => PARTIAL_TAGS[id] ?? []))
+  return { categories: sub.categories, tags: tags.filter((id) => !partial.has(id)) }
+}
+
+/** ¿Lo pedido (categorías y tags) apunta a esta intención? Por su match, sus sub-filtros que votan o detect. */
 function points(id: IntentId, categories: string[], tags: string[]) {
   const intent = def(id)
   return (
     hits(intent.match, categories, tags) ||
     intent.detect.some((tag) => tags.includes(tag)) ||
-    Object.values(intent.subs).some((sub) => hits(sub, categories, tags))
+    Object.values(intent.subs).some((sub) => sub.vote !== false && hits(textMatch(sub), categories, tags))
   )
 }
 
@@ -112,7 +123,7 @@ export function resolveIntent(fromText: Interpretation, url: IntentUrl, removals
   }
   for (const id of url.intent === intent ? url.subs : []) subs.set(id, { id, fromUrl: true, fromText: false, removeKeys: [] })
   const subEntries = Object.entries(def(intent).subs)
-  const subOf = (categories: string[], tags: string[]) => subEntries.find(([, sub]) => hits(sub, categories, tags))?.[0] ?? null
+  const subOf = (categories: string[], tags: string[]) => subEntries.find(([, sub]) => hits(textMatch(sub), categories, tags))?.[0] ?? null
 
   const aliasKeys: string[] = []
   const absorbed = { categories: [] as string[], tags: [] as string[] }

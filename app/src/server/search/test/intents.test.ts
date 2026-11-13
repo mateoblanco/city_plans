@@ -52,7 +52,7 @@ describe('parseIntent', () => {
     expect(parseIntent(null, 'cocktails')).toEqual({ intent: null, subs: [] })
     // "Para comer" ya no existe en Cafés: un link viejo lo pierde y queda Brunch.
     expect(parseIntent('cafes', 'to_eat,brunch')).toEqual({ intent: 'cafes', subs: ['brunch'] })
-    expect(Object.keys(INTENTS.cafes.subs)).toEqual(['specialty', 'pastries', 'brunch', 'work'])
+    expect(Object.keys(INTENTS.cafes.subs)).toEqual(['specialty', 'pastries', 'brunch', 'work', 'outdoor'])
   })
 })
 
@@ -115,6 +115,26 @@ describe('resolveIntent', () => {
 
     const removed = resolveIntent(read('pizza'), none, parseRemove('intent:eat'))
     expect(removed).toMatchObject({ intent: null, textIntent: null })
+  })
+
+  it('"al aire libre" con Comer, Cafés o Tomar algo activa Al aire libre; "terraza" sigue siendo terraza', () => {
+    for (const intent of ['eat', 'cafes', 'bars'] as const) {
+      const resolved = resolveIntent(read('al aire libre'), parseIntent(intent, null), [])
+      expect(resolved.subs, intent).toEqual([{ id: 'outdoor', fromUrl: false, fromText: true, removeKeys: ['tag:outdoor'] }])
+      expect(resolved.interpretation.must.tags).toEqual([])
+      expect(resolved.interpretation.prefer.tags).toContain('outdoor')
+    }
+    const terrace = resolveIntent(read('cafés con terraza'), none, [])
+    expect(terrace).toMatchObject({ intent: 'cafes', subs: [] })
+    expect(terrace.interpretation.must.tags).toEqual(['terrace'])
+    // Postres no tiene la opción: el tag sigue filtrando.
+    expect(resolveIntent(read('al aire libre'), parseIntent('desserts', null), []).interpretation.must.tags).toEqual(['outdoor'])
+  })
+
+  it('Al aire libre no vota la intención (está en tres)', () => {
+    expect(detectIntent(read('al aire libre'))).toBeNull()
+    expect(detectIntent(read('heladería al aire libre'))).toBe('desserts')
+    expect(detectIntent(read('cafés al aire libre'))).toBe('cafes')
   })
 
   it('URL y texto en la misma intención: los sub-filtros se juntan', () => {
@@ -185,7 +205,7 @@ describe('búsqueda con intención', () => {
     expect(response.bar.intent).toEqual({ id: 'eat', fromText: true })
     expect(response.bar.textIntent).toBe('eat')
     expect(response.bar.extras.map((chip) => [chip.kind, chip.id])).toEqual([['dish', 'pizza']])
-    expect(response.bar.subs.map((sub) => sub.id)).toEqual(['breakfast', 'brunch', 'lunch', 'dinner'])
+    expect(response.bar.subs.map((sub) => sub.id)).toEqual(['breakfast', 'brunch', 'lunch', 'dinner', 'outdoor'])
     expect(ids(response)).toEqual(['pizzeria'])
   })
 

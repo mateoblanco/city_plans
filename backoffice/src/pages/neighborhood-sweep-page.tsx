@@ -103,8 +103,8 @@ function storeMapVisible(visible: boolean) {
   }
 }
 
-const neighborhoodOptions: readonly ComboboxOption[] = Object.entries(NEIGHBORHOOD_NAMES)
-  .map(([value, label]) => ({ value, label }))
+const neighborhoodOptions: readonly ComboboxOption[] = Object.keys(NEIGHBORHOOD_NAMES)
+  .map((value) => ({ value, label: neighborhoodDisplayName(value) ?? value }))
   .sort((a, b) => a.label.localeCompare(b.label, 'es'))
 
 function categoryLabel(id: string) {

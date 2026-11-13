@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { NEIGHBORHOOD_NAMES } from '@shared/neighborhood-names.ts'
-import { resolveNeighborhood } from '@shared/neighborhood-aliases.ts'
+import { NEIGHBORHOOD_DISPLAY_NAMES, NEIGHBORHOOD_NAMES, neighborhoodDisplayName } from '@shared/neighborhood-names.ts'
+import { neighborhoodsIn, resolveNeighborhood } from '@shared/neighborhood-aliases.ts'
+import { removedWordsOf } from '../search'
 import centroids from '@shared/neighborhood-centroids.json'
 import { interpretWithDictionary } from '../dictionary'
 import { dishTarget } from '../dishes'
@@ -25,6 +26,20 @@ describe('barrios', () => {
     expect(resolveNeighborhood('Ciudad Vieja')).toBe('CIUDAD VIEJA')
     expect(resolveNeighborhood('Bañados de Carrasco')).toBe('BAÃ‘ADOS DE CARRASCO')
     expect(resolveNeighborhood('Narnia')).toBeNull()
+  })
+
+  it('el nombre para mostrar no cambia el id y los nombres viejos siguen resolviendo', () => {
+    expect(neighborhoodDisplayName('PRADO NUEVA SAVONA')).toBe('Prado')
+    expect(neighborhoodDisplayName('POCITOS')).toBe('Pocitos')
+    for (const name of ['Prado', 'Prado Nueva Savona', 'Prado - Nueva Savona', 'Nueva Savona', 'PRADO NUEVA SAVONA']) {
+      expect(resolveNeighborhood(name)).toBe('PRADO NUEVA SAVONA')
+    }
+    expect([...neighborhoodsIn('pizza en prado nueva savona')]).toEqual(['PRADO NUEVA SAVONA'])
+    for (const id of Object.keys(NEIGHBORHOOD_DISPLAY_NAMES)) expect(NEIGHBORHOOD_NAMES).toHaveProperty([id])
+  })
+
+  it('quitar el chip de un barrio renombrado saca también las palabras del nombre viejo', () => {
+    expect([...removedWordsOf([{ kind: 'neighborhood', id: 'PRADO NUEVA SAVONA' }])].sort()).toEqual(['nueva', 'prado', 'savona'])
   })
 
   it('todos los alias apuntan a barrios que existen y todos tienen centro', () => {

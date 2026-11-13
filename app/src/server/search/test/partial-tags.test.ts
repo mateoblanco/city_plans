@@ -6,7 +6,7 @@ import { withPartialTags } from '@shared/tags.ts'
 import { SEARCH_CONFIG } from '../config'
 import { filterConditions, type CandidateFilters, type CandidateRow } from '../candidates'
 import { interpretWithDictionary } from '../dictionary'
-import { boostsFor, matchLevelOf, partialTagFit, type Fused, type FuseContext } from '../fuse'
+import { boostsFor, matchLevelOf, partialTagFit, partialTagShareOf, subPartialTags, type Fused, type FuseContext } from '../fuse'
 import { emptyInterpretation } from '../interpretation'
 import { normalizeQuery } from '../normalize'
 import { buildReasons } from '../reasons'
@@ -46,6 +46,20 @@ describe('al aire libre: el tag entero, terraza, patio y azotea la mitad', () =>
     expect(partialTagFit(inside, ['outdoor'])).toBe(0)
     // Terraza pedida no suma por al aire libre: no es un tag implícito al revés.
     expect(partialTagFit(outdoor, ['terrace'])).toBe(0)
+  })
+
+  it('partialTagShareOf: 1 con el tag, partialTagShare con sólo un parecido, 0 sin nada', () => {
+    expect(partialTagShareOf(outdoor, 'outdoor')).toBe(1)
+    expect(partialTagShareOf(both, 'outdoor')).toBe(1)
+    for (const place of [terrace, patio, rooftop]) expect(partialTagShareOf(place, 'outdoor')).toBe(partialTagShare)
+    expect(partialTagShareOf(inside, 'outdoor')).toBe(0)
+  })
+
+  it('la opción Al aire libre exige outdoor con parecidos: la terraza es maybe', () => {
+    expect(subPartialTags('cafes', ['outdoor'])).toEqual(['outdoor'])
+    expect(subPartialTags('cafes', ['brunch'])).toEqual([])
+    expect(subPartialTags(null, ['outdoor'])).toEqual([])
+    expect(matchLevelOf(terrace, [], [], [], [], subPartialTags('eat', ['outdoor']))).toBe('maybe')
   })
 
   it('suma pedido en must o prefer y en el "Ver todos" de Al aire libre; sin pedirlo, nada', () => {

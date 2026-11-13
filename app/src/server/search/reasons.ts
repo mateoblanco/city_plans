@@ -32,12 +32,12 @@ const INTENT_SIGNATURE: Record<IntentId, Set<string>> = {
   desserts: new Set(['desserts', 'ice_cream', 'pastries']),
 }
 
-/** Tags de un sub-filtro, del más específico (su señal: fuse.ts SUB_SIGNALS) al de su filtro. */
+/** Tags de un sub-filtro, del más específico (su señal: fuse.ts SUB_SIGNALS) al de su filtro (Al aire libre, después Terraza). */
 function subTags(intent: IntentId | null, sub: string): string[] {
   if (!intent) return []
   const definition = (INTENTS[intent].subs as Record<string, { tags?: readonly string[] }>)[sub]
   const signal = subSignal(intent, sub)
-  return [...(signal?.tags ?? []), ...(signal?.signature ?? []), ...(definition?.tags ?? [])]
+  return [...(signal?.partialTags ?? []), ...(signal?.tags ?? []), ...(signal?.signature ?? []), ...(definition?.tags ?? [])]
 }
 
 /**

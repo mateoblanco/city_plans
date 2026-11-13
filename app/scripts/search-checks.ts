@@ -474,6 +474,8 @@ export const CHECKS: Record<string, Check[]> = {
   // valiendo entero; intención sola sin texto; el texto solo.
   " ?intent=cafes": [nonEmpty, intentFromBar("cafes"), allInIntent("cafes")],
   " ?intent=cafes&sub=brunch": [nonEmpty, allInIntent("cafes"), subFromBar("brunch"), every("todos con brunch", (place) => place.tags.includes("brunch"))],
+  " ?intent=eat&sub=outdoor": [nonEmpty, allInIntent("eat"), subFromBar("outdoor"), outdoorFirst],
+  " ?intent=cafes&sub=outdoor": [nonEmpty, allInIntent("cafes"), subFromBar("outdoor"), outdoorFirst],
   "salir con mi pareja ?intent=cafes": [nonEmpty, intentFromBar("cafes"), allInIntent("cafes"), preferTag("date")],
   "salir con mi pareja": [nonEmpty, preferTag("date")],
   // "Cerca de <barrio>": los de otros barrios a menos de 500 m del borde, con los mismos filtros.

@@ -1,4 +1,4 @@
-import { CUISINES, FOODS, type CategoryId, type Lang, type TagId } from './tags.ts'
+import { CUISINES, FOODS, TAG_FILTERS, type CategoryId, type Lang, type TagId } from './tags.ts'
 
 /**
  * Intenciones de /search: qué quiere hacer la persona. Cada una dice qué lugares entran (cualquiera de sus
@@ -16,6 +16,8 @@ export type IntentMatch = { categories?: CategoryId[]; tags?: TagId[]; featured?
 export type SubFilterDef = IntentMatch & {
   label: Record<Lang, string>
   phrase: Record<Lang, string>
+  /** false: no vota la intención (está en varias: Al aire libre no elige entre Comer, Cafés y Tomar algo). */
+  vote?: false
 }
 
 export type IntentDef = {
@@ -28,11 +30,18 @@ export type IntentDef = {
   subs: Record<string, SubFilterDef>
 }
 
-const sub = (es: string, en: string, phraseEs: string, phraseEn: string, match: IntentMatch): SubFilterDef => ({
+const sub = (es: string, en: string, phraseEs: string, phraseEn: string, match: IntentMatch, options: { vote?: false } = {}): SubFilterDef => ({
   label: { es, en },
   phrase: { es: phraseEs, en: phraseEn },
   ...match,
+  ...options,
 })
+
+/**
+ * Al aire libre: el tag o un parecido (terraza, patio, azotea; shared/tags.ts PARTIAL_TAGS), como la sección. Ordena
+ * primero los del tag (fuse.ts SUB_SIGNALS) y sólo "al aire libre" en el texto la activa (no "terraza").
+ */
+const outdoorSub = () => sub('Al aire libre', 'Outdoor', 'al aire libre', 'outdoors', { tags: [...TAG_FILTERS.outdoor.tags] }, { vote: false })
 
 /** Lo que hace que un bar también sea un lugar para comer: algún plato o cocina. */
 const FOOD_TAGS = [...Object.keys(FOODS), ...Object.keys(CUISINES)] as TagId[]
@@ -59,6 +68,7 @@ export const INTENTS = {
       brunch: sub('Brunch', 'Brunch', 'con brunch', 'serving brunch', { tags: ['brunch'] }),
       lunch: sub('Almuerzo', 'Lunch', 'para almorzar', 'for lunch', { tags: ['lunch'] }),
       dinner: sub('Cena', 'Dinner', 'para cenar', 'for dinner', { tags: ['dinner'] }),
+      outdoor: outdoorSub(),
     },
   },
   cafes: {
@@ -73,6 +83,7 @@ export const INTENTS = {
       pastries: sub('Pastelería', 'Pastries', 'con pastelería', 'with pastries', { tags: ['pastries'] }),
       brunch: sub('Brunch', 'Brunch', 'con brunch', 'serving brunch', { tags: ['brunch'] }),
       work: sub('Para trabajar', 'To work', 'para trabajar', 'to work from', { tags: ['work'] }),
+      outdoor: outdoorSub(),
     },
   },
   bars: {
@@ -91,6 +102,7 @@ export const INTENTS = {
       beer: sub('Cerveza', 'Beer', 'con cerveza', 'with beer', { tags: ['craft_beer', 'draft_beer'] }),
       live_music: sub('Música en vivo', 'Live music', 'con música en vivo', 'with live music', { tags: ['live_music'] }),
       live_sports: sub('Deportes en vivo', 'Live sports', 'con deportes en vivo', 'showing live sports', { tags: ['watch_football'] }),
+      outdoor: outdoorSub(),
     },
   },
   desserts: {
