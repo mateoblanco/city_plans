@@ -82,17 +82,28 @@ export type DiscountFilters = {
   origin: MatchOrigin | ''
   city: CityFilter
   cardType: CardType | ''
-  /** Por defecto se ocultan los inactivos (no aparecieron o sin beneficios vigentes) y los ignorados. */
+  /** Por defecto se ocultan los inactivos (no aparecieron o sin beneficios vigentes) y los descartados. */
   showInactive: boolean
-  showIgnored: boolean
+  discarded: DiscardedFilter
 }
 
-export const DEFAULT_DISCOUNT_FILTERS: DiscountFilters = { providerId: '', match: '', origin: '', city: 'montevideo', cardType: '', showInactive: false, showIgnored: false }
+/** Descartados: ocultos (por defecto), junto con los demás o sólo ellos (para volver a mostrarlos). */
+export const DISCARDED_FILTERS = ['hide', 'show', 'only'] as const
+export type DiscardedFilter = (typeof DISCARDED_FILTERS)[number]
+export const DISCARDED_FILTER_LABELS: Record<DiscardedFilter, string> = { hide: 'Ocultar', show: 'Mostrar', only: 'Sólo descartados' }
+
+export const DEFAULT_DISCOUNT_FILTERS: DiscountFilters = { providerId: '', match: '', origin: '', city: 'montevideo', cardType: '', showInactive: false, discarded: 'hide' }
+
+/** "Rubro: Carnicería" (la regla) o "Descartado a mano". */
+export function discardLabel(place: Pick<DiscountPlace, 'ignored' | 'discard'>): string | null {
+  if (!place.ignored) return null
+  return place.discard?.origin === 'auto' ? place.discard.reason ?? 'Descartado por la regla de rubros' : 'Descartado a mano'
+}
 
 export function filterDiscountPlaces(places: DiscountPlace[], filters: DiscountFilters): DiscountPlace[] {
   return places.filter((place) =>
     (filters.showInactive || isPlaceCurrent(place))
-    && (filters.showIgnored || !place.ignored)
+    && (filters.discarded === 'show' || (filters.discarded === 'only' ? place.ignored : !place.ignored))
     && (!filters.providerId || place.providerId === filters.providerId)
     && (!filters.match || place.match.status === filters.match)
     && (!filters.origin || place.match.origin === filters.origin)
@@ -105,8 +116,8 @@ export type DiscountSummary = {
   benefits: number
   matches: Record<MatchStatus, number>
   manual: number
-  /** En todo lo guardado, sin filtros: vigentes y no ignorados en Montevideo y fuera, inactivos e ignorados. */
-  total: { montevideo: number; outside: number; inactive: number; ignored: number }
+  /** En todo lo guardado, sin filtros: vigentes y no descartados en Montevideo y fuera, inactivos y descartados. */
+  total: { montevideo: number; outside: number; inactive: number; discarded: number }
 }
 
 /** El resumen de lo que muestra la tabla (`shown`, ya filtrado), así los números cierran con ella; más totales de `all`. */
@@ -123,7 +134,7 @@ export function discountSummary(shown: DiscountPlace[], all: DiscountPlace[]): D
       montevideo: visible.filter((place) => place.montevideo).length,
       outside: visible.filter((place) => !place.montevideo).length,
       inactive: all.filter((place) => !isPlaceCurrent(place)).length,
-      ignored: all.filter((place) => place.ignored).length,
+      discarded: all.filter((place) => place.ignored).length,
     },
   }
 }

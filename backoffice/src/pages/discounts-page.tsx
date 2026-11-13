@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { AlertCircle, ArrowUpRight, BadgePercent, Check, EyeOff, LoaderCircle, PencilLine, RefreshCw, RotateCcw, Search } from 'lucide-react'
+import { AlertCircle, ArrowUpRight, BadgePercent, Check, Eye, EyeOff, LoaderCircle, PencilLine, RefreshCw, RotateCcw, Search, Wrench } from 'lucide-react'
 import { DiscountMissingView } from '@/components/discount-missing-view'
+import { DiscountResolvePanel } from '@/components/discount-resolve-panel'
+import { targetFromPlace, type ResolveTarget } from '@/lib/discount-resolve'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -14,6 +16,7 @@ import {
   getDiscounts,
   resetDiscountMatch,
   setDiscountIgnored,
+  setDiscountIgnoredMany,
   setDiscountLinks,
   startDiscountRun,
 } from '@/lib/discounts-api'
@@ -23,6 +26,9 @@ import {
   CARD_TYPE_LABELS,
   daysLabel,
   DEFAULT_DISCOUNT_FILTERS,
+  DISCARDED_FILTER_LABELS,
+  DISCARDED_FILTERS,
+  discardLabel,
   discountSummary,
   filterDiscountPlaces,
   hasStaleValidity,
@@ -34,6 +40,7 @@ import {
   placeValidity,
   validityLabel,
   type CityFilter,
+  type DiscardedFilter,
   type DiscountFilters,
 } from '@/lib/discounts'
 import { listSavedPlaces } from '@/lib/places-api'
@@ -190,7 +197,7 @@ function Summary({ run, shown, places }: { run: DiscountRun | null; shown: Disco
       </dl>
       <p className="text-xs text-muted-foreground">
         {run ? `Última corrida: ${dateTime(run.startedAt)}${run.reparsedFrom ? ` (del HTML guardado de ${run.reparsedFrom})` : ''} · ${requests} pedidos · modelo US$ ${costUsd.toFixed(4)} · ` : ''}
-        Según los filtros de la tabla ({plural(summary.manual, 'manual', 'manuales')}). En total: {summary.total.montevideo} de Montevideo · {summary.total.outside} fuera · {plural(summary.total.inactive, 'inactivo', 'inactivos')} · {plural(summary.total.ignored, 'ignorado', 'ignorados')}
+        Según los filtros de la tabla ({plural(summary.manual, 'manual', 'manuales')}). En total: {summary.total.montevideo} de Montevideo · {summary.total.outside} fuera · {plural(summary.total.inactive, 'inactivo', 'inactivos')} · {plural(summary.total.discarded, 'descartado', 'descartados')}
       </p>
       {notes.length > 0 && (
         <details className="text-xs text-muted-foreground">
@@ -575,9 +582,34 @@ export function DiscountsPage() {
     }
   }
 
-  const replace = useCallback((place: DiscountPlace) => {
-    setState((current) => current.status === 'success' ? { ...current, places: current.places.map((item) => (item.id === place.id ? place : item)) } : current)
+  const replaceMany = useCallback((updated: DiscountPlace[]) => {
+    const byId = new Map(updated.map((place) => [place.id, place]))
+    setState((current) => current.status === 'success' ? { ...current, places: current.places.map((item) => byId.get(item.id) ?? item) } : current)
   }, [])
+  const replace = useCallback((place: DiscountPlace) => replaceMany([place]), [replaceMany])
+  // Búsquedas guardadas que devolvió una acción del panel (Google, "Ninguno", "Agregar"): la fila cambia sin recargar.
+  const mergeSearches = useCallback((searches: Record<string, StoredPlaceSearch[]>) => {
+    setState((current) => current.status === 'success' ? { ...current, searches: { ...current.searches, ...searches } } : current)
+  }, [])
+
+  // Selección de la tabla para descartar (o volver a mostrar) varios a la vez.
+  const [checked, setChecked] = useState<ReadonlySet<string>>(new Set())
+  const [bulk, setBulk] = useState<ActionState | undefined>()
+  async function bulkIgnored(ids: string[], ignored: boolean) {
+    setBulk({ status: 'saving' })
+    try {
+      replaceMany(await setDiscountIgnoredMany(ids, ignored))
+      setChecked(new Set())
+      setBulk({ status: 'saved' })
+    } catch (error) {
+      setBulk({ status: 'error', message: message(error) })
+    }
+  }
+
+  // Panel «Resolver» desde la tabla (dudosos y "no está en la base").
+  const [resolving, setResolving] = useState<ResolveTarget | null>(null)
+  const resolveButtons = useRef(new Map<string, HTMLButtonElement>())
+  const focusAfterClose = useRef<HTMLElement | null>(null)
 
   async function rowAction(id: string, action: () => Promise<DiscountPlace>) {
     clearTimeout(feedbackTimers.current.get(id))
@@ -600,8 +632,20 @@ export function DiscountsPage() {
   }, [data, places])
   const visible = useMemo(() => filterDiscountPlaces(places, filters), [places, filters])
   const visibleIds = useMemo(() => new Set(visible.map((place) => place.id)), [visible])
-  // "No están en la base": vista agrupada por barrio, sin repetir y con la búsqueda en Google.
-  const missingView = filters.match === 'missing'
+  // "No están en la base": vista agrupada por barrio, sin repetir y con la búsqueda en Google (nunca muestra descartados:
+  // con "Sólo descartados" se ve la tabla común, para volver a mostrarlos).
+  const missingView = filters.match === 'missing' && filters.discarded !== 'only'
+  const canResolve = (place: DiscountPlace) => place.montevideo && !place.ignored && (place.match.status === 'doubtful' || place.match.status === 'missing')
+  const checkedIds = visible.filter((place) => checked.has(place.id)).map((place) => place.id)
+  const allChecked = visible.length > 0 && checkedIds.length === visible.length
+  const showingDiscarded = filters.discarded === 'only'
+  /** El próximo dudoso o "no está" de la tabla después de `id` (en orden), sin contarlo. */
+  const nextAfter = (id: string): DiscountPlace | null => {
+    const pending = visible.filter((place) => canResolve(place) || place.id === id)
+    const index = pending.findIndex((place) => place.id === id)
+    const rest = index < 0 ? pending : [...pending.slice(index + 1), ...pending.slice(0, index)]
+    return rest.find((place) => place.id !== id && canResolve(place)) ?? null
+  }
   const selectedPlace = places.find((place) => place.id === selected) ?? null
   const filtered = JSON.stringify(filters) !== JSON.stringify(DEFAULT_DISCOUNT_FILTERS)
 
@@ -612,7 +656,7 @@ export function DiscountsPage() {
           <div className="max-w-2xl">
             <h2 id="discounts-title" className="text-3xl font-semibold tracking-[-0.03em] sm:text-4xl">Descuentos</h2>
             <p className="mt-3 text-base leading-7 text-muted-foreground">
-              Descuentos gastronómicos de bancos, leídos de sus sitios y cruzados con nuestros lugares (sólo Montevideo). Lo que corregís a mano o ignorás queda así: las corridas siguientes no lo tocan.
+              Descuentos gastronómicos de bancos, leídos de sus sitios y cruzados con nuestros lugares (sólo Montevideo). Lo que corregís o descartás a mano queda así: las corridas siguientes no lo tocan (los rubros que no son para salir a comer, como carnicerías, se descartan solos).
             </p>
           </div>
           <Button type="button" className="h-9 shrink-0" disabled={running || starting} onClick={() => void start()}>
@@ -708,9 +752,11 @@ export function DiscountsPage() {
                 <input type="checkbox" className="size-4 accent-primary" checked={filters.showInactive} onChange={(event) => setFilters({ ...filters, showInactive: event.target.checked })} />
                 Mostrar inactivos
               </label>
-              <label className="flex h-9 items-center gap-2 text-sm">
-                <input type="checkbox" className="size-4 accent-primary" checked={filters.showIgnored} onChange={(event) => setFilters({ ...filters, showIgnored: event.target.checked })} />
-                Mostrar ignorados
+              <label className="grid gap-1 text-xs text-muted-foreground">
+                Descartados
+                <select className={selectClass} value={filters.discarded} onChange={(event) => setFilters({ ...filters, discarded: event.target.value as DiscardedFilter })}>
+                  {DISCARDED_FILTERS.map((value) => <option key={value} value={value}>{DISCARDED_FILTER_LABELS[value]}</option>)}
+                </select>
               </label>
               {filtered && (
                 <Button type="button" variant="outline" className="h-9" onClick={() => setFilters(DEFAULT_DISCOUNT_FILTERS)}>Limpiar filtros</Button>
@@ -725,11 +771,27 @@ export function DiscountsPage() {
               </Alert>
             )}
             {missingView ? (
-              <DiscountMissingView rows={data.missing} visibleIds={visibleIds} searches={data.searches} providers={providers} onReload={reloadSearches} />
+              <DiscountMissingView
+                rows={data.missing}
+                places={places}
+                visibleIds={visibleIds}
+                searches={data.searches}
+                providers={providers}
+                onReload={reloadSearches}
+                onPlaces={replaceMany}
+                onSearches={mergeSearches}
+              />
             ) : (
               <div className="overflow-hidden rounded-xl border bg-background">
-                <div className="border-b px-4 py-2.5 sm:px-5">
-                  <p className="text-sm font-semibold tabular-nums" role="status">{visible.length} {visible.length === 1 ? 'lugar' : 'lugares'}</p>
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2.5 sm:px-5">
+                  <p className="text-sm font-semibold tabular-nums" role="status">{visible.length} {visible.length === 1 ? 'lugar' : 'lugares'} · {plural(checkedIds.length, 'seleccionado', 'seleccionados')}</p>
+                  <span className="flex items-center gap-2">
+                    <ActionStatus state={bulk} />
+                    <Button type="button" size="sm" variant="outline" disabled={bulk?.status === 'saving' || checkedIds.length === 0 || checkedIds.length > 200} onClick={() => void bulkIgnored(checkedIds, !showingDiscarded)}>
+                      {showingDiscarded ? <Eye className="size-3.5" aria-hidden="true" /> : <EyeOff className="size-3.5" aria-hidden="true" />}
+                      {showingDiscarded ? 'Volver a mostrar seleccionados' : 'Descartar seleccionados'} ({checkedIds.length})
+                    </Button>
+                  </span>
                 </div>
                 {visible.length === 0 ? (
                   <div className="flex min-h-48 flex-col items-center justify-center px-6 py-12 text-center">
@@ -741,6 +803,15 @@ export function DiscountsPage() {
                     <Table>
                       <TableHeader>
                         <TableRow className="bg-muted/40 hover:bg-muted/40">
+                          <TableHead className="w-10 px-4 sm:px-5">
+                            <input
+                              type="checkbox"
+                              className="size-4 accent-primary"
+                              checked={allChecked}
+                              onChange={(event) => setChecked(event.target.checked ? new Set(visible.map((place) => place.id)) : new Set())}
+                              aria-label="Seleccionar todos"
+                            />
+                          </TableHead>
                           <TableHead className="px-4 sm:px-5">Nombre en la fuente</TableHead>
                           <TableHead className="px-4 sm:px-5">Proveedor</TableHead>
                           <TableHead className="px-4 sm:px-5">Ciudad</TableHead>
@@ -760,6 +831,20 @@ export function DiscountsPage() {
                           const canConfirm = place.match.origin === 'auto' && place.match.links.length > 0
                           return (
                             <TableRow key={place.id} className={`cursor-pointer ${current && !place.ignored ? '' : 'text-muted-foreground'}`} onClick={() => setSelected(place.id)}>
+                              <TableCell className="px-4 py-3 sm:px-5" onClick={(event) => event.stopPropagation()}>
+                                <input
+                                  type="checkbox"
+                                  className="size-4 accent-primary"
+                                  checked={checked.has(place.id)}
+                                  onChange={(event) => setChecked((items) => {
+                                    const next = new Set(items)
+                                    if (event.target.checked) next.add(place.id)
+                                    else next.delete(place.id)
+                                    return next
+                                  })}
+                                  aria-label={`Seleccionar ${place.sourceName}`}
+                                />
+                              </TableCell>
                               <TableCell className="px-4 py-3 font-medium sm:px-5">
                                 <button type="button" className="text-left hover:underline" onClick={(event) => { event.stopPropagation(); setSelected(place.id) }}>
                                   {place.sourceName}
@@ -767,7 +852,7 @@ export function DiscountsPage() {
                                 {(!current || place.ignored) && (
                                   <span className="mt-1 flex gap-1">
                                     {!current && <Tag>Inactivo</Tag>}
-                                    {place.ignored && <Tag>Ignorado</Tag>}
+                                    {place.ignored && <span title={discardLabel(place) ?? undefined}><Tag>{place.discard?.origin === 'auto' ? `Descartado · ${place.discard.reason ?? 'regla'}` : 'Descartado'}</Tag></span>}
                                   </span>
                                 )}
                               </TableCell>
@@ -783,15 +868,32 @@ export function DiscountsPage() {
                                       Confirmar
                                     </Button>
                                   )}
+                                  {canResolve(place) && (
+                                    <Button
+                                      ref={(element) => {
+                                        if (element) resolveButtons.current.set(place.id, element)
+                                        else resolveButtons.current.delete(place.id)
+                                      }}
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      disabled={busy}
+                                      onClick={() => setResolving(targetFromPlace(place))}
+                                      aria-label={`Resolver ${place.sourceName}`}
+                                    >
+                                      <Wrench className="size-3.5" aria-hidden="true" />
+                                      Resolver
+                                    </Button>
+                                  )}
                                   {place.montevideo && (
                                     <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => setSelected(place.id)} aria-label={`Corregir cruce de ${place.sourceName}`}>
                                       <PencilLine className="size-3.5" aria-hidden="true" />
                                       Corregir
                                     </Button>
                                   )}
-                                  <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => void rowAction(place.id, () => setDiscountIgnored(place.id, !place.ignored))} aria-label={`${place.ignored ? 'Dejar de ignorar' : 'Ignorar'} ${place.sourceName}`}>
-                                    <EyeOff className="size-3.5" aria-hidden="true" />
-                                    {place.ignored ? 'Dejar de ignorar' : 'Ignorar'}
+                                  <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => void rowAction(place.id, () => setDiscountIgnored(place.id, !place.ignored))} aria-label={`${place.ignored ? 'Volver a mostrar' : 'Descartar'} ${place.sourceName}`}>
+                                    {place.ignored ? <Eye className="size-3.5" aria-hidden="true" /> : <EyeOff className="size-3.5" aria-hidden="true" />}
+                                    {place.ignored ? 'Volver a mostrar' : 'Descartar'}
                                   </Button>
                                   <ActionStatus state={action} />
                                 </div>
@@ -822,6 +924,33 @@ export function DiscountsPage() {
           </>
         )}
       </section>
+      <DiscountResolvePanel
+        target={resolving}
+        places={resolving ? places.filter((place) => resolving.discountPlaceIds.includes(place.id)) : []}
+        search={null}
+        live={null}
+        providers={providers}
+        hasNext={resolving ? nextAfter(resolving.key) !== null : false}
+        finalFocus={focusAfterClose}
+        onClose={() => {
+          focusAfterClose.current = null
+          setResolving(null)
+        }}
+        onPlaces={replaceMany}
+        onSearches={mergeSearches}
+        onAdded={() => undefined}
+        onDone={() => {
+          if (!resolving) return
+          const next = nextAfter(resolving.key)
+          focusAfterClose.current = next ? resolveButtons.current.get(next.id) ?? null : null
+          setResolving(null)
+        }}
+        onNext={() => {
+          if (!resolving) return
+          const next = nextAfter(resolving.key)
+          setResolving(next ? targetFromPlace(next) : null)
+        }}
+      />
       <PlaceDialog
         place={selectedPlace}
         providerName={selectedPlace ? providers.get(selectedPlace.providerId) ?? selectedPlace.providerId : ''}

@@ -278,8 +278,13 @@ export const discountPlaces = pgTable(
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
     // Apareció en la última corrida del proveedor que terminó bien.
     active: boolean("active").notNull().default(true),
-    // Ignorado a mano: no se vuelve a cruzar ni se muestra por defecto.
+    // Descartado (no es para salir a comer o tomar algo): no se vuelve a cruzar ni se muestra por defecto.
     ignored: boolean("ignored").notNull().default(false),
+    // Quién decidió: null = nadie (manda la regla de rubros), auto = la regla (config autoDiscard), manual = a mano
+    // (descartado o "volver a mostrar"): la regla no lo toca más.
+    ignoredOrigin: text("ignored_origin", { enum: MATCH_ORIGINS }),
+    // Motivo del descarte automático ("Rubro: Carnicería").
+    ignoredReason: text("ignored_reason"),
 
     // Cruce: manual = lo corrigió alguien y ninguna corrida lo toca. Los vínculos están en discount_place_links.
     matchStatus: text("match_status", { enum: MATCH_STATUSES }).notNull().default("missing"),
@@ -297,6 +302,7 @@ export const discountPlaces = pgTable(
   (t) => [
     check("discount_places_match_status_check", sql`${t.matchStatus} in (${inList(MATCH_STATUSES)})`),
     check("discount_places_match_origin_check", sql`${t.matchOrigin} in (${inList(MATCH_ORIGINS)})`),
+    check("discount_places_ignored_origin_check", sql`${t.ignoredOrigin} is null or ${t.ignoredOrigin} in (${inList(MATCH_ORIGINS)})`),
     index("discount_places_provider_idx").on(t.providerId),
     index("discount_places_match_status_idx").on(t.matchStatus),
   ]

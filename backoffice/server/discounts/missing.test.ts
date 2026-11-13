@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { groupByNeighborhood, memberKey, NO_NEIGHBORHOOD_LABEL, rowSearch } from '../../src/lib/discount-missing.ts'
+import { groupByNeighborhood, isMissingCandidate, memberKey, NO_NEIGHBORHOOD_LABEL, rowSearch } from '../../src/lib/discount-missing.ts'
 import type { DiscountPlace, ProviderPlaceLocation, StoredBenefit, StoredPlaceSearch } from '../../src/types/discounts.ts'
 import { missingRows } from './missing.ts'
 
@@ -20,7 +20,7 @@ function place(id: string, sourceName: string, patch: Partial<DiscountPlace> = {
     website: null, instagram: null, sourceUrl: `https://bank.test/${id}`, logoUrl: null, description: null, sourceTags: [],
     campaign: { validFrom: null, validTo: null, text: null }, benefits: [benefit],
     match: { status: 'missing', origin: 'auto', links: [], candidates: [], missingBranches: 0, nearby: [] },
-    firstSeenAt: '2026-11-01T00:00:00.000Z', lastSeenAt: '2026-11-01T00:00:00.000Z', active: true, ignored: false, matchedAt: null, ...patch,
+    firstSeenAt: '2026-11-01T00:00:00.000Z', lastSeenAt: '2026-11-01T00:00:00.000Z', active: true, ignored: false, discard: null, matchedAt: null, ...patch,
   }
 }
 
@@ -118,6 +118,15 @@ describe('missingRows', () => {
     expect(first.key).toBe(`${memberKey('bbva:la-pasiva', 0)}|${memberKey('santander:la-pasiva', 0)}`)
     expect(first.coordinates).toEqual(POCITOS)
     expect(first.address).toBe('Brasil 2580')
+  })
+})
+
+describe('isMissingCandidate (también en la pantalla)', () => {
+  it('un descartado (a mano o por rubro) o vinculado sale de la vista', () => {
+    expect(isMissingCandidate(place('bbva:a', 'A'))).toBe(true)
+    expect(isMissingCandidate(place('bbva:a', 'A', { ignored: true, discard: { origin: 'auto', reason: 'Rubro: Carnicería' } }))).toBe(false)
+    expect(isMissingCandidate(place('bbva:a', 'A', { ignored: true, discard: { origin: 'manual', reason: null } }))).toBe(false)
+    expect(isMissingCandidate(place('bbva:a', 'A', { match: { status: 'found', origin: 'manual', links: [], candidates: [], missingBranches: 0, nearby: [] } }))).toBe(false)
   })
 })
 

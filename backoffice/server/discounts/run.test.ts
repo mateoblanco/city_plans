@@ -193,6 +193,59 @@ describe('corridas en la base', () => {
   })
 })
 
+describe('descarte automático por rubro', () => {
+  const rules = ['Carnicería', 'Boutique de carnes']
+  const withRules = (deps: RunDependencies, discardCategories: string[] = rules): RunDependencies => ({ ...deps, discardCategories })
+
+  it('descarta con el motivo y no lo cruza; lo demás se cruza como siempre', async () => {
+    const { store, deps, get } = setup()
+    store.places.push({ id: '00000000-0000-4000-8000-000000000009', name: 'Porterhouse', neighborhoodId: 'POCITOS', brandKey: null, instagram: null })
+    const summary = await runDiscounts(withRules(deps(async () => result([
+      place('a:1', { sourceName: 'Porterhouse', category: 'Carnicería' }),
+      place('a:2', { sourceName: 'Es Mercat', category: 'Restaurante' }),
+    ]))))
+    expect(await get('a:1')).toMatchObject({ ignored: true, discard: { origin: 'auto', reason: 'Rubro: Carnicería' }, match: { status: 'missing', links: [] } })
+    expect(await get('a:2')).toMatchObject({ ignored: false, discard: null, match: { status: 'found' } })
+    expect(summary.providers[0].notes).toContain('1 descartado por rubro.')
+  })
+
+  it('lo que yo descarto o vuelvo a mostrar a mano manda sobre la regla', async () => {
+    const { store, deps, get } = setup()
+    const read = async () => result([
+      place('a:1', { sourceName: 'Porterhouse', category: 'Carnicería' }),
+      place('a:2', { sourceName: 'Es Mercat', category: 'Restaurante' }),
+    ])
+    await runDiscounts(withRules(deps(read)))
+    await store.setIgnored('a:1', false)
+    await store.setIgnored('a:2', true)
+    await runDiscounts(withRules(deps(read)))
+    expect(await get('a:1')).toMatchObject({ ignored: false, discard: { origin: 'manual', reason: null } })
+    expect(await get('a:2')).toMatchObject({ ignored: true, discard: { origin: 'manual', reason: null } })
+  })
+
+  it('si el rubro sale de la lista vuelve a mostrarse y se cruza en la misma corrida', async () => {
+    const { store, deps, get } = setup()
+    store.places.push({ id: '00000000-0000-4000-8000-000000000009', name: 'Porterhouse', neighborhoodId: 'POCITOS', brandKey: null, instagram: null })
+    const read = async () => result([place('a:1', { sourceName: 'Porterhouse', category: 'Carnicería' })])
+    await runDiscounts(withRules(deps(read)))
+    const summary = await runDiscounts(withRules(deps(read), ['Supermercado']))
+    expect(await get('a:1')).toMatchObject({ ignored: false, discard: null, match: { status: 'found' } })
+    expect(summary.providers[0].notes).toContain('1 vuelve a mostrarse (su rubro ya no está en la lista).')
+  })
+
+  it('un descarte automático no se hereda a otro proveedor; uno manual sí', () => {
+    const writes = planDiscountWrites({
+      providerId: 'bank-a', runId: 'r', now: new Date('2026-11-05T12:00:00Z'),
+      result: { places: [place('a:1', { category: 'Carnicería en Pocitos' }), place('a:2', { category: 'Restaurante' })], unread: [] },
+      existing: [{ id: 'a:2', ignored: false, ignoredOrigin: 'manual', matchOrigin: 'auto' }],
+      candidates: ours,
+      discardCategories: rules,
+    })
+    expect(writes.discards).toEqual([{ discountPlaceId: 'a:1', ignored: true, reason: 'Rubro: Carnicería' }])
+    expect(writes.matches.map((match) => match.discountPlaceId)).toEqual(['a:2'])
+  })
+})
+
 describe('BBVA y Santander', () => {
   it('cada uno se guarda e inactiva por separado: si Santander falla, no se toca nada suyo ni de BBVA', async () => {
     const { discountProviders } = await import('./providers.ts')
@@ -217,7 +270,7 @@ describe('planDiscountWrites', () => {
     const writes = planDiscountWrites({
       providerId: 'bank-a', runId: 'r', now: new Date('2026-11-05T12:00:00Z'),
       result: { places: [place('a:1'), place('a:2'), place('a:3'), place('a:4')], unread: ['a:4'] },
-      existing: [{ id: 'a:1', ignored: false, matchOrigin: 'manual' }, { id: 'a:2', ignored: true, matchOrigin: 'auto' }, { id: 'a:3', ignored: false, matchOrigin: 'auto' }],
+      existing: [{ id: 'a:1', ignored: false, ignoredOrigin: null, matchOrigin: 'manual' }, { id: 'a:2', ignored: true, ignoredOrigin: 'manual', matchOrigin: 'auto' }, { id: 'a:3', ignored: false, ignoredOrigin: null, matchOrigin: 'auto' }],
       candidates: ours,
     })
     // a:4 es nuevo (auto); a:3 es auto.

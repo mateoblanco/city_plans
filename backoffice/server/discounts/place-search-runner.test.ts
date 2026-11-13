@@ -3,6 +3,7 @@ import type { DiscountPlace, ProviderPlaceLocation, StoredBenefit } from '../../
 import type { PlaceEnrichmentResponse } from '../../src/types/places.ts'
 import type { ExtractionReport } from '../providers/extraction-report.ts'
 import { ExaProviderFailure, InstagramProviderFailure, PlacesProviderError, type FoundPlace } from '../providers/places-provider.ts'
+import { GOOGLE_NAMES_TTL_MS, GoogleNameCache } from './google-names.ts'
 import { memoryDiscountStore } from './memory-store.ts'
 import { missingRows } from './missing.ts'
 import { planDiscountWrites, type OurPlace } from './persist.ts'
@@ -26,7 +27,7 @@ function place(id: string, sourceName: string, patch: Partial<DiscountPlace> = {
     website: null, instagram: null, sourceUrl: `https://bank.test/${id}`, logoUrl: null, description: null, sourceTags: [],
     campaign: { validFrom: null, validTo: null, text: null }, benefits: [{ ...benefit, id: `${id}:b` }],
     match: { status: 'missing', origin: 'auto', links: [], candidates: [], missingBranches: 0, nearby: [] },
-    firstSeenAt: '2026-11-01T00:00:00.000Z', lastSeenAt: '2026-11-01T00:00:00.000Z', active: true, ignored: false, matchedAt: null, ...patch,
+    firstSeenAt: '2026-11-01T00:00:00.000Z', lastSeenAt: '2026-11-01T00:00:00.000Z', active: true, ignored: false, discard: null, matchedAt: null, ...patch,
   }
 }
 
@@ -44,7 +45,14 @@ function extracted(googlePlaceId: string, reviewReasons: string[] = []): PlaceEn
 const ourUuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
 
 /** Un store en memoria con estos lugares del proveedor y un runner con Google, extracción y guardado de mentira. */
-function setup(seed: DiscountPlace[], options: { google?: Record<string, FoundPlace[] | Error>; ours?: OurPlace[]; extract?: (id: string) => Promise<PlaceEnrichmentResponse>; withReport?: boolean } = {}) {
+function setup(seed: DiscountPlace[], options: {
+  google?: Record<string, FoundPlace[] | Error>
+  ours?: OurPlace[]
+  extract?: (id: string) => Promise<PlaceEnrichmentResponse>
+  withReport?: boolean
+  names?: Record<string, { name: string; address: string } | null>
+  clock?: { now: number }
+} = {}) {
   const store = memoryDiscountStore([], { seed, ours: options.ours })
   const findPlace = vi.fn(async ({ query }: { query: string }) => {
     const name = query.split(',')[0]
@@ -56,19 +64,23 @@ function setup(seed: DiscountPlace[], options: { google?: Record<string, FoundPl
   let saved = 0
   const save = vi.fn(async (results: unknown[]) => results.map((result) => ({ googlePlaceId: (result as PlaceEnrichmentResponse & { status: 'ok' }).place.googlePlaceId, id: ourUuid(++saved), action: 'created' as const, embedded: true })))
   const reports: ExtractionReport[] = []
+  const getNameAndAddress = vi.fn(async (placeId: string) => options.names?.[placeId] ?? null)
+  const clock = options.clock ?? { now: Date.parse('2026-11-10T12:00:00.000Z') }
   const deps: PlaceSearchDependencies = {
     store,
     finder: { findPlace },
     details: { getDetails: vi.fn(async () => ({ data: { primaryType: 'cafe' } }) as never) },
     extractor: { extract },
     saver: { save },
+    names: { getNameAndAddress },
+    nameCache: new GoogleNameCache({ now: () => clock.now }),
     ...(options.withReport ? { reportWriter: async (report) => { reports.push(report); return 'output/report.json' } } : {}),
     now: () => new Date('2026-11-10T12:00:00.000Z'),
   }
   const runner = new DiscountPlaceSearchRunner(deps)
   const keyOf = async (name: string, neighborhood?: string) => missingRows(await store.list()).find((row) => row.name === name && (!neighborhood || row.neighborhoodId === neighborhood))!.key
   const searches = () => store.placeSearches()
-  return { store, runner, findPlace, extract, save, reports, keyOf, searches }
+  return { store, runner, findPlace, extract, save, reports, keyOf, searches, getNameAndAddress, clock }
 }
 
 const pasivaPocitos = () => place('santander:la-pasiva', 'La Pasiva', { locations: [location({ coordinates: POCITOS })] })
@@ -258,5 +270,85 @@ describe('DiscountPlaceSearchRunner', () => {
       existing: await ctx.store.existing('santander'), candidates: [], inherited: [],
     }))
     expect((await ctx.searches())['santander:la-pasiva'][0].status).toBe('review')
+  })
+
+  describe('panel «Resolver»', () => {
+    const chivitos = () => place('bbva:chivitos', 'Chivitos', { city: 'Centro, Montevideo' })
+
+    it('"Buscar en Google": hasta 5 de Montevideo, guarda sólo place_id y coordenadas (dudoso) y marca "ya está en tu base"', async () => {
+      const ctx = setup([chivitos()], {
+        google: { Chivitos: [
+          found('g-1', 'Chivitos Marcos', CENTRO),
+          found('g-2', 'Chivitería', near(CENTRO, 200)),
+          found('g-afuera', 'Chivitos Atlántida', { lat: -34.77, lng: -55.75 }),
+        ] },
+        ours: [{ id: ourUuid(7), googlePlaceId: 'g-2', name: 'La Chivitería', status: 'review' }],
+      })
+      const key = await ctx.keyOf('Chivitos')
+      const response = await ctx.runner.lookup(key)
+      if (typeof response === 'string') throw new Error(response)
+      expect(ctx.findPlace).toHaveBeenCalledWith({ query: 'Chivitos, Centro, Montevideo', near: null })
+      expect(response.costUsd).toBe(0.032)
+      expect(response.results).toEqual([
+        { placeId: 'g-1', name: 'Chivitos Marcos', address: 'Chivitos Marcos, Montevideo', lat: CENTRO.lat, lng: CENTRO.lng, meters: null, ours: null },
+        expect.objectContaining({ placeId: 'g-2', ours: { id: ourUuid(7), name: 'La Chivitería', status: 'review' } }),
+      ])
+      const saved = (await ctx.searches())['bbva:chivitos']
+      expect(saved).toEqual([expect.objectContaining({ status: 'doubtful', candidates: [{ placeId: 'g-1', ...CENTRO }, { placeId: 'g-2', ...near(CENTRO, 200) }] })])
+      expect(JSON.stringify(saved)).not.toContain('Chivitos Marcos')
+      expect(response.searches).toEqual({ 'bbva:chivitos': saved })
+
+      // "Agregar" uno de esos: al pipeline normal, a revisión.
+      expect(await ctx.runner.pick(key, 'g-1')).toBe('ok')
+      await ctx.runner.settled()
+      expect(ctx.extract).toHaveBeenCalledWith('g-1', expect.objectContaining({ neighborhoodId: expect.any(String) }))
+      const [[added]] = ctx.save.mock.calls as unknown as [[PlaceEnrichmentResponse & { status: 'ok' }][]]
+      expect(added[0].place.reviewReasons).toContain('from_discounts')
+      expect((await ctx.searches())['bbva:chivitos']).toEqual([expect.objectContaining({ status: 'review', googlePlaceId: 'g-1' })])
+    })
+
+    it('sin resultados queda no encontrado; una fila que ya no está es not_found', async () => {
+      const ctx = setup([chivitos()])
+      const response = await ctx.runner.lookup(await ctx.keyOf('Chivitos'))
+      expect(response).toMatchObject({ results: [] })
+      expect((await ctx.searches())['bbva:chivitos']).toEqual([expect.objectContaining({ status: 'not_found', candidates: [] })])
+      expect(await ctx.runner.lookup('bbva:nada#x')).toBe('not_found')
+    })
+
+    it('refrescar nombres de candidatos guardados: de la memoria si están; si no, Place Details mínimo; vencen a la hora', async () => {
+      const ctx = setup([chivitos()], {
+        google: { Chivitos: [found('g-1', 'Chivitos Marcos', CENTRO)] },
+        names: { 'g-1': { name: 'Chivitos Marcos', address: '18 de Julio 1200' }, 'g-viejo': { name: 'Chivitería Vieja', address: 'Rivera 3000' } },
+      })
+      const key = await ctx.keyOf('Chivitos')
+      await ctx.runner.lookup(key)
+      // Recién buscado: todo de la memoria, sin llamadas.
+      let response = await ctx.runner.candidateNames(key)
+      if (typeof response === 'string') throw new Error(response)
+      expect(response.results.map((item) => item.name)).toEqual(['Chivitos Marcos'])
+      expect(response.costUsd).toBe(0)
+      expect(ctx.getNameAndAddress).not.toHaveBeenCalled()
+
+      // Una hora después (o tras reiniciar el servidor): se piden de nuevo, sólo los que faltan.
+      ctx.clock.now += GOOGLE_NAMES_TTL_MS + 1
+      response = await ctx.runner.candidateNames(key)
+      if (typeof response === 'string') throw new Error(response)
+      expect(ctx.getNameAndAddress).toHaveBeenCalledTimes(1)
+      expect(ctx.getNameAndAddress).toHaveBeenCalledWith('g-1')
+      expect(response.results[0]).toMatchObject({ name: 'Chivitos Marcos', address: '18 de Julio 1200' })
+      expect(response.costUsd).toBe(0.017)
+      // Ya en memoria otra vez.
+      await ctx.runner.candidateNames(key)
+      expect(ctx.getNameAndAddress).toHaveBeenCalledTimes(1)
+    })
+
+    it('un candidato que Google ya no tiene queda sin nombre (nunca el texto viejo)', async () => {
+      const seeded = chivitos()
+      const ctx = setup([seeded])
+      const key = await ctx.keyOf('Chivitos')
+      await ctx.store.setPlaceSearches([{ discountPlaceId: 'bbva:chivitos', search: { locationIndex: null, status: 'doubtful', searchedAt: '2026-11-09T12:00:00.000Z', googlePlaceId: null, location: null, candidates: [{ placeId: 'g-borrado', ...CENTRO }], placeId: null, error: null } }])
+      const response = await ctx.runner.candidateNames(key)
+      expect(response).toMatchObject({ results: [{ placeId: 'g-borrado', name: null, address: null }], costUsd: 0.017 })
+    })
   })
 })

@@ -34,6 +34,9 @@ const FIND_FIELD_MASK = [
 ].join(',')
 /** Costo de una llamada a findPlace (Text Search Pro). */
 export const FIND_PLACE_USD = 0.032
+/** Nombre y dirección de un candidato guardado: Place Details Pro (displayName lo pasa de Essentials a Pro). */
+const NAME_ADDRESS_FIELD_MASK = 'displayName,formattedAddress'
+export const NAME_ADDRESS_USD = 0.017
 const MONTEVIDEO_BIAS = { center: { latitude: -34.9011, longitude: -56.1645 }, radius: 30000 }
 const FIND_NEAR_METERS = 500
 
@@ -210,6 +213,29 @@ export class GooglePlacesProvider implements PlacesProvider, PlaceFinder {
       this.detailsCache.delete(this.detailsCache.keys().next().value as string)
     }
     return request
+  }
+
+  /**
+   * Sólo nombre y dirección (Place Details con displayName,formattedAddress: Pro, US$ 17 cada 1.000), para volver a
+   * mostrar un candidato guardado (sólo se guarda el place_id). No se guardan; null si Google no lo encuentra.
+   */
+  async getNameAndAddress(placeId: string): Promise<{ name: string; address: string } | null> {
+    let response: Response
+    try {
+      const url = new URL(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`)
+      url.searchParams.set('languageCode', 'es')
+      url.searchParams.set('regionCode', 'UY')
+      response = await this.fetcher(url, {
+        headers: { 'X-Goog-Api-Key': this.apiKey, 'X-Goog-FieldMask': NAME_ADDRESS_FIELD_MASK },
+      })
+    } catch (error) {
+      throw new PlacesProviderError('upstream', 'No se pudo conectar con Google Places.', { cause: error })
+    }
+    if (response.status === 404) return null
+    if (!response.ok) await throwGoogleError(response)
+    const payload = (await response.json()) as Pick<GooglePlaceDetails, 'displayName' | 'formattedAddress'>
+    const name = payload.displayName?.text?.trim()
+    return name ? { name, address: payload.formattedAddress?.trim() ?? '' } : null
   }
 
   /**

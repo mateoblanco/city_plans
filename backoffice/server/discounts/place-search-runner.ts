@@ -5,21 +5,34 @@ import { rowSearch } from '../../src/lib/discount-missing.ts'
 import { reportPlace } from '../../src/lib/extraction-report-entry.ts'
 import { APIFY_FAILURE_LIMIT, EXA_FAILURE_LIMIT, EXTRACT_CONCURRENCY } from '../../src/lib/extraction-config.ts'
 import { getBarrio } from '../../src/lib/getNeighborhood.ts'
-import type { CandidateDetail, DiscountPlaceSearch, MissingRow, PlaceSearchCandidate, PlaceSearchJobRow, PlaceSearchProgress } from '../../src/types/discounts.ts'
+import type {
+  CandidateDetail,
+  DiscountPlaceSearch,
+  GoogleCandidatesResponse,
+  GoogleCandidateView,
+  MissingRow,
+  PlaceSearchCandidate,
+  PlaceSearchJobRow,
+  PlaceSearchProgress,
+  StoredPlaceSearch,
+} from '../../src/types/discounts.ts'
 import type { GooglePlaceDetailsResponse, PlaceEnrichmentResponse } from '../../src/types/places.ts'
 import type { PlacesSaver } from '../places/save.ts'
 import { buildExtractionReport, extractionReportRequestSchema, type ExtractionReportWriter } from '../providers/extraction-report.ts'
-import { FIND_PLACE_USD } from '../providers/google-places-provider.ts'
+import { FIND_PLACE_USD, NAME_ADDRESS_USD } from '../providers/google-places-provider.ts'
 import type { PlaceExtractor } from '../providers/place-extraction-service.ts'
 import { ExaProviderFailure, InstagramProviderFailure, type FoundPlace, type PlaceFinder } from '../providers/places-provider.ts'
 import { metersBetween } from './match.ts'
 import { missingRows } from './missing.ts'
+import { GoogleNameCache } from './google-names.ts'
 import type { DiscountStore } from './persist.ts'
 import { chooseGoogleResult, searchQuery } from './place-search.ts'
 
 /** El motivo que asegura que nada de esta búsqueda se publique solo. */
 export const FROM_DISCOUNTS: ReviewReason = 'from_discounts'
 export const MAX_SEARCH_ROWS = 200
+/** Resultados de "Buscar en Google" desde el panel: todos los de Montevideo que trae Text Search (hasta 5). */
+export const MAX_LOOKUP_RESULTS = 5
 export const STOPPED_BY_APIFY = 'No se procesó: la búsqueda se cortó por errores de Apify seguidos.'
 export const STOPPED_BY_EXA = 'No se procesó: la búsqueda se cortó por errores de Exa seguidos.'
 const NO_SOURCES = 'Las fuentes no trajeron datos del lugar: no se guardó.'
@@ -29,6 +42,10 @@ export type PlaceSearchDependencies = {
   finder: PlaceFinder
   /** Place Details (cacheado por el provider, el mismo que usa la extracción): el tipo de un candidato elegido a mano. */
   details?: { getDetails(placeId: string): Promise<GooglePlaceDetailsResponse> }
+  /** Place Details mínimo (nombre y dirección), para volver a mostrar candidatos guardados. */
+  names?: { getNameAndAddress(placeId: string): Promise<{ name: string; address: string } | null> }
+  /** Nombre y dirección de Google vistos, sólo en memoria y por poco tiempo. */
+  nameCache?: GoogleNameCache
   extractor: Pick<PlaceExtractor, 'extract'>
   saver: Pick<PlacesSaver, 'save'>
   reportWriter?: ExtractionReportWriter
@@ -56,8 +73,8 @@ export class DiscountPlaceSearchRunner {
   private stopped: string | null = null
   private results: PlaceEnrichmentResponse[] = []
   private waiters: (() => void)[] = []
-  /** Nombre, dirección y tipo de cada resultado de Google visto: sólo en memoria (como DiscoveryStore). */
-  private readonly seen = new Map<string, CandidateDetail & { primaryType: string | null }>()
+  /** Nombre, dirección y tipo de cada resultado de Google visto: sólo en memoria y por poco tiempo. */
+  private readonly seen: GoogleNameCache
   private readonly deps: PlaceSearchDependencies
   private readonly now: () => Date
   private readonly concurrency: number
@@ -66,13 +83,14 @@ export class DiscountPlaceSearchRunner {
     this.deps = deps
     this.now = deps.now ?? (() => new Date())
     this.concurrency = deps.concurrency ?? EXTRACT_CONCURRENCY
+    this.seen = deps.nameCache ?? new GoogleNameCache()
   }
 
   status(): PlaceSearchProgress {
     if (!this.job) return { status: 'idle' }
     // Todos los vistos desde que arrancó el servidor: también los dudosos de trabajos anteriores.
     const candidateDetails: Record<string, CandidateDetail> = {}
-    for (const [id, detail] of this.seen) candidateDetails[id] = { name: detail.name, address: detail.address }
+    for (const [id, detail] of this.seen.entries()) candidateDetails[id] = { name: detail.name, address: detail.address }
     return structuredClone({ ...this.job, candidateDetails })
   }
 
@@ -95,11 +113,12 @@ export class DiscountPlaceSearchRunner {
    * Elegir un candidato de un dudoso (lo manda a extracción, sumándolo al trabajo en curso o reabriendo el último) o
    * "Ninguno" (placeId null: queda no encontrado, sin llamadas).
    */
-  async pick(rowKey: string, placeId: string | null): Promise<'ok' | 'not_found' | 'not_doubtful' | 'not_candidate'> {
+  async pick(rowKey: string, placeId: string | null): Promise<'ok' | 'not_found' | 'not_doubtful' | 'not_candidate' | 'in_progress'> {
     const row = (await this.rowsByKey()).get(rowKey)
     if (!row) return 'not_found'
     const search = rowSearch(row, await this.deps.store.placeSearches())
     if (!search || search.status !== 'doubtful') return 'not_doubtful'
+    if (this.inProgress(row.key)) return 'in_progress'
     if (placeId === null) {
       await this.persist(row, { status: 'not_found', candidates: [] })
       this.updateRow(row, { state: 'done', outcome: 'not_found', candidates: [], error: null })
@@ -119,6 +138,81 @@ export class DiscountPlaceSearchRunner {
     }
     this.enqueue({ row, pick: { ...candidate, primaryType: this.seen.get(placeId)?.primaryType ?? null } })
     return 'ok'
+  }
+
+  /**
+   * "Buscar en Google" desde el panel «Resolver», en el momento: Text Search con nombre + dirección o barrio +
+   * Montevideo, los de Montevideo (hasta 5). Se guarda como siempre sólo place_id y coordenadas (dudoso, para elegir
+   * con «Agregar» o «Ninguno»; no encontrado si no vino nada). Nombre y dirección sólo para mostrar.
+   */
+  async lookup(rowKey: string): Promise<GoogleCandidatesResponse | 'not_found' | 'in_progress'> {
+    const row = (await this.rowsByKey()).get(rowKey)
+    if (!row) return 'not_found'
+    if (this.inProgress(rowKey)) return 'in_progress'
+    const target = { name: row.name, neighborhoodId: row.neighborhoodId, address: row.address, coordinates: row.coordinates }
+    const found = await this.deps.finder.findPlace({ query: searchQuery(target), near: row.coordinates })
+    if (this.job) this.job.searches += 1
+    const unique = [...new Map(found.map((place) => [place.placeId, place])).values()]
+      .filter((place) => getBarrio(place.lat, place.lng) !== null)
+      .slice(0, MAX_LOOKUP_RESULTS)
+    for (const place of unique) this.seen.set(place.placeId, { name: place.name, address: place.address, primaryType: place.primaryType })
+    const candidates: PlaceSearchCandidate[] = unique.map((place) => ({ placeId: place.placeId, lat: place.lat, lng: place.lng }))
+    await this.persist(row, candidates.length ? { status: 'doubtful', candidates } : { status: 'not_found' })
+    this.updateRow(row, { state: 'done', outcome: candidates.length ? 'doubtful' : 'not_found', candidates, candidateMeters: {}, error: null })
+    return { results: await this.views(row, candidates), costUsd: FIND_PLACE_USD, searches: await this.ownerSearches(row) }
+  }
+
+  /**
+   * Nombre y dirección de los candidatos guardados de la fila (de Google sólo se guarda el place_id): primero de la
+   * memoria; los que faltan, Place Details con el field mask mínimo (displayName,formattedAddress).
+   */
+  async candidateNames(rowKey: string): Promise<GoogleCandidatesResponse | 'not_found'> {
+    const row = (await this.rowsByKey()).get(rowKey)
+    if (!row) return 'not_found'
+    const searches = await this.deps.store.placeSearches()
+    const candidates = rowSearch(row, searches)?.candidates ?? []
+    let calls = 0
+    if (this.deps.names) {
+      const names = this.deps.names
+      await Promise.all(candidates.filter((candidate) => !this.seen.get(candidate.placeId)).map(async (candidate) => {
+        calls += 1
+        const found = await names.getNameAndAddress(candidate.placeId)
+        if (found) this.seen.set(candidate.placeId, { ...found, primaryType: null })
+      }))
+    }
+    return { results: await this.views(row, candidates), costUsd: Math.round(calls * NAME_ADDRESS_USD * 10_000) / 10_000, searches: this.ownersOf(row, searches) }
+  }
+
+  /** ¿La fila está en cola, buscando o extrayendo en el trabajo actual? */
+  private inProgress(rowKey: string) {
+    return this.running() && this.job!.rows.some((item) => item.rowKey === rowKey && item.state !== 'done')
+  }
+
+  private async views(row: MissingRow, candidates: PlaceSearchCandidate[]): Promise<GoogleCandidateView[]> {
+    const ours = new Map((await this.deps.store.ourPlaces(candidates.map((candidate) => candidate.placeId))).map((place) => [place.googlePlaceId, place]))
+    return candidates.map((candidate) => {
+      const name = this.seen.get(candidate.placeId)
+      const our = ours.get(candidate.placeId)
+      return {
+        placeId: candidate.placeId,
+        name: name?.name ?? null,
+        address: name?.address ?? null,
+        lat: candidate.lat,
+        lng: candidate.lng,
+        meters: row.coordinates ? Math.round(metersBetween(row.coordinates, candidate)) : null,
+        ours: our ? { id: our.id, name: our.name, status: our.status } : null,
+      }
+    })
+  }
+
+  private ownersOf(row: MissingRow, searches: Record<string, StoredPlaceSearch[]>): Record<string, StoredPlaceSearch[]> {
+    return Object.fromEntries([...new Set(row.owners.map((owner) => owner.discountPlaceId))].flatMap((id) => (searches[id] ? [[id, searches[id]]] : [])))
+  }
+
+  /** Las búsquedas guardadas de los dueños de la fila, para que la pantalla actualice la fila sin recargar. */
+  async ownerSearches(row: MissingRow | string): Promise<Record<string, StoredPlaceSearch[]>> {
+    const resolved = typeof row === 'string' ? (await this.rowsByKey()).get(row) : row
+    return resolved ? this.ownersOf(resolved, await this.deps.store.placeSearches()) : {}
   }
 
   /** Para tests: espera a que termine el trabajo en curso. */

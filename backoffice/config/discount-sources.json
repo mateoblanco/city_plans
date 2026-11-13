@@ -1,5 +1,9 @@
 {
   "$comment": "Fuentes de los descuentos, por proveedor del catálogo (/shared/discounts.ts). Se lee en cada corrida: para cambiar una URL alcanza con editar este archivo. Se valida al cargar (server/discounts/providers.ts): ids del catálogo, URLs https, tipos de tarjeta permitidos.",
+  "autoDiscard": {
+    "nota": "Rubros que no son para salir a comer o tomar algo: los lugares cuyo rubro de la fuente (category; hoy sólo lo traen BBVA y Scotiabank) nombra uno de estos quedan descartados en cada corrida, con el motivo 'Rubro: <rubro>'. Palabras completas, sin tildes ni mayúsculas; no descarta si el rubro también dice restaurante, cafetería, bar, etc. Lo que se descarta o se vuelve a mostrar a mano manda sobre esta lista.",
+    "categories": ["Carnicería", "Boutique de carnes", "Boutique de carne", "Tienda de carnes", "Productos congelados", "Supermercado", "Almacén", "Autoservicio", "Minimercado", "Rotisería", "Despensa"]
+  },
   "providers": {
     "bbva": {
       "sourceUrl": "https://www.bbva.com.uy/personas/productos/tarjetas/descuentos/gastronomia.html"

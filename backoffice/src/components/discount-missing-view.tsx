@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { AlertCircle, ArrowUpRight, LoaderCircle, MapPin, Search } from 'lucide-react'
+import { AlertCircle, ArrowUpRight, EyeOff, LoaderCircle, MapPin, Search, Wrench } from 'lucide-react'
+import { DiscountResolvePanel } from '@/components/discount-resolve-panel'
+import { targetFromRow, type ResolveOutcome, type ResolveTarget } from '@/lib/discount-resolve'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { groupByNeighborhood, rowSearch, type MissingRow } from '@/lib/discount-missing'
-import { getPlaceSearchEstimate, getPlaceSearchProgress, pickPlaceSearchCandidate, startPlaceSearch } from '@/lib/discounts-api'
-import { googleMapsUrl } from '@/lib/google-maps-url'
+import { groupByNeighborhood, isMissingCandidate, rowSearch, type MissingRow } from '@/lib/discount-missing'
+import { getPlaceSearchEstimate, getPlaceSearchProgress, setDiscountIgnoredMany, startPlaceSearch } from '@/lib/discounts-api'
 import type {
-  CandidateDetail,
+  DiscountPlace,
   OurPlaceStatus,
-  PlaceSearchCandidate,
   PlaceSearchEstimate,
   PlaceSearchJobRow,
   PlaceSearchProgress,
@@ -46,21 +46,14 @@ const plural = (count: number, one: string, many: string) => `${count} ${count =
 const dateTime = (iso: string) => new Date(iso).toLocaleString('es-UY', { dateStyle: 'medium', timeStyle: 'short' })
 const message = (error: unknown) => (error instanceof Error ? error.message : 'No se pudo completar la consulta.')
 
-/** Distancia en metros (haversine), para mostrar qué tan lejos está un candidato del local de la fuente. */
-function meters(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
-  const rad = Math.PI / 180
-  const dLat = (b.lat - a.lat) * rad
-  const dLng = (b.lng - a.lng) * rad
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2
-  return Math.round(2 * 6_371_000 * Math.asin(Math.sqrt(h)))
-}
-
 function Tag({ children, className = 'bg-muted text-muted-foreground ring-border' }: { children: ReactNode; className?: string }) {
   return <span className={`inline-flex rounded-md px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap ring-1 ring-inset ${className}`}>{children}</span>
 }
 
 /** Ya se buscó (y no hace falta repetirlo): "seleccionar todo" lo saltea. Los errores e interrumpidos sí entran. */
 const alreadySearched = (search: StoredPlaceSearch | null) => Boolean(search && search.status !== 'error' && search.status !== 'searched')
+/** Ya quedó resuelto por la búsqueda (en revisión, ya existía o no encontrado): "Siguiente sin resolver" lo saltea. */
+const resolvedBySearch = (search: StoredPlaceSearch | null) => Boolean(search && ['review', 'exists', 'not_found'].includes(search.status))
 
 type RowView = {
   row: MissingRow
@@ -82,48 +75,6 @@ function SearchStatus({ view, running }: { view: RowView; running: boolean }) {
       {search.status === 'error' && search.error && <span className="max-w-64 text-xs text-destructive">{search.error}</span>}
       <span className="text-xs text-muted-foreground">{dateTime(search.searchedAt)}</span>
     </span>
-  )
-}
-
-function Candidates({ view, details, disabled, onPick }: {
-  view: RowView
-  details: Record<string, CandidateDetail>
-  disabled: boolean
-  onPick: (placeId: string | null) => void
-}) {
-  const candidates: PlaceSearchCandidate[] = view.search?.candidates ?? []
-  return (
-    <div className="grid gap-2 rounded-lg border bg-amber-50/40 p-3">
-      <p className="text-xs font-medium text-amber-900">Elegí cuál es en Google (o «Ninguno»):</p>
-      <ul className="grid gap-1.5">
-        {candidates.map((candidate) => {
-          const detail = details[candidate.placeId]
-          const name = detail?.name ?? view.row.name
-          const distance = view.row.coordinates ? meters(view.row.coordinates, candidate) : null
-          const url = googleMapsUrl({ googlePlaceId: candidate.placeId, name })
-          return (
-            <li key={candidate.placeId} className="flex flex-wrap items-center justify-between gap-2 text-sm">
-              <span>
-                {detail ? <>{detail.name} <span className="text-muted-foreground">· {detail.address || 'sin dirección'}</span></> : <span className="text-muted-foreground">Candidato (el nombre ya no está en memoria: abrilo en Google Maps)</span>}
-                {distance !== null && <span className="text-muted-foreground"> · a {distance} m</span>}
-              </span>
-              <span className="flex gap-1">
-                {url && (
-                  <a className="inline-flex h-8 items-center gap-1 px-2 text-xs underline" href={url} target="_blank" rel="noreferrer">
-                    Ver en Google Maps <ArrowUpRight className="size-3" aria-hidden="true" />
-                  </a>
-                )}
-                <Button type="button" size="sm" variant="outline" disabled={disabled} onClick={() => onPick(candidate.placeId)} aria-label={`Elegir ${name}`}>Elegir</Button>
-              </span>
-            </li>
-          )
-        })}
-      </ul>
-      <div className="flex items-center justify-between gap-2">
-        <Button type="button" size="sm" variant="ghost" disabled={disabled} onClick={() => onPick(null)} aria-label={`Ninguno para ${view.row.name}`}>Ninguno</Button>
-        <span className="text-[11px] text-muted-foreground">Datos de Google Maps</span>
-      </div>
-    </div>
   )
 }
 
@@ -179,33 +130,48 @@ function JobSummary({ progress }: { progress: Extract<PlaceSearchProgress, { sta
  * Vista de "No están en la base": un local por fila, agrupado por barrio y sin repetir entre proveedores, con selección
  * para buscarlos en Google y mandarlos a extracción (en el servidor; siempre quedan en "A revisar").
  */
-export function DiscountMissingView({ rows, visibleIds, searches, providers, onReload }: {
+export function DiscountMissingView({ rows, places, visibleIds, searches, providers, onReload, onPlaces, onSearches }: {
   /** Las filas que arma el servidor (con todos los lugares, así las claves no dependen de los filtros). */
   rows: MissingRow[]
+  /** Todos los lugares del proveedor, como están ahora (una fila sale sin recargar cuando ya ninguno falta en la base). */
+  places: DiscountPlace[]
   /** Los que pasan los filtros de la pantalla: se muestran las filas con alguno de ellos. */
   visibleIds: ReadonlySet<string>
   searches: Record<string, StoredPlaceSearch[]>
   providers: Map<string, string>
   onReload: () => Promise<void>
+  /** Lugares actualizados por una acción (vincular, descartar): la pantalla los reemplaza sin recargar. */
+  onPlaces: (places: DiscountPlace[]) => void
+  /** Búsquedas guardadas actualizadas (Google, "Ninguno", "Agregar"). */
+  onSearches: (searches: Record<string, StoredPlaceSearch[]>) => void
 }) {
   const [progress, setProgress] = useState<PlaceSearchProgress>({ status: 'idle' })
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [confirm, setConfirm] = useState<{ status: 'loading' } | { status: 'ready'; estimate: PlaceSearchEstimate } | { status: 'error'; message: string } | null>(null)
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [picking, setPicking] = useState<string | null>(null)
+  const [discarding, setDiscarding] = useState(false)
+  const [resolving, setResolving] = useState<ResolveTarget | null>(null)
   const finished = useRef<string | null>(null)
+  const resolveButtons = useRef(new Map<string, HTMLButtonElement>())
+  // Al cerrar el panel después de resolver, el foco va al "Resolver" de la próxima fila sin resolver.
+  const focusAfterClose = useRef<HTMLElement | null>(null)
 
+  const byId = useMemo(() => new Map(places.map((place) => [place.id, place])), [places])
   const live = useMemo(() => new Map(progress.status === 'idle' ? [] : progress.rows.map((row) => [row.rowKey, row])), [progress])
   const views = useMemo(() => rows
     .filter((row) => row.members.some((member) => visibleIds.has(member.discountPlaceId)))
-    .map((row): RowView => ({ row, search: rowSearch(row, searches), live: live.get(row.key) ?? null })), [rows, visibleIds, searches, live])
+    // Vinculada o descartada desde la pantalla: sale sin recargar las filas del servidor.
+    .filter((row) => row.members.some((member) => {
+      const place = byId.get(member.discountPlaceId)
+      return !place || isMissingCandidate(place)
+    }))
+    .map((row): RowView => ({ row, search: rowSearch(row, searches), live: live.get(row.key) ?? null })), [rows, visibleIds, searches, live, byId])
   const groups = useMemo(() => {
     const byKey = new Map(views.map((view) => [view.row.key, view]))
     return groupByNeighborhood(views.map((view) => view.row)).map((group) => ({ ...group, views: group.rows.map((row) => byKey.get(row.key)!) }))
   }, [views])
   const running = progress.status === 'running'
-  const details = progress.status === 'idle' ? {} : progress.candidateDetails
 
   // Las filas que ya no se ven (cambió un filtro o se recargó) dejan de estar seleccionadas.
   const visibleKeys = useMemo(() => new Set(views.map((view) => view.row.key)), [views])
@@ -289,18 +255,49 @@ export function DiscountMissingView({ rows, visibleIds, searches, providers, onR
     }
   }
 
-  async function pick(rowKey: string, placeId: string | null) {
-    setPicking(rowKey)
+  const ordered = useMemo(() => groups.flatMap((group) => group.views), [groups])
+  const unresolved = (view: RowView) => !resolvedBySearch(view.search) && !(view.live && view.live.state !== 'done')
+  /** La próxima fila sin resolver después de `key` (en el orden de la tabla), sin contar `key`. */
+  const nextAfter = (key: string): RowView | null => {
+    const index = ordered.findIndex((view) => view.row.key === key)
+    const rest = index < 0 ? ordered : [...ordered.slice(index + 1), ...ordered.slice(0, index)]
+    return rest.find((view) => view.row.key !== key && unresolved(view)) ?? null
+  }
+
+  const open = (row: MissingRow) => setResolving(targetFromRow(row, places))
+  function resolved(_outcome: ResolveOutcome) {
+    if (!resolving) return
+    const next = nextAfter(resolving.key)
+    focusAfterClose.current = next ? resolveButtons.current.get(next.row.key) ?? null : null
+    setResolving(null)
+  }
+  function openNext() {
+    if (!resolving) return
+    const next = nextAfter(resolving.key)
+    setResolving(next ? targetFromRow(next.row, places) : null)
+  }
+  const resolvingView = resolving ? views.find((view) => view.row.key === resolving.key) ?? null : null
+  const resolvingRow = resolving ? rows.find((row) => row.key === resolving.key) ?? null : null
+
+  async function discardRows(keys: string[]) {
+    const ids = [...new Set(rows.filter((row) => keys.includes(row.key)).flatMap((row) => row.members.map((member) => member.discountPlaceId)))]
+    if (!ids.length) return
+    setDiscarding(true)
     setError(null)
     try {
-      await pickPlaceSearchCandidate(rowKey, placeId)
-      if (placeId) setProgress(await getPlaceSearchProgress())
-      else await onReload()
+      onPlaces(await setDiscountIgnoredMany(ids, true))
+      setSelected((current) => new Set([...current].filter((key) => !keys.includes(key))))
     } catch (failure) {
       setError(message(failure))
     } finally {
-      setPicking(null)
+      setDiscarding(false)
     }
+  }
+
+  const refreshProgress = () => {
+    getPlaceSearchProgress().then(setProgress).catch(() => {
+      // El polling lo vuelve a pedir.
+    })
   }
 
   const providerNames = (ids: string[]) => ids.map((id) => providers.get(id) ?? id)
@@ -321,12 +318,18 @@ export function DiscountMissingView({ rows, visibleIds, searches, providers, onR
           <p className="text-sm font-semibold tabular-nums" role="status">
             {plural(views.length, 'lugar', 'lugares')} sin repetir · {plural(groups.length, 'barrio', 'barrios')} · {plural(chosen.length, 'seleccionado', 'seleccionados')}
           </p>
-          <Button type="button" size="sm" disabled={running || chosen.length === 0 || chosen.length > MAX_ROWS} onClick={() => void openConfirm()}>
-            <Search className="size-3.5" aria-hidden="true" />
-            Buscar seleccionados ({chosen.length})
-          </Button>
+          <span className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" variant="outline" disabled={discarding || chosen.length === 0 || chosen.length > MAX_ROWS} onClick={() => void discardRows(chosen)}>
+              <EyeOff className="size-3.5" aria-hidden="true" />
+              Descartar seleccionados ({chosen.length})
+            </Button>
+            <Button type="button" size="sm" disabled={running || chosen.length === 0 || chosen.length > MAX_ROWS} onClick={() => void openConfirm()}>
+              <Search className="size-3.5" aria-hidden="true" />
+              Buscar seleccionados ({chosen.length})
+            </Button>
+          </span>
         </div>
-        {chosen.length > MAX_ROWS && <p className="border-b px-4 py-2 text-xs text-destructive sm:px-5">Se pueden buscar hasta {MAX_ROWS} por vez.</p>}
+        {chosen.length > MAX_ROWS && <p className="border-b px-4 py-2 text-xs text-destructive sm:px-5">Se pueden buscar o descartar hasta {MAX_ROWS} por vez.</p>}
         {views.length === 0 ? (
           <div className="flex min-h-48 flex-col items-center justify-center px-6 py-12 text-center">
             <MapPin className="mb-4 size-6 text-muted-foreground" aria-hidden="true" />
@@ -342,6 +345,7 @@ export function DiscountMissingView({ rows, visibleIds, searches, providers, onR
                   <TableHead className="px-4 sm:px-5">Proveedores</TableHead>
                   <TableHead className="px-4 sm:px-5">Dirección</TableHead>
                   <TableHead className="px-4 sm:px-5">Búsqueda</TableHead>
+                  <TableHead className="px-4 sm:px-5">Acciones</TableHead>
                   <TableHead className="px-4 sm:px-5">Fuente</TableHead>
                 </TableRow>
               </TableHeader>
@@ -361,13 +365,12 @@ export function DiscountMissingView({ rows, visibleIds, searches, providers, onR
                           aria-label={`Seleccionar todo ${group.label}`}
                         />
                       </TableCell>
-                      <TableCell colSpan={5} className="px-4 py-2 text-sm font-semibold sm:px-5">
+                      <TableCell colSpan={6} className="px-4 py-2 text-sm font-semibold sm:px-5">
                         {group.label} <span className="font-normal text-muted-foreground">· {group.views.length}{selectable.length < group.views.length ? ` (${group.views.length - selectable.length} ya buscados)` : ''}</span>
                       </TableCell>
                     </TableRow>,
                     ...group.views.flatMap((view) => {
-                      const { row, search } = view
-                      const doubtful = search?.status === 'doubtful' && !(view.live && running && view.live.state !== 'done')
+                      const { row } = view
                       const firstSource = row.owners[0]
                       return [
                         <TableRow key={row.key}>
@@ -388,19 +391,33 @@ export function DiscountMissingView({ rows, visibleIds, searches, providers, onR
                           <TableCell className="px-4 py-3 align-top text-sm sm:px-5">{row.address ?? <span className="text-muted-foreground">—</span>}</TableCell>
                           <TableCell className="px-4 py-3 align-top sm:px-5"><SearchStatus view={view} running={running} /></TableCell>
                           <TableCell className="px-4 py-3 align-top sm:px-5">
+                            <span className="flex flex-wrap gap-1">
+                              <Button
+                                ref={(element) => {
+                                  if (element) resolveButtons.current.set(row.key, element)
+                                  else resolveButtons.current.delete(row.key)
+                                }}
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => open(row)}
+                                aria-label={`Resolver ${row.name}`}
+                              >
+                                <Wrench className="size-3.5" aria-hidden="true" />
+                                Resolver
+                              </Button>
+                              <Button type="button" size="sm" variant="ghost" disabled={discarding} onClick={() => void discardRows([row.key])} aria-label={`Descartar ${row.name}`}>
+                                <EyeOff className="size-3.5" aria-hidden="true" />
+                                Descartar
+                              </Button>
+                            </span>
+                          </TableCell>
+                          <TableCell className="px-4 py-3 align-top sm:px-5">
                             <a className="inline-flex items-center gap-1 text-sm underline" href={firstSource.sourceUrl} target="_blank" rel="noreferrer">
                               Ver <ArrowUpRight className="size-3.5" aria-hidden="true" />
                             </a>
                           </TableCell>
                         </TableRow>,
-                        ...(doubtful ? [
-                          <TableRow key={`${row.key}-candidates`} className="hover:bg-transparent">
-                            <TableCell />
-                            <TableCell colSpan={5} className="px-4 pb-3 sm:px-5">
-                              <Candidates view={view} details={details} disabled={picking === row.key} onPick={(placeId) => void pick(row.key, placeId)} />
-                            </TableCell>
-                          </TableRow>,
-                        ] : []),
                       ]
                     }),
                   ]
@@ -410,6 +427,25 @@ export function DiscountMissingView({ rows, visibleIds, searches, providers, onR
           </div>
         )}
       </div>
+
+      <DiscountResolvePanel
+        target={resolving}
+        places={resolving ? places.filter((place) => resolving.discountPlaceIds.includes(place.id)) : []}
+        search={resolvingRow ? rowSearch(resolvingRow, searches) : null}
+        live={resolvingView?.live ?? (resolving ? live.get(resolving.key) ?? null : null)}
+        providers={providers}
+        hasNext={resolving ? nextAfter(resolving.key) !== null : false}
+        finalFocus={focusAfterClose}
+        onClose={() => {
+          focusAfterClose.current = null
+          setResolving(null)
+        }}
+        onPlaces={onPlaces}
+        onSearches={onSearches}
+        onAdded={refreshProgress}
+        onDone={resolved}
+        onNext={openNext}
+      />
 
       <Dialog open={confirm !== null} onOpenChange={(open) => { if (!open && !starting) setConfirm(null) }}>
         <DialogContent className="sm:max-w-md">

@@ -60,7 +60,7 @@ const database = process.env.DATABASE_URL?.trim()
         import('./places/list.ts'),
         import('./places/edit.ts'),
       ])
-      const { drizzleDiscountStore } = await import('./discounts/drizzle-store.ts')
+      const [{ drizzleDiscountStore }, { drizzleOurPlaces }] = await Promise.all([import('./discounts/drizzle-store.ts'), import('./discounts/our-places.ts')])
       return {
         placesSaver: placesSaver(drizzlePlacesStore(db)),
         placeEditor: placeEditor({
@@ -84,6 +84,7 @@ const database = process.env.DATABASE_URL?.trim()
         brandSiblings: drizzleBrandSiblings(db),
         discountCandidates: drizzleDiscountCandidates(db),
         discountStore: drizzleDiscountStore(db),
+        ourPlaces: drizzleOurPlaces(db),
       }
     })()
   : undefined
@@ -112,9 +113,9 @@ const discounts = database
       const deps = discountRunDependencies({ store: database.discountStore, candidates: database.discountCandidates })
       // Buscar en Google los que no están en la base: Text Search y el mismo pipeline que /api/extract y POST /api/places.
       const search = provider && extractor?.configured
-        ? new DiscountPlaceSearchRunner({ store: database.discountStore, finder: provider, details: provider, extractor, saver: database.placesSaver, reportWriter: fileReportWriter() })
+        ? new DiscountPlaceSearchRunner({ store: database.discountStore, finder: provider, details: provider, names: provider, extractor, saver: database.placesSaver, reportWriter: fileReportWriter() })
         : undefined
-      return { runner: new DiscountRunner(deps), store: database.discountStore, candidates: database.discountCandidates, search, estimate: () => searchEstimate() }
+      return { runner: new DiscountRunner(deps), store: database.discountStore, candidates: database.discountCandidates, search, estimate: () => searchEstimate(), ourPlaces: database.ourPlaces }
     })()
   : undefined
 const apiPort = Number(process.env.BACKOFFICE_API_PORT ?? 8787)

@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, notInArray, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, notInArray, sql, type SQL } from 'drizzle-orm'
 import type { NeonHttpDatabase } from 'drizzle-orm/neon-http'
 import type { BenefitDays, DiscountPlace, DiscountRun, StoredBenefit, StoredPlaceSearch, Weekday } from '../../src/types/discounts.ts'
 import type * as schema from '../db/schema.ts'
@@ -27,7 +27,7 @@ const stillAuto = (id: ReturnType<typeof sql>) => sql`exists (select 1 from ${di
 
 /** Persistencia de descuentos en Neon. Cada corrida de un proveedor es un db.batch (una transacción). */
 export function drizzleDiscountStore(db: Db): DiscountStore {
-  async function list(where?: ReturnType<typeof eq>): Promise<DiscountPlace[]> {
+  async function list(where?: SQL): Promise<DiscountPlace[]> {
     const rows = await (where ? db.select().from(discountPlaces).where(where) : db.select().from(discountPlaces))
     if (rows.length === 0) return []
     const ids = rows.map((row) => row.id)
@@ -61,6 +61,7 @@ export function drizzleDiscountStore(db: Db): DiscountStore {
       lastSeenAt: row.lastSeenAt.toISOString(),
       active: row.active,
       ignored: row.ignored,
+      discard: row.ignoredOrigin ? { origin: row.ignoredOrigin, reason: row.ignoredReason } : null,
       matchedAt: row.matchedAt?.toISOString() ?? null,
       benefits: benefitRows.filter((benefit) => benefit.discountPlaceId === row.id).map((benefit): StoredBenefit => ({
         id: benefit.id,
@@ -105,13 +106,14 @@ export function drizzleDiscountStore(db: Db): DiscountStore {
 
   return {
     async existing(providerId) {
-      return db.select({ id: discountPlaces.id, ignored: discountPlaces.ignored, matchOrigin: discountPlaces.matchOrigin })
+      return db.select({ id: discountPlaces.id, ignored: discountPlaces.ignored, ignoredOrigin: discountPlaces.ignoredOrigin, matchOrigin: discountPlaces.matchOrigin })
         .from(discountPlaces).where(eq(discountPlaces.providerId, providerId))
     },
 
     async manualMatches(providerId) {
-      const rows = await db.select({ id: discountPlaces.id, status: discountPlaces.matchStatus, ignored: discountPlaces.ignored }).from(discountPlaces)
-        .where(and(eq(discountPlaces.providerId, providerId), sql`(${discountPlaces.matchOrigin} = 'manual' or ${discountPlaces.ignored})`))
+      // Sólo los descartes manuales se heredan: el automático lo decide la regla de rubros en cada proveedor.
+      const rows = await db.select({ id: discountPlaces.id, status: discountPlaces.matchStatus, ignored: sql<boolean>`(${discountPlaces.ignored} and ${discountPlaces.ignoredOrigin} is not distinct from 'manual')` }).from(discountPlaces)
+        .where(and(eq(discountPlaces.providerId, providerId), sql`(${discountPlaces.matchOrigin} = 'manual' or (${discountPlaces.ignored} and ${discountPlaces.ignoredOrigin} is not distinct from 'manual'))`))
       if (!rows.length) return []
       const linkRows = await db.select({ dp: discountPlaceLinks.discountPlaceId, placeId: discountPlaceLinks.placeId, wholeBrand: discountPlaceLinks.wholeBrand, locationIndex: discountPlaceLinks.locationIndex })
         .from(discountPlaceLinks).where(inArray(discountPlaceLinks.discountPlaceId, rows.map((row) => row.id)))
@@ -200,6 +202,13 @@ export function drizzleDiscountStore(db: Db): DiscountStore {
             'conditions', 'source_text', 'source_url', 'parsed_by', 'last_seen_at', 'active',
           ].map((column) => [column.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase()), excluded(column)])),
         })] : []),
+        // Descartes por rubro antes del cruce (así el chequeo "no descartado" del cruce ve el estado nuevo). Nunca sobre
+        // una decisión manual hecha antes o durante la corrida.
+        ...(writes.discards.length ? [db.execute(sql`
+          update ${discountPlaces} set ignored = v.ignored, ignored_origin = case when v.ignored then 'auto' else null end,
+            ignored_reason = v.reason, updated_at = ${writes.now}::timestamptz
+          from jsonb_to_recordset(${JSON.stringify(writes.discards.map((item) => ({ id: item.discountPlaceId, ignored: item.ignored, reason: item.reason })))}::jsonb) as v(id text, ignored boolean, reason text)
+          where ${discountPlaces.id} = v.id and ${discountPlaces.ignoredOrigin} is distinct from 'manual'`)] : []),
         // De los detalles que se leyeron bien, los beneficios que no aparecieron, inactivos.
         ...(writes.readPlaceIds.length ? [db.update(discountBenefits).set({ active: false })
           .where(and(
@@ -241,7 +250,8 @@ export function drizzleDiscountStore(db: Db): DiscountStore {
             where ${stillAuto(sql`l.dp`)} and exists (select 1 from ${places} where ${places.id} = l.pid::uuid)
             on conflict do nothing`)] : []),
           db.execute(sql`
-            update ${discountPlaces} set match_status = v.status, match_origin = 'manual', ignored = v.ignored, match_candidates = '[]'::jsonb,
+            update ${discountPlaces} set match_status = v.status, match_origin = 'manual', ignored = v.ignored,
+              ignored_origin = case when v.ignored then 'manual' else ${discountPlaces.ignoredOrigin} end, match_candidates = '[]'::jsonb,
               matched_at = ${writes.now}::timestamptz, updated_at = ${writes.now}::timestamptz
             from jsonb_to_recordset(${JSON.stringify(copyRows)}::jsonb) as v(id text, status text, ignored boolean)
             where ${discountPlaces.id} = v.id and ${discountPlaces.matchOrigin} = 'auto' and not ${discountPlaces.ignored}`),
@@ -306,8 +316,20 @@ export function drizzleDiscountStore(db: Db): DiscountStore {
     },
 
     async setIgnored(id, ignored) {
-      const updated = await db.update(discountPlaces).set({ ignored, updatedAt: new Date() }).where(eq(discountPlaces.id, id)).returning({ id: discountPlaces.id })
+      const updated = await db.update(discountPlaces).set({ ignored, ignoredOrigin: 'manual', ignoredReason: null, updatedAt: new Date() })
+        .where(eq(discountPlaces.id, id)).returning({ id: discountPlaces.id })
       return updated.length > 0
+    },
+
+    async setIgnoredMany(ids, ignored) {
+      if (!ids.length) return []
+      const updated = await db.update(discountPlaces).set({ ignored, ignoredOrigin: 'manual', ignoredReason: null, updatedAt: new Date() })
+        .where(inArray(discountPlaces.id, ids)).returning({ id: discountPlaces.id })
+      return updated.map((row) => row.id)
+    },
+
+    async getMany(ids) {
+      return ids.length ? list(inArray(discountPlaces.id, ids)) : []
     },
 
     async setAutoMatch(id, match, now) {

@@ -1,4 +1,5 @@
 import type { DiscountBenefit, DiscountLink, DiscountPlace, DiscountPlaceSearch, DiscountRun, MatchCandidate, MatchStatus, OurPlaceStatus, ProviderPlace, StoredPlaceSearch } from '../../src/types/discounts.ts'
+import { discardReason } from './discard.ts'
 import { matchPlace, type AutoMatch, type MatchablePlace } from './match.ts'
 import type { ReaderResult } from './reader.ts'
 
@@ -6,12 +7,17 @@ import type { ReaderResult } from './reader.ts'
 export type ExistingDiscountPlace = {
   id: string
   ignored: boolean
+  /** Quién decidió el descarte (null: nadie; manual: la regla de rubros no lo toca). */
+  ignoredOrigin: 'auto' | 'manual' | null
   matchOrigin: 'auto' | 'manual'
 }
 
+/** Descarte automático por rubro: ignored con el motivo, o vuelve a mostrarse si dejó de cumplir la regla. */
+export type DiscardWrite = { discountPlaceId: string; ignored: boolean; reason: string | null }
+
 export type BenefitUpsert = DiscountBenefit & { discountPlaceId: string; active: boolean }
 
-/** Un cruce manual (vinculado o confirmado a mano) o un lugar ignorado, para copiarlo a otro proveedor. */
+/** Un cruce manual (vinculado o confirmado a mano) o un lugar descartado a mano, para copiarlo a otro proveedor. */
 export type ManualMatch = {
   id: string
   status: MatchStatus
@@ -46,6 +52,11 @@ export type DiscountWrites = {
   matches: { discountPlaceId: string; status: MatchStatus; candidates: MatchCandidate[]; links: DiscountLink[] }[]
   /** Cruces manuales heredados de otro proveedor (mismas reglas que matches: sólo sobre lugares auto y no ignorados). */
   copies: MatchCopy[]
+  /**
+   * Descartes automáticos por rubro (autoDiscard.categories), sólo de lugares sin decisión manual (el store vuelve a
+   * chequearlo). Se aplican antes del cruce: lo descartado no se cruza y lo que vuelve a mostrarse, sí.
+   */
+  discards: DiscardWrite[]
 }
 
 /** YYYY-MM-DD en Montevideo: un beneficio que vence hoy sigue vigente hoy. */
@@ -68,9 +79,22 @@ export function planDiscountWrites(input: {
   existing: ExistingDiscountPlace[]
   candidates: MatchablePlace[]
   inherited?: InheritedMatches[]
+  /** Rubros que se descartan solos (config autoDiscard.categories). */
+  discardCategories?: readonly string[]
 }): DiscountWrites {
   const unread = new Set(input.result.unread)
   const existing = new Map(input.existing.map((place) => [place.id, place]))
+  // La regla de rubros, salvo donde decidió alguien a mano. Sólo se escribe lo que cambia (o el motivo).
+  const discards: DiscardWrite[] = []
+  const ignoredAfter = new Map<string, boolean>()
+  for (const place of input.result.places) {
+    const saved = existing.get(place.id)
+    if (saved?.ignoredOrigin === 'manual') continue
+    const reason = discardReason(place.category, input.discardCategories ?? [])
+    if (reason) discards.push({ discountPlaceId: place.id, ignored: true, reason })
+    else if (saved?.ignoredOrigin === 'auto') discards.push({ discountPlaceId: place.id, ignored: false, reason: null })
+    if (reason || saved?.ignoredOrigin === 'auto') ignoredAfter.set(place.id, Boolean(reason))
+  }
   const readPlaces = input.result.places.filter((place) => !unread.has(place.id))
   const benefits = readPlaces.flatMap((place) => place.benefits.map((benefit) => ({
     ...benefit,
@@ -79,10 +103,12 @@ export function planDiscountWrites(input: {
     // al leer, `expired` lo marca como "vigencia desactualizada en la fuente".
     active: true,
   })))
-  // Sólo lo nuevo o automático y no ignorado se cruza (o hereda): lo manual y lo ignorado no se toca nunca.
+  // Sólo lo nuevo o automático y no descartado (después de la regla de rubros) se cruza (o hereda): lo manual y lo
+  // descartado no se toca nunca.
   const isAuto = (id: string) => {
     const saved = existing.get(id)
-    return !saved || (saved.matchOrigin === 'auto' && !saved.ignored)
+    const ignored = ignoredAfter.get(id) ?? saved?.ignored ?? false
+    return !ignored && (!saved || saved.matchOrigin === 'auto')
   }
   const copies: MatchCopy[] = []
   for (const inherit of input.inherited ?? []) {
@@ -112,6 +138,7 @@ export function planDiscountWrites(input: {
     seenBenefitIds: benefits.map((benefit) => benefit.id),
     matches,
     copies,
+    discards,
   }
 }
 
@@ -134,7 +161,11 @@ export type DiscountStore = {
   confirm(id: string): Promise<'ok' | 'not_found' | 'no_links'>
   /** Reemplaza los vínculos por estos, manuales: found con alguno, missing sin ninguno. */
   setLinks(id: string, links: ManualLink[]): Promise<'ok' | 'not_found' | 'unknown_places'>
+  /** Descarte (o "volver a mostrar") a mano: la regla de rubros no lo toca más. */
   setIgnored(id: string, ignored: boolean): Promise<boolean>
+  /** Lo mismo para varios; devuelve los ids que existían. */
+  setIgnoredMany(ids: string[], ignored: boolean): Promise<string[]>
+  getMany(ids: string[]): Promise<DiscountPlace[]>
   /** Vuelve a automático con este cruce (vínculos auto nuevos). */
   setAutoMatch(id: string, match: AutoMatch, now: Date): Promise<boolean>
   /** Las búsquedas en Google guardadas, por lugar del proveedor, con nuestro lugar como está hoy. */

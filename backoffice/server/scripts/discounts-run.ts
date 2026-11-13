@@ -22,7 +22,7 @@ function summary(run: DiscountRun, places: DiscountPlace[]) {
   const counts = { found: 0, doubtful: 0, missing: 0, not_matched: 0 }
   for (const place of active) counts[place.match.status] += 1
   const benefits = active.flatMap((place) => place.benefits)
-  console.log(`  En la base: ${places.length} lugares (${active.length} activos, ${places.filter((place) => place.ignored).length} ignorados), ${benefits.filter((benefit) => benefit.active).length} beneficios vigentes (${benefits.filter((benefit) => benefit.active && benefit.expired).length} con la vigencia desactualizada en la fuente)`)
+  console.log(`  En la base: ${places.length} lugares (${active.length} activos, ${places.filter((place) => place.ignored).length} descartados), ${benefits.filter((benefit) => benefit.active).length} beneficios vigentes (${benefits.filter((benefit) => benefit.active && benefit.expired).length} con la vigencia desactualizada en la fuente)`)
   console.log(`  Cruce (activos): ${counts.found} encontrados, ${counts.doubtful} dudosos, ${counts.missing} no están en la base, ${counts.not_matched} fuera de Montevideo · ${active.filter((place) => place.match.origin === 'manual').length} manuales`)
   for (const error of run.errors) console.log(`  ERROR ${error.url}: ${error.message}`)
   for (const warning of run.warnings) console.log(`  aviso: ${warning}`)
@@ -65,6 +65,22 @@ function matchChanges(before: DiscountPlace[], after: DiscountPlace[], providerI
     })
 }
 
+/** Descartes que cambian (sobre todo los de la regla de rubros), antes → después. */
+function discardChanges(before: DiscountPlace[], after: DiscountPlace[], providerId: string): string[] {
+  const label = (place: DiscountPlace | undefined) => {
+    if (!place?.ignored) return 'visible'
+    return `descartado (${place.discard?.origin === 'auto' ? place.discard.reason ?? 'regla' : 'a mano'})`
+  }
+  const old = new Map(before.filter((place) => place.providerId === providerId).map((place) => [place.id, place]))
+  return after
+    .filter((place) => place.providerId === providerId)
+    .flatMap((place) => {
+      const previous = old.get(place.id)
+      const [was, now] = [previous ? label(previous) : '(nuevo)', label(place)]
+      return was === now ? [] : [`${place.sourceName} (${place.id}, rubro «${place.category ?? '—'}»${place.montevideo ? '' : ', fuera de Montevideo'}): ${was} → ${now}`]
+    })
+}
+
 function flag(name: string): string | undefined {
   const index = process.argv.indexOf(name)
   if (index < 0) return undefined
@@ -92,6 +108,9 @@ async function main() {
     for (const provider of run.providers) {
       console.log(`  ${provider.name}: ${providerNumbers(before, provider.providerId)}  →  ${providerNumbers(after, provider.providerId)}`)
       for (const line of benefitChanges(before, after, provider.providerId)) console.log(`    ${line}`)
+      const discards = discardChanges(before, after, provider.providerId)
+      if (discards.length) console.log(`    Descartes automáticos que cambian (${discards.length}):`)
+      for (const line of discards) console.log(`      ${line}`)
       const changes = matchChanges(before, after, provider.providerId)
       if (changes.length) console.log(`    Cruces que cambian (${changes.length}):`)
       for (const line of changes) console.log(`      ${line}`)

@@ -169,6 +169,13 @@
       "when": 1794339873256,
       "tag": "0023_discount_place_searches",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794526234273,
+      "tag": "0024_discount_discards",
+      "breakpoints": true
     }
   ]
 }

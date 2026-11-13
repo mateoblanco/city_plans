@@ -4,7 +4,7 @@ import type { MatchablePlace } from './match.ts'
 import type { DiscountStore } from './persist.ts'
 import { playwrightRenderer } from './browser-fetch.ts'
 import { politeFetcher, rawDir, rawFetcher } from './polite-fetch.ts'
-import { discountProviders } from './providers.ts'
+import { autoDiscardCategories, discountProviders } from './providers.ts'
 import { ideUyGeocoder } from './geocode.ts'
 import { brouRowSplitter, llmRowSplitter } from './brou/split-rows.ts'
 import { DISCOUNT_READERS } from './readers.ts'
@@ -27,6 +27,9 @@ export function discountRunDependencies(options: { store: DiscountStore; candida
     get providers() {
       const providers = configured()
       return options.only ? providers.filter((provider) => options.only!.includes(provider.id)) : providers
+    },
+    get discardCategories() {
+      return autoDiscardCategories()
     },
     readers: DISCOUNT_READERS,
     fetcherFor: async (runId, providerId) => {

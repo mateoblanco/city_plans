@@ -78,6 +78,48 @@ export type DiscountsListResponse = DiscountsResponse & { searches: Record<strin
 /** Nombre y dirección de Google de un candidato: sólo en memoria del servidor (nunca en la base ni en disco). */
 export type CandidateDetail = { name: string; address: string }
 
+/**
+ * Un resultado de Google para mostrar en el panel «Resolver»: nombre y dirección en el momento (no se guardan; null si
+ * Google ya no lo tiene), coordenadas guardadas, distancia al local de la fuente y nuestro lugar si ya está en la base.
+ */
+export type GoogleCandidateView = {
+  placeId: string
+  name: string | null
+  address: string | null
+  lat: number
+  lng: number
+  meters: number | null
+  ours: StoredPlaceSearch['ourPlace']
+}
+
+/** POST /api/discounts/searches/google y …/candidates: los resultados, lo que costó y la búsqueda guardada de la fila. */
+export type GoogleCandidatesResponse = {
+  results: GoogleCandidateView[]
+  costUsd: number
+  /** Las búsquedas guardadas de los lugares de la fila, para actualizar la pantalla sin recargar. */
+  searches: Record<string, StoredPlaceSearch[]>
+}
+
+/** Un lugar nuestro en el panel «Resolver» (búsqueda o sugerencia). De todos los status. */
+export type OurPlaceOption = {
+  id: string
+  name: string
+  neighborhoodId: string
+  categories: string[]
+  status: OurPlaceStatus
+  instagram: string | null
+  brandKey: string | null
+  logoUrl: string | null
+  /** Distancia al local de la fuente, si la fuente da coordenadas. */
+  meters: number | null
+  /** Puntaje del nombre (0–1), en las sugerencias por nombre. */
+  score: number | null
+  /** Por qué se sugiere: cerca, nombre parecido, mismo Instagram o candidato del cruce. */
+  reason: 'near' | 'name' | 'instagram' | 'candidate' | null
+}
+
+export type OurPlacesResponse = { places: OurPlaceOption[] }
+
 /** Una fila del trabajo de búsqueda en curso (o del último). */
 export type PlaceSearchJobRow = {
   rowKey: string

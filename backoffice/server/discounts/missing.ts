@@ -1,16 +1,12 @@
 import { montevideoNeighborhood, normalizeName } from '../../src/lib/discount-names.ts'
-import { memberKey } from '../../src/lib/discount-missing.ts'
+import { isMissingCandidate, memberKey } from '../../src/lib/discount-missing.ts'
 import { getBarrio } from '../../src/lib/getNeighborhood.ts'
 import type { DiscountPlace, MissingMember, MissingRow, ProviderPlaceLocation } from '../../src/types/discounts.ts'
 
 // Vista "No están en la base": un local por fila, sin repetir entre proveedores. Se arma en el servidor (GET
 // /api/discounts y la búsqueda usan la misma función, así las claves de las filas coinciden).
 
-/** Los que entran en la vista: Montevideo, activos (con beneficios vigentes), no ignorados y "no está en la base". */
-export function isMissingCandidate(place: DiscountPlace): boolean {
-  // Activo = isPlaceCurrent de discounts.ts (apareció en la última corrida y tiene beneficios vigentes).
-  return place.montevideo && place.active && place.benefits.some((benefit) => benefit.active) && !place.ignored && place.match.status === 'missing'
-}
+export { isMissingCandidate }
 
 /** ¿Es un local de Montevideo? Con coordenadas, si caen en un barrio; sin ellas, por el departamento de la fuente. */
 const inMontevideo = (location: ProviderPlaceLocation) => location.coordinates

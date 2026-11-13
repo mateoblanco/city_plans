@@ -1,6 +1,7 @@
 import type { DiscountRun, DiscountRunProgress, DiscountRunProvider } from '../../src/types/discounts.ts'
 import type { PlaceSearchEstimate } from '../../src/types/discounts.ts'
 import type { MatchablePlace } from './match.ts'
+import type { OurPlacesReader } from './our-places.ts'
 import type { DiscountPlaceSearchRunner } from './place-search-runner.ts'
 import { planDiscountWrites, type DiscountStore } from './persist.ts'
 import { discountProvider, type DiscountProvider } from './providers.ts'
@@ -25,6 +26,8 @@ export type RunDependencies = {
   /** Coordenadas de direcciones sin ellas (BROU); al reprocesar, sólo del cache. */
   geocoder?: Geocoder
   store: DiscountStore
+  /** Rubros que se descartan solos (config autoDiscard.categories), leídos en cada corrida. */
+  discardCategories?: readonly string[]
   now?: () => Date
   onProgress?: (progress: Extract<DiscountRunProgress, { status: 'running' }>) => void
 }
@@ -43,6 +46,7 @@ export async function runDiscounts(deps: RunDependencies, options: { runId?: str
   const errors: DiscountRun['errors'] = []
   const warnings: string[] = []
   let candidates: MatchablePlace[] | null = null
+  const discardCategories = deps.discardCategories ?? []
 
   for (const provider of deps.providers) {
     const reader = deps.readers[provider.id]
@@ -69,9 +73,13 @@ export async function runDiscounts(deps: RunDependencies, options: { runId?: str
         label: page.label,
         sources: await deps.store.manualMatches(page.manualMatchFrom!),
       })))
-      const writes = planDiscountWrites({ providerId: provider.id, runId, now: started, result, existing: await deps.store.existing(provider.id), candidates, inherited })
+      const writes = planDiscountWrites({ providerId: provider.id, runId, now: started, result, existing: await deps.store.existing(provider.id), candidates, inherited, discardCategories })
       await deps.store.apply(writes)
       const notes = [...(result.notes ?? [])]
+      const discarded = writes.discards.filter((item) => item.ignored).length
+      const shown = writes.discards.length - discarded
+      if (discarded) notes.push(`${discarded} ${discarded === 1 ? 'descartado' : 'descartados'} por rubro.`)
+      if (shown) notes.push(`${shown} ${shown === 1 ? 'vuelve' : 'vuelven'} a mostrarse (su rubro ya no está en la lista).`)
       for (const inherit of inherited) {
         // Con --only el otro proveedor puede no estar en esta corrida: el nombre sale del catálogo.
         const from = (deps.providers.find((item) => item.id === inherit.fromProviderId) ?? discountProvider(inherit.fromProviderId))?.name ?? inherit.fromProviderId
@@ -150,6 +158,8 @@ export type DiscountsService = {
   runner: DiscountRunner
   store: DiscountStore
   candidates: () => Promise<MatchablePlace[]>
-  search?: Pick<DiscountPlaceSearchRunner, 'start' | 'pick' | 'status'>
+  search?: Pick<DiscountPlaceSearchRunner, 'start' | 'pick' | 'status' | 'lookup' | 'candidateNames' | 'ownerSearches'>
+  /** Nuestros lugares para el panel «Resolver» (búsqueda y datos para mostrar las sugerencias). */
+  ourPlaces?: OurPlacesReader
   estimate?: () => Promise<PlaceSearchEstimate>
 }

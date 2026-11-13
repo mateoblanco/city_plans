@@ -211,9 +211,17 @@ export type DiscountPlace = Omit<ProviderPlace, 'benefits'> & {
   lastSeenAt: string
   /** Apareció en la última corrida del proveedor que terminó bien. */
   active: boolean
+  /** Descartado: no es para salir a comer o tomar algo (o no interesa). No se cruza ni se muestra por defecto. */
   ignored: boolean
+  /**
+   * Quién decidió si está descartado: auto = la regla de rubros (con el motivo, "Rubro: Carnicería"); manual = a mano
+   * (descartado o vuelto a mostrar), y la regla no lo toca más; null = nadie.
+   */
+  discard: DiscardDecision | null
   matchedAt: string | null
 }
+
+export type DiscardDecision = { origin: MatchOrigin; reason: string | null }
 
 export type DiscountRunProvider = {
   providerId: string

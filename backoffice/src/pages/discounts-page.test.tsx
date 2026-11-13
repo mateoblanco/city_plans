@@ -1,7 +1,7 @@
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { DiscountLink, DiscountPlace, DiscountRun, DiscountRunProgress, PlaceSearchJobRow, PlaceSearchProgress, StoredBenefit, StoredPlaceSearch } from '@/types/discounts'
+import type { DiscountLink, DiscountPlace, DiscountRun, DiscountRunProgress, GoogleCandidatesResponse, OurPlaceOption, PlaceSearchJobRow, PlaceSearchProgress, StoredBenefit, StoredPlaceSearch } from '@/types/discounts'
 import type { PlaceListItem } from '@/types/places'
 import { missingRows } from '../../server/discounts/missing.ts'
 import { SEARCH_POLL_MS } from '@/components/discount-missing-view'
@@ -28,7 +28,7 @@ const place = (id: string, patch: Partial<DiscountPlace> = {}): DiscountPlace =>
   campaign: { validFrom: '2026-11-01', validTo: '2027-10-31', text: null },
   benefits: [benefit(), benefit({ cardType: 'credit' }), benefit({ cardType: 'credit', percent: 30, refundPercent: 20 })],
   match: { status: 'missing', origin: 'auto', links: [], candidates: [], missingBranches: 0, nearby: [] },
-  firstSeenAt: '2026-11-05T12:00:00.000Z', lastSeenAt: '2026-11-05T12:00:00.000Z', active: true, ignored: false, matchedAt: null, ...patch,
+  firstSeenAt: '2026-11-05T12:00:00.000Z', lastSeenAt: '2026-11-05T12:00:00.000Z', active: true, ignored: false, discard: null, matchedAt: null, ...patch,
 })
 
 const run: DiscountRun = {
@@ -56,6 +56,9 @@ type ServerOptions = {
   places?: DiscountPlace[] | 'fail'; run?: DiscountRun | null; progress?: DiscountRunProgress[]; start?: 'busy'; failActions?: boolean; search?: PlaceListItem[]
   /** Búsqueda en Google de los que no están en la base. */
   searches?: Record<string, StoredPlaceSearch[]>; searchProgress?: PlaceSearchProgress[]
+  /** Panel «Resolver»: nuestros lugares, sugerencias, Google y lo que devuelve "Ninguno"/"Agregar". */
+  ours?: OurPlaceOption[]; suggestions?: OurPlaceOption[]; google?: GoogleCandidatesResponse; candidates?: GoogleCandidatesResponse
+  pickSearches?: Record<string, StoredPlaceSearch[]>
 }
 
 /** Servidor de mentira: lo guardado, las acciones del cruce (que cambian su estado) y la búsqueda de lugares. */
@@ -82,12 +85,24 @@ function server(options: ServerOptions = {}) {
     if (url.pathname === '/api/discounts/searches/current') return json(searchProgress.length > 1 ? searchProgress.shift() : searchProgress[0])
     if (url.pathname === '/api/discounts/searches/estimate') return json({ searchUsd: 0.032, extractionUsd: 0.075, basedOnPlaces: 214, basedOnReports: 10 })
     if (url.pathname === '/api/discounts/searches' && method === 'POST') return json({ jobId: 'j1' }, 202)
-    if (url.pathname === '/api/discounts/searches/pick' && method === 'POST') return json({ ok: true })
+    if (url.pathname === '/api/discounts/searches/pick' && method === 'POST') return json({ ok: true, searches: options.pickSearches ?? {} })
     if (url.pathname === '/api/places') {
       const q = url.searchParams.get('q') ?? ''
       const found = (options.search ?? []).filter((item) => item.name.toLowerCase().includes(q.toLowerCase()))
       return json({ places: found, total: found.length, counts: { all: found.length, published: found.length, review: 0 } })
     }
+    if (url.pathname === '/api/discounts/places/ignored' && method === 'POST' && places !== 'fail') {
+      const { ids, ignored } = body as { ids: string[]; ignored: boolean }
+      places = places.map((item) => (ids.includes(item.id) ? { ...item, ignored, discard: { origin: 'manual' as const, reason: null } } : item))
+      return json({ places: places.filter((item) => ids.includes(item.id)) })
+    }
+    if (url.pathname === '/api/discounts/our-places') {
+      const q = (url.searchParams.get('q') ?? '').toLowerCase()
+      return json({ places: (options.ours ?? []).filter((item) => item.name.toLowerCase().includes(q) || item.instagram?.includes(q)) })
+    }
+    if (url.pathname === '/api/discounts/our-places/suggestions') return json({ places: options.suggestions ?? [] })
+    if (url.pathname === '/api/discounts/searches/google' && method === 'POST') return json(options.google ?? { results: [], costUsd: 0.032, searches: {} })
+    if (url.pathname === '/api/discounts/searches/candidates' && method === 'POST') return json(options.candidates ?? { results: [], costUsd: 0, searches: {} })
     const action = url.pathname.match(/^\/api\/discounts\/places\/([^/]+)\/(confirm|links|ignored|auto)$/)
     if (action && places !== 'fail') {
       if (options.failActions) return json({ error: { code: 'UNKNOWN_ERROR', message: 'No se pudo guardar el cruce.' } }, 500)
@@ -95,7 +110,7 @@ function server(options: ServerOptions = {}) {
       const current = places.find((item) => item.id === id)!
       let next: DiscountPlace = current
       if (action[2] === 'confirm') next = { ...current, match: { ...current.match, origin: 'manual', links: current.match.links.map((item) => ({ ...item, origin: 'manual' })) } }
-      if (action[2] === 'ignored') next = { ...current, ignored: (body as { ignored: boolean }).ignored }
+      if (action[2] === 'ignored') next = { ...current, ignored: (body as { ignored: boolean }).ignored, discard: { origin: 'manual', reason: null } }
       if (action[2] === 'links') {
         const requested = (body as { links: { placeId: string; wholeBrand: boolean }[] }).links
         next = { ...current, match: { ...current.match, origin: 'manual', status: requested.length ? 'found' : 'missing', links: requested.map((item) => link(item.placeId, item.placeId === ourKamba ? 'Kamba' : item.placeId === ourChelato ? 'Chelato' : 'Lugar', { origin: 'manual', wholeBrand: item.wholeBrand })) } }
@@ -132,7 +147,7 @@ describe('DiscountsPage', () => {
     expect(screen.getByRole('button', { name: 'Actualizar descuentos' })).toBeEnabled()
   })
 
-  it('resumen y tabla: Montevideo, sin inactivos, vencidos ni ignorados por defecto; origen y "toda la marca"', async () => {
+  it('resumen y tabla: Montevideo, sin inactivos, vencidos ni descartados por defecto; origen y "toda la marca"', async () => {
     server()
     render(<DiscountsPage />)
     expect(await screen.findByText('Porterhouse')).toBeInTheDocument()
@@ -142,8 +157,8 @@ describe('DiscountsPage', () => {
     expect(tile('Encontrados')).toHaveTextContent('2')
     expect(tile('No están en la base')).toHaveTextContent('1')
     expect(tile('Fuera de Montevideo')).toHaveTextContent('0')
-    expect(screen.getByText(/En total: 4 de Montevideo · 1 fuera · 2 inactivos · 1 ignorado/)).toBeInTheDocument()
-    expect(screen.getByText('4 lugares')).toBeInTheDocument()
+    expect(screen.getByText(/En total: 4 de Montevideo · 1 fuera · 2 inactivos · 1 descartado/)).toBeInTheDocument()
+    expect(screen.getByText(/^4 lugares ·/)).toBeInTheDocument()
     for (const hidden of ['Up Lavista', 'Cerrado', 'Vencido', 'Ignorado']) expect(screen.queryByText(hidden)).not.toBeInTheDocument()
     expect(within(row('Bocatti')).getByText('Toda la marca')).toBeInTheDocument()
     expect(within(row('Bocatti')).getByText('Auto')).toBeInTheDocument()
@@ -151,7 +166,7 @@ describe('DiscountsPage', () => {
     expect(within(row('Chelato')).getByText(/¿Chelato\?/)).toBeInTheDocument()
   })
 
-  it('filtros: inactivos, ignorados, origen, ciudad y vacío por filtros', async () => {
+  it('filtros: inactivos, descartados, origen, ciudad y vacío por filtros', async () => {
     server()
     const user = userEvent.setup()
     render(<DiscountsPage />)
@@ -160,8 +175,12 @@ describe('DiscountsPage', () => {
     expect(screen.getByText('Cerrado')).toBeInTheDocument()
     expect(screen.getByText('Vencido')).toBeInTheDocument()
     expect(within(row('Cerrado')).getByText('Inactivo')).toBeInTheDocument()
-    await user.click(screen.getByLabelText('Mostrar ignorados'))
-    expect(within(row('Ignorado')).getAllByText('Ignorado')).toHaveLength(2)
+    await user.selectOptions(screen.getByLabelText('Descartados'), 'show')
+    expect(within(row('Ignorado')).getByText('Descartado')).toBeInTheDocument()
+    await user.selectOptions(screen.getByLabelText('Descartados'), 'only')
+    expect(screen.queryByText('Porterhouse')).not.toBeInTheDocument()
+    expect(screen.getByText('Ignorado')).toBeInTheDocument()
+    await user.selectOptions(screen.getByLabelText('Descartados'), 'hide')
     await user.selectOptions(screen.getByLabelText('Origen'), 'manual')
     expect(screen.getByText('Ningún lugar coincide con los filtros')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Limpiar filtros' }))
@@ -185,16 +204,39 @@ describe('DiscountsPage', () => {
     expect(fake.calls.filter((call) => call.url === '/api/discounts')).toHaveLength(1)
   })
 
-  it('ignorar en la fila: desaparece; con "Mostrar ignorados" se puede dejar de ignorar', async () => {
+  it('descartar en la fila: desaparece; con "Sólo descartados" se puede volver a mostrar', async () => {
     server()
     const user = userEvent.setup()
     render(<DiscountsPage />)
     await screen.findByText('Porterhouse')
-    await user.click(screen.getByRole('button', { name: 'Ignorar Porterhouse' }))
+    await user.click(screen.getByRole('button', { name: 'Descartar Porterhouse' }))
     await waitFor(() => expect(screen.queryByText('Porterhouse')).not.toBeInTheDocument())
-    await user.click(screen.getByLabelText('Mostrar ignorados'))
-    await user.click(screen.getByRole('button', { name: 'Dejar de ignorar Porterhouse' }))
-    await waitFor(() => expect(within(row('Porterhouse')).queryByText('Ignorado')).not.toBeInTheDocument())
+    await user.selectOptions(screen.getByLabelText('Descartados'), 'only')
+    expect(within(row('Porterhouse')).getByText('Descartado')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Volver a mostrar Porterhouse' }))
+    await waitFor(() => expect(screen.queryByText('Porterhouse')).not.toBeInTheDocument())
+    await user.selectOptions(screen.getByLabelText('Descartados'), 'hide')
+    expect(within(row('Porterhouse')).queryByText('Descartado')).not.toBeInTheDocument()
+  })
+
+  it('descartados automáticos: muestran el rubro; masivo: descartar y volver a mostrar seleccionados', async () => {
+    const fake = server({ places: [...initialPlaces(), place('Carnes del Sur', { ignored: true, discard: { origin: 'auto', reason: 'Rubro: Carnicería' } })] })
+    const user = userEvent.setup()
+    render(<DiscountsPage />)
+    await screen.findByText('Porterhouse')
+    await user.click(screen.getByRole('checkbox', { name: 'Seleccionar Porterhouse' }))
+    await user.click(screen.getByRole('checkbox', { name: 'Seleccionar Chelato' }))
+    await user.click(screen.getByRole('button', { name: 'Descartar seleccionados (2)' }))
+    await waitFor(() => expect(screen.queryByText('Porterhouse')).not.toBeInTheDocument())
+    expect(screen.queryByText('Chelato')).not.toBeInTheDocument()
+    expect(fake.calls.at(-1)).toMatchObject({ url: '/api/discounts/places/ignored', method: 'POST', body: { ids: ['bbva:porterhouse', 'bbva:chelato'], ignored: true } })
+    await user.selectOptions(screen.getByLabelText('Descartados'), 'only')
+    expect(within(row('Carnes del Sur')).getByText('Descartado · Rubro: Carnicería')).toBeInTheDocument()
+    expect(within(row('Porterhouse')).getByText('Descartado')).toBeInTheDocument()
+    await user.click(screen.getByRole('checkbox', { name: 'Seleccionar Carnes del Sur' }))
+    await user.click(screen.getByRole('button', { name: 'Volver a mostrar seleccionados (1)' }))
+    await waitFor(() => expect(screen.queryByText('Carnes del Sur')).not.toBeInTheDocument())
+    expect(fake.calls.at(-1)).toMatchObject({ body: { ids: ['bbva:carnes-del-sur'], ignored: false } })
   })
 
   it('un error en una acción de la fila se muestra en la fila', async () => {
@@ -368,7 +410,7 @@ describe('DiscountsPage', () => {
       locationIndex: null, status: 'not_found', searchedAt: '2026-11-09T12:00:00.000Z', googlePlaceId: null, location: null, candidates: [], placeId: null, error: null, ourPlace: null, ...patch,
     })
     const pasivaKey = 'bbva:la-pasiva#x|santander:la-pasiva#0'
-    const missingRow = (label: string) => screen.getByRole('checkbox', { name: `Seleccionar ${label}` }).closest('tr')!
+    const missingRow = (label: string) => screen.getByRole('checkbox', { name: `Seleccionar ${label}`, hidden: true }).closest('tr')!
     const showMissing = async (user: ReturnType<typeof userEvent.setup>) => {
       await screen.findByText('Chivitos')
       await user.selectOptions(screen.getByLabelText('Cruce'), 'missing')
@@ -462,31 +504,159 @@ describe('DiscountsPage', () => {
       expect(screen.getByRole('button', { name: /Buscar seleccionados/ })).toBeDisabled()
     })
 
-    it('dudoso: candidatos con nombre y dirección de la memoria del servidor; elegir uno o "Ninguno"', async () => {
-      const candidates = [{ placeId: 'g-1', lat: -34.9, lng: -56.16 }, { placeId: 'g-2', lat: -34.91, lng: -56.17 }]
+    const option = (id: string, name: string, patch: Partial<OurPlaceOption> = {}): OurPlaceOption => ({
+      id, name, neighborhoodId: 'POCITOS', categories: ['restaurant'], status: 'published', instagram: null, brandKey: null, logoUrl: null, meters: null, score: null, reason: null, ...patch,
+    })
+    const ourPasiva = '00000000-0000-4000-8000-000000000011'
+    const ourPasivaCentro = '00000000-0000-4000-8000-000000000012'
+    const ourKambaSushi = '00000000-0000-4000-8000-000000000013'
+    const openPanel = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
+      await user.click(screen.getByRole('button', { name: `Resolver ${name}` }))
+      return screen.findByRole('dialog')
+    }
+
+    it('resolver: sugerencias por cercanía con la distancia; buscar en mis lugares (precargado) y vincular dos sucursales sin recargar', async () => {
       const fake = server({
         places: missingPlaces(),
-        searches: { 'itau:montevideo:kamba': [search({ status: 'doubtful', candidates })] },
-        searchProgress: [job({ candidateDetails: { 'g-1': { name: 'Kamba Sushi', address: 'Bvar. España 2500' } } })],
+        suggestions: [option(ourPasiva, 'Bar La Pasiva', { meters: 40, score: 0.7, reason: 'near' }), option('00000000-0000-4000-8000-000000000019', 'Otro Bar', { meters: 120, score: 0.1, reason: 'near' })],
+        ours: [option(ourPasiva, 'Bar La Pasiva', { meters: 40 }), option(ourPasivaCentro, 'La Pasiva Centro', { neighborhoodId: 'CENTRO', status: 'review', meters: 2100 })],
       })
       const user = userEvent.setup()
       render(<DiscountsPage />)
       await showMissing(user)
-      expect(await screen.findByText('Kamba Sushi')).toBeInTheDocument()
-      expect(screen.getByText(/Bvar. España 2500/)).toBeInTheDocument()
-      expect(screen.getByText(/el nombre ya no está en memoria/)).toBeInTheDocument()
-      expect(screen.getAllByRole('link', { name: /Ver en Google Maps/ })[0]).toHaveAttribute('href', expect.stringContaining('query_place_id=g-1'))
+      const panel = await openPanel(user, 'La Pasiva')
+      expect(within(panel).getByText('Ver en el sitio del banco')).toBeInTheDocument()
+      expect(within(panel).getByText(/Av. Brasil 2580/)).toBeInTheDocument()
+      const near = await within(panel).findByRole('list', { name: 'Cerca (hasta 300 m)' })
+      expect(within(near).getByText('Otro Bar')).toBeInTheDocument()
+      expect(within(near).getByText(/a 120 m/)).toBeInTheDocument()
+      const suggestionsCall = fake.calls.find((call) => call.url === '/api/discounts/our-places/suggestions')
+      expect(suggestionsCall?.body).toMatchObject({ name: 'La Pasiva', coordinates: POCITOS })
+      // El buscador arranca con el nombre del banco.
+      expect(within(panel).getByPlaceholderText('Nombre, Instagram o marca')).toHaveValue('La Pasiva')
+      const results = await within(panel).findByRole('list', { name: 'Resultados en mis lugares' })
+      expect(fake.calls.find((call) => call.url.startsWith('/api/discounts/our-places?'))?.url).toContain(`lat=${POCITOS.lat}`)
+      expect(within(results).getByText('En revisión')).toBeInTheDocument()
+      await user.click(within(results).getByRole('button', { name: 'Vincular Bar La Pasiva' }))
+      // Los dos lugares del proveedor de la fila quedan vinculados (manual).
+      await waitFor(() => expect(fake.calls.filter((call) => call.method === 'PUT').map((call) => call.url).sort()).toEqual(['/api/discounts/places/bbva%3Ala-pasiva/links', '/api/discounts/places/santander%3Ala-pasiva/links']))
+      expect(await within(panel).findByRole('button', { name: 'Desvincular Lugar' })).toBeInTheDocument()
+      await user.click(within(results).getByRole('button', { name: 'Vincular La Pasiva Centro' }))
+      await waitFor(() => expect(fake.calls.at(-1)?.body).toEqual({ links: [{ placeId: ourPasiva, wholeBrand: false }, { placeId: ourPasivaCentro, wholeBrand: false }] }))
+      // El panel sigue abierto (sucursales); la fila salió de la vista sin recargar.
+      expect(fake.calls.filter((call) => call.url === '/api/discounts')).toHaveLength(1)
+      await user.click(within(panel).getByRole('button', { name: 'Cerrar' }))
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+      expect(screen.queryByText('La Pasiva')).not.toBeInTheDocument()
+    })
 
-      await user.click(screen.getByRole('button', { name: 'Elegir Kamba Sushi' }))
-      await waitFor(() => expect(fake.calls.find((call) => call.url === '/api/discounts/searches/pick')?.body).toEqual({ rowKey: 'itau:montevideo:kamba#x', placeId: 'g-1' }))
+    it('resolver: candidatos guardados con el nombre de nuevo (nunca el texto viejo), "Ya está en tu base" y "Agregar"', async () => {
+      const candidates = [{ placeId: 'g-1', lat: -34.9, lng: -56.16 }, { placeId: 'g-2', lat: -34.91, lng: -56.17 }]
+      const fake = server({
+        places: missingPlaces(),
+        searches: { 'itau:montevideo:kamba': [search({ status: 'doubtful', candidates })] },
+        candidates: {
+          costUsd: 0.034,
+          searches: {},
+          results: [
+            { placeId: 'g-1', name: 'Kamba Sushi', address: 'Bvar. España 2500', lat: -34.9, lng: -56.16, meters: null, ours: { id: ourKambaSushi, name: 'Kamba', status: 'published' } },
+            { placeId: 'g-2', name: 'Kamba Express', address: 'Rivera 3000', lat: -34.91, lng: -56.17, meters: null, ours: null },
+          ],
+        },
+        pickSearches: { 'itau:montevideo:kamba': [search({ status: 'doubtful', candidates })] },
+      })
+      const user = userEvent.setup()
+      render(<DiscountsPage />)
+      await showMissing(user)
+      const panel = await openPanel(user, 'Kamba')
+      expect(await within(panel).findByText('Kamba Sushi')).toBeInTheDocument()
+      expect(fake.calls.find((call) => call.url === '/api/discounts/searches/candidates')?.body).toEqual({ rowKey: 'itau:montevideo:kamba#x' })
+      expect(within(panel).getByText(/Rivera 3000/)).toBeInTheDocument()
+      expect(screen.queryByText(/el nombre ya no está en memoria/)).not.toBeInTheDocument()
+      expect(within(panel).getByText('Ya está en tu base: Kamba (publicado)')).toBeInTheDocument()
+      expect(within(panel).getAllByRole('link', { name: /Google Maps/ })[0]).toHaveAttribute('href', expect.stringContaining('query_place_id=g-1'))
+      expect(within(panel).getByText(/Datos de Google Maps · US\$ 0,034 en este panel/)).toBeInTheDocument()
 
-      const loads = fake.calls.filter((call) => call.url === '/api/discounts').length
-      fake.setSearches({ 'itau:montevideo:kamba': [search({ status: 'not_found' })] })
-      await user.click(screen.getByRole('button', { name: 'Ninguno para Kamba' }))
-      await waitFor(() => expect(fake.calls.filter((call) => call.url === '/api/discounts/searches/pick').at(-1)?.body).toEqual({ rowKey: 'itau:montevideo:kamba#x', placeId: null }))
-      await waitFor(() => expect(fake.calls.filter((call) => call.url === '/api/discounts').length).toBe(loads + 1))
-      expect(await screen.findByText('No encontrado')).toBeInTheDocument()
-      expect(screen.queryByText('Kamba Sushi')).not.toBeInTheDocument()
+      await user.click(within(panel).getByRole('button', { name: 'Agregar Kamba Express' }))
+      await waitFor(() => expect(fake.calls.find((call) => call.url === '/api/discounts/searches/pick')?.body).toEqual({ rowKey: 'itau:montevideo:kamba#x', placeId: 'g-2' }))
+      // Se cerró y el progreso se vuelve a pedir.
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+      expect(fake.calls.filter((call) => call.url === '/api/discounts/searches/current').length).toBeGreaterThan(1)
+    })
+
+    it('resolver: "Buscar en Google" muestra los resultados y "Ninguno" lo deja no encontrado; "Ya está en tu base" se vincula', async () => {
+      const google: GoogleCandidatesResponse = {
+        costUsd: 0.032,
+        searches: { 'bbva:chivitos': [search({ status: 'doubtful', candidates: [{ placeId: 'g-9', lat: -34.9, lng: -56.19 }] })] },
+        results: [{ placeId: 'g-9', name: 'Chivitos Marcos', address: '18 de Julio 1200', lat: -34.9, lng: -56.19, meters: null, ours: { id: ourKamba, name: 'Kamba', status: 'review' } }],
+      }
+      const fake = server({ places: missingPlaces(), google, pickSearches: { 'bbva:chivitos': [search({ status: 'not_found' })] } })
+      const user = userEvent.setup()
+      render(<DiscountsPage />)
+      await showMissing(user)
+      let panel = await openPanel(user, 'Chivitos')
+      await user.click(within(panel).getByRole('button', { name: /Buscar en Google/ }))
+      expect(await within(panel).findByText('Chivitos Marcos')).toBeInTheDocument()
+      expect(fake.calls.find((call) => call.url === '/api/discounts/searches/google')?.body).toEqual({ rowKey: 'bbva:chivitos#x' })
+      expect(within(panel).getByText('Ya está en tu base: Kamba (en revisión)')).toBeInTheDocument()
+      expect(within(missingRow('Chivitos (Centro)')).getByText('Dudoso')).toBeInTheDocument()
+      await user.click(within(panel).getByRole('button', { name: 'Ninguno para Chivitos' }))
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+      expect(fake.calls.filter((call) => call.url === '/api/discounts/searches/pick').at(-1)?.body).toEqual({ rowKey: 'bbva:chivitos#x', placeId: null })
+      expect(within(missingRow('Chivitos (Centro)')).getByText('No encontrado')).toBeInTheDocument()
+      expect(fake.calls.filter((call) => call.url === '/api/discounts')).toHaveLength(1)
+
+      panel = await openPanel(user, 'Chivitos')
+      await user.click(within(panel).getByRole('button', { name: /Buscar de nuevo|Buscar en Google/ }))
+      await user.click(await within(panel).findByRole('button', { name: 'Vincular Kamba' }))
+      await waitFor(() => expect(fake.calls.at(-1)).toMatchObject({ method: 'PUT', url: '/api/discounts/places/bbva%3Achivitos/links', body: { links: [{ placeId: ourKamba, wholeBrand: false }] } }))
+    })
+
+    it('después de descartar en el panel, el foco pasa al "Resolver" de la próxima fila sin resolver', async () => {
+      const fake = server({ places: missingPlaces(), searches: { 'bbva:ya-buscado': [search({ status: 'exists', ourPlace: { id: 'u1', name: 'Ya Buscado', status: 'published' } })] } })
+      const user = userEvent.setup()
+      render(<DiscountsPage />)
+      await showMissing(user)
+      // Orden: Centro (Chivitos, Ya Buscado), Pocitos (La Pasiva), Sin barrio (Kamba). Ya Buscado ya está resuelto.
+      const panel = await openPanel(user, 'Chivitos')
+      await user.click(within(panel).getByRole('button', { name: 'Descartar Chivitos' }))
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+      expect(fake.calls.at(-1)).toMatchObject({ url: '/api/discounts/places/ignored', body: { ids: ['bbva:chivitos'], ignored: true } })
+      expect(screen.queryByText('Chivitos')).not.toBeInTheDocument()
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Resolver La Pasiva' })).toHaveFocus())
+
+      // "Siguiente sin resolver" abre la próxima directamente.
+      const next = await openPanel(user, 'La Pasiva')
+      await user.click(within(next).getByRole('button', { name: 'Siguiente sin resolver' }))
+      expect(await screen.findByText('Resolver «Kamba»')).toBeInTheDocument()
+    })
+
+    it('descartar en la fila y "Descartar seleccionados" en la vista', async () => {
+      const fake = server({ places: missingPlaces() })
+      const user = userEvent.setup()
+      render(<DiscountsPage />)
+      await showMissing(user)
+      await user.click(screen.getByRole('button', { name: 'Descartar Kamba' }))
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Resolver Kamba' })).not.toBeInTheDocument())
+      await user.click(screen.getByRole('checkbox', { name: 'Seleccionar La Pasiva (Pocitos)' }))
+      await user.click(screen.getByRole('checkbox', { name: 'Seleccionar Chivitos (Centro)' }))
+      await user.click(screen.getByRole('button', { name: 'Descartar seleccionados (2)' }))
+      await waitFor(() => expect(screen.getByText(/1 lugar sin repetir/)).toBeInTheDocument())
+      expect(fake.calls.at(-1)?.body).toEqual({ ids: expect.arrayContaining(['bbva:la-pasiva', 'santander:la-pasiva', 'bbva:chivitos']), ignored: true })
+    })
+
+    it('un dudoso de la tabla común se resuelve con sus candidatos del cruce primero (sin Google)', async () => {
+      const fake = server({ suggestions: [option(ourChelato, 'Chelato', { neighborhoodId: 'CARRASCO', score: 0.9, reason: 'candidate' })] })
+      const user = userEvent.setup()
+      render(<DiscountsPage />)
+      await screen.findByText('Porterhouse')
+      const panel = await openPanel(user, 'Chelato')
+      expect(await within(panel).findByText(/candidato del cruce/)).toBeInTheDocument()
+      expect(fake.calls.find((call) => call.url === '/api/discounts/our-places/suggestions')?.body).toMatchObject({ candidateIds: [ourChelato] })
+      expect(within(panel).queryByText('Buscar en Google')).not.toBeInTheDocument()
+      await user.click(within(panel).getByRole('button', { name: 'Vincular Chelato' }))
+      expect(await within(panel).findByRole('button', { name: 'Desvincular Chelato' })).toBeInTheDocument()
+      expect(within(row('Chelato')).getByText('Manual')).toBeInTheDocument()
     })
   })
 })

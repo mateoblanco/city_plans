@@ -900,7 +900,7 @@ describe('descuentos', () => {
   const ourPlace = '00000000-0000-4000-8000-000000000001'
   const otherPlace = '00000000-0000-4000-8000-000000000002'
 
-  async function service(options: { start?: () => string | null } = {}) {
+  async function service(options: { start?: () => string | null; ourPlaces?: unknown; candidates?: unknown[] } = {}) {
     const { memoryDiscountStore } = await import('./discounts/memory-store.ts')
     const ours = [
       { id: ourPlace, name: 'Es Mercat', neighborhoodId: 'CIUDAD VIEJA', brandKey: null, instagram: null },
@@ -920,7 +920,7 @@ describe('descuentos', () => {
     const encodedPlace = { ...sourcePlace, id: 'bbva:caf%c3%a9-100%', sourceName: 'Café' }
     await store.apply(planDiscountWrites({ providerId: 'bbva', runId: 'r1', now: new Date(), result: { places: [sourcePlace, encodedPlace], unread: [] }, existing: [], candidates: ours }))
     const runner = { start: options.start ?? (() => 'r2'), status: () => ({ status: 'idle' }) }
-    const discounts = { runner, store, candidates: async () => ours } as unknown as NonNullable<Parameters<typeof createApp>[0]>['discounts']
+    const discounts = { runner, store, candidates: async () => options.candidates ?? ours, ourPlaces: options.ourPlaces } as unknown as NonNullable<Parameters<typeof createApp>[0]>['discounts']
     return { app: createApp({ discounts }), store }
   }
   const json = (body: unknown) => ({ headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -1024,12 +1024,98 @@ describe('descuentos', () => {
     expect((await auto.json()).place.match).toMatchObject({ origin: 'auto', status: 'found', links: [expect.objectContaining({ placeId: ourPlace, origin: 'auto' })] })
   })
 
+  it('descartar: a mano (la regla de rubros no lo toca más) y masivo, con validación', async () => {
+    const { app } = await service()
+    const one = await app.request(`${at}/ignored`, { method: 'PATCH', ...json({ ignored: true }) })
+    expect((await one.json()).place).toMatchObject({ ignored: true, discard: { origin: 'manual', reason: null } })
+    const many = await app.request('/api/discounts/places/ignored', { method: 'POST', ...json({ ids: ['bbva:es-mercat', 'itau:montevideo:dos-orientales', 'bbva:no-existe'], ignored: false }) })
+    expect(many.status).toBe(200)
+    const body = await many.json()
+    expect(body.places.map((place: { id: string }) => place.id).sort()).toEqual(['bbva:es-mercat', 'itau:montevideo:dos-orientales'])
+    expect(body.places.every((place: { ignored: boolean; discard: unknown }) => !place.ignored && (place.discard as { origin: string }).origin === 'manual')).toBe(true)
+    expect((await app.request('/api/discounts/places/ignored', { method: 'POST', ...json({ ids: [], ignored: true }) })).status).toBe(400)
+    expect((await app.request('/api/discounts/places/ignored', { method: 'POST', ...json({ ids: ['no vale'], ignored: true }) })).status).toBe(400)
+  })
+
+  describe('panel «Resolver»: mis lugares', () => {
+    const POCITOS = { lat: -34.9115, lng: -56.153 }
+    const row = (id: string, name: string, patch: Record<string, unknown> = {}) => ({
+      id, name, neighborhoodId: 'POCITOS', categories: ['restaurant'], status: 'published', instagram: null, brandKey: null, logoUrl: null, location: null, ...patch,
+    })
+    const rows = [
+      row('00000000-0000-4000-8000-000000000011', 'Café Brasilero', { status: 'review', location: { lat: -34.9116, lng: -56.1531 } }),
+      row('00000000-0000-4000-8000-000000000012', 'La Pasiva Pocitos', { instagram: 'lapasivauy', brandKey: 'la-pasiva' }),
+      row('00000000-0000-4000-8000-000000000013', 'Bar Lo de Tere', { instagram: 'lodetere' }),
+      row('00000000-0000-4000-8000-000000000014', 'Brasil Bar', { status: 'hidden' }),
+    ]
+    const setup = async () => {
+      const { memoryOurPlaces } = await import('./discounts/our-places.ts')
+      const candidates = rows.map((item) => ({ id: item.id, name: item.name, neighborhoodId: item.neighborhoodId, brandKey: item.brandKey, instagram: item.instagram, location: item.location }))
+      return (await service({ ourPlaces: memoryOurPlaces(rows as never), candidates })).app
+    }
+
+    it('busca en todos (también en revisión y ocultos): parcial, sin tildes ni mayúsculas, por Instagram y por marca; con la distancia', async () => {
+      const app = await setup()
+      const names = async (q: string) => (await (await app.request(`/api/discounts/our-places?q=${encodeURIComponent(q)}&lat=${POCITOS.lat}&lng=${POCITOS.lng}`)).json()).places.map((place: { name: string }) => place.name)
+      expect(await names('BRASIL')).toEqual(['Brasil Bar', 'Café Brasilero'])
+      expect(await names('cafe bras')).toEqual(['Café Brasilero'])
+      expect(await names('@lodetere')).toEqual(['Bar Lo de Tere'])
+      expect(await names('lapasivauy')).toEqual(['La Pasiva Pocitos'])
+      expect(await names('La Pasiva')).toEqual(['La Pasiva Pocitos'])
+      const [cafe] = (await (await app.request(`/api/discounts/our-places?q=brasilero&lat=${POCITOS.lat}&lng=${POCITOS.lng}`)).json()).places
+      expect(cafe).toMatchObject({ status: 'review', meters: expect.any(Number), reason: null })
+      expect(cafe.meters).toBeLessThan(30)
+      expect(cafe.location).toBeUndefined()
+      expect((await app.request('/api/discounts/our-places')).status).toBe(400)
+    })
+
+    it('sugerencias: cerca aunque el nombre sea otro (con la distancia) y nombres parecidos (con el puntaje)', async () => {
+      const app = await setup()
+      const response = await app.request('/api/discounts/our-places/suggestions', { method: 'POST', ...json({ name: 'Lo de Tere', coordinates: POCITOS, instagram: null }) })
+      const { places } = await response.json()
+      expect(places[0]).toMatchObject({ name: 'Café Brasilero', reason: 'near' })
+      expect(places[0].meters).toBeLessThan(30)
+      expect(places).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'Bar Lo de Tere', reason: 'name', score: expect.any(Number) })]))
+      expect((await app.request('/api/discounts/our-places/suggestions', { method: 'POST', ...json({ name: '' }) })).status).toBe(400)
+    })
+  })
+
+  describe('panel «Resolver»: Google', () => {
+    const results = { results: [], costUsd: 0.032, searches: {} }
+    async function google(search: Record<string, unknown>) {
+      const { store } = await service()
+      const discounts = { runner: { start: () => 'r2', status: () => ({ status: 'idle' }) }, store, candidates: async () => [], search: { ownerSearches: async () => ({}), ...search } } as unknown as NonNullable<Parameters<typeof createApp>[0]>['discounts']
+      return createApp({ discounts })
+    }
+
+    it('POST /searches/google y /searches/candidates: resultados, 404 si la fila ya no está y 409 si se está buscando', async () => {
+      const lookup = vi.fn(async (rowKey: string) => (rowKey === 'gone#0' ? 'not_found' : rowKey === 'busy#0' ? 'in_progress' : results))
+      const candidateNames = vi.fn(async (rowKey: string) => (rowKey === 'gone#0' ? 'not_found' : results))
+      const app = await google({ lookup, candidateNames })
+      const post = (url: string, body: unknown) => app.request(url, { method: 'POST', ...json(body) })
+      expect(await (await post('/api/discounts/searches/google', { rowKey: 'ok#0' })).json()).toEqual(results)
+      expect((await post('/api/discounts/searches/google', { rowKey: 'gone#0' })).status).toBe(404)
+      expect((await post('/api/discounts/searches/google', { rowKey: 'busy#0' })).status).toBe(409)
+      expect((await post('/api/discounts/searches/google', {})).status).toBe(400)
+      expect(await (await post('/api/discounts/searches/candidates', { rowKey: 'ok#0' })).json()).toEqual(results)
+      expect((await post('/api/discounts/searches/candidates', { rowKey: 'gone#0' })).status).toBe(404)
+      expect(candidateNames).toHaveBeenCalledWith('ok#0')
+    })
+
+    it('un error de Google es 502 con el mensaje', async () => {
+      const app = await google({ lookup: async () => { throw new Error('cuota') } })
+      const response = await app.request('/api/discounts/searches/google', { method: 'POST', ...json({ rowKey: 'ok#0' }) })
+      expect(response.status).toBe(502)
+      expect((await response.json()).error.message).toBe('No se pudo buscar en Google: cuota')
+    })
+  })
+
   describe('búsqueda de los que no están en la base', () => {
     async function searchService(search?: Record<string, unknown>) {
       const { store } = await service()
       const runner = { start: () => 'r2', status: () => ({ status: 'idle' }) }
       const estimate = async () => ({ searchUsd: 0.032, extractionUsd: 0.075, basedOnPlaces: 214, basedOnReports: 10 })
-      const discounts = { runner, store, candidates: async () => [], search, estimate } as unknown as NonNullable<Parameters<typeof createApp>[0]>['discounts']
+      const discounts = { runner, store, candidates: async () => [], search: search ? { ownerSearches: async () => ({}), ...search } : undefined, estimate } as unknown as NonNullable<Parameters<typeof createApp>[0]>['discounts']
       return createApp({ discounts })
     }
     const post = (app: Awaited<ReturnType<typeof searchService>>, url: string, body: unknown) => app.request(url, { method: 'POST', ...json(body) })

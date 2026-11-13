@@ -1,5 +1,5 @@
 import { neighborhoodDisplayName } from '../data/neighborhood-names.ts'
-import type { MissingRow, StoredPlaceSearch } from '../types/discounts.ts'
+import type { DiscountPlace, MissingRow, StoredPlaceSearch } from '../types/discounts.ts'
 
 // Vista "No están en la base" en la pantalla: agrupar por barrio y leer el estado de cada fila. Las filas las arma el
 // servidor (server/discounts/missing.ts). Rutas relativas: también lo importa el servidor.
@@ -9,6 +9,15 @@ export type { MissingMember, MissingRow } from '../types/discounts.ts'
 export type MissingGroup = { neighborhoodId: string | null; label: string; rows: MissingRow[] }
 
 export const NO_NEIGHBORHOOD_LABEL = 'Sin barrio'
+
+/**
+ * Los que entran en "No están en la base": Montevideo, activos (con beneficios vigentes), no descartados y "no está en la
+ * base". También en la pantalla: una fila sale de la vista sin recargar cuando ninguno de sus lugares lo sigue siendo.
+ */
+export function isMissingCandidate(place: DiscountPlace): boolean {
+  // Activo = isPlaceCurrent de discounts.ts (apareció en la última corrida y tiene beneficios vigentes).
+  return place.montevideo && place.active && place.benefits.some((benefit) => benefit.active) && !place.ignored && place.match.status === 'missing'
+}
 
 export const memberKey = (discountPlaceId: string, locationIndex: number | null) => `${discountPlaceId}#${locationIndex ?? 'x'}`
 

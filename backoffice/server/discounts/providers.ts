@@ -48,16 +48,35 @@ const Source = z.object({
     manualMatchFrom: z.enum(providerIds).optional(),
   }).strict()).min(1).optional(),
 }).strict()
-const SourcesFile = z.object({ $comment: z.string().optional(), providers: z.record(z.string(), Source) }).strict()
+const AutoDiscard = z.object({
+  nota: z.string().optional(),
+  categories: z.array(z.string().trim().min(1)).max(200)
+    .refine((items) => new Set(items.map((item) => item.toLowerCase())).size === items.length, 'hay rubros repetidos'),
+}).strict()
+const SourcesFile = z.object({ $comment: z.string().optional(), autoDiscard: AutoDiscard.optional(), providers: z.record(z.string(), Source) }).strict()
+
+function readSourcesFile(file: string): z.infer<typeof SourcesFile> {
+  let raw: unknown
+  try {
+    raw = JSON.parse(readFileSync(file, 'utf8'))
+  } catch (error) {
+    throw new Error(`No se pudo leer ${file}: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  return parseSourcesFile(raw)
+}
+
+function parseSourcesFile(raw: unknown): z.infer<typeof SourcesFile> {
+  const parsed = SourcesFile.safeParse(raw)
+  if (!parsed.success) throw new Error(`config/discount-sources.json no es válido: ${parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ')}`)
+  return parsed.data
+}
 
 /**
  * Junta el catálogo con las fuentes y lo valida: cada proveedor del catálogo tiene que tener su fuente, y no puede haber
  * fuentes de proveedores que no están en el catálogo.
  */
 export function parseDiscountSources(raw: unknown): DiscountProvider[] {
-  const parsed = SourcesFile.safeParse(raw)
-  if (!parsed.success) throw new Error(`config/discount-sources.json no es válido: ${parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ')}`)
-  const sources = parsed.data.providers
+  const sources = parseSourcesFile(raw).providers
   const unknown = Object.keys(sources).filter((id) => !providerIds.includes(id))
   if (unknown.length) throw new Error(`config/discount-sources.json tiene proveedores que no están en el catálogo: ${unknown.join(', ')}.`)
   const missing = providerIds.filter((id) => !sources[id])
@@ -70,13 +89,12 @@ export function parseDiscountSources(raw: unknown): DiscountProvider[] {
 
 /** Los proveedores con sus fuentes. Se lee el archivo en cada llamada: una URL nueva vale desde la próxima corrida. */
 export function discountProviders(file = DISCOUNT_SOURCES_FILE): DiscountProvider[] {
-  let raw: unknown
-  try {
-    raw = JSON.parse(readFileSync(file, 'utf8'))
-  } catch (error) {
-    throw new Error(`No se pudo leer ${file}: ${error instanceof Error ? error.message : String(error)}`)
-  }
-  return parseDiscountSources(raw)
+  return parseDiscountSources(readSourcesFile(file))
+}
+
+/** Rubros que se descartan solos (autoDiscard.categories); se lee en cada corrida, como las fuentes. */
+export function autoDiscardCategories(file = DISCOUNT_SOURCES_FILE): string[] {
+  return readSourcesFile(file).autoDiscard?.categories ?? []
 }
 
 export function discountProvider(id: string): DiscountProvider | undefined {

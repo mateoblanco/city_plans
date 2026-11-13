@@ -1,4 +1,15 @@
-import type { DiscountLinksRequest, DiscountPlace, DiscountRunProgress, DiscountsListResponse, PlaceSearchEstimate, PlaceSearchProgress } from '@/types/discounts'
+import type {
+  DiscountLinksRequest,
+  DiscountPlace,
+  DiscountRunProgress,
+  DiscountsListResponse,
+  GoogleCandidatesResponse,
+  OurPlaceOption,
+  OurPlacesResponse,
+  PlaceSearchEstimate,
+  PlaceSearchProgress,
+  StoredPlaceSearch,
+} from '@/types/discounts'
 import { parseApiResponse } from '@/lib/places-api'
 
 /** Todo lo guardado, la última corrida y las búsquedas en Google guardadas. */
@@ -63,7 +74,43 @@ export async function getPlaceSearchEstimate(signal?: AbortSignal): Promise<Plac
   return parseApiResponse<PlaceSearchEstimate>(await fetch('/api/discounts/searches/estimate', { signal }))
 }
 
-/** Un dudoso: el candidato elegido (va a extracción) o null ("Ninguno": no encontrado). */
-export async function pickPlaceSearchCandidate(rowKey: string, placeId: string | null): Promise<void> {
-  await parseApiResponse<{ ok: true }>(await fetch('/api/discounts/searches/pick', json({ rowKey, placeId })))
+/**
+ * Un dudoso: el candidato elegido (va a extracción) o null ("Ninguno": no encontrado). Devuelve las búsquedas guardadas
+ * de los lugares de la fila, para actualizarla sin recargar.
+ */
+export async function pickPlaceSearchCandidate(rowKey: string, placeId: string | null): Promise<Record<string, StoredPlaceSearch[]>> {
+  return (await parseApiResponse<{ ok: true; searches?: Record<string, StoredPlaceSearch[]> }>(await fetch('/api/discounts/searches/pick', json({ rowKey, placeId })))).searches ?? {}
+}
+
+/** Descartar (o volver a mostrar) varios lugares del proveedor a la vez. Devuelve los lugares actualizados. */
+export async function setDiscountIgnoredMany(ids: string[], ignored: boolean): Promise<DiscountPlace[]> {
+  return (await parseApiResponse<{ places: DiscountPlace[] }>(await fetch('/api/discounts/places/ignored', json({ ids, ignored })))).places
+}
+
+/** Buscar en todos nuestros lugares (nombre, Instagram o marca), con la distancia al local si hay coordenadas. */
+export async function searchOurPlaces(q: string, near: { lat: number; lng: number } | null, signal?: AbortSignal): Promise<OurPlaceOption[]> {
+  const params = new URLSearchParams({ q })
+  if (near) {
+    params.set('lat', String(near.lat))
+    params.set('lng', String(near.lng))
+  }
+  return (await parseApiResponse<OurPlacesResponse>(await fetch(`/api/discounts/our-places?${params}`, { signal }))).places
+}
+
+/** Sugerencias sin escribir: cerca (≤ 300 m), mismo Instagram, nombres parecidos y los candidatos del cruce. */
+export async function getOurPlaceSuggestions(
+  target: { name: string; coordinates: { lat: number; lng: number } | null; instagram: string | null; candidateIds?: string[] },
+  signal?: AbortSignal,
+): Promise<OurPlaceOption[]> {
+  return (await parseApiResponse<OurPlacesResponse>(await fetch('/api/discounts/our-places/suggestions', { ...json(target), signal }))).places
+}
+
+/** Buscar la fila en Google ahora (Text Search). Se guarda sólo place_id y coordenadas. */
+export async function lookupPlaceInGoogle(rowKey: string): Promise<GoogleCandidatesResponse> {
+  return parseApiResponse<GoogleCandidatesResponse>(await fetch('/api/discounts/searches/google', json({ rowKey })))
+}
+
+/** Nombre y dirección de los candidatos guardados de la fila (de la memoria del servidor o de Google otra vez). */
+export async function getCandidateNames(rowKey: string, signal?: AbortSignal): Promise<GoogleCandidatesResponse> {
+  return parseApiResponse<GoogleCandidatesResponse>(await fetch('/api/discounts/searches/candidates', { ...json({ rowKey }), signal }))
 }

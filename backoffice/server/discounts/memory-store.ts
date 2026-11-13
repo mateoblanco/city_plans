@@ -49,20 +49,23 @@ export function memoryDiscountStore(places: MatchablePlace[] = [], options: { to
     }, places)
   }
 
+  const manuallyIgnored = (row: Row) => row.ignored && row.discard?.origin === 'manual'
+  const setManual = (row: Row, ignored: boolean) => Object.assign(row, { ignored, discard: { origin: 'manual', reason: null } })
+
   const store: DiscountStore & { places: typeof places; runs: DiscountRun[]; ours: OurPlace[] } = {
     places,
     runs,
     ours,
     async existing(providerId) {
-      return [...rows.values()].filter((row) => row.providerId === providerId).map((row) => ({ id: row.id, ignored: row.ignored, matchOrigin: row.matchOrigin }))
+      return [...rows.values()].filter((row) => row.providerId === providerId).map((row) => ({ id: row.id, ignored: row.ignored, ignoredOrigin: row.discard?.origin ?? null, matchOrigin: row.matchOrigin }))
     },
     async manualMatches(providerId) {
       return [...rows.values()]
-        .filter((row) => row.providerId === providerId && (row.matchOrigin === 'manual' || row.ignored))
+        .filter((row) => row.providerId === providerId && (row.matchOrigin === 'manual' || manuallyIgnored(row)))
         .map((row) => ({
           id: row.id,
           status: row.matchStatus,
-          ignored: row.ignored,
+          ignored: manuallyIgnored(row),
           links: links.filter((item) => item.discountPlaceId === row.id).map((item) => ({ placeId: item.placeId, wholeBrand: item.wholeBrand, locationIndex: item.locationIndex })),
         }))
     },
@@ -71,7 +74,7 @@ export function memoryDiscountStore(places: MatchablePlace[] = [], options: { to
         const saved = rows.get(place.id)
         rows.set(place.id, saved
           ? { ...saved, ...place, lastSeenAt: writes.now, active: true }
-          : { ...place, firstSeenAt: writes.now, lastSeenAt: writes.now, active: true, ignored: false, matchedAt: null, matchStatus: 'missing', matchOrigin: 'auto', candidates: [] })
+          : { ...place, firstSeenAt: writes.now, lastSeenAt: writes.now, active: true, ignored: false, discard: null, matchedAt: null, matchStatus: 'missing', matchOrigin: 'auto', candidates: [] })
       }
       for (const row of rows.values()) {
         if (row.providerId === writes.providerId && !writes.seenPlaceIds.includes(row.id)) row.active = false
@@ -82,6 +85,11 @@ export function memoryDiscountStore(places: MatchablePlace[] = [], options: { to
       }
       for (const benefit of benefits.values()) {
         if (writes.readPlaceIds.includes(benefit.discountPlaceId) && !writes.seenBenefitIds.includes(benefit.id)) benefit.active = false
+      }
+      for (const item of writes.discards ?? []) {
+        const row = rows.get(item.discountPlaceId)
+        if (!row || row.discard?.origin === 'manual') continue
+        Object.assign(row, { ignored: item.ignored, discard: item.ignored ? { origin: 'auto', reason: item.reason } : null })
       }
       for (const match of writes.matches) {
         const row = rows.get(match.discountPlaceId)
@@ -97,7 +105,8 @@ export function memoryDiscountStore(places: MatchablePlace[] = [], options: { to
       for (const copy of writes.copies ?? []) {
         const row = rows.get(copy.discountPlaceId)
         if (!row || row.matchOrigin !== 'auto' || row.ignored) continue
-        Object.assign(row, { matchStatus: copy.status, matchOrigin: 'manual', ignored: copy.ignored, candidates: [], matchedAt: writes.now })
+        Object.assign(row, { matchStatus: copy.status, matchOrigin: 'manual', candidates: [], matchedAt: writes.now })
+        if (copy.ignored) setManual(row, true)
         links = links.filter((item) => item.discountPlaceId !== row.id)
         for (const item of copy.links) {
           if (!placeOf(item.placeId)) continue
@@ -139,8 +148,22 @@ export function memoryDiscountStore(places: MatchablePlace[] = [], options: { to
     async setIgnored(id, ignored) {
       const row = rows.get(id)
       if (!row) return false
-      row.ignored = ignored
+      setManual(row, ignored)
       return true
+    },
+    async setIgnoredMany(ids, ignored) {
+      return ids.flatMap((id) => {
+        const row = rows.get(id)
+        if (!row) return []
+        setManual(row, ignored)
+        return [id]
+      })
+    },
+    async getMany(ids) {
+      return ids.flatMap((id) => {
+        const row = rows.get(id)
+        return row ? [view(row)] : []
+      })
     },
     async setAutoMatch(id, match, now) {
       const row = rows.get(id)
