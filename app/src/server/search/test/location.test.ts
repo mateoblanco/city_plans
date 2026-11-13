@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { locationCookieValue, normalizeBounds, parseLocationChoice, parseLocationCookie, parseZone, zoneParam } from '@/lib/location'
-import { distanceFactor, inMontevideo, resolveLocation, type LocationInput } from '../location'
+import { distanceFactor, inMontevideo, metersToBounds, resolveLocation, zoneOrigin, type LocationInput } from '../location'
 
 const CORDON = { kind: 'coords' as const, lat: -34.905, lng: -56.185 }
 const input = (overrides: Partial<LocationInput>): LocationInput => ({
@@ -95,5 +95,26 @@ describe('distanceFactor', () => {
     expect(distanceFactor(400)).toBeCloseTo(0.88)
     expect(distanceFactor(1000)).toBeCloseTo(0.7)
     expect(distanceFactor(3000)).toBe(0.55)
+  })
+})
+
+describe('desde dónde se ordena la zona', () => {
+  const ZONE = { south: -34.92, west: -56.16, north: -34.9, east: -56.14 }
+
+  it('metros al rectángulo: 0 adentro, la distancia al borde afuera', () => {
+    expect(metersToBounds({ lat: -34.91, lng: -56.15 }, ZONE)).toBe(0)
+    // ~0,01° de latitud al norte del borde: ~1,1 km.
+    expect(metersToBounds({ lat: -34.89, lng: -56.15 }, ZONE)).toBeCloseTo(1112, -1)
+  })
+
+  it('la persona si está en la zona o cerca del borde; si no, o sin ubicación, el centro', () => {
+    expect(zoneOrigin(ZONE, { kind: 'coords', lat: -34.91, lng: -56.15 })).toEqual({ point: { lat: -34.91, lng: -56.15 }, user: true })
+    // A ~550 m del borde oeste.
+    expect(zoneOrigin(ZONE, { kind: 'coords', lat: -34.91, lng: -56.166 }).user).toBe(true)
+    const center = { point: { lat: -34.91, lng: -56.15 }, user: false }
+    // Cordón: ~2 km al oeste.
+    expect(zoneOrigin(ZONE, CORDON)).toEqual(center)
+    expect(zoneOrigin(ZONE, { kind: 'denied' })).toEqual(center)
+    expect(zoneOrigin(ZONE, null)).toEqual(center)
   })
 })

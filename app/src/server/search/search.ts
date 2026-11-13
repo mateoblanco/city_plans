@@ -31,7 +31,7 @@ import {
   type Interpretation,
 } from './interpretation'
 import { DISPLAY_LANG, distanceLabel, openStateLabel, openStateText, type OpenStateText } from './labels'
-import { EMPTY_ZONE_NOTICE, OUTSIDE_NOTICE, parseLocationChoice, parseLocationCookie, radiusNotice, resolveLocation, type SearchLocation } from './location'
+import { EMPTY_ZONE_NOTICE, OUTSIDE_NOTICE, parseLocationChoice, parseLocationCookie, radiusNotice, resolveLocation, zoneOrigin, type SearchLocation } from './location'
 import { normalizeQuery, queryWords } from './normalize'
 import { buildReasons } from './reasons'
 import { logoUrl } from './logo'
@@ -148,6 +148,8 @@ export type SearchDebug = {
   }[]
   /** Cerca mío: cuántos "has" dio cada radio y cuál se usó; null sin cerca mío. */
   near: { tried: { radiusM: number; has: number }[]; chosen: number } | null
+  /** "Buscar en esta zona": se ordenó desde la persona o desde el centro de la zona; null sin zona. */
+  zoneOrigin: 'user' | 'center' | null
   rankings: Rankings
   results: {
     id: string
@@ -534,6 +536,11 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   })
   const origin = location.kind === 'near' ? location.origin : null
   const zone = location.kind === 'zone' ? location.bounds : null
+  // Desde dónde se mide la distancia para ordenar: cerca mío, o la zona desde la persona (si está en ella o cerca) o
+  // desde su centro. Sin radio en la zona: sólo ordena. La distancia se muestra sólo si es desde la persona.
+  const zoneFrom = zone ? zoneOrigin(zone, userLocation) : null
+  const rankOrigin = origin ?? zoneFrom?.point ?? null
+  const fromUser = origin !== null || zoneFrom?.user === true
 
   // De dónde sale cada chip: del texto, de la barra o de los dos (así se sabe cómo apagarlo).
   const textKeys = new Set(buildChips(fromText, today).map((chip) => `${chip.kind}:${chip.id}`))
@@ -606,7 +613,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     // Un nombre (del modelo o fijado) se busca difuso, con errores de tipeo; si no, sólo las palabras que quedan.
     name: nameQuery ?? (nameWords.length ? nameWords.join(' ') : null),
     // Con cerca mío, la distancia se mide desde la persona y entra al ranking desde el primer intento.
-    origins: origin ? [origin] : [],
+    origins: rankOrigin ? [rankOrigin] : [],
     pinnedId: pinned?.id ?? null,
   }
 
@@ -626,7 +633,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     const requestedTags = [...new Set([...wanted.must.tags, ...wanted.prefer.tags, ...relatedTags].flatMap(withSubcuisines))]
     const allFused = fuse(candidates, rankings, {
       pinnedId: pinned?.id ?? null,
-      nearDecay: origin !== null,
+      nearDecay: rankOrigin !== null,
       dishes,
       categories: requestedCategories,
       requestedTags,
@@ -664,7 +671,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       venue: wanted.must.venues.length > 0,
     })
     // Una card por marca: las otras sucursales no ocupan lugar en la lista, las secciones ni los avisos.
-    const fused = collapseBranches(cut.kept, { neighborhoods: interpretation.must.neighborhoods, near: origin !== null })
+    const fused = collapseBranches(cut.kept, { neighborhoods: interpretation.must.neighborhoods, near: rankOrigin !== null })
     return { openAt, rankings, cut, fused }
   }
 
@@ -750,7 +757,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     if (rows.some((row) => row.matchesFilters) || !canRelax(state, relaxStep, dishes)) continue
     if (NEARBY_STEPS.includes(relaxStep) && nearbyRows.some((row) => row.matchesFilters)) continue
     // Sin el venue, la distancia a sus locales ordena.
-    if (relaxStep === 'venue' && !origin) {
+    if (relaxStep === 'venue' && !rankOrigin) {
       scores.origins = venues.filter((venue) => state.interpretation.must.venues.includes(venue.name)).flatMap((venue) => venue.points)
     }
     state = relax(state, relaxStep)
@@ -828,7 +835,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       lng: item.row.lng,
       branchCount: item.row.brandCount,
       branches: item.branches.map(({ row }) => ({ id: row.id, lat: row.lat, lng: row.lng })),
-      reasons: buildReasons(item, { interpretation: current, dishes, dishMode: state.dishMode, intent: state.intent, subs: state.subs, near: origin !== null }),
+      reasons: buildReasons(item, { interpretation: current, dishes, dishMode: state.dishMode, intent: state.intent, subs: state.subs, near: fromUser }),
       discounts: cardProviders(item.row.discounts, filters.discounts),
       openStatus: {
         state: open.state,
@@ -837,7 +844,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
         ...openStateText(open, DISPLAY_LANG, moment, isNow, next),
       },
       matchLevel: item.matchLevel,
-      distance: origin && item.row.distance !== null ? distanceLabel(item.row.distance, DISPLAY_LANG) : null,
+      distance: fromUser && item.row.distance !== null ? distanceLabel(item.row.distance, DISPLAY_LANG) : null,
     }
   }
   const results = fused.map(toResult)
@@ -1048,6 +1055,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       keywords,
       attempts,
       near: nearDebug,
+      zoneOrigin: zoneFrom ? (zoneFrom.user ? 'user' : 'center') : null,
       rankings: {
         semantic: rankings.semantic.slice(0, depth),
         keyword: rankings.keyword.slice(0, depth),

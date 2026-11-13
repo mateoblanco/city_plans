@@ -328,6 +328,11 @@ const noDistance: Check = {
   test: (_, response) => response.results.filter((result) => result.distance !== null).map((result) => `${result.name}: ${result.distance}`),
 };
 
+const withDistance: Check = {
+  description: "con distancia en las cards",
+  test: (_, response) => response.results.filter((result) => result.distance === null).map((result) => `sin distancia: ${result.name}`),
+};
+
 const radiusGrew: Check = {
   description: "el radio se agrandó, con aviso",
   test: (_, response) => [
@@ -353,7 +358,9 @@ export const CHECKS: Record<string, Check[]> = {
   [`tragos en palermo ?default=1&cookie=${POCITOS}`]: [locationIs("neighborhood"), nonEmpty, every("todos en Palermo", (place) => place.neighborhoodId === "PALERMO"), noDistance],
   "cafés ?default=1&cookie=denied": [locationIs("all", "denied"), nonEmpty, noDistance],
   [`cafés ?default=1&cookie=${BUENOS_AIRES}`]: [locationIs("all", "outside"), nonEmpty],
-  [`tragos en palermo ?remove=neighborhood:PALERMO&loc=${zoneParamOf(POCITOS_ZONE)}&default=1&cookie=${POCITOS}`]: [locationIs("zone"), nonEmpty, insideZone(POCITOS_ZONE), noDistance],
+  [`tragos en palermo ?remove=neighborhood:PALERMO&loc=${zoneParamOf(POCITOS_ZONE)}&default=1&cookie=${POCITOS}`]: [locationIs("zone"), nonEmpty, insideZone(POCITOS_ZONE), withDistance],
+  // Lejos de la zona: se ordena desde su centro y las cards no dicen distancia.
+  [`tragos ?loc=${zoneParamOf(POCITOS_ZONE)}&default=1&cookie=${CARRASCO}`]: [locationIs("zone"), nonEmpty, insideZone(POCITOS_ZONE), noDistance],
   // Pocos sushi a 1,5 km de Carrasco: se agranda (al más chico que ya trae todos los que hay).
   [`sushi ?default=1&cookie=${CARRASCO}`]: [locationIs("near"), nonEmpty, radiusGrew, withinRadius],
   "Bar Tasende": [isFirst("Bar Tasende")],

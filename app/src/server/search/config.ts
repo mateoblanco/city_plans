@@ -221,6 +221,12 @@ export const SEARCH_CONFIG = {
    */
   near: { radii: [1500, 3000, 5000], minResults: 8, decay: { slope: 0.3, floor: 0.55 }, outsideToleranceM: 500 },
   /**
+   * "Buscar en esta zona": ordena por distancia (el mismo ranking y decay de cerca mío, sin radio). Desde la persona si
+   * está dentro de la zona o a menos de userToleranceM de su borde (moviste un poco el mapa: el orden casi no cambia);
+   * si no, desde el centro de la zona (arriba, lo del medio del mapa).
+   */
+  zone: { userToleranceM: 1000 },
+  /**
    * Venue nombrado ("en el Mercado del Puerto"): además de sus locales, los que no tienen located_in a menos de esto de
    * alguno. 100 m cubre un mercado o un shopping desde el local cargado sin llegar a la cuadra de enfrente.
    */

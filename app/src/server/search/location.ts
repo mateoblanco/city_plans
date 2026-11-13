@@ -95,6 +95,26 @@ export function resolveLocation(input: LocationInput): SearchLocation {
   return near(false)
 }
 
+/** Metros del punto al rectángulo (0 si está adentro; proyección local plana). */
+export function metersToBounds(point: LatLng, bounds: Bounds): number {
+  const lat = Math.min(bounds.north, Math.max(bounds.south, point.lat))
+  const lng = Math.min(bounds.east, Math.max(bounds.west, point.lng))
+  const k = Math.cos((point.lat * Math.PI) / 180)
+  return Math.hypot((point.lng - lng) * k, point.lat - lat) * 111_195
+}
+
+/**
+ * Desde dónde se ordena "Buscar en esta zona" (SEARCH_CONFIG.zone): la persona si está en la zona o cerca de su borde;
+ * si no (o sin su ubicación), el centro de la zona. user: la distancia se muestra en las cards ("a 400 m").
+ */
+export function zoneOrigin(bounds: Bounds, user: UserLocation | null): { point: LatLng; user: boolean } {
+  if (user?.kind === 'coords') {
+    const point = { lat: user.lat, lng: user.lng }
+    if (metersToBounds(point, bounds) <= SEARCH_CONFIG.zone.userToleranceM) return { point, user: true }
+  }
+  return { point: { lat: (bounds.south + bounds.north) / 2, lng: (bounds.west + bounds.east) / 2 }, user: false }
+}
+
 /** "Había pocos a 1,5 km: ampliamos a 3 km." */
 export function radiusNotice(from: number, to: number, lang: Lang = DISPLAY_LANG) {
   const [a, b] = [distanceText(from, lang), distanceText(to, lang)]

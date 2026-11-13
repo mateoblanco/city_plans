@@ -890,6 +890,27 @@ describe('barra de filtros y cerca mío', () => {
     expect(typed.location).toEqual({ kind: 'neighborhood' })
   })
 
+  it('la zona ordena por distancia: desde la persona si está en ella (con "a 400 m"); si no, desde el centro', async () => {
+    const zonePlaces = [
+      row({ id: 'bar-cerca', neighborhoodId: 'POCITOS', categories: ['bar'], lat: -34.911, lng: -56.15, distance: 400 }),
+      row({ id: 'bar-lejos', neighborhoodId: 'POCITOS', categories: ['bar'], lat: -34.901, lng: -56.141, distance: 1400 }),
+    ]
+    const loc = '-34.92,-56.16,-34.9,-56.14'
+    const inside = fakeStore(zonePlaces)
+    const fromUser = await runSearch('', { store: inside.store, cache: fakeCache().cache }, { now, intent: 'bars', loc, userLocation: '-34.911,-56.15', defaultNear: true, debug: true })
+    expect(inside.calls[0].scores.origins).toEqual([{ lat: -34.911, lng: -56.15 }])
+    expect(inside.calls[0].filters.near).toBeNull()
+    expect(fromUser.results.find((place) => place.id === 'bar-cerca')?.distance).toBe('a 400 m')
+    expect(fromUser.debug?.zoneOrigin).toBe('user')
+    expect(fromUser.location.kind).toBe('zone')
+
+    const far = fakeStore(zonePlaces)
+    const fromCenter = await runSearch('', { store: far.store, cache: fakeCache().cache }, { now, intent: 'bars', loc, userLocation: CORDON, defaultNear: true, debug: true })
+    expect(far.calls[0].scores.origins).toEqual([{ lat: -34.91, lng: -56.15 }])
+    expect(fromCenter.results.every((place) => place.distance === null)).toBe(true)
+    expect(fromCenter.debug?.zoneOrigin).toBe('center')
+  })
+
   it('zona sin nada: lo dice', async () => {
     const { store } = fakeStore(places)
     const response = await runSearch('', { store, cache: fakeCache().cache }, { now, intent: 'cafes', loc: '-34.8,-56.3,-34.79,-56.29' })
