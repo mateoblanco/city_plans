@@ -1,0 +1,88 @@
+@use '../../../styles/breakpoints' as *;
+
+// Mobile: una línea con scroll horizontal, de borde a borde (ScrollFade pone el margen negativo y el degradado).
+// Desde md, centradas (ScrollFade no es una caja).
+.nav {
+  min-width: 0;
+}
+
+.line {
+  overflow-x: auto;
+  padding: 0 16px;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+
+  @include media(md) {
+    overflow-x: visible;
+    padding: 0;
+  }
+}
+
+.list {
+  display: flex;
+  gap: 20px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  white-space: nowrap;
+
+  > li {
+    flex-shrink: 0;
+  }
+
+  @include media(md) {
+    gap: 28px;
+    justify-content: center;
+  }
+}
+
+// Subrayada: la activa con el texto pleno y una barra debajo; las demás, atenuadas (hover: barra gris).
+.tab {
+  align-items: center;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-muted);
+  display: flex;
+  font-size: 14px;
+  gap: 6px;
+  // Alto fijo: "Todo" (sin ícono) queda a la misma altura que las demás.
+  height: 30px;
+  padding: 0;
+  text-decoration: none;
+  transition: color 0.1s ease-in-out, border-color 0.1s ease-in-out;
+
+  @include media(md) {
+    font-size: 16px;
+    gap: 8px;
+    height: 38px;
+  }
+
+  &:hover {
+    border-bottom-color: var(--color-border);
+    color: var(--color-text);
+  }
+
+  &[aria-current] {
+    border-bottom-color: var(--color-selected);
+    color: var(--color-text);
+    font-weight: 600;
+  }
+
+  // El anillo global, sin pisar la barra de abajo.
+  &:focus-visible {
+    border-radius: 4px;
+  }
+}
+
+.icon {
+  flex-shrink: 0;
+  height: 16px;
+  width: 16px;
+
+  @include media(md) {
+    height: 20px;
+    width: 20px;
+  }
+}

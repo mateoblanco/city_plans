@@ -6,14 +6,26 @@ import SearchFilters from "../SearchFilters/SearchFilters";
 import { loadFilterBarData } from "../FilterBar/utils/filter-bar-data";
 
 type Props = {
-  searchParams: SearchParams;
+  /** Sin searchParams (la home): la barra vacía, con cada filtro e intención llevando a /search. */
+  searchParams?: SearchParams;
 };
 
 /** Barra de filtros del header: espera la búsqueda. */
 const SearchBar = async (props: Props) => {
-  const params = await readParams(props.searchParams);
-  // Sin texto, filtros ni intención: la barra vacía, sin buscar.
-  if (isEmpty(params)) return <FilterBar state={{ q: "", debug: params.debug }} chips={[]} bar={emptyBar()} location={{ kind: "all", reason: "default" }} data={await loadFilterBarData()} />;
+  const params = props.searchParams ? await readParams(props.searchParams) : null;
+  // Sin texto, filtros ni intención (o la home): la barra vacía, sin buscar. En la home, "Cerca mío" no pide la
+  // ubicación: lleva a /search, que la pide ahí.
+  if (!params || isEmpty(params))
+    return (
+      <FilterBar
+        state={{ q: "", debug: params?.debug }}
+        chips={[]}
+        bar={emptyBar()}
+        location={{ kind: "all", reason: "default" }}
+        data={await loadFilterBarData()}
+        deferLocation={!params}
+      />
+    );
 
   return (
     // Sin key: al refinar o quitar un chip la barra anterior queda visible hasta que llega la nueva.

@@ -5,6 +5,7 @@ import type { CardRow } from '../places/similar'
 import { searchDeps } from '../search'
 import { montevideoDate } from '../search/hours'
 import { assembleHomeWithSaved, type HomeRow } from './assemble'
+import { homeNearRow } from './near'
 import { homeForYouRow, homeSectionRows } from './rows'
 import { homeSavedRow, savedPlacesQuery, type SavedDeps } from './saved'
 
@@ -31,24 +32,27 @@ const savedDeps = (): SavedDeps => ({
 })
 
 /**
- * Las filas de la home con los guardados de la cookie (sin caché: son de cada persona): "Guardados" (todos), "Para vos"
- * (los mismos guardados como señal de gustos, si arman perfil) y las del config, sin repetir lugares entre estas dos y
- * sin las de menos de 4.
+ * Las filas de la home con las cookies de la persona (sin caché: son suyas): "Guardados" (todos), "Abierto ahora cerca
+ * tuyo" (con la ubicación de la cookie `loc`), "Para vos" (los mismos guardados como señal de gustos, si arman perfil)
+ * y las del config, sin repetir lugares entre estas tres y sin las de menos de 4. Si falla una fila personal, la home
+ * sigue sin ella.
  */
-export async function homeRows(saved: string[]): Promise<HomeRow[]> {
+export async function homeRows(saved: string[], userLocation: string | null): Promise<HomeRow[]> {
   const deps = searchDeps()
-  const [savedRow, forYou, sections] = await Promise.all([
+  const [savedRow, near, forYou, sections] = await Promise.all([
     homeSavedRow(savedDeps(), saved).catch((error: unknown) => {
-      // Sin "Guardados" la home sigue.
       console.error('Falló "Guardados" de la home', error)
       return null
     }),
+    homeNearRow(deps, userLocation).catch((error: unknown) => {
+      console.error('Falló "Abierto ahora cerca tuyo" de la home', error)
+      return null
+    }),
     homeForYouRow(deps, saved).catch((error: unknown) => {
-      // Sin "Para vos" la home sigue.
       console.error('Falló "Para vos" de la home', error)
       return null
     }),
     cachedSectionRows(montevideoDate()),
   ])
-  return assembleHomeWithSaved(savedRow, [...(forYou ? [forYou] : []), ...sections])
+  return assembleHomeWithSaved(savedRow, [...(near ? [near] : []), ...(forYou ? [forYou] : []), ...sections])
 }

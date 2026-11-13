@@ -1,4 +1,4 @@
-@use '../../../../styles/breakpoints' as *;
+@use '../../../styles/breakpoints' as *;
 
 // De borde a borde del header (el margen negativo compensa su padding de 16px), así el degradado toca el borde de la
 // pantalla. Desde md no es una caja: la línea de adentro sigue siendo parte del flex de la barra.

@@ -24,6 +24,8 @@ type Props = {
   state: SearchUrl;
   /** Dónde buscó el servidor (el valor por defecto lo resuelve él): lo que el botón muestra activo. */
   location: SearchLocation;
+  /** La home: "Cerca mío" sin ubicación no la pide acá; va a /search con loc=near y la pide LocationGate. */
+  deferLocation?: boolean;
 };
 
 /** Lo activo según la búsqueda: siempre hay uno. Mientras se pide la ubicación (ask), "Cerca mío". */
@@ -81,8 +83,8 @@ const LocationSelect = (props: Props) => {
     if (values.includes(ZONE)) return;
     if (values.includes(ALL)) return go(setLocationHref(props.state, "all", props.chips));
     if (!values.includes(NEAR)) return go(setNeighborhoodsHref(props.state, values, props.chips));
-    // Cerca mío: con la ubicación ya en la cookie, directo; si no, se pide acá (el diálogo del navegador).
-    if (readLocationCookie()?.kind === "coords") return go(setLocationHref(props.state, "near", props.chips));
+    // Cerca mío: con la ubicación ya en la cookie (o desde la home), directo; si no, se pide acá (el diálogo del navegador).
+    if (props.deferLocation || readLocationCookie()?.kind === "coords") return go(setLocationHref(props.state, "near", props.chips));
     setLocating(true);
     void requestLocation().then((result) => {
       setLocating(false);

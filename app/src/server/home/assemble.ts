@@ -10,7 +10,7 @@ const cardIds = (place: SearchResult) => [place.id, ...place.branches.map((branc
 const isChain = (place: SearchResult) => place.branchCount >= SEARCH_CONFIG.personal.chainMinBranches
 
 /**
- * Las filas de la home en orden (rows ya viene con "Para vos" primero, si salió): cada una sin las cadenas (como los
+ * Las filas de la home en orden (rows ya viene con "Abierto ahora cerca tuyo" y "Para vos" primero, si salieron): cada una sin las cadenas (como los
  * bloques personales) ni los lugares de las filas anteriores, hasta maxPlaces; con menos de minPlaces no se muestra y
  * sus lugares quedan libres para las siguientes. Cada fila conserva el orden de su búsqueda.
  */

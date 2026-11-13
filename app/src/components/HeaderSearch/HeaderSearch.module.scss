@@ -21,3 +21,12 @@
     display: contents;
   }
 }
+
+// Lugar de la primera línea de la barra de filtros mientras carga: el alto de un chip (FilterChip, Select).
+.barPlaceholder {
+  height: 29px;
+
+  @include media(md) {
+    height: 34px;
+  }
+}

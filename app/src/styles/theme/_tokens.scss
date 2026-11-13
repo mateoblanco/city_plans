@@ -20,8 +20,6 @@
 	--color-surface: #{palette.get(white)};
 	--color-surface-hover: #{palette.get(gray-50)}; // Header, FilterChip, Select, Popover, DiscountFilter
 	--color-surface-muted: #{palette.get(gray-50)}; // LocationSelect, DebugPanel, ResultsView, PlaceHours (hoy)
-	--color-surface-hero: #{palette.get(blue-500)}; // HeroSearch
-	--color-hero-scrim: #{shade(0.12)}; // HeroSearch: velo sobre la foto, para que el h1 blanco llegue a 3:1 en su punto más claro
 	--color-surface-chip: #{palette.get(gray-50)}; // FilterChip, Select (trigger), Popover (trigger), DiscountFilter, PlaceTags
 	--color-skeleton: #{palette.get(gray-100)}; // ResultsSkeleton, PlaceMap
 
@@ -31,7 +29,6 @@
 	--color-text-muted: #{palette.get(gray-700)};
 	--color-text-subtle: #{palette.get(gray-600)}; // PlaceCard, CardDiscounts, BranchCard, PlaceSummary, PlaceTags, Link
 	--color-text-inverse: #{palette.get(white)}; // BackButton (sobre una barra oscura), ProviderDiscounts (nombre del banco)
-	--color-text-hero: #{palette.get(white)}; // HeroSearch (heading sobre el fondo azul)
 
 	// Bordes
 	// Button, Select, Header, FilterBar, FilterChip, PlaceImage, ResultSections, PlaceTags

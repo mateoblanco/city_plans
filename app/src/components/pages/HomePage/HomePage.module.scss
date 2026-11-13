@@ -1,7 +1,5 @@
-@use '../../../styles/breakpoints' as *;
-
-// h1 de mobile, sólo para lectores de pantalla y buscadores. Desde md no existe (display: none): el h1 es el del hero.
-.mobileHeading {
+// h1 de la home, sólo para lectores de pantalla y buscadores.
+.heading {
   clip: rect(0 0 0 0);
   height: 1px;
   margin: -1px;
@@ -9,8 +7,4 @@
   position: absolute;
   white-space: nowrap;
   width: 1px;
-
-  @include media(md) {
-    display: none;
-  }
 }

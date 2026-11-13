@@ -1,4 +1,3 @@
-import { INTENT_IDS, INTENTS } from "@shared/intents.ts";
 import { neighborhoodDisplayName } from "@shared/neighborhood-names.ts";
 import type { Chip, IntentBar, SearchLocation } from "@/server/search";
 import { choiceKey } from "@/server/discounts/selection";
@@ -10,10 +9,10 @@ import LocationSelect from "./LocationSelect/LocationSelect";
 import PriceSelect from "./PriceSelect/PriceSelect";
 import DietSelect from "./DietSelect/DietSelect";
 import DiscountFilter from "./DiscountFilter/DiscountFilter";
-import ScrollFade from "./ScrollFade/ScrollFade";
+import ScrollFade from "../ScrollFade/ScrollFade";
 import { DIET_OPTIONS } from "./DietSelect/utils/diet-selection";
 import type { FilterBarData } from "./utils/filter-bar-data";
-import { addFilterHref, barIntentHref, extraHref, removeChipHref, subHref, type SearchUrl } from "@/components/pages/SearchPage/utils/search-href";
+import { addFilterHref, extraHref, removeChipHref, subHref, type SearchUrl } from "@/components/pages/SearchPage/utils/search-href";
 import styles from "./FilterBar.module.scss";
 
 type ToggleProps = {
@@ -43,6 +42,8 @@ type Props = {
   location: SearchLocation;
   /** Barrios publicados y proveedores de descuento (loadFilterBarData), pedidos en paralelo con la búsqueda. */
   data: FilterBarData;
+  /** La home: "Cerca mío" sin ubicación no la pide, lleva a /search (que la pide ahí). */
+  deferLocation?: boolean;
 };
 
 const FilterBar = (props: Props) => {
@@ -66,7 +67,6 @@ const FilterBar = (props: Props) => {
   const discountProviders = props.data.discountProviders;
   const activeDiscounts = parseFilters(props.state.f).discounts.map(choiceKey);
   const toggle = { state: props.state, chips: props.chips };
-  const activeIntent = props.bar.intent?.id ?? null;
   // Segunda fila: sólo las opciones de la intención activa. Lo que pidió el texto (momentos, platos, tags…) no va como
   // chip: ya está en el buscador. Quedan los filtros de la URL que no tienen otro lugar (tag de una fila de la home,
   // "Ver todos" de un grupo), para poder verlos y quitarlos.
@@ -75,30 +75,15 @@ const FilterBar = (props: Props) => {
 
   return (
     <nav className={styles.filterBar} aria-label="Filtros">
-      {/* Primera línea: selects e intenciones. En desktop no existe como caja (display: contents); en mobile es la
-          línea con su propio scroll horizontal y degradado, con las intenciones primero (la activa adelante). */}
+      {/* Primera línea: los filtros (las intenciones son las pestañas de arriba del buscador, IntentTabs). En desktop no
+          existe como caja (display: contents); en mobile es la línea con su propio scroll horizontal y degradado. */}
       <ScrollFade className={styles.mainLine}>
         <div className={`${styles.filterRow} ${styles.selectRow}`}>
-          <LocationSelect options={neighborhoods} chips={neighborhoodChips} state={props.state} location={props.location} />
+          <LocationSelect options={neighborhoods} chips={neighborhoodChips} state={props.state} location={props.location} deferLocation={props.deferLocation} />
           <PriceSelect options={prices} chips={priceChips} state={props.state} />
           <DietSelect options={diets} chips={dietChips} state={props.state} />
           {discountProviders.length > 0 && <DiscountFilter providers={discountProviders} active={activeDiscounts} state={props.state} />}
           <Toggle {...toggle} kind="openAt" id="today" text="Abre hoy" />
-        </div>
-        <hr className={`${styles.divider} ${styles.intentDivider}`} />
-        <div className={`${styles.filterRow} ${styles.intentRow}`} role="group" aria-label="Qué querés hacer">
-          {INTENT_IDS.map((id) => {
-            const active = id === activeIntent;
-            return (
-              <FilterChip
-                key={id}
-                active={active}
-                current={active}
-                href={barIntentHref(props.state, active ? null : id, props.bar)}
-                text={INTENTS[id].label.es}
-              />
-            );
-          })}
         </div>
       </ScrollFade>
       {showSubs && (

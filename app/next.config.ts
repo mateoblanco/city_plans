@@ -16,7 +16,7 @@ const nextConfig: NextConfig = {
   // Dev: probar desde el teléfono por la IP de la red local (192.168.x.x). Sin esto, Next bloquea sus scripts de dev
   // para otros orígenes y la página nunca hidrata (sin mapa ni panel en /search). No afecta producción.
   allowedDevOrigins: ["192.168.*.*"],
-  // AVIF primero (más liviano que WebP para el hero); el navegador que no lo acepta recibe WebP.
+  // AVIF primero (más liviano que WebP); el navegador que no lo acepta recibe WebP.
   images: { remotePatterns: logoPatterns, formats: ["image/avif", "image/webp"] },
   turbopack: {
     root: repoRoot,

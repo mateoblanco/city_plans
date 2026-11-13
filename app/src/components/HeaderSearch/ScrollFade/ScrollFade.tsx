@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import styles from "./ScrollFade.module.scss";
 
 type Props = {
-  /** Clase del contenedor que scrollea (la línea de la barra). */
+  /** Clase del contenedor que scrollea (la línea de la barra o de las pestañas). */
   className: string;
   children: React.ReactNode;
 };

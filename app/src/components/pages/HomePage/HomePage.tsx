@@ -1,30 +1,29 @@
 import { Suspense } from "react";
-import Header from "@/components/Header/Header";
-import Search from "@/components/Search/Search";
+import HeaderSearch from "@/components/HeaderSearch/HeaderSearch";
 import SkipLinks from "@/components/SkipLinks/SkipLinks";
 import { SKIP_TARGETS } from "@/components/SkipLinks/utils/skip-targets";
-import HeroSearch, { HOME_HEADING } from "./HeroSearch/HeroSearch";
-import HomeShortcuts from "./HomeShortcuts/HomeShortcuts";
+import HomeLocation from "./HomeLocation/HomeLocation";
 import HomeSections from "./HomeSections/HomeSections";
 import HomeSectionsSkeleton from "./HomeSections/HomeSectionsSkeleton/HomeSectionsSkeleton";
 import styles from "./HomePage.module.scss";
+
+/** El h1 de la home: no se ve (el header es el de /search), sólo para lectores de pantalla y buscadores. */
+const HOME_HEADING = "Lugares para salir en Montevideo";
 
 const HomePage = () => {
   return (
     <>
       <SkipLinks links={[{ target: SKIP_TARGETS.content, label: "Ir al contenido" }]} />
-      {/* En mobile el header es el buscador con los accesos (el hero no se muestra); en desktop, sólo el logo. */}
-      <Header compactBelow="md" mobileOnlyContent bottom={<HomeShortcuts layout="scroll" />}>
-        <Search rotatingPlaceholder />
-      </Header>
+      {/* El header de /search (buscador, filtros e intenciones), sin mapa: todo lleva a /search. */}
+      <HeaderSearch />
       <main id={SKIP_TARGETS.content} data-skip-target>
-        {/* Mobile: el hero (con el h1) no se muestra; el mismo h1, visualmente oculto. Desde md no está (va el del hero). */}
-        <h1 className={styles.mobileHeading}>{HOME_HEADING}</h1>
-        <HeroSearch />
-        {/* Lee la cookie de guardados ("Guardados", "Para vos"): el resto de la home no espera por ellas. */}
+        <h1 className={styles.heading}>{HOME_HEADING}</h1>
+        {/* Lee las cookies de guardados y de ubicación: el resto de la home no espera por ellas. */}
         <Suspense fallback={<HomeSectionsSkeleton />}>
           <HomeSections />
         </Suspense>
+        {/* Con el permiso ya dado, actualiza la ubicación sin preguntar; nunca la pide. */}
+        <HomeLocation />
       </main>
     </>
   );

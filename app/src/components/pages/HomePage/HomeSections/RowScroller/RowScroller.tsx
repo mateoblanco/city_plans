@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import styles from "./RowScroller.module.scss";
 
 type Props = {
-  /** Clase del <ul> que scrollea (la de PlaceRow). */
+  /** Clase del <ul> que scrollea (la de PlaceRow o HomeDishes). */
   className: string;
   children: React.ReactNode;
 };

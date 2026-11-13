@@ -75,6 +75,41 @@ async function permissionState(): Promise<PermissionState | null> {
   }
 }
 
+type Refresh = () => void;
+
+/**
+ * Con el permiso ya dado, la ubicación actual sin diálogo. Si la persona se movió más de MOVED_M de `origin` (o no había
+ * origin), la guarda y llama a refresh; si no, sólo renueva el vencimiento. Si retiró el permiso, guarda `denied` y
+ * llama a refresh. Con el permiso sin dar (prompt) o sin Permissions API no hace nada: nunca lo pide. Devuelve cómo
+ * cancelarlo.
+ */
+export function refreshGrantedLocation(origin: LatLng | null, refresh: Refresh): () => void {
+  let cancelled = false;
+  void permissionState().then((state) => {
+    if (cancelled) return;
+    if (state === "denied") {
+      // Sin origin no había ubicación que sacar: sólo se guarda, no hace falta volver a buscar.
+      writeDenied();
+      if (origin) refresh();
+      return;
+    }
+    if (state !== "granted") return;
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        if (cancelled) return;
+        const next = { lat: coords.latitude, lng: coords.longitude };
+        writeCoords(next);
+        if (!origin || metersBetween(origin, next) > MOVED_M) refresh();
+      },
+      () => {},
+      GEO_OPTIONS,
+    );
+  });
+  return () => {
+    cancelled = true;
+  };
+}
+
 /**
  * Con cerca mío desde la cookie: en segundo plano, si el permiso sigue dado, actualiza la ubicación (sin diálogo). Si la
  * persona se movió más de MOVED_M, vuelve a buscar; si no, sólo renueva el vencimiento. Si retiró el permiso, guarda
@@ -86,28 +121,20 @@ export function useRefreshLocation(origin: LatLng | null) {
   const lng = origin?.lng;
   useEffect(() => {
     if (lat === undefined || lng === undefined) return;
-    let cancelled = false;
-    void permissionState().then((state) => {
-      if (cancelled) return;
-      if (state === "denied") {
-        writeDenied();
-        router.refresh();
-        return;
-      }
-      if (state !== "granted") return;
-      navigator.geolocation.getCurrentPosition(
-        ({ coords }) => {
-          if (cancelled) return;
-          const next = { lat: coords.latitude, lng: coords.longitude };
-          writeCoords(next);
-          if (metersBetween({ lat, lng }, next) > MOVED_M) router.refresh();
-        },
-        () => {},
-        GEO_OPTIONS,
-      );
-    });
-    return () => {
-      cancelled = true;
-    };
+    return refreshGrantedLocation({ lat, lng }, () => router.refresh());
   }, [lat, lng, router]);
+}
+
+/**
+ * La home: nunca pide el permiso. Con coordenadas en la cookie, como useRefreshLocation; sin cookie y con el permiso ya
+ * dado (de otra visita), la toma sin diálogo y vuelve a pedir la home, así sale "Abierto ahora cerca tuyo". Con `denied`
+ * o `skip` en la cookie no hace nada.
+ */
+export function useHomeLocation() {
+  const router = useRouter();
+  useEffect(() => {
+    const current = readLocationCookie();
+    if (current && current.kind !== "coords") return;
+    return refreshGrantedLocation(current, () => router.refresh());
+  }, [router]);
 }

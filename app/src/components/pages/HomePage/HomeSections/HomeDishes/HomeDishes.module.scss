@@ -1,0 +1,44 @@
+@use '../../../../../styles/breakpoints' as *;
+
+// Como las filas de lugares (PlaceRow): título alineado con el primer chip y scroll de borde a borde.
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.title {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+  padding: 0 16px;
+
+  @include media(md) {
+    padding: 0 48px;
+  }
+}
+
+.scroller {
+  display: flex;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 16px;
+  scrollbar-width: none;
+
+  @include media(md) {
+    padding: 4px 48px;
+  }
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+
+  > li {
+    flex: 0 0 auto;
+  }
+}

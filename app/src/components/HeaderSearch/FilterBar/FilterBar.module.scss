@@ -1,6 +1,7 @@
 @use '../../../styles/breakpoints' as *;
 
-// La barra de filtros, en dos líneas: selects, divisor e intenciones arriba; sub-filtros y extras abajo.
+// La barra de filtros, en dos líneas: los filtros arriba; sub-filtros y extras de la intención abajo (las intenciones
+// son las pestañas de arriba del buscador).
 // Mobile: cada línea con su propio scroll horizontal, sin barra y de borde a borde del header (el margen negativo
 // compensa su padding de 16px). Desde md: un flex con wrap, centrado (la primera línea no es una caja).
 .filterBar {
@@ -57,7 +58,7 @@
   }
 }
 
-// Sub-filtros y extras de la intención: desde md, en su propia línea, debajo de las intenciones. Con .filterRow para
+// Sub-filtros y extras de la intención: desde md, en su propia línea, debajo de los filtros. Con .filterRow para
 // ganarle a su `justify-content: center` (más abajo): en mobile la fila scrollea y, centrada, lo que desborda por la
 // izquierda quedaba cortado y fuera de alcance.
 .filterRow.subRow {
@@ -104,43 +105,9 @@
   }
 }
 
-// Barrio, precio, dieta y abre hoy: desde md bajan de línea si no entran. En mobile van después de las intenciones.
+// Barrio, precio, dieta, descuentos y abre hoy: desde md bajan de línea si no entran.
 .selectRow {
-  order: 3;
-
   @include media(md) {
     flex-wrap: wrap;
-    order: 0;
-  }
-}
-
-// Mobile: las intenciones primero, con la activa adelante; desde md, el orden del DOM (selects, divisor, intenciones).
-.intentRow {
-  order: 1;
-
-  > [aria-current="true"] {
-    order: -1;
-  }
-
-  @include media(md) {
-    order: 0;
-
-    > [aria-current="true"] {
-      order: 0;
-    }
-  }
-}
-
-// Entre "Abre hoy" y las intenciones, de md a 799px: cuando las intenciones bajan de línea, quedaría colgando en un
-// costado. En mobile cada línea scrollea y el divisor se ve.
-.intentDivider {
-  order: 2;
-
-  @include media(md) {
-    order: 0;
-
-    @media (max-width: 799px) {
-      display: none;
-    }
   }
 }

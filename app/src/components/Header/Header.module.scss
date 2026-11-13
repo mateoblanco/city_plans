@@ -41,6 +41,13 @@
     justify-content: center;
 }
 
+// Con pestañas (home y /search): las pestañas arriba del centro, en columna.
+.center[data-with-tabs] {
+    align-items: center;
+    flex-direction: column;
+    gap: 12px;
+}
+
 .user{
     justify-self: end;
     display: flex;
@@ -63,6 +70,11 @@
     display: flex;
     justify-content: center;
     width: 100%;
+}
+
+// La home: en el flujo, sin espaciador (Header, prop sticky).
+.header[data-sticky] {
+    position: sticky;
 }
 
 // Alto real del header (lo mide HeaderOffset), en el flujo de la página.
@@ -92,13 +104,23 @@
         display: flex;
         min-width: auto;
     }
+
+    .center[data-with-tabs] {
+        align-items: center;
+        gap: 12px;
+    }
+
+    // Con pestañas, el logo a la altura de las pestañas (no centrado entre ellas y el buscador).
+    .top[data-with-tabs] {
+        align-items: start;
+    }
 }
 
 // compactBelow: debajo de su breakpoint (md en home y /search, ml en la ficha), sin logo, el centro y la segunda fila
 // a todo el ancho; arriba, la zona segura de iOS. Desde el breakpoint, como cualquier header.
 .header[data-compact] {
     padding: calc(12px + env(safe-area-inset-top)) 16px 12px;
-    gap: 12px;
+    gap: 8px;
 
     .top {
         grid-template-columns: minmax(0, 1fr);
@@ -113,6 +135,12 @@
     .bottom {
         display: block;
         min-width: 0;
+    }
+
+    .center[data-with-tabs] {
+        display: flex;
+        align-items: stretch;
+        gap: 8px;
     }
 }
 
@@ -159,15 +187,5 @@
 .header[data-compact="ml"] {
     @include media(ml) {
         @include full;
-    }
-}
-
-// mobileOnlyContent (la home): el centro y la segunda fila sólo en mobile; desde md, sólo el logo.
-.header[data-mobile-only] {
-    @include media(md) {
-        .center,
-        .bottom {
-            display: none;
-        }
     }
 }

@@ -9,7 +9,7 @@ const OPEN_TODAY = 'open:today'
 /**
  * Si nada abría hoy, la búsqueda soltó el horario (relajó openAt) y trae cerrados: la fila queda vacía y no sale.
  */
-const openResults = (response: SearchResponse) => (response.relaxed.some((notice) => notice.what === 'openAt') ? [] : response.results)
+export const openResults = (response: SearchResponse) => (response.relaxed.some((notice) => notice.what === 'openAt') ? [] : response.results)
 
 /**
  * Cada fila del config con los primeros HOME_CONFIG.candidates resultados de su búsqueda (sin texto: sólo SQL, en

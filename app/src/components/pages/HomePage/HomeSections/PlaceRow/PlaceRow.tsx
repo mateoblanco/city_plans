@@ -4,7 +4,7 @@ import ArrowRight from "@/assets/arrow_right.svg";
 import type { SearchResult } from "@/server/search";
 import PlaceCard from "@/components/pages/SearchPage/Results/PlaceCard/PlaceCard";
 import { eagerImage } from "@/components/pages/SearchPage/utils/eager-images";
-import RowScroller from "./RowScroller/RowScroller";
+import RowScroller from "../RowScroller/RowScroller";
 import styles from "./PlaceRow.module.scss";
 
 type Props = {
