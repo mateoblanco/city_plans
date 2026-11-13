@@ -9,17 +9,12 @@ import { INITIAL_SEARCH_MAP_STATE } from "../../../utils/search-map-store";
 import { SearchMapContext } from "../../../utils/use-search-map";
 import styles from "./ZoneButton.module.scss";
 
-type Props = {
-  /** map: arriba y centrado sobre el mapa (desktop). sheet / sheetHigh: arriba del borde del panel de mobile o, con el
-   * panel en la alta, adentro de su parte de arriba (sobre el título). */
-  placement: "map" | "sheet" | "sheetHigh";
-};
-
 /**
  * "Buscar en esta zona": aparece cuando la persona movió el mapa (arrastre o zoom) y busca lo mismo (texto, intención,
  * filtros) dentro del área visible, que reemplaza al barrio o a cerca mío ("Zona del mapa"). Mover el mapa no busca.
+ * Va arriba y centrado sobre el mapa (MapColumn), en desktop y en mobile.
  */
-const ZoneButton = (props: Props) => {
+const ZoneButton = () => {
   const store = use(SearchMapContext);
   const { viewport, base } = useSyncExternalStore(store.subscribe, store.getState, () => INITIAL_SEARCH_MAP_STATE);
   const router = useRouter();
@@ -28,7 +23,7 @@ const ZoneButton = (props: Props) => {
   if (!bounds || !base) return null;
 
   return (
-    <div className={styles.zone} data-placement={props.placement}>
+    <div className={styles.zone}>
       <Button
         type="button"
         variant="secondary"

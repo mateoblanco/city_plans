@@ -89,8 +89,9 @@ const MapSync = (props: Props) => {
         onMapClick={closeSelected}
         bottomInset={bottomInset}
       />
-      {/* Desktop: arriba del mapa. En mobile va en el panel (sigue su borde). */}
-      {!mobile && <ZoneButton placement="map" />}
+      {/* Arriba y centrado sobre el mapa, también en mobile: fuera del panel (dentro, el Drawer tomaba el toque como
+          arrastre). Con el panel en la alta el mapa no se ve: no va. */}
+      {!(mobile && snapPoint === SHEET_HIGH) && <ZoneButton />}
     </MapColumn>
   );
 
@@ -129,7 +130,6 @@ const MapSync = (props: Props) => {
             pendingLabel={pendingLabel}
             snapPoint={snapPoint}
             onSnapPointChange={changeSnapPoint}
-            overlay={<ZoneButton placement={snapPoint === SHEET_HIGH ? "sheetHigh" : "sheet"} />}
           >
             {props.children}
           </ResultsSheet>

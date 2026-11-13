@@ -1,4 +1,6 @@
-// Centrado; el botón es el de base/Button (secondary), con su sombra propia.
+@use '../../../../../../styles/breakpoints' as *;
+
+// Centrado arriba del mapa; el botón es el de base/Button (secondary), con su sombra propia.
 .zone {
   display: flex;
   justify-content: center;
@@ -9,18 +11,11 @@
   white-space: nowrap;
   z-index: 1;
 
-  // Desktop: arriba sobre el mapa (MapColumn tiene 24px de aire arriba).
-  &[data-placement='map'] {
+  // Mobile: el mapa arranca arriba de todo, debajo del header opaco (MapColumn): 12px debajo del header.
+  top: calc(var(--header-offset) + 12px);
+
+  // Desde md: arriba sobre el mapa (MapColumn tiene 24px de aire arriba).
+  @include media(md) {
     top: 40px;
-  }
-
-  // Mobile: adentro del popup del panel, 12px arriba de su borde (se mueve con él en cualquier altura). Alto del botón sm: 32px.
-  &[data-placement='sheet'] {
-    top: -44px;
-  }
-
-  // Panel en la alta: arriba del borde quedaría debajo del header; va adentro, sobre el título.
-  &[data-placement='sheetHigh'] {
-    top: 12px;
   }
 }

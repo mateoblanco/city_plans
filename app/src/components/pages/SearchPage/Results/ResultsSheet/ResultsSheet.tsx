@@ -14,8 +14,6 @@ type Props = {
   nearby: NearbyCount | null;
   /** Mientras busca: el título ("Buscando…" o "Buscando cerca tuyo…"). */
   pendingLabel?: string;
-  /** Lo que va pegado al borde de arriba del panel y se mueve con él ("Buscar en esta zona"). */
-  overlay?: ReactNode;
   snapPoint: SheetSnapPoint;
   onSnapPointChange: (snapPoint: SheetSnapPoint) => void;
   children: ReactNode;
@@ -69,7 +67,6 @@ const ResultsSheet = (props: Props) => {
             finalFocus={false}
             data-low={props.snapPoint === SHEET_LOW || undefined}
           >
-            {props.overlay}
             {/* La manija: se arrastra (Drawer) o se toca, con el dedo o con Enter/Espacio, para alternar entre la media y la
                 alta (desde la baja, a la media). Lo que se ve es el ::after; el botón es más ancho y su ::before agranda
                 el área táctil a 44px de alto sin mover nada. */}
