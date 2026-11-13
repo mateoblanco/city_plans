@@ -16,31 +16,34 @@
 	// Fondos
 	--color-bg: #{palette.get(white)}; // html (global.scss)
 	--color-bg-page: #{palette.get(gray-50)}; // body (global.scss), ResultSections, RowScroller
-	// Header, FilterBar, FilterChip, Select, Search, PlaceCard, PlaceImage, MapMarker, DebugPanel, CopyResponse, BranchCard, PlaceHours
+	// Header, FilterBar, FilterChip, Select, Search, PlaceCard, PlaceImage, MapMarker, DebugPanel, CopyResponse, BranchCard, PlaceHours,
+	// Dialog, WelcomePlaces, WelcomePlaceCard
 	--color-surface: #{palette.get(white)};
-	--color-surface-hover: #{palette.get(gray-50)}; // Header, FilterChip, Select, Popover, DiscountFilter
+	--color-surface-hover: #{palette.get(gray-50)}; // Header, FilterChip, Select, Popover, DiscountChoices, WelcomePlaceCard
 	--color-surface-muted: #{palette.get(gray-50)}; // LocationSelect, DebugPanel, ResultsView, PlaceHours (hoy)
-	--color-surface-chip: #{palette.get(gray-50)}; // FilterChip, Select (trigger), Popover (trigger), DiscountFilter, PlaceTags
-	--color-skeleton: #{palette.get(gray-100)}; // ResultsSkeleton, PlaceMap
+	--color-surface-chip: #{palette.get(gray-50)}; // FilterChip, Select (trigger), Popover (trigger), DiscountChoices, PlaceTags
+	--color-skeleton: #{palette.get(gray-100)}; // ResultsSkeleton, PlaceMap, WelcomePlaces
+	--color-backdrop: #{shade(0.4)}; // Dialog (fondo detrás del diálogo)
 
 	// Texto
 	--color-text: #{palette.get(black)}; // html y body (global.scss), Select, PlaceImage, BackButton, PlaceHours
-	// LocationSelect, DebugPanel, EndOfResults, SearchMap, PlaceCard, ResultsView, PlaceHours, MapView, PlaceLocation, PlacePage
+	// LocationSelect, DebugPanel, EndOfResults, SearchMap, PlaceCard, ResultsView, PlaceHours, MapView, PlaceLocation, PlacePage,
+	// Dialog, WelcomePlaces
 	--color-text-muted: #{palette.get(gray-700)};
-	--color-text-subtle: #{palette.get(gray-600)}; // PlaceCard, CardDiscounts, BranchCard, PlaceSummary, PlaceTags, Link
-	--color-text-inverse: #{palette.get(white)}; // BackButton (sobre una barra oscura), ProviderDiscounts (nombre del banco)
+	--color-text-subtle: #{palette.get(gray-600)}; // PlaceCard, CardDiscounts, BranchCard, PlaceSummary, PlaceTags, Link, WelcomePlaceCard
+	--color-text-inverse: #{palette.get(white)}; // BackButton (sobre una barra oscura), ProviderDiscounts (nombre del banco), WelcomePlaceCard (check)
 
 	// Bordes
-	// Button, Select, Header, FilterBar, FilterChip, PlaceImage, ResultSections, PlaceTags
+	// Button, Select, Header, FilterBar, FilterChip, PlaceImage, ResultSections, PlaceTags, DiscountChoices, Dialog
 	--color-border: #{palette.get(gray-175)};
-	--color-border-input: #{palette.get(gray-200)}; // Header, Search, PlaceCard, SearchMap, MapView
-	--color-border-card: #{palette.get(gray-175)}; // PlaceCard, BranchCard, PlaceHours, PlaceDiscounts
+	--color-border-input: #{palette.get(gray-200)}; // Header, Search, PlaceCard, SearchMap, MapView, WelcomePlaces, WelcomePlaceCard
+	--color-border-card: #{palette.get(gray-175)}; // PlaceCard, BranchCard, PlaceHours, PlaceDiscounts, WelcomePlaceCard
 	--color-border-popover: #{palette.get(gray-200)}; // Select (popup), Popover, Tooltip
 	--color-border-debug: #{palette.get(gray-300)}; // DebugPanel
 
 	// Interacción
-	--color-selected: #{palette.get(black)}; // Select, Popover, DiscountFilter, FilterChip, CopyResponse, MapMarker, PlaceCard, PlaceImage, BranchCard, ProviderDiscounts (nombre de un banco sin color)
-	--color-focus-ring: #{palette.get(black)}; // global.scss (:focus-visible por defecto), Select, Popover, DiscountFilter, Tooltip, Link, Search, PlaceCard, BranchCard, BackButton, SkipLinks, ResultsSheet (manija)
+	--color-selected: #{palette.get(black)}; // Select, Popover, DiscountChoices, WelcomePlaceCard, FilterChip, CopyResponse, MapMarker, PlaceCard, PlaceImage, BranchCard, ProviderDiscounts (nombre de un banco sin color)
+	--color-focus-ring: #{palette.get(black)}; // global.scss (:focus-visible por defecto), Select, Popover, DiscountChoices, WelcomePlaces, WelcomePlaceCard, Tooltip, Link, Search, PlaceCard, BranchCard, BackButton, SkipLinks, ResultsSheet (manija)
 
 	// Estado de apertura del lugar
 	--color-status-open: #{palette.get(green-700)}; // PlaceCard, PlaceSummary
@@ -80,7 +83,7 @@
 	// Sombras
 	--shadow-card: 0 4px 4px 0 #{shade(0.05)}; // PlaceCard, PlaceImage (lg), BranchCard, PlaceHours, PlaceDiscounts
 	--shadow-popover: 2px 2px 4px #{shade(0.12)}; // Select (popup), Popover, Tooltip
-	--shadow-panel: 0 4px 16px #{shade(0.12)}; // DebugPanel
+	--shadow-panel: 0 4px 16px #{shade(0.12)}; // DebugPanel, Dialog
 	--shadow-sheet: 0 -4px 16px #{shade(0.12)}; // ResultsSheet (panel de resultados de /search en mobile)
 	--shadow-marker: 0 1px 4px #{shade(0.3)}; // MapMarker (marcadores de /search y de la ficha)
 	// Button .variant-primary y .variant-secondary (el anillo de color lo agrega el componente)

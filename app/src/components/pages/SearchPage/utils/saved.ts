@@ -21,6 +21,9 @@ export const readSavedEntries = saved.readEntries;
 /** Guarda o saca el lugar (el que se guarda va primero, con la fecha de ahora). false si no se pudo guardar. */
 export const toggleSaved = saved.toggle;
 
+/** Guarda los lugares que no estaban guardados (los de la bienvenida de la home), con la fecha de ahora; nunca saca. */
+export const addSaved = saved.add;
+
 /** Borra todos los guardados (localStorage y cookie). */
 export const clearSaved = saved.clear;
 

@@ -1,4 +1,5 @@
-// Panel de Descuentos: una fila por proveedor con sus chips (como los de la barra, FilterChip).
+// Proveedores de descuento con sus chips Débito / Crédito (como los de la barra, FilterChip): el panel de Descuentos
+// y el paso de tarjetas de la bienvenida de la home.
 
 .rows {
   display: flex;
@@ -46,4 +47,3 @@
     outline-offset: 2px;
   }
 }
-

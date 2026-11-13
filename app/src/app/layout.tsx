@@ -20,11 +20,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         {/* Una familia por link: con varios f[] en la misma URL, Fontshare sólo devuelve la primera. */}
         <link
           rel="stylesheet"
-          href="https://api.fontshare.com/v2/css?f[]=switzer@400&display=swap"
+          href="https://api.fontshare.com/v2/css?f[]=switzer@400,500,600&display=swap"
         />
         <link
           rel="stylesheet"
-          href="https://api.fontshare.com/v2/css?f[]=plein@700&display=swap"
+          href="https://api.fontshare.com/v2/css?f[]=plein@500,600,700&display=swap"
         />
       </head>
       <body>

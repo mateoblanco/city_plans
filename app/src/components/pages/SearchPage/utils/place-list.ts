@@ -152,6 +152,20 @@ export function createPlaceList({ storageKey, cookieName, max, dated }: Options)
     return write(next.slice(0, max), storage);
   }
 
+  /**
+   * Agrega los lugares que no están (los que ya están quedan como estaban, con su fecha): van primero, en el orden
+   * recibido, con la fecha de ahora; al pasar el tope se van los más viejos. false si no se pudo.
+   */
+  function add(ids: string[], storage: PlaceListStorage | null = browserStorage(), now: Date = new Date()): boolean {
+    const current = readEntries(storage);
+    if (current === null) return false;
+    const present = new Set(current.map((entry) => entry.id));
+    const fresh = parseIds(ids, max).filter((id) => !present.has(id));
+    if (fresh.length === 0) return true;
+    const savedAt = dated ? now.toISOString() : "";
+    return write([...fresh.map((id) => ({ id, savedAt })), ...current].slice(0, max), storage);
+  }
+
   /** Borra toda la lista (localStorage y cookie). */
   function clear(storage: PlaceListStorage | null = browserStorage()) {
     try {
@@ -211,5 +225,5 @@ export function createPlaceList({ storageKey, cookieName, max, dated }: Options)
     return { available: value !== -1, active: value === 1 };
   }
 
-  return { read, readEntries, toggle, clear, useList, useHas, membership, stateOf };
+  return { read, readEntries, toggle, add, clear, useList, useHas, membership, stateOf };
 }

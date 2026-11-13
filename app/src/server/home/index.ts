@@ -5,11 +5,13 @@ import type { CardRow } from '../places/similar'
 import { searchDeps } from '../search'
 import { montevideoDate } from '../search/hours'
 import { assembleHomeWithSaved, type HomeRow } from './assemble'
+import { homeDiscountRows } from './discounts'
 import { homeNearRow } from './near'
 import { homeForYouRow, homeSectionRows } from './rows'
 import { homeSavedRow, savedPlacesQuery, type SavedDeps } from './saved'
 
 export type { HomeRow } from './assemble'
+export { DISCOUNT_ROW_PREFIX } from './discounts'
 
 /**
  * Filas sin perfil, cacheadas para todos: los lugares cambian sólo al publicar, pero las filas son "Abre hoy" y la card
@@ -34,12 +36,12 @@ const savedDeps = (): SavedDeps => ({
 /**
  * Las filas de la home con las cookies de la persona (sin caché: son suyas): "Guardados" (todos), "Abierto ahora cerca
  * tuyo" (con la ubicación de la cookie `loc`), "Para vos" (los mismos guardados como señal de gustos, si arman perfil)
- * y las del config, sin repetir lugares entre estas tres y sin las de menos de 4. Si falla una fila personal, la home
- * sigue sin ella.
+ * "Descuentos con <Banco>" (una por proveedor de mis tarjetas, la cookie `cards`) y las del config, sin repetir lugares
+ * entre ellas y sin las de menos de 4. Si falla una fila personal, la home sigue sin ella.
  */
-export async function homeRows(saved: string[], userLocation: string | null): Promise<HomeRow[]> {
+export async function homeRows(saved: string[], userLocation: string | null, cards: string[] = []): Promise<HomeRow[]> {
   const deps = searchDeps()
-  const [savedRow, near, forYou, sections] = await Promise.all([
+  const [savedRow, near, forYou, discountRows, sections] = await Promise.all([
     homeSavedRow(savedDeps(), saved).catch((error: unknown) => {
       console.error('Falló "Guardados" de la home', error)
       return null
@@ -52,7 +54,8 @@ export async function homeRows(saved: string[], userLocation: string | null): Pr
       console.error('Falló "Para vos" de la home', error)
       return null
     }),
+    homeDiscountRows(deps, cards),
     cachedSectionRows(montevideoDate()),
   ])
-  return assembleHomeWithSaved(savedRow, [...(near ? [near] : []), ...(forYou ? [forYou] : []), ...sections])
+  return assembleHomeWithSaved(savedRow, [...(near ? [near] : []), ...(forYou ? [forYou] : []), ...discountRows, ...sections])
 }

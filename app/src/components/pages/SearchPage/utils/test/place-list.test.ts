@@ -79,3 +79,34 @@ describe("lista cacheada por el texto de localStorage", () => {
     expect(places.membership(id(4), storage)).toBe(1);
   });
 });
+
+describe("agregar varios (bienvenida de la home)", () => {
+  const dated = () => createPlaceList({ storageKey: "test.dated", cookieName: "test", max: 5, dated: true });
+  const now = new Date("2026-11-13T12:00:00Z");
+  const before = "2026-10-01T00:00:00.000Z";
+
+  it("los nuevos van primero, en orden y con la fecha de ahora; los que ya estaban quedan con su fecha", () => {
+    const places = dated();
+    const storage = memoryStorage({ "test.dated": JSON.stringify([{ id: id(1), savedAt: before }]) });
+    expect(places.add([id(2), id(1), id(3)], storage, now)).toBe(true);
+    expect(places.readEntries(storage)).toEqual([
+      { id: id(2), savedAt: now.toISOString() },
+      { id: id(3), savedAt: now.toISOString() },
+      { id: id(1), savedAt: before },
+    ]);
+  });
+
+  it("nunca saca (a diferencia de toggle), ignora ids inválidos y respeta el tope", () => {
+    const places = dated();
+    const storage = memoryStorage();
+    places.add([id(1), id(2), id(3), id(4)], storage, now);
+    places.add([id(1), "no-es-uuid", id(5), id(6)], storage, now);
+    const ids = places.read(storage);
+    expect(ids).toEqual([id(5), id(6), id(1), id(2), id(3)]);
+  });
+
+  it("sin localStorage da false", () => {
+    expect(dated().add([id(1)], broken, now)).toBe(false);
+    expect(dated().add([id(1)], null, now)).toBe(false);
+  });
+});
