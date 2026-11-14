@@ -18,14 +18,29 @@ type Props = {
   instagram: string | null;
 };
 
-/** Nombre, la línea de estado · categoría · precio · puntaje, la descripción, los chips y el Instagram. */
+type Fact = { key: string; content: ReactNode };
+
+/** Una línea de datos separados por " · "; nada si está vacía. */
+const FactLine = ({ facts }: { facts: Fact[] }) =>
+  facts.length > 0 ? (
+    <p className={styles.facts}>
+      {facts.map((fact, index) => (
+        <span key={fact.key} className={styles.fact}>
+          {index > 0 && <span className={styles.separator} aria-hidden>·</span>}
+          {fact.content}
+        </span>
+      ))}
+    </p>
+  ) : null;
+
+/** Nombre, la línea de estado y horario, la de categoría · precio · puntaje, la descripción, los chips y el Instagram. */
 const PlaceSummary = (props: Props) => {
   const description = props.description?.trim();
 
-  // Todas las partes de la línea van separadas por " · ", también el horario del estado.
-  const facts: { key: string; content: ReactNode }[] = [];
+  // Dos líneas: arriba el estado y su horario; abajo categoría · precio · puntaje. Dentro de cada una, " · ".
+  const hours: Fact[] = [];
   if (props.status) {
-    facts.push({
+    hours.push({
       key: "status",
       content: (
         <span className={styles.status} data-tone={props.status.tone}>
@@ -33,12 +48,14 @@ const PlaceSummary = (props: Props) => {
         </span>
       ),
     });
-    if (props.status.detail) facts.push({ key: "detail", content: props.status.detail });
+    if (props.status.detail) hours.push({ key: "detail", content: props.status.detail });
   }
-  if (props.category) facts.push({ key: "category", content: props.category });
-  if (props.price) facts.push({ key: "price", content: props.price });
+
+  const details: Fact[] = [];
+  if (props.category) details.push({ key: "category", content: props.category });
+  if (props.price) details.push({ key: "price", content: props.price });
   if (props.rating) {
-    facts.push({
+    details.push({
       key: "rating",
       content: (
         <>
@@ -53,15 +70,11 @@ const PlaceSummary = (props: Props) => {
       <div className={styles.main}>
         <h1 className={styles.name}>{props.name}</h1>
 
-        {facts.length > 0 && (
-          <p className={styles.facts}>
-            {facts.map((fact, index) => (
-              <span key={fact.key} className={styles.fact}>
-                {index > 0 && <span className={styles.separator} aria-hidden>·</span>}
-                {fact.content}
-              </span>
-            ))}
-          </p>
+        {(hours.length > 0 || details.length > 0) && (
+          <div className={styles.factLines}>
+            <FactLine facts={hours} />
+            <FactLine facts={details} />
+          </div>
         )}
       </div>
 

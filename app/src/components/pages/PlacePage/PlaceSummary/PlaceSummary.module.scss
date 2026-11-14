@@ -28,6 +28,12 @@
   }
 }
 
+.factLines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .facts {
   align-items: center;
   display: flex;
