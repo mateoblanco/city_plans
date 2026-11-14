@@ -28,6 +28,12 @@ export type IntentDef = {
   detect: TagId[]
   verbs: Record<Lang, string[]>
   subs: Record<string, SubFilterDef>
+  /**
+   * Tags que, pedidos con esta intención (sub-filtro activo, tag exigido del texto o de `tag:`, o el tag de un plato),
+   * mandan sobre su match: entra cualquier lugar con el tag, aunque no sea de sus categorías. En Comer, los de comida:
+   * un café con sándwiches o con brunch también es para comer eso. El orden lo sigue dando eatFit (fuse.ts).
+   */
+  tagWins?: TagId[]
 }
 
 const sub = (es: string, en: string, phraseEs: string, phraseEn: string, match: IntentMatch, options: { vote?: false } = {}): SubFilterDef => ({
@@ -70,6 +76,8 @@ export const INTENTS = {
       dinner: sub('Cena', 'Dinner', 'para cenar', 'for dinner', { tags: ['dinner'] }),
       outdoor: outdoorSub(),
     },
+    // Al aire libre no: no es comida, y sin la puerta de Comer entrarían todos los cafés y bares con terraza.
+    tagWins: [...FOOD_TAGS, 'breakfast', 'brunch', 'lunch', 'dinner', 'menu_of_the_day', 'all_you_can_eat'],
   },
   cafes: {
     label: { es: 'Cafés', en: 'Cafés' },

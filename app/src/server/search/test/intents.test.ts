@@ -339,3 +339,43 @@ describe('Comer incluye bares con comida', () => {
     expect(query.params[2]).toEqual(expect.arrayContaining(['pizza', 'picada', 'tapas', 'japanese']))
   })
 })
+
+describe('en Comer manda el tag de comida (tagWins)', () => {
+  const places = [
+    row({ id: 'cafe-brunch', categories: ['cafe'], tags: ['brunch', 'breakfast'] }),
+    row({ id: 'cafe-sandwiches', categories: ['cafe'], tags: ['sandwiches', 'lunch'] }),
+    row({ id: 'cafe-menu', categories: ['cafe'], tags: ['menu_of_the_day'] }),
+    row({ id: 'cafe-terraza', categories: ['cafe'], tags: ['outdoor'] }),
+    row({ id: 'resto', categories: ['restaurant'], tags: ['brunch', 'lunch', 'sandwiches', 'menu_of_the_day', 'outdoor'] }),
+    row({ id: 'bar-tragos', categories: ['bar'], tags: ['classic_cocktails'] }),
+  ]
+  const deps = () => ({ store: fakeStore(places).store, cache: fakeCache().cache })
+  const ids = (response: { results: { id: string }[] }) => response.results.map((result) => result.id).sort()
+
+  it('Comer › Brunch, Desayuno y Almuerzo suman los cafés con el tag; Comer sola y Al aire libre no', async () => {
+    expect(ids(await runSearch('', deps(), { now, intent: 'eat', sub: 'brunch' }))).toEqual(['cafe-brunch', 'resto'])
+    expect(ids(await runSearch('', deps(), { now, intent: 'eat', sub: 'breakfast' }))).toEqual(['cafe-brunch'])
+    expect(ids(await runSearch('', deps(), { now, intent: 'eat', sub: 'lunch' }))).toEqual(['cafe-sandwiches', 'resto'])
+    expect(ids(await runSearch('', deps(), { now, intent: 'eat' }))).toEqual(['resto'])
+    expect(ids(await runSearch('', deps(), { now, intent: 'eat', sub: 'outdoor' }))).toEqual(['resto'])
+    // En Cafés no cambia nada: Cafés › Brunch sigue siendo de cafés.
+    expect(ids(await runSearch('', deps(), { now, intent: 'cafes', sub: 'brunch' }))).toEqual(['cafe-brunch'])
+  })
+
+  it('el texto que elige Comer con un tag de comida también los suma ("menú del día", "sándwiches")', async () => {
+    const menu = await runSearch('menú del día', deps(), { now })
+    expect(menu.bar.intent).toEqual({ id: 'eat', fromText: true })
+    expect(ids(menu)).toEqual(['cafe-menu', 'resto'])
+    const sandwiches = await runSearch('sándwiches', deps(), { now })
+    expect(sandwiches.bar.intent?.id).toBe('eat')
+    expect(ids(sandwiches)).toEqual(['cafe-sandwiches', 'resto'])
+  })
+
+  it('el grupo de la intención sólo se saca con un tag de tagWins', () => {
+    expect(intentGroups('eat', ['brunch'])).toEqual([INTENTS.eat.subs.brunch])
+    expect(intentGroups('eat', [], ['pizza'])).toEqual([])
+    expect(intentGroups('eat', ['outdoor'])).toEqual([INTENTS.eat.match, INTENTS.eat.subs.outdoor])
+    expect(intentGroups('eat', [], ['groups'])).toEqual([INTENTS.eat.match])
+    expect(intentGroups('cafes', ['brunch'])).toEqual([INTENTS.cafes.match, INTENTS.cafes.subs.brunch])
+  })
+})

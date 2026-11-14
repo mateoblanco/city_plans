@@ -7,7 +7,11 @@ import type { CandidateRow } from '../../search/candidates'
 import type { SearchResult } from '../../search/search'
 import { everyDay, fakeCache, fakeStore, row } from '../../search/test/fixtures'
 import { assembleHome, type HomeRow } from '../assemble'
-import { fixedSections, HOME_CONFIG, HOME_SECTIONS, homeSearchUrl, SLOT_SECTIONS } from '../config'
+import { fixedSections, HOME_CONFIG, HOME_SECTIONS, homeSearchUrl, homeViewAllUrl, SLOT_SECTIONS } from '../config'
+import { searchHref } from '@/components/pages/SearchPage/utils/search-href'
+import { interpretWithDictionary } from '../../search/dictionary'
+import { showsInBar } from '../../search/labels'
+import { normalizeQuery } from '../../search/normalize'
 import { homeForYouRow, homeSectionRows } from '../rows'
 import { homeSlot, nextSlotStart, parseSlotKey, slotKey } from '../slots'
 import { runSearch } from '../../search/search'
@@ -36,15 +40,55 @@ describe('config de la home', () => {
     }
   })
 
+  it('tabla fila → destino del "Ver todos": intención y sub o el nombre de la fila, siempre con open:now y loc=all', () => {
+    const open = { f: 'open:now', loc: 'all' }
+    const expected: Record<string, Record<string, string>> = {
+      breakfast: { intent: 'eat', sub: 'breakfast', ...open },
+      specialty_coffee: { intent: 'cafes', sub: 'specialty', ...open },
+      brunch: { intent: 'eat', sub: 'brunch', ...open },
+      lunch: { intent: 'eat', sub: 'lunch', ...open },
+      menu_of_the_day: { q: 'Menú del día', ...open },
+      quick: { q: 'Algo rápido', intent: 'eat', ...open },
+      coffee: { intent: 'cafes', ...open },
+      shared_snack: { q: 'Merienda para 2', ...open },
+      dinner: { intent: 'eat', sub: 'dinner', ...open },
+      drinks: { intent: 'bars', ...open },
+      after_office: { q: 'After office', ...open },
+      open_now: open,
+      friends: { q: 'Juntada con amigos', ...open },
+      couple: { q: 'Salida en pareja', ...open },
+      // Sin par en la barra ni frase: quedan con su chip (grupo) o en Dieta.
+      world: { f: 'open:now,section:world', loc: 'all' },
+      classics: { f: 'open:now,section:classics', loc: 'all' },
+      vegetarian: { f: 'open:now,diet:vegetarian', loc: 'all' },
+      gluten_free: { f: 'open:now,diet:glutenFree', loc: 'all' },
+    }
+    const actual = Object.fromEntries(
+      HOME_SECTIONS.map((section) => [section.id, Object.fromEntries(new URL(searchHref(homeViewAllUrl(section.search)), 'http://x').searchParams)]),
+    )
+    expect(actual).toEqual(expected)
+  })
+
+  it('el texto de cada "Ver todos" es una frase de fila del diccionario con los mismos tags (sin modelo)', () => {
+    for (const section of HOME_SECTIONS.filter((item) => item.search.text)) {
+      const value = interpretWithDictionary(normalizeQuery(section.search.text!))
+      expect(value?.rowPhrase, section.id).toBe(true)
+      expect(value?.must.tags, section.id).toEqual(section.search.tags)
+      // Los tags van todos en el texto: el "Ver todos" no los repite en f.
+      expect(parseFilters(homeViewAllUrl(section.search).f).tags, section.id).toEqual([])
+    }
+  })
+
   it('las filas de cada franja', () => {
     expect(titles(SLOT_SECTIONS.morning)).toEqual(['Para desayunar', 'Café de especialidad', 'Brunch'])
     expect(titles(SLOT_SECTIONS.midday)).toEqual(['Para almorzar', 'Menú del día', 'Algo rápido', 'Brunch'])
     expect(titles(SLOT_SECTIONS.afternoon)).toEqual(['Para tomar un café', 'Merienda para 2'])
     expect(titles(SLOT_SECTIONS.night)).toEqual(['Para cenar', 'Para tomar algo', 'After office'])
     expect(titles(SLOT_SECTIONS.late)).toEqual(['Para tomar algo', 'Abierto ahora'])
-    // Brunch por tag y no por sub-filtro: es sub de Comer y de Cafés, y así entran los dos.
-    expect(SLOT_SECTIONS.morning.find((section) => section.id === 'brunch')?.search).toEqual({ tags: ['brunch'] })
-    expect(SLOT_SECTIONS.afternoon.find((section) => section.id === 'shared_snack')?.search).toEqual({ tags: ['shared_afternoon_tea'] })
+    // Brunch y Desayuno: el sub de Comer, donde manda el tag (también entran los cafés).
+    expect(SLOT_SECTIONS.morning.find((section) => section.id === 'brunch')?.search).toEqual({ intent: 'eat', sub: ['brunch'] })
+    expect(SLOT_SECTIONS.morning.find((section) => section.id === 'breakfast')?.search).toEqual({ intent: 'eat', sub: ['breakfast'] })
+    expect(SLOT_SECTIONS.afternoon.find((section) => section.id === 'shared_snack')?.search).toEqual({ tags: ['shared_afternoon_tea'], text: 'Merienda para 2' })
     // Ya no están las filas fijas que pasaron a las franjas.
     expect(HOME_SECTIONS.map((section) => section.title)).not.toContain('Merienda')
     expect(HOME_SECTIONS.map((section) => section.title)).not.toContain('Lugares para brunchear')
@@ -165,7 +209,7 @@ describe('búsquedas de la home', () => {
     expect(of('vegetarian').places.every((item) => item.id.startsWith('r'))).toBe(true)
     expect(of('open_now').places).toHaveLength(24)
     expect(of('lunch').href).toBe('/search?intent=eat&sub=lunch&f=open%3Anow&loc=all')
-    expect(of('shared_snack').href).toBe('/search?f=open%3Anow%2Ctag%3Ashared_afternoon_tea&loc=all')
+    expect(of('shared_snack').href).toBe('/search?q=Merienda+para+2&f=open%3Anow&loc=all')
     expect(of('world').href).toBe('/search?f=open%3Anow%2Csection%3Aworld&loc=all')
   })
 
@@ -242,10 +286,16 @@ describe('búsquedas de la home', () => {
     const spread = [
       ...Array.from({ length: 12 }, (_, index) => row({ id: `bar${index}`, categories: ['bar'], tags: ['drinks', 'groups'], neighborhoodId: `N${index}`, hours: open, lat: -34.9 - index * 0.01 })),
       ...Array.from({ length: 12 }, (_, index) => row({ id: `res${index}`, categories: ['restaurant'], tags: ['lunch', 'dinner', 'date'], neighborhoodId: `M${index}`, hours: open, lat: -34.85 - index * 0.01 })),
+      // Cafés con desayuno, brunch, almuerzo o menú del día: entran en Comer › sub (tagWins) igual que en la fila.
+      ...Array.from({ length: 6 }, (_, index) => row({ id: `cafe${index}`, categories: ['cafe'], tags: ['breakfast', 'brunch', 'lunch', 'menu_of_the_day'], neighborhoodId: `C${index}`, hours: open, lat: -34.88 - index * 0.01 })),
       row({ id: 'sin-horario', categories: ['bar'], tags: ['drinks'] }),
     ]
-    const deps = { store: fakeStore(spread).store, cache: fakeCache().cache }
+    const { cache, interpreted, embedded } = fakeCache()
+    const deps = { store: fakeStore(spread).store, cache }
     const rows = await homeSectionRows(deps, all, now)
+    for (const id of ['breakfast', 'brunch', 'lunch', 'menu_of_the_day']) {
+      expect(rows.find((entry) => entry.id === id)!.places.some((place) => place.id.startsWith('cafe')), id).toBe(true)
+    }
     for (const entry of rows.filter((item) => item.places.length > 0)) {
       const params = new URL(entry.href!, 'http://x').searchParams
       for (const userLocation of [null, '-34.901,-56.164']) {
@@ -261,8 +311,16 @@ describe('búsquedas de la home', () => {
         })
         const found = new Set(response.results.map((result) => result.id))
         expect(entry.places.filter((place) => !found.has(place.id)), `${entry.id} ${userLocation}`).toEqual([])
+        // Con el nombre de la fila en el buscador: ningún chip lo repite (ni el tag ni el momento).
+        if (params.get('q')) expect(response.bar.extras.filter(showsInBar), entry.id).toEqual([])
         expect(response.interpreted.chips.find((chip) => chip.kind === 'openAt')?.label).toBe('Abierto ahora')
       }
     }
+    // Ni las filas ni sus "Ver todos" (también los de texto) pagan modelo o embedding.
+    expect(interpreted).toEqual([])
+    expect(embedded).toEqual([])
+    expect(rows.filter((entry) => new URL(entry.href!, 'http://x').searchParams.get('q')).map((entry) => entry.id).sort()).toEqual(
+      ['after_office', 'couple', 'friends', 'menu_of_the_day', 'quick', 'shared_snack'].filter((id) => rows.some((entry) => entry.id === id)),
+    )
   })
 })

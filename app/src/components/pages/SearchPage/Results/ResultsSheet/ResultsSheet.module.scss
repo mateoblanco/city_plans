@@ -11,7 +11,8 @@
 // debajo del header compacto, y el alto no cambia mientras la barra aparece o se esconde (si siguiera a --header-offset,
 // Base UI recalcularía las alturas en cada frame y el panel se trabaría al bajar). En la media y la baja el borde de
 // arriba no se ve. Base UI publica cuánto correrlo para cada altura (--drawer-snap-point-offset) y cuánto se arrastró
-// (--drawer-swipe-movement-y).
+// (--drawer-swipe-movement-y); --sheet-drag es lo que subió el dedo desde la media scrolleando la lista
+// (use-scroll-expand.ts, ≤ 0), y data-dragging le saca la transición mientras tanto.
 .popup {
   background-color: var(--color-bg-page);
   border-radius: 16px 16px 0 0;
@@ -23,12 +24,12 @@
   left: 0;
   // Mide siempre lo de la alta y se corre hacia abajo: el padding de abajo (lo que queda fuera de la pantalla) achica
   // la lista a lo que se ve, así se llega a su final en cualquier altura. Va acá y no en .content: Base UI no deja
-  // heredar sus variables a los hijos del popup.
-  padding-bottom: var(--drawer-snap-point-offset, 0px);
+  // heredar sus variables a los hijos del popup. Con --sheet-drag la lista crece mientras el panel sube, sin un hueco abajo.
+  padding-bottom: max(0px, calc(var(--drawer-snap-point-offset, 0px) + var(--sheet-drag, 0px)));
   pointer-events: auto;
   position: absolute;
   right: 0;
-  transform: translateY(calc(var(--drawer-snap-point-offset, 0px) + var(--drawer-swipe-movement-y, 0px)));
+  transform: translateY(calc(var(--drawer-snap-point-offset, 0px) + var(--drawer-swipe-movement-y, 0px) + var(--sheet-drag, 0px)));
   transition: transform 400ms cubic-bezier(0.32, 0.72, 0, 1);
 
   // Movimiento reducido: el panel cambia de altura sin animación.
@@ -36,7 +37,8 @@
     transition: none;
   }
 
-  &[data-swiping] {
+  &[data-swiping],
+  &[data-dragging] {
     transition: none;
     user-select: none;
   }
@@ -111,7 +113,7 @@
   transition: opacity 200ms ease-out;
 
   // En la baja sólo se ven la manija y "N lugares": la lista aparece al arrastrar el panel o al subirlo.
-  .popup[data-low]:not([data-swiping]) & {
+  .popup[data-low]:not([data-swiping], [data-dragging]) & {
     opacity: 0;
     pointer-events: none;
   }

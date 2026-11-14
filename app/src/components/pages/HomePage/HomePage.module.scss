@@ -19,9 +19,11 @@
   margin: 0 auto;
   max-width: 1200px;
   min-width: 0;
-  padding: 40px 0 64px;
+  padding: 24px 0 64px;
 
   @include media(md) {
     gap: 40px;
+    padding: 40px 0 64px;
+
   }
 }

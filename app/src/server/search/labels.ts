@@ -103,6 +103,14 @@ export const OPEN_MOMENT_LABELS: Record<Lang, Record<'now' | 'today' | 'tonight'
 /** El chip de "Hoy", "Esta noche" u "Hoy al mediodía": horario escrito, que se ve en la barra para poder quitarlo. */
 export const isTextMomentChip = (chip: { kind: string; id: string }) => chip.kind === 'openAt' && (chip.id === 'today' || chip.id === 'tonight' || chip.id === 'midday')
 
+/**
+ * Un extra de la respuesta que la barra de /search muestra como chip. Lo que pidió el texto no se repite: ya está en
+ * el buscador ("Salida en pareja" no muestra "Cita"). Se ven lo que vino de la URL y no tiene otro lugar (el tag de
+ * una fila de la home, el "Ver todos" de un grupo, "Cerca de <barrio>") y, del texto, sólo lo que agrega información:
+ * el horario que resolvió ("cenar hoy" → "Esta noche"), para poder verlo y quitarlo.
+ */
+export const showsInBar = (chip: { kind: string; id: string; fromFilter?: boolean }) => chip.fromFilter === true || isTextMomentChip(chip)
+
 export function momentLabel(moment: Moment | 'now' | 'today' | 'tonight' | 'midday', lang: Lang, today: number) {
   if (typeof moment === 'string') return OPEN_MOMENT_LABELS[lang][moment]
   const day = moment.day === today ? (lang === 'es' ? 'hoy' : 'today') : DAY_NAMES[lang][moment.day]

@@ -1,11 +1,12 @@
 "use client";
 
-import { useRef, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Button } from "@base-ui/react/button";
 import { Drawer } from "@base-ui/react/drawer";
 import styles from "./ResultsSheet.module.scss";
 import { resultsCountLabel, type NearbyCount } from "../../utils/results-count";
 import { isTap, nextSnapPoint, SHEET_HIGH, SHEET_LOW, SHEET_MID, SHEET_SNAP_POINTS, toSnapPoint, type SheetSnapPoint } from "../../utils/sheet";
+import { useScrollExpand } from "./use-scroll-expand";
 
 type Props = {
   /** Cuántos lugares trajo la búsqueda: el título del panel ("N lugares"). Mientras busca, null ("Buscando…"). */
@@ -27,13 +28,18 @@ const DISMISS_SETTLE_MS = 300;
  * Los resultados de /search en mobile: un Drawer de Base UI siempre abierto y no modal (sin backdrop ni cierre al tocar
  * afuera), así el mapa de fondo se sigue usando. Tres alturas (utils/sheet): bajar del todo lo deja en la baja.
  * Drawer.Content es el área con scroll: Base UI decide entre scrollearla y arrastrar el panel (con el scroll arriba de
- * todo, arrastrar hacia abajo baja el panel). Un carrusel horizontal adentro llevaría data-base-ui-swipe-ignore.
+ * todo, arrastrar hacia abajo baja el panel). Desde la media, scrollear la lista hacia arriba sube el panel a la alta y
+ * sigue scrolleando en el mismo gesto (useScrollExpand: Base UI no lo trae). Un carrusel horizontal adentro llevaría
+ * data-base-ui-swipe-ignore.
  */
 const ResultsSheet = (props: Props) => {
   const dismissing = useRef(false);
   // Dónde se apoyó el dedo (o el mouse) en la manija: si al soltar se movió, fue un arrastre del Drawer, no un toque.
   const pointerDown = useRef<{ x: number; y: number } | null>(null);
   const expanded = props.snapPoint === SHEET_HIGH;
+  const [popup, setPopup] = useState<HTMLDivElement | null>(null);
+  const [content, setContent] = useState<HTMLDivElement | null>(null);
+  useScrollExpand({ popup, content, snapPoint: props.snapPoint, onSnapPointChange: props.onSnapPointChange });
 
   return (
     <Drawer.Root
@@ -42,8 +48,8 @@ const ResultsSheet = (props: Props) => {
       disablePointerDismissal
       // Nunca se cierra. Un swipe que lo cerraría (largo o rápido hacia abajo) avisa null y, unos milisegundos después,
       // al cancelarse el cierre, la altura de antes: lo deja en la baja e ignora lo que llega en ese lapso.
-      // La lista scrollea en la media y en la alta: desde la media, el panel sube arrastrando la manija o el título; con
-      // la lista arriba de todo, arrastrar hacia abajo sobre ella lo baja.
+      // Desde la media, el panel sube arrastrando la manija, el título o la lista (useScrollExpand); en la alta la lista
+      // scrollea y, con ella arriba de todo, arrastrar hacia abajo lo baja.
       onOpenChange={() => {}}
       snapPoints={SHEET_SNAP_POINTS}
       snapPoint={props.snapPoint}
@@ -62,6 +68,7 @@ const ResultsSheet = (props: Props) => {
       <Drawer.Portal>
         <Drawer.Viewport className={styles.viewport}>
           <Drawer.Popup
+            ref={setPopup}
             className={styles.popup}
             initialFocus={false}
             finalFocus={false}
@@ -87,6 +94,7 @@ const ResultsSheet = (props: Props) => {
             {/* Si el foco entra a la lista con el panel en la baja (Tab, "Ir a los resultados"), sube a la media: si no, se
                 enfocaría algo invisible. */}
             <Drawer.Content
+              ref={setContent}
               className={styles.content}
               role="region"
               aria-label="Resultados"

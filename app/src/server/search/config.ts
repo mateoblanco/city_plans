@@ -272,7 +272,7 @@ export const SEARCH_CONFIG = {
    * grupo", "juntada"…), en el prompt y en el diccionario. 9: "con mis viejos" no es kids_friendly, "atardecer" pide vista
    * o terraza, y sin una etiqueta que corresponda de verdad no se inventa un mapeo aproximado ("bohemia", "escondido").
    */
-  interpretationCacheVersion: 11,
+  interpretationCacheVersion: 12,
 
   timeZone: 'America/Montevideo',
   /** Faltando esto o menos para el cierre o la apertura, la card dice "Cierra pronto" / "Abre pronto". */

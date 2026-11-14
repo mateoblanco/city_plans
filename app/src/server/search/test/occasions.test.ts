@@ -22,7 +22,8 @@ const context = (overrides: Partial<FuseContext> = {}): FuseContext => ({
 describe('momentos y style en la interpretación', () => {
   it('el atajo los toma como preferencia', () => {
     expect(dictionary('bar con amigos')?.prefer.tags).toEqual(['groups'])
-    expect(dictionary('algo rápido')?.prefer.tags).toEqual(['quick'])
+    // "algo rápido" solo es el nombre de una fila de la home: exige quick (ROW_PHRASES); con algo más, preferencia.
+    expect(dictionary('algo rápido para almorzar')?.prefer.tags).toEqual(['quick'])
     expect(dictionary('para una cita')?.prefer.tags).toEqual(['date'])
     expect(dictionary('festejar un cumpleaños')?.prefer.tags).toEqual(['celebration'])
     expect(dictionary('con los chicos')?.prefer.tags).toEqual(['kids_friendly'])
@@ -248,11 +249,16 @@ describe('groupFit', () => {
 
 describe('frases de grupo en el diccionario', () => {
   it('van a prefer, nunca a must, sin distinguir grupo grande o chico', () => {
-    for (const query of ['con amigas', 'con mis amigos', 'entre amigas', 'para ir con amigos', 'salir con amigas', 'amigos', 'juntada', 'juntada con amigos', 'para juntarse', 'grupo', 'para un grupo', 'grupo grande', 'para un grupo grande', 'grupos grandes', 'mesa grande', 'con los pibes', 'con la barra', 'big group']) {
+    for (const query of ['con amigas', 'con mis amigos', 'entre amigas', 'para ir con amigos', 'salir con amigas', 'amigos', 'juntada', 'juntada con amigas', 'para juntarse', 'grupo', 'para un grupo', 'grupo grande', 'para un grupo grande', 'grupos grandes', 'mesa grande', 'con los pibes', 'con la barra', 'big group']) {
       const value = dictionary(query)
       expect(value?.prefer.tags, query).toEqual(['groups'])
       expect(value?.must.tags, query).toEqual([])
     }
+  })
+
+  it('"juntada con amigos" sola es el nombre de la fila de la home: exige groups; con algo más, preferencia', () => {
+    expect(dictionary('juntada con amigos')).toMatchObject({ rowPhrase: true, must: { tags: ['groups'] }, prefer: { tags: [] } })
+    expect(dictionary('juntada con amigos en cordón')).toMatchObject({ must: { tags: [], neighborhoods: ['CORDON'] }, prefer: { tags: ['groups'] } })
   })
 
   it('"con la barra" no se lee como ir solo; "barra" suelta sigue igual', () => {

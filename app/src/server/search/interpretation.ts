@@ -47,6 +47,11 @@ export type Interpretation = {
   intent: IntentId | null
   /** Grupos del catálogo (shared/sections.ts) que el modelo eligió para agrupar los resultados si la búsqueda es amplia. */
   sections: SectionId[]
+  /**
+   * El texto entero es el nombre de una fila de la home (dictionary.ts interpretRowPhrase): se busca como la fila, sin
+   * embedding ni palabras clave, y la intención es la de `intent` (sin votos de los tags).
+   */
+  rowPhrase?: true
 }
 
 /** Style que trae un tag de ambiente pedido: elegante → cuidado; de barrio → casual. */

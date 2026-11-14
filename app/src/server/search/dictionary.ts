@@ -1,4 +1,4 @@
-import { CUISINES, findDef, isStyleId, normalize, OCCASION_TAGS, type StyleId } from '@shared/tags.ts'
+import { CUISINES, findDef, isStyleId, normalize, OCCASION_TAGS, type StyleId, type TagId } from '@shared/tags.ts'
 import { resolveNeighborhood } from '@shared/neighborhood-aliases.ts'
 import { INTENT_VERBS, type IntentId } from '@shared/intents.ts'
 import { canonicalOf, MEAT_TAG, singularForms } from './dishes'
@@ -63,6 +63,33 @@ const SUNSET_PHRASES = new Set([
   'puesta de sol', 'la puesta de sol', 'ver la puesta de sol', 'para ver la puesta de sol',
 ])
 const SUNSET_TAGS = ['sea_view', 'rooftop', 'terrace']
+
+// El nombre de una fila de la home, escrito entero (su "Ver todos" abre /search con él en el buscador): se busca
+// exactamente como la fila, con sus tags exigidos (también un momento, como `tag:date` en la URL), la intención de la
+// fila (ninguna si no tiene: "after office" no elige Bares) y sin modelo, embedding, palabras clave ni nombre
+// (search.ts). Con algo más ("juntada con amigos en Cordón") sigue el camino de siempre. Si nada cumple, se relaja como
+// cualquier tag exigido (mustTags). Lo verifica home.test.ts contra HOME_SECTIONS.
+const ROW_PHRASES = new Map<string, { tags: TagId[]; intent?: IntentId }>([
+  ['salida en pareja', { tags: ['date'] }],
+  ['juntada con amigos', { tags: ['groups'] }],
+  ['merienda para 2', { tags: ['shared_afternoon_tea'] }],
+  ['merienda para dos', { tags: ['shared_afternoon_tea'] }],
+  ['after office', { tags: ['after_office'] }],
+  // Escrito, "menú del día" elige Comer (detect), y en Comer manda el tag (tagWins): los mismos lugares que la fila.
+  ['menu del dia', { tags: ['menu_of_the_day'], intent: 'eat' }],
+  ['algo rapido', { tags: ['quick'] }],
+])
+
+/** La consulta entera es el nombre de una fila de la home: su interpretación, sin tidy (un momento queda exigido). */
+export function interpretRowPhrase(normalized: string): Interpretation | null {
+  const row = ROW_PHRASES.get(normalized)
+  if (!row) return null
+  const value = emptyInterpretation('es')
+  value.must.tags = [...row.tags]
+  value.intent = row.intent ?? null
+  value.rowPhrase = true
+  return value
+}
 
 const hasPhrase = (phrases: Set<string>, normalized: string) => {
   const text = ` ${normalized} `
@@ -177,6 +204,8 @@ export const NEGATIONS = new Set(['no', 'ni', 'sin', 'excepto', 'salvo', 'menos'
 export function interpretWithDictionary(normalized: string, { partial = false }: { partial?: boolean } = {}): Interpretation | null {
   const words = normalized.split(' ').filter(Boolean)
   if (words.length === 0) return null
+  const row = partial ? null : interpretRowPhrase(normalized)
+  if (row) return row
   const result = emptyInterpretation()
   const votes = { es: 0, en: 0 }
   let matched = 0

@@ -71,6 +71,8 @@ function points(id: IntentId, categories: string[], tags: string[]) {
  * vibe no votan.
  */
 export function intentVotes(value: Interpretation): Partial<Record<IntentId, number>> {
+  // El nombre de una fila de la home trae la intención de la fila: sus tags no votan ("after office" no es Bares).
+  if (value.rowPhrase) return value.intent ? { [value.intent]: 1 } : {}
   const votes: Partial<Record<IntentId, number>> = {}
   const vote = (categories: string[], tags: string[], fallback: IntentId | null) => {
     const targets = INTENT_IDS.filter((id) => points(id, categories, tags))
@@ -179,16 +181,38 @@ export function resolveIntent(fromText: Interpretation, url: IntentUrl, removals
   }
 }
 
-/** Grupos de filtro: uno por la intención y uno por sub-filtro. Cada grupo es "cualquiera de"; entre grupos, "y". */
-export function intentGroups(intent: IntentId | null, subs: string[]): IntentMatch[] {
+/** Los grupos de los sub-filtros activos, sin el de la intención. */
+export function subGroups(intent: IntentId | null, subs: string[]): SubFilterDef[] {
   if (!intent) return []
   const definition = def(intent)
-  return [definition.match, ...subs.flatMap((id) => (definition.subs[id] ? [definition.subs[id]] : []))]
+  return subs.flatMap((id) => (definition.subs[id] ? [definition.subs[id]] : []))
+}
+
+/**
+ * ¿Lo pedido trae un tag que manda sobre el match de la intención (`tagWins`)? Por un sub-filtro activo (Comer ›
+ * Brunch) o por un tag exigido o de un plato ("sándwiches", "menú del día"). Al relajar, el tag pasa a preferencia y
+ * la intención vuelve a filtrar.
+ */
+export function tagWinsOverIntent(intent: IntentId | null, subs: string[], tags: readonly string[] = []): boolean {
+  const wins: readonly string[] | undefined = intent ? def(intent).tagWins : undefined
+  if (!wins?.length) return false
+  const requested = [...subGroups(intent, subs).flatMap((group) => group.tags ?? []), ...tags]
+  return requested.some((id) => wins.includes(id))
+}
+
+/**
+ * Grupos de filtro: uno por la intención y uno por sub-filtro. Cada grupo es "cualquiera de"; entre grupos, "y".
+ * tags: los exigidos y los de los platos; si alguno (o un sub-filtro) manda sobre la intención, su grupo no va.
+ */
+export function intentGroups(intent: IntentId | null, subs: string[], tags: readonly string[] = []): IntentMatch[] {
+  if (!intent) return []
+  const gate = tagWinsOverIntent(intent, subs, tags) ? [] : [def(intent).match]
+  return [...gate, ...subGroups(intent, subs)]
 }
 
 /** Lo que pide un sub-filtro, para pasarlo a preferencia al relajar. */
 export function subTerms(intent: IntentId | null, subs: string[]): { categories: string[]; tags: string[] } {
-  const groups = intentGroups(intent, subs).slice(1)
+  const groups = subGroups(intent, subs)
   return { categories: groups.flatMap((group) => group.categories ?? []), tags: groups.flatMap((group) => group.tags ?? []) }
 }
 

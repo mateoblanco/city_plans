@@ -1,7 +1,7 @@
 import { findDef, hasPartialTags, isOccasionTag, isStyleId, label, normalize, withPartialTags, withSubcuisines } from '@shared/tags.ts'
 import { neighborhoodDisplayName, neighborhoodNameForms } from '@shared/neighborhood-names.ts'
 import { sectionDef } from '@shared/sections.ts'
-import { INTENT_VERB_WORDS } from '@shared/intents.ts'
+import { INTENT_VERB_WORDS, intentDef } from '@shared/intents.ts'
 import type { IconCategory } from '@shared/icon-categories.ts'
 import { SEARCH_CONFIG } from './config'
 import type { CacheSource, EmbeddingResult, SearchCache } from './cache'
@@ -10,7 +10,7 @@ import { summarizeCost, type CostEntry, type SearchCost } from './cost'
 import { collapseBranches, type Collapsed } from './branches'
 import { requestedCuisines } from './cuisines'
 import { buildChips, type Chip } from './chips'
-import { applyDictionary, interpretWithDictionary, mentionsParents, NEGATIONS } from './dictionary'
+import { applyDictionary, interpretRowPhrase, interpretWithDictionary, mentionsParents, NEGATIONS } from './dictionary'
 import { applyWhen, TIME_WORDS } from './when'
 import { checkMust, intendedDiscards, reportMust, type Discard, type MustCheck } from './invariant'
 import { dishTargetFor, excludedIcons, preferredDiets, type DishTarget } from './dishes'
@@ -430,14 +430,18 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   const userLocation = parseLocationCookie(options.userLocation)
   const intentUrl = parseIntent(options.intent, options.sub)
   const textless = !normalized
-  const nameWords = textless ? [] : nameWordsFor(normalized, removedWordsOf(removals))
+  // El nombre de una fila de la home ("Salida en pareja", su "Ver todos"): se busca como la fila, con sus tags y sin
+  // modelo, embedding, palabras clave, nombre ni venues; ordena por calidad, como sin texto.
+  const rowPhrase = textless ? null : interpretRowPhrase(normalized)
+  const structured = textless || rowPhrase !== null
+  const nameWords = structured ? [] : nameWordsFor(normalized, removedWordsOf(removals))
 
   // El embedding de la consulta arranca ya: si no hay vibe ni chips quitados es el que se usa. Quitar la
   // intención no cambia el texto.
   const removed = removals.some((removal) => removal.kind !== 'intent')
-  const queryEmbedding = removed || textless ? null : deps.cache.embed(normalized).then((result) => priced('embed', result)).catch(() => null)
+  const queryEmbedding = removed || structured ? null : deps.cache.embed(normalized).then((result) => priced('embed', result)).catch(() => null)
   // Los venues (located_in) para reconocerlos en el texto; sin ellos, la búsqueda sigue igual.
-  const venuesPromise = textless ? Promise.resolve([] as Venue[]) : deps.store.venues().catch(() => [] as Venue[])
+  const venuesPromise = structured ? Promise.resolve([] as Venue[]) : deps.store.venues().catch(() => [] as Venue[])
 
   // 1. Interpretación: diccionario, nombre fuerte o modelo. Sin texto, sólo los filtros.
   // El atajo del diccionario es sincrónico; la búsqueda por nombre, el modelo y el embedding de la consulta
@@ -604,7 +608,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   // 2. Embedding del texto semántico; si falla, se sigue sin el ranking semántico.
   step = performance.now()
   const edits: TextEdits = { removed, removedWords: removedWordsOf(removals), shortcut: source === 'shortcut' }
-  const semanticText = textless ? null : semanticTextFor(normalized, interpretation, edits)
+  const semanticText = structured ? null : semanticTextFor(normalized, interpretation, edits)
   const embedded: EmbeddingResult | null =
     semanticText === null ? null
     : semanticText === normalized && queryEmbedding ? await queryEmbedding
@@ -613,7 +617,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   timings.embed = elapsed(step)
 
   const dishes = interpretation.dishes.map(dishTargetFor)
-  const keywords = keywordsFor(normalized, interpretation, edits)
+  const keywords = structured ? [] : keywordsFor(normalized, interpretation, edits)
   const scores: ScoreInputs = {
     embedding,
     keywords,
@@ -633,7 +637,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     const wanted = value.interpretation
     const openAt = openFilterOf(wanted)
     const relatedTags = value.dishMode === 'related' ? dishes.flatMap((target) => target.related.tags) : dishes.flatMap((target) => (target.tag ? [target.tag] : []))
-    const rankings = buildRankings(candidates, { withQuality: textless, wholeWords: nameQuery ? null : distinctiveNameWords(nameWords, interpretation.must.neighborhoods) })
+    const rankings = buildRankings(candidates, { withQuality: structured, wholeWords: nameQuery ? null : distinctiveNameWords(nameWords, interpretation.must.neighborhoods) })
     const requestedCategories = [...wanted.must.categories, ...wanted.prefer.categories]
     // Una cocina paraguas cuenta con sus hijas: un japonés con japanese en signature es asiático.
     const requestedTags = [...new Set([...wanted.must.tags, ...wanted.prefer.tags, ...relatedTags].flatMap(withSubcuisines))]
@@ -673,7 +677,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       moments: momentsOf(wanted.prefer.tags),
       hasDishes: dishes.length > 0,
       // La intención del verbo del texto (no la que sólo pide la URL).
-      intent: wanted.intent !== null && wanted.intent === value.intent ? intentGroups(value.intent, [])[0] : null,
+      intent: wanted.intent !== null && wanted.intent === value.intent ? intentDef(value.intent).match : null,
       venue: wanted.must.venues.length > 0,
     })
     // Una card por marca: las otras sucursales no ocupan lugar en la lista, las secciones ni los avisos.
@@ -694,6 +698,8 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   let state = initial
   // El "Ver todos" de un grupo exige su regla; como la intención, nunca se relaja.
   const sectionGroups: FilterGroup[] = filters.section ? [sectionDef(filters.section).match] : []
+  // Los tags exigidos y los de los platos pedidos: en Comer, uno de comida manda sobre la categoría (tagWins).
+  const wantedTags = (value: SearchState) => [...value.interpretation.must.tags, ...(value.dishMode === 'none' ? [] : dishes.flatMap((target) => (target.tag ? [target.tag] : [])))]
   const filtersOf = (value: SearchState): CandidateFilters => ({
     ...filtersFor(
       value.interpretation,
@@ -701,7 +707,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       dishes,
       value.dishMode,
       origin && value.nearRadius !== null ? { ...origin, radiusM: value.nearRadius } : null,
-      [...intentGroups(value.intent, value.subs), ...sectionGroups],
+      [...intentGroups(value.intent, value.subs, wantedTags(value)), ...sectionGroups],
       venues,
       // Como la sección, viene de la barra y nunca se relaja.
       filters.discounts,

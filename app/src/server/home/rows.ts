@@ -2,7 +2,7 @@ import { searchHref } from '@/components/pages/SearchPage/utils/search-href'
 import { runSearch, type SearchDeps } from '../search/search'
 import type { Affinity } from './affinity'
 import type { HomeRow } from './assemble'
-import { HOME_CONFIG, homeSearchUrl, type HomeSectionDef } from './config'
+import { HOME_CONFIG, homeSearchUrl, homeViewAllUrl, type HomeSectionDef } from './config'
 import { openNowResults } from './open'
 
 /** "Abierto ahora": el filtro de la barra con el que buscan todas las filas (salvo Guardados). */
@@ -10,14 +10,15 @@ export const OPEN_NOW = 'open:now'
 
 /**
  * Cada fila con los primeros HOME_CONFIG.candidates lugares abiertos en `now` (el pool; sin texto: sólo SQL, en paralelo).
- * Sin guardados: es igual para todos. href es su "Ver todos": la misma búsqueda en /search.
+ * Sin guardados: es igual para todos. href es su "Ver todos": la misma búsqueda en /search (con `text`, en el buscador).
  */
 export async function homeSectionRows(deps: SearchDeps, sections: HomeSectionDef[], now: Date): Promise<HomeRow[]> {
   return Promise.all(
     sections.map(async (section) => {
       const url = homeSearchUrl(section.search)
       const response = await runSearch('', deps, { intent: url.intent, sub: url.sub, filters: url.f, loc: url.loc, now })
-      return { id: section.id, title: section.title, places: openNowResults(response).slice(0, HOME_CONFIG.candidates), href: searchHref(url) }
+      const href = searchHref(homeViewAllUrl(section.search))
+      return { id: section.id, title: section.title, places: openNowResults(response).slice(0, HOME_CONFIG.candidates), href }
     }),
   )
 }

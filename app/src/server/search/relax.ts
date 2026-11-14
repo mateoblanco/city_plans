@@ -3,7 +3,7 @@ import { neighborhoodDisplayName } from '@shared/neighborhood-names.ts'
 import type { CandidateRow, DishMode } from './candidates'
 import { hasBroaderRelated, relatedLabel, type DishTarget } from './dishes'
 import { matchesOpenFilter, openStatus, type Moment, type OpenFilter } from './hours'
-import { intentGroups, matchesGroup, subTerms } from './intents'
+import { matchesGroup, subGroups, subTerms } from './intents'
 import { DIET_KEYS, type DietKey, type Interpretation, type Lang } from './interpretation'
 import { DAY_NAMES, dietLabel, DISPLAY_LANG, excludedTerm } from './labels'
 
@@ -110,7 +110,7 @@ export function relaxNotice(step: RelaxStep, context: NoticeContext): { what: No
 
   if (step === 'subs') {
     const { intent, subs } = context.before
-    const groups = intentGroups(intent, subs).slice(1)
+    const groups = subGroups(intent, subs)
     if (!intent || !rows.some((row) => groups.some((group) => !matchesGroup(group, row)))) return null
     const definition = intentDef(intent)
     const phrases = subs.flatMap((id) => (definition.subs[id] ? [definition.subs[id].phrase[lang]] : []))
