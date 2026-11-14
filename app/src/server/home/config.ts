@@ -83,6 +83,10 @@ export const HOME_CONFIG = {
   candidates: 30,
   /** Las filas cacheadas (clave: fecha y franja) se rearman en segundo plano cada tantos minutos como máximo (home/swr.ts). */
   refreshMinutes: 10,
+  /** La caché remota (Vercel Runtime Cache) que tarda más que esto cuenta como que no estaba. */
+  remoteTimeoutMs: 300,
+  /** Va en la clave de la caché remota de las filas: subirla si cambia la forma de lo que se guarda. */
+  cacheVersion: 1,
   /**
    * Peso de la afinidad al reordenar el pool (home/affinity.ts): con 30 lugares, uno sube o baja como mucho
    * candidates × peso ≈ 6 puestos, así los primeros del pool siguen entre los 8 que se ven.

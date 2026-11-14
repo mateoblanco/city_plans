@@ -95,7 +95,8 @@ class MemoryLayer<T> {
   }
 }
 
-const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T | null> =>
+/** La promesa, o null si tarda más de `ms` o falla (un remoto lento o caído cuenta como que no estaba). */
+export const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T | null> =>
   new Promise((resolve) => {
     const timer = setTimeout(() => resolve(null), ms)
     promise.then(

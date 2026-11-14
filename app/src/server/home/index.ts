@@ -3,6 +3,7 @@ import { after } from 'next/server'
 import { getDb } from '../db'
 import type { CardRow } from '../places/similar'
 import { searchDeps } from '../search'
+import { background, vercelRemote } from '../search/next-cache'
 import type { HomeRow } from './assemble'
 import { fixedSections, HOME_CONFIG, SLOT_SECTIONS } from './config'
 import { homeDiscountRows } from './discounts'
@@ -31,16 +32,47 @@ async function loadSectionRows(key: string, at?: Date): Promise<CachedRows> {
   return { rows, computedAt: when.toISOString() }
 }
 
+/** Lo leído de la remota sólo sirve con la forma de CachedRows (otro build pudo guardar otra cosa). */
+function readCachedRows(value: unknown): CachedRows | null {
+  if (!value || typeof value !== 'object') return null
+  const { rows, computedAt } = value as Partial<CachedRows>
+  if (typeof computedAt !== 'string' || Number.isNaN(Date.parse(computedAt)) || !Array.isArray(rows)) return null
+  const valid = rows.every((row) => row && typeof row.id === 'string' && typeof row.title === 'string' && Array.isArray(row.places) && (row.href === null || typeof row.href === 'string'))
+  return valid ? { rows, computedAt } : null
+}
+
+/**
+ * La clave en Vercel Runtime Cache: con versión (subirla si cambia la forma) y el deploy, porque la remota sobrevive a
+ * los deploys y las cards de otro build pueden tener otra forma. Cada deploy arma la suya la primera vez.
+ */
+const remoteKey = (key: string) => `home:rows:v${HOME_CONFIG.cacheVersion}:${process.env.VERCEL_DEPLOYMENT_ID ?? 'local'}:${key.replace('|', ':')}`
+
 /**
  * Caché de los pools con la fecha y la franja de Montevideo como clave (`slotKey`): al cambiar de franja es otra entrada
- * y nunca se ven filas de la anterior. Se sirve lo cacheado y se rearma en segundo plano (`after()`) cada
- * HOME_CONFIG.refreshMinutes como máximo, sin que nadie espere (home/swr.ts); por pedido, freshOpen saca los que cerraron
- * desde `computedAt`. En memoria del proceso: espera el primer pedido de un proceso nuevo.
+ * y nunca se ven filas de la anterior. Memoria de la instancia → Vercel Runtime Cache (compartida entre instancias; sólo
+ * en Vercel) → armar. Se sirve lo cacheado y se rearma en segundo plano (`after()`) cada HOME_CONFIG.refreshMinutes
+ * como máximo, sin que nadie espere (home/swr.ts); por pedido, freshOpen saca los que cerraron desde `computedAt`.
  */
 const sectionsCache = createSwrCache<CachedRows>({
   maxAgeMs: HOME_CONFIG.refreshMinutes * 60_000,
   schedule: (task) => after(task),
-  onError: (error) => console.error('Falló la actualización de las filas de la home', error),
+  remote: (() => {
+    const store = vercelRemote()
+    return store
+      ? {
+          store,
+          key: remoteKey,
+          read: readCachedRows,
+          // Una franja dura como mucho 6 horas: después de eso la clave no se vuelve a pedir.
+          ttlSeconds: 6 * 60 * 60,
+          timeoutMs: HOME_CONFIG.remoteTimeoutMs,
+          name: 'home-rows',
+          tags: ['home-rows'],
+          background,
+        }
+      : null
+  })(),
+  onError: (error) => console.error('Falló la caché de las filas de la home', error),
 })
 
 /**

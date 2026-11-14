@@ -12,7 +12,7 @@ import type { Venue } from './venues'
  * la de layeredCache: sin remoto. Las claves ya vienen hasheadas con sha256 (el hash por defecto de getCache es de
  * 32 bits).
  */
-function vercelRemote(): RemoteStore | null {
+export function vercelRemote(): RemoteStore | null {
   if (!process.env.VERCEL) return null
   try {
     return getCache({ keyHashFunction: (key) => key })
@@ -23,7 +23,7 @@ function vercelRemote(): RemoteStore | null {
 }
 
 /** La escritura en el remoto termina después de la respuesta; fuera de Vercel, waitUntil no hace nada y sigue sola. */
-function background(promise: Promise<unknown>) {
+export function background(promise: Promise<unknown>) {
   try {
     waitUntil(promise)
   } catch {
