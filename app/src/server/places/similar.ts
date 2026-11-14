@@ -15,7 +15,9 @@ import { cardProviders, type PlaceDiscount } from '../discounts/selection'
 
 /** Cuántos "Parecidos a" muestra la ficha. */
 export const SIMILAR_MAX = 6
-/** Candidatos que trae la consulta antes de filtrar por datos concretos y por marca. */
+/** Con menos que esto tras el corte estricto, se completa relajando (pickSimilar): la sección nunca queda con uno solo. */
+export const SIMILAR_MIN = 4
+/** Los más cercanos por embedding que trae la consulta antes de filtrar por corte, datos concretos y marca. */
 const SIMILAR_POOL = 60
 
 export type SimilarRow = {
@@ -39,11 +41,14 @@ export type SimilarRow = {
   /** Proveedor y tipo de tarjeta de cada beneficio que cuenta, para "Descuento: …" de la card. */
   discounts: PlaceDiscount[]
   similarity: number
+  /** Pasa el corte de parecido (top `similar.topShare` con piso `similar.floor`). */
+  strong: boolean
 }
 
 /**
- * Los publicados más parecidos al lugar por embedding, con el mismo corte que "Parecido a" de la búsqueda: el top
- * `similar.topShare` de sus vecinos en toda la base, con piso `similar.floor`. Sin el lugar ni sus sucursales.
+ * Los SIMILAR_POOL publicados más parecidos al lugar por embedding, sin el lugar ni sus sucursales. `strong` marca los que
+ * pasan el mismo corte que "Parecido a" de la búsqueda: el top `similar.topShare` de sus vecinos en toda la base, con piso
+ * `similar.floor`; el resto sólo entra para completar (pickSimilar).
  */
 function similarQuery(place: PlaceRow) {
   const { topShare, floor } = SEARCH_CONFIG.personal.similar
@@ -61,31 +66,40 @@ function similarQuery(place: PlaceRow) {
         else (select count(*)::int from places b where b.brand_key = p.brand_key and b.status = 'published') end as "brandCount",
       ST_Y(p.location::geometry) as lat, ST_X(p.location::geometry) as lng,
       ${placeDiscountsColumn(sql`p.id`)} as discounts,
-      1 - (p.embedding <=> t.embedding) as similarity
+      1 - (p.embedding <=> t.embedding) as similarity,
+      1 - (p.embedding <=> t.embedding) >= greatest(${floor}::float, coalesce((select top_cut from cut), ${floor}::float)) as strong
     from places p, target t
     where p.status = 'published' and p.embedding is not null and p.id::text <> ${place.id}
       and (${place.brand_key}::text is null or p.brand_key is distinct from ${place.brand_key})
-      and 1 - (p.embedding <=> t.embedding) >= greatest(${floor}::float, coalesce((select top_cut from cut), ${floor}::float))
     order by p.embedding <=> t.embedding
     limit ${SIMILAR_POOL}`
 }
 
 /**
- * De los que pasan el corte por parecido (en orden), los que pasan los datos concretos de "Parecido a" (familia de ícono o
- * cocina en común, mismo style, precio a un nivel) y una sucursal por marca, hasta SIMILAR_MAX. Nunca el lugar ni su marca.
+ * Hasta SIMILAR_MAX en orden de parecido, una sucursal por marca y nunca el lugar ni su marca. Primero los que pasan el
+ * corte y los datos concretos de "Parecido a" (familia de ícono o cocina en común, mismo style, precio a un nivel). Con
+ * menos de SIMILAR_MIN, se completa hasta SIMILAR_MIN ampliando el rango por etapas: cualquier parecido con familia o
+ * cocina en común (sin style ni precio) y, si todavía faltan, los más cercanos por embedding sin más condiciones.
  */
 export function pickSimilar(place: Pick<PlaceRow, 'id' | 'brand_key' | 'icon_category' | 'tags' | 'style' | 'price'>, rows: SimilarRow[]): SimilarRow[] {
   const target = { iconCategory: place.icon_category, tags: place.tags, style: place.style, price: place.price }
+  const loose = { ...target, style: null, price: '' }
+  const sorted = [...rows].sort((a, b) => b.similarity - a.similarity)
   const brands = new Set<string>()
   const chosen: SimilarRow[] = []
-  for (const row of [...rows].sort((a, b) => b.similarity - a.similarity)) {
-    if (chosen.length >= SIMILAR_MAX) break
-    if (row.id === place.id || (place.brand_key && row.brandKey === place.brand_key)) continue
-    if (row.brandKey && brands.has(row.brandKey)) continue
-    if (concreteMismatch(target, row) !== null) continue
-    if (row.brandKey) brands.add(row.brandKey)
-    chosen.push(row)
+  const fill = (limit: number, accepts: (row: SimilarRow) => boolean) => {
+    for (const row of sorted) {
+      if (chosen.length >= limit) return
+      if (row.id === place.id || (place.brand_key && row.brandKey === place.brand_key)) continue
+      if (chosen.includes(row) || (row.brandKey && brands.has(row.brandKey))) continue
+      if (!accepts(row)) continue
+      if (row.brandKey) brands.add(row.brandKey)
+      chosen.push(row)
+    }
   }
+  fill(SIMILAR_MAX, (row) => row.strong && concreteMismatch(target, row) === null)
+  fill(SIMILAR_MIN, (row) => concreteMismatch(loose, { ...row, style: null, price: '' }) === null)
+  fill(SIMILAR_MIN, () => true)
   return chosen
 }
 
@@ -128,7 +142,7 @@ export function similarCard(row: CardRow, now = new Date()): SearchResult {
   }
 }
 
-/** "Parecidos a <lugar>" de la ficha. Sin embedding o si la consulta falla, ninguno: la sección se oculta. */
+/** "Parecidos a <lugar>" de la ficha. Sólo sin embedding o si la consulta falla, ninguno: la sección se oculta. */
 export async function similarPlaces(place: PlaceRow, now = new Date()): Promise<SearchResult[]> {
   try {
     const { rows } = await getDb().execute(similarQuery(place))
