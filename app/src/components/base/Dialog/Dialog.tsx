@@ -9,6 +9,8 @@ type Props = {
   /** Escape, el fondo o "Cerrar" piden cerrar con false. */
   onOpenChange: (open: boolean) => void;
   title: string;
+  /** Texto chico arriba del título, centrado (p. ej. "Paso 1 de 2"). Va dentro del título para que se anuncie con él. */
+  eyebrow?: string;
   /** Texto debajo del título (aria-describedby). */
   description?: string;
   /** El paso actual (en un diálogo de varios pasos): al cambiar, el foco va al título nuevo y el lector lo anuncia. */
@@ -40,6 +42,7 @@ const Dialog = (props: Props) => {
         <DialogBase.Popup className={styles.popup} initialFocus={titleRef}>
           <div className={styles.header}>
             <DialogBase.Title ref={titleRef} tabIndex={-1} className={styles.title}>
+              {props.eyebrow && <span className={styles.eyebrow}>{props.eyebrow}</span>}
               {props.title}
             </DialogBase.Title>
             {props.description && <DialogBase.Description className={styles.description}>{props.description}</DialogBase.Description>}

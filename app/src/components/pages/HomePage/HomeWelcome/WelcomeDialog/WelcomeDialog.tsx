@@ -18,7 +18,7 @@ type Props = {
 
 const STEPS = {
   cards: { title: "¿Qué tarjetas tenés?", description: "Te mostramos los descuentos que podés usar." },
-  places: { title: "Elegí hasta 3 lugares que te gusten", description: "Así te recomendamos lugares para vos." },
+  places: { title: "Elegí hasta 3 lugares que te gusten", description: "Así te recomendamos mejores lugares para vos." },
 } as const;
 
 type Step = keyof typeof STEPS;
@@ -76,7 +76,8 @@ const WelcomeDialog = (props: Props) => {
         if (!next) finish(savedCards.current);
       }}
       title={STEPS[step].title}
-      description={steps.length > 1 ? `Paso ${index + 1} de ${steps.length} · ${STEPS[step].description}` : STEPS[step].description}
+      eyebrow={steps.length > 1 ? `Paso ${index + 1} de ${steps.length}` : undefined}
+      description={STEPS[step].description}
       step={step}
       footer={footer}
     >
