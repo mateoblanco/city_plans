@@ -63,7 +63,7 @@ describe('horario del texto', () => {
     expect(interpretWithDictionary('unos tragos tarde esta noche')?.must.openAt).toEqual({ day: null, time: '23:30' })
   })
 
-  it('las franjas: a la tarde 17:00, a la noche 21:00; "esta noche" y "hoy" como siempre', () => {
+  it('las franjas: a la tarde 17:00, a la noche 21:00; "esta noche" y "cenar hoy" son esta noche', () => {
     const merienda = interpretWithDictionary('merendar a la tarde')
     expect(merienda?.must.tags).toEqual(['afternoon_snack'])
     expect(merienda?.must.openAt).toEqual({ day: null, time: '17:00' })
@@ -71,7 +71,18 @@ describe('horario del texto', () => {
     expect(interpretWithDictionary('cafe por la tarde el domingo')?.must.openAt).toEqual({ day: 0, time: '17:00' })
     expect(interpretWithDictionary('cena el viernes a la noche')?.must.openAt).toEqual({ day: 5, time: '21:00' })
     expect(interpretWithDictionary('tomar algo esta noche')?.must.openAt).toBe('tonight')
-    expect(interpretWithDictionary('cenar hoy')?.must.openAt).toBe('today')
+    expect(interpretWithDictionary('cenar hoy')?.must.openAt).toBe('tonight')
+  })
+
+  it('horario de hoy escrito: abierto ahora, hoy, esta noche y hoy al mediodía', () => {
+    const openAt = (text: string) => interpretWithDictionary(text)?.must.openAt
+    for (const text of ['abierto ahora', 'abierto hoy', 'abre hoy', 'bares abiertos', 'cafes abiertos ahora', 'sushi ahora', 'bar abierto hoy']) expect(openAt(text), text).toBe('now')
+    for (const text of ['bares hoy', 'sushi hoy', 'desayunar hoy', 'merendar hoy']) expect(openAt(text), text).toBe('today')
+    for (const text of ['esta noche', 'tomar algo hoy a la noche', 'cenar hoy', 'cena hoy', 'bares abiertos esta noche']) expect(openAt(text), text).toBe('tonight')
+    for (const text of ['almorzar hoy', 'almuerzo hoy', 'al mediodia', 'comer al mediodia', 'mediodia', 'hoy al mediodia']) expect(openAt(text), text).toBe('midday')
+    // Sin "hoy", almorzar y cenar no tienen horario.
+    expect(openAt('almorzar')).toBeNull()
+    expect(openAt('cenar')).toBeNull()
   })
 
   it('"tarde" sin bares y "salir" sin noche no se fuerzan: va al modelo', () => {
@@ -120,8 +131,8 @@ describe('atajo con diccionario', () => {
   it('resuelve dieta, horario y platos', () => {
     expect(interpretWithDictionary('vegano')?.must.diet).toEqual({ vegan: true })
     expect(interpretWithDictionary('sin tacc')?.must.diet).toEqual({ glutenFree: true })
-    expect(interpretWithDictionary('abierto ahora')?.must.openAt).toBe('today')
-    expect(interpretWithDictionary('cenar hoy')?.must.openAt).toBe('today')
+    expect(interpretWithDictionary('abierto ahora')?.must.openAt).toBe('now')
+    expect(interpretWithDictionary('cenar hoy')?.must.openAt).toBe('tonight')
     expect(interpretWithDictionary('tomar algo esta noche')?.must.openAt).toBe('tonight')
     expect(interpretWithDictionary('cenar el sabado')?.must.openAt).toEqual({ day: 6, time: null })
     const dish = interpretWithDictionary('milanesa napolitana en parque rodo')
@@ -198,6 +209,14 @@ describe('validateInterpretation', () => {
     expect(classifyTerm('Mexicana')).toEqual({ kind: 'tag', id: 'mexican' })
   })
 
+  it('el horario del modelo: now, today, tonight y midday tal cual; un día/hora como siempre', () => {
+    const read = (openAt: { moment: 'now' | 'today' | 'tonight' | 'midday' | null; day: number | null; time: string | null }) =>
+      validateInterpretation(llmOutput({ must: { ...llmOutput().must, openAt } }), 'x').interpretation.must.openAt
+    for (const moment of ['now', 'today', 'tonight', 'midday'] as const) expect(read({ moment, day: null, time: null })).toBe(moment)
+    expect(read({ moment: null, day: 6, time: '21:00' })).toEqual({ day: 6, time: '21:00' })
+    expect(read({ moment: null, day: null, time: null })).toBeNull()
+  })
+
   it('descarta ids y barrios inválidos y corrige el grupo', () => {
     const { interpretation, discarded } = validateInterpretation(
       llmOutput({
@@ -207,7 +226,7 @@ describe('validateInterpretation', () => {
           diet: { vegan: false, vegetarian: false, glutenFree: true },
           neighborhoods: ['Pocitos', 'Atlantis'],
           price: ['low', 'gratis'],
-          openAt: { today: false, tonight: false, day: 9, time: '21' },
+          openAt: { moment: null, day: 9, time: '21' },
         },
         exclude: { categories: [], tags: ['terrace'] },
         language: 'en',

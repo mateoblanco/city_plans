@@ -61,7 +61,7 @@ describe('fusión', () => {
       row({ id: 'open', semantic: 0.1, hours: everyDay('09:00', '18:00') }),
       row({ id: 'pinned', semantic: 0.05, matchesFilters: false }),
     ]
-    const fused = fuse(rows, buildRankings(rows), context({ pinnedId: 'pinned', openAt: { moment: { day: 1, time: '13:00' }, today: false, night: false } }))
+    const fused = fuse(rows, buildRankings(rows), context({ pinnedId: 'pinned', openAt: { kind: 'at', moment: { day: 1, time: '13:00' }, confirmed: false } }))
     expect(fused.map((item) => item.row.id)).toEqual(['pinned', 'open', 'unconfirmed'])
     expect(fused[1].boosts.confirmedOpen).toBe(SEARCH_CONFIG.boosts.confirmedOpen)
   })
@@ -307,7 +307,7 @@ describe('runSearch', () => {
     const confirmed = places.map((place) => (place.id === 'cafe-rodo' ? { ...place, hours: everyDay('08:00', '18:00'), edgeDistance: 300 } : place))
     const { store, calls, nearbyCalls } = fakeStore(confirmed)
     const { cache } = fakeCache(
-      llmOutput({ must: { categories: ['cafe'], tags: ['live_music'], diet: { vegan: false, vegetarian: false, glutenFree: false }, neighborhoods: ['Pocitos'], price: [], openAt: { today: false, tonight: false, day: 1, time: '23:00' } } }),
+      llmOutput({ must: { categories: ['cafe'], tags: ['live_music'], diet: { vegan: false, vegetarian: false, glutenFree: false }, neighborhoods: ['Pocitos'], price: [], openAt: { moment: null, day: 1, time: '23:00' } } }),
     )
     const response = await runSearch('cafe con musica en pocitos a las 23', { store, cache }, { now })
     const shape = (call: (typeof calls)[number]) => [call.filters.tags.length, call.filters.neighborhoods.length, call.filters.openAt !== null]
@@ -432,7 +432,7 @@ describe('runSearch', () => {
     const { store } = fakeStore(places.map((place) => (place.id === 'cafe-cordon' ? { ...place, edgeDistance: 400 } : place)))
     const { cache } = fakeCache(
       llmOutput({
-        must: { categories: ['bar'], tags: ['karaoke'], diet: { vegan: true, vegetarian: false, glutenFree: false }, neighborhoods: ['Pocitos'], price: ['high'], openAt: { today: true, tonight: false, day: null, time: null } },
+        must: { categories: ['bar'], tags: ['karaoke'], diet: { vegan: true, vegetarian: false, glutenFree: false }, neighborhoods: ['Pocitos'], price: ['high'], openAt: { moment: "now", day: null, time: null } },
         dishes: [{ name: 'ceviche', related: [] }],
       }),
     )
@@ -682,55 +682,91 @@ describe('barra de filtros y cerca mío', () => {
     expect(response.interpreted.chips[0]).toEqual({ kind: 'neighborhood', id: 'CORDON', label: 'Cordón', fromText: true, fromFilter: true })
   })
 
-  it('sólo con filtros: sin modelo ni embedding, por calidad y con los de horario sin confirmar abajo', async () => {
+  it('sólo con filtros: sin modelo ni embedding, por calidad y sin los de horario sin confirmar ("Abierto ahora")', async () => {
     const { store, calls } = fakeStore(places)
     const { cache, interpreted, embedded } = fakeCache()
-    const response = await runSearch('', { store, cache }, { now, filters: 'open:today', intent: 'cafes', debug: true })
+    const response = await runSearch('', { store, cache }, { now, filters: 'open:now', intent: 'cafes', debug: true })
     expect(interpreted).toEqual([])
     expect(embedded).toEqual([])
     expect(response.debug?.source).toBe('filters')
     expect(calls[0].scores).toMatchObject({ embedding: null, keywords: [], name: null })
-    expect(ids(response)).toEqual(['cafe-famoso', 'cafe-cordon', 'cafe-pocitos', 'cafe-sin-horario'])
+    expect(ids(response)).toEqual(['cafe-famoso', 'cafe-cordon', 'cafe-pocitos'])
     expect(response.interpreted.chips.map((chip) => [chip.kind, chip.fromFilter])).toEqual([['openAt', true]])
+    // Sin filtro de horario, los sin horario siguen saliendo.
+    expect(ids(await runSearch('', { store, cache }, { now, intent: 'cafes' }))).toContain('cafe-sin-horario')
     expect(response.bar.intent).toEqual({ id: 'cafes', fromText: false })
   })
 
-  it('abre hoy: abiertos y los que abren más tarde por relevancia, sin horario al final; afuera los que ya cerraron o no abren hoy', async () => {
-    // Lunes 13:00.
-    const { store } = fakeStore([
-      row({ id: 'abierto', hours: everyDay('12:00', '16:00'), prominence: 0.2 }),
-      row({ id: 'abre-mas-tarde', hours: everyDay('20:00', '23:30'), prominence: 0.8 }),
-      row({ id: 'ya-cerro', hours: everyDay('07:00', '11:00'), prominence: 0.9 }),
-      row({ id: 'cerrado-hoy', hours: { status: 'exact', slots: [{ day: 2, opens: '12:00', closes: '16:00' }] }, prominence: 0.9 }),
-      row({ id: 'sin-horario', prominence: 1, featured: true }),
-    ])
-    const response = await runSearch('', { store, cache: fakeCache().cache }, { now, filters: 'open:today', debug: true })
-    expect(ids(response)).toEqual(['abre-mas-tarde', 'abierto', 'sin-horario'])
-    expect(response.results.map((result) => result.openStatus.label)).toEqual(['Cerrado · Abre 20:00', 'Abierto · cierra 16:00', 'Horario sin confirmar'])
-    expect(response.debug?.results.every((result) => result.boosts.confirmedOpen === undefined)).toBe(true)
-    expect(response.interpreted.chips).toEqual([{ kind: 'openAt', id: 'today', label: 'Abre hoy', fromText: false, fromFilter: true }])
+  // Lunes 13:00.
+  const todayPlaces = () => [
+    row({ id: 'abierto', hours: everyDay('12:00', '16:00'), prominence: 0.2 }),
+    row({ id: 'abre-mas-tarde', hours: everyDay('20:00', '23:30'), prominence: 0.8 }),
+    row({ id: 'ya-cerro', hours: everyDay('07:00', '11:00'), prominence: 0.9 }),
+    row({ id: 'cerrado-hoy', hours: { status: 'exact', slots: [{ day: 2, opens: '12:00', closes: '16:00' }] }, prominence: 0.9 }),
+    row({ id: 'sin-horario', prominence: 1, featured: true }),
+  ]
+
+  it('"Abierto ahora" (open:now y el open:today de los links viejos): sólo los abiertos ahora, con el chip de la barra', async () => {
+    for (const filters of ['open:now', 'open:today']) {
+      const response = await runSearch('', { store: fakeStore(todayPlaces()).store, cache: fakeCache().cache }, { now, filters })
+      expect(ids(response)).toEqual(['abierto'])
+      expect(response.results[0].openStatus.label).toBe('Abierto · cierra 16:00')
+      expect(response.interpreted.chips).toEqual([{ kind: 'openAt', id: 'now', label: 'Abierto ahora', fromText: false, fromFilter: true }])
+    }
   })
 
-  it('cenar hoy es a la noche: afuera el que sólo abre al mediodía aunque esté abierto ahora', async () => {
+  it('"abierto ahora" escrito es el mismo chip de la barra', async () => {
+    const response = await runSearch('abierto ahora', { store: fakeStore(todayPlaces()).store, cache: fakeCache().cache }, { now })
+    expect(ids(response)).toEqual(['abierto'])
+    expect(response.interpreted.chips.find((chip) => chip.kind === 'openAt')).toMatchObject({ id: 'now', label: 'Abierto ahora', fromText: true })
+  })
+
+  it('"hoy" escrito: abiertos y los que abren más tarde por relevancia; afuera los cerrados y los sin horario; chip "Hoy" quitable', async () => {
+    const response = await runSearch('hoy', { store: fakeStore(todayPlaces()).store, cache: fakeCache().cache }, { now, debug: true })
+    expect(ids(response)).toEqual(['abre-mas-tarde', 'abierto'])
+    expect(response.results.map((result) => result.openStatus.label)).toEqual(['Cerrado · Abre 20:00', 'Abierto · cierra 16:00'])
+    expect(response.debug?.results.every((result) => result.boosts.confirmedOpen === undefined)).toBe(true)
+    expect(response.interpreted.chips).toEqual([{ kind: 'openAt', id: 'today', label: 'Hoy', fromText: true, fromFilter: false }])
+    expect(response.bar.extras.map((chip) => `${chip.kind}:${chip.id}`)).toContain('openAt:today')
+    // La barra gana: con "Abierto ahora", sólo los abiertos.
+    expect(ids(await runSearch('hoy', { store: fakeStore(todayPlaces()).store, cache: fakeCache().cache }, { now, filters: 'open:now' }))).toEqual(['abierto'])
+    // Quitado, salen todos.
+    expect(ids(await runSearch('hoy', { store: fakeStore(todayPlaces()).store, cache: fakeCache().cache }, { now, remove: 'openAt:today' }))).toHaveLength(5)
+  })
+
+  it('cenar hoy es esta noche: afuera el que sólo abre al mediodía aunque esté abierto ahora', async () => {
     // Lunes 13:00.
     const { store } = fakeStore([
       row({ id: 'mediodia', hours: everyDay('12:00', '15:00') }),
       row({ id: 'todo-el-dia', hours: everyDay('12:00', '01:00') }),
       row({ id: 'noche', hours: everyDay('20:00', '00:00') }),
+      row({ id: 'sin-horario' }),
     ])
     const response = await runSearch('cenar hoy', { store, cache: fakeCache().cache }, { now })
     expect(ids(response).sort()).toEqual(['noche', 'todo-el-dia'])
-    expect(response.interpreted.chips.find((chip) => chip.kind === 'openAt')).toMatchObject({ id: 'today', label: 'Abre hoy' })
+    expect(response.interpreted.chips.find((chip) => chip.kind === 'openAt')).toMatchObject({ id: 'tonight', label: 'Esta noche' })
   })
 
-  it('sin tope de resultados: se muestran todos, con los de horario sin confirmar al final', async () => {
+  it('almorzar hoy es hoy al mediodía: afuera el que abre a la noche', async () => {
+    // Lunes 10:00.
+    const morning = new Date('2026-10-12T13:00:00Z')
+    const { store } = fakeStore([
+      row({ id: 'mediodia', hours: everyDay('12:00', '15:00') }),
+      row({ id: 'noche', hours: everyDay('20:00', '00:00') }),
+    ])
+    const response = await runSearch('almorzar hoy', { store, cache: fakeCache().cache }, { now: morning })
+    expect(ids(response)).toEqual(['mediodia'])
+    expect(response.interpreted.chips.find((chip) => chip.kind === 'openAt')).toMatchObject({ id: 'midday', label: 'Hoy al mediodía' })
+  })
+
+  it('sin tope de resultados: con "Abierto ahora" se muestran todos los abiertos (sin los de horario sin confirmar)', async () => {
     const { store } = fakeStore([
       ...Array.from({ length: 25 }, (_, index) => row({ id: `abierto-${index}`, hours: everyDay('08:00', '23:00'), prominence: 0.5 })),
       row({ id: 'sin-horario', prominence: 1, featured: true }),
     ])
-    const response = await runSearch('', { store, cache: fakeCache().cache }, { now, filters: 'open:today' })
-    expect(ids(response)).toHaveLength(26)
-    expect(ids(response).at(-1)).toBe('sin-horario')
+    const response = await runSearch('', { store, cache: fakeCache().cache }, { now, filters: 'open:now' })
+    expect(ids(response)).toHaveLength(25)
+    expect(ids(response)).not.toContain('sin-horario')
   })
 
   it('sin texto ni filtros (/search vacío): todos los publicados, por calidad, sin modelo ni embedding', async () => {

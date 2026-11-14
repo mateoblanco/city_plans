@@ -94,8 +94,17 @@ export function distanceLabel(meters: number, lang: Lang) {
 
 const capitalize = (value: string) => value.charAt(0).toUpperCase() + value.slice(1)
 
-export function momentLabel(moment: Moment | 'today', lang: Lang, today: number) {
-  if (moment === 'today') return lang === 'es' ? 'Abre hoy' : 'Opens today'
+/** Los horarios de hoy como chip: "Abierto ahora" (el de la barra), "Hoy", "Esta noche", "Hoy al mediodía". */
+export const OPEN_MOMENT_LABELS: Record<Lang, Record<'now' | 'today' | 'tonight' | 'midday', string>> = {
+  es: { now: 'Abierto ahora', today: 'Hoy', tonight: 'Esta noche', midday: 'Hoy al mediodía' },
+  en: { now: 'Open now', today: 'Today', tonight: 'Tonight', midday: 'Today at midday' },
+}
+
+/** El chip de "Hoy", "Esta noche" u "Hoy al mediodía": horario escrito, que se ve en la barra para poder quitarlo. */
+export const isTextMomentChip = (chip: { kind: string; id: string }) => chip.kind === 'openAt' && (chip.id === 'today' || chip.id === 'tonight' || chip.id === 'midday')
+
+export function momentLabel(moment: Moment | 'now' | 'today' | 'tonight' | 'midday', lang: Lang, today: number) {
+  if (typeof moment === 'string') return OPEN_MOMENT_LABELS[lang][moment]
   const day = moment.day === today ? (lang === 'es' ? 'hoy' : 'today') : DAY_NAMES[lang][moment.day]
   return capitalize(moment.time ? `${day} ${moment.time}` : day)
 }

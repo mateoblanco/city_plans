@@ -30,7 +30,7 @@ import {
   validateInterpretation,
   type Interpretation,
 } from './interpretation'
-import { DISPLAY_LANG, distanceLabel, openStateLabel, openStateText, type OpenStateText } from './labels'
+import { DISPLAY_LANG, distanceLabel, isTextMomentChip, openStateLabel, openStateText, type OpenStateText } from './labels'
 import { EMPTY_ZONE_NOTICE, OUTSIDE_NOTICE, parseLocationChoice, parseLocationCookie, radiusNotice, resolveLocation, zoneOrigin, type SearchLocation } from './location'
 import { normalizeQuery, queryWords } from './normalize'
 import { buildReasons } from './reasons'
@@ -218,6 +218,11 @@ export type SearchResponse = {
    * repite). results no cambia. null: sin fila.
    */
   forYou: Section | null
+  /**
+   * Sólo con `home`: la afinidad de cada candidato (id de la card o de una sucursal) con el perfil de su tipo, la misma
+   * cuenta que "Para vos"; la home reordena con esto las demás filas. null sin perfil.
+   */
+  affinity?: Record<string, number> | null
   relaxed: { what: NoticeKind; message: string }[]
   /** Con cero resultados: los chips de dieta o exclude que hay que sacar para que aparezcan lugares. */
   suggestedRemovals: Chip[]
@@ -474,9 +479,9 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     if (llm.ok) {
       const validation = validateInterpretation(priced('interpret', llm.value).data, normalized)
       source = 'llm'
-      // El horario escrito manda sobre el del modelo ("tomar algo tarde" es trasnoche, no 21:00), y las frases del
-      // diccionario ("cerca de la rambla") se suman a lo que entendió.
-      original = applyDictionary(applyWhen(validation.interpretation, normalized), normalized)
+      // Las frases del diccionario ("cerca de la rambla", las comidas del día) se suman a lo que entendió, y el horario
+      // escrito manda sobre el del modelo ("tomar algo tarde" es trasnoche, no 21:00; "cenar hoy" es esta noche).
+      original = applyWhen(applyDictionary(validation.interpretation, normalized), normalized)
       discarded = [
         ...validation.discarded.map((value) => ({ value, reason: 'no está en los catálogos' })),
         ...validation.notNamed.map((value) => ({ value, reason: 'el texto no nombra el barrio: va como no reconocido' })),
@@ -560,7 +565,10 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     const extras = chips.filter(
       (chip) =>
         (chip.fromText && (chip.kind === 'category' || chip.kind === 'tag' || chip.kind === 'venue' || shownPreference(chip) || (chip.kind === 'dish' && !resolved.absorbedDishes.includes(chip.id)))) ||
-        (chip.kind === 'tag' && chip.fromFilter),
+        (chip.kind === 'tag' && chip.fromFilter) ||
+        // "Hoy", "Esta noche" y "Hoy al mediodía" escritos: se ven en la barra para poder quitarlos ("Abierto ahora" ya
+        // es el botón de la barra).
+        isTextMomentChip(chip),
     )
     // El "Ver todos" de un grupo se ve activo en la barra y se apaga sacándolo de f.
     if (filters.section) {
@@ -617,9 +625,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     pinnedId: pinned?.id ?? null,
   }
 
-  // "Abre hoy" para cenar es a la noche, como "esta noche".
-  const openFilterOf = (value: Interpretation) =>
-    resolveOpenAt(value.must.openAt, now, { dinner: [...value.must.tags, ...value.prefer.tags].includes('dinner') })
+  const openFilterOf = (value: Interpretation) => resolveOpenAt(value.must.openAt, now)
 
   // Rankings, fusión, empujones, corte por relevancia y una card por marca (paso 4). Se repite con widen, para contar
   // cuántos más saldrían sin un filtro, y con cerca mío, para elegir el radio.
@@ -812,9 +818,9 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
   }
 
   // 5. Respuesta.
-  // "Abre hoy" se muestra como ahora: "Abierto · cierra 23:00" o "Abre 20:00".
+  // "Abierto ahora" y las ventanas de hoy se muestran como ahora: "Abierto · cierra 23:00" o "Abre 20:00".
   const moment = openAt?.moment ?? montevideoNow(now)
-  const isNow = openAt === null || openAt.today
+  const isNow = openAt === null || openAt.kind !== 'at'
   // En el grupo, sin lo que ya salió en el barrio (tampoco una marca).
   const nearbyItems = nearbyRanked && !nearbyView ? orderNearby(nearbyRanked.fused, fused) : []
   const toResult = (item: Collapsed): SearchResult => {
@@ -989,6 +995,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     results,
     sections: byDiscount ?? grouped?.sections ?? null,
     forYou,
+    ...(options.home && { affinity: personal?.affinity ? Object.fromEntries(personal.affinity) : null }),
     nearby,
     nearbyOnly: nearbyView ? { title: nearbyTitle(wanted), label: nearbyLabel(wanted) } : null,
     relaxed,

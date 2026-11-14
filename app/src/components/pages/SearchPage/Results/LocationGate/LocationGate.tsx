@@ -3,7 +3,6 @@
 import { useRouter } from "next/navigation";
 import { use, useEffect, useRef } from "react";
 import ResultsSkeleton from "../ResultsSkeleton/ResultsSkeleton";
-import { LOCATING_LABEL } from "../../utils/results-count";
 import { setLocationHref, type ChipRef, type SearchUrl } from "../../utils/search-href";
 import { SearchMapContext } from "../../utils/use-search-map";
 import { requestLocation } from "../../utils/use-location";
@@ -17,10 +16,10 @@ type Props = {
 };
 
 /**
- * La búsqueda necesita la ubicación (location.kind = 'ask'): el skeleton con "Buscando cerca tuyo…" mientras el
- * navegador pregunta. Nunca muestra resultados de todo Montevideo mientras tanto. Con la respuesta queda la cookie `loc`
- * (la ubicación redondeada, `denied` o `skip`) y se vuelve a pedir la misma búsqueda: cerca mío o, si la negó, todo
- * Montevideo (y no se le vuelve a pedir sola).
+ * La búsqueda necesita la ubicación (location.kind = 'ask'): el skeleton (y "Buscando cerca tuyo…" en la región viva)
+ * mientras el navegador pregunta. Nunca muestra resultados de todo Montevideo mientras tanto. Con la respuesta queda la
+ * cookie `loc` (la ubicación redondeada, `denied` o `skip`) y se vuelve a pedir la misma búsqueda: cerca mío o, si la
+ * negó, todo Montevideo (y no se le vuelve a pedir sola).
  */
 const LocationGate = (props: Props) => {
   const router = useRouter();
@@ -47,7 +46,7 @@ const LocationGate = (props: Props) => {
     });
   }, [router]);
 
-  return <ResultsSkeleton label={LOCATING_LABEL} />;
+  return <ResultsSkeleton />;
 };
 
 export default LocationGate;

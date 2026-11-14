@@ -190,7 +190,7 @@ export const ATMOSPHERE = {
 export const OFFERS = {
   menu_of_the_day: tag('Menú del día', 'Set lunch', ['menú ejecutivo', 'menú del día', 'plato del día'], ['set lunch', 'lunch special', 'menu of the day']),
   all_you_can_eat: tag('Tenedor libre', 'All you can eat', ['tenedor libre', 'buffet libre', 'buffet'], ['all you can eat', 'buffet']),
-  shared_afternoon_tea: tag('Merienda para compartir', 'Shared afternoon tea', ['merienda para dos', 'merienda para compartir', 'tabla de merienda'], ['afternoon tea for two', 'shared afternoon tea']),
+  shared_afternoon_tea: tag('Merienda para 2', 'Shared afternoon tea', ['merienda para dos', 'merienda para compartir', 'tabla de merienda'], ['afternoon tea for two', 'shared afternoon tea']),
   happy_hour: tag('Happy hour', 'Happy hour', ['happy hour', '2x1 en tragos'], ['happy hour', 'drink specials']),
 } satisfies TagGroup
 

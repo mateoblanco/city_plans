@@ -5,8 +5,8 @@ import { distanceLabel } from '../labels'
 
 describe('parseFilters', () => {
   it('lee open, diet y neighborhood y descarta lo que no está en los catálogos', () => {
-    expect(parseFilters('open:today,diet:vegan,neighborhood:CORDON')).toEqual({
-      opensToday: true,
+    expect(parseFilters('open:now,diet:vegan,neighborhood:CORDON')).toEqual({
+      opensNow: true,
       diet: ['vegan'],
       neighborhoods: ['CORDON'],
       price: [],
@@ -16,9 +16,9 @@ describe('parseFilters', () => {
       nearby: false,
     })
     // Las categorías ya no son filtros de la barra: van por la intención.
-    // open:now era el filtro viejo ("Abierto ahora"): ya no existe.
-    expect(parseFilters('open:now,category:cafe,diet:keto,neighborhood:NARNIA,tag:nada,basura')).toEqual({
-      opensToday: false,
+    // Sólo open:now y open:today (links viejos) son filtros de horario.
+    expect(parseFilters('open:later,category:cafe,diet:keto,neighborhood:NARNIA,tag:nada,basura')).toEqual({
+      opensNow: false,
       diet: [],
       neighborhoods: [],
       price: [],
@@ -51,10 +51,10 @@ describe('parseFilters', () => {
     expect(applyFilters(value, filters)).toEqual(value)
   })
 
-  it('tag: los del catálogo (cocinas incluidas), sin repetir y nunca un momento', () => {
+  it('tag: los del catálogo (cocinas y momentos incluidos), sin repetir', () => {
     expect(parseFilters('tag:afternoon_snack,tag:japanese,tag:afternoon_snack,tag:nada').tags).toEqual(['afternoon_snack', 'japanese'])
-    // Los momentos son siempre preferencia: no pueden ser un filtro.
-    expect(parseFilters('tag:groups,tag:date').tags).toEqual([])
+    // Los momentos en la URL son un filtro explícito (filas de la home); en el texto siguen siendo preferencia.
+    expect(parseFilters('tag:groups,tag:date').tags).toEqual(['groups', 'date'])
     expect([...filterChipKeys(parseFilters('tag:afternoon_snack'))]).toEqual(['tag:afternoon_snack'])
     const value = emptyInterpretation()
     value.must.tags = ['terrace']
@@ -81,8 +81,8 @@ describe('parseFilters', () => {
   })
 
   it('las claves de chip de los filtros coinciden con las de buildChips', () => {
-    expect([...filterChipKeys(parseFilters('open:today,diet:glutenFree,neighborhood:POCITOS'))]).toEqual([
-      'openAt:today',
+    expect([...filterChipKeys(parseFilters('open:now,diet:glutenFree,neighborhood:POCITOS'))]).toEqual([
+      'openAt:now',
       'diet:glutenFree',
       'neighborhood:POCITOS',
     ])
@@ -120,10 +120,23 @@ describe('applyFilters', () => {
     expect(value.must.price).toEqual(['moderate', 'high'])
   })
 
-  it('si contradicen al texto, ganan el barrio y "abre hoy" del filtro', () => {
-    const value = applyFilters(fromText(), parseFilters('neighborhood:CORDON,open:today'))
+  it('si contradicen al texto, ganan el barrio y "Abierto ahora" del filtro', () => {
+    const value = applyFilters(fromText(), parseFilters('neighborhood:CORDON,open:now'))
     expect(value.must.neighborhoods).toEqual(['CORDON'])
-    expect(value.must.openAt).toBe('today')
+    expect(value.must.openAt).toBe('now')
+  })
+
+  it('links viejos: open:today ("Abre hoy") es "Abierto ahora"', () => {
+    expect(parseFilters('open:today').opensNow).toBe(true)
+    expect([...filterChipKeys(parseFilters('open:today'))]).toEqual(['openAt:now'])
+  })
+
+  it('"Abierto ahora" de la barra gana sobre el horario escrito ("esta noche", "hoy", "hoy al mediodía", un día)', () => {
+    for (const openAt of ['tonight', 'today', 'midday', { day: 6, time: null }] as const) {
+      const value = fromText()
+      value.must.openAt = openAt
+      expect(applyFilters(value, parseFilters('open:now')).must.openAt).toBe('now')
+    }
   })
 
   it('varios barrios de la barra reemplazan a los del texto', () => {
@@ -136,7 +149,7 @@ describe('applyFilters', () => {
 
   it('no modifica la interpretación original (la cacheada por q)', () => {
     const original = fromText()
-    applyFilters(original, parseFilters('diet:vegan,open:today'))
+    applyFilters(original, parseFilters('diet:vegan,open:now'))
     expect(original.must.diet).toEqual({ vegetarian: true })
     expect(original.must.categories).toEqual(['pizzeria'])
   })

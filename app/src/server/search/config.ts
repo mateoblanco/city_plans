@@ -272,16 +272,18 @@ export const SEARCH_CONFIG = {
    * grupo", "juntada"…), en el prompt y en el diccionario. 9: "con mis viejos" no es kids_friendly, "atardecer" pide vista
    * o terraza, y sin una etiqueta que corresponda de verdad no se inventa un mapeo aproximado ("bohemia", "escondido").
    */
-  interpretationCacheVersion: 10,
+  interpretationCacheVersion: 11,
 
   timeZone: 'America/Montevideo',
   /** Faltando esto o menos para el cierre o la apertura, la card dice "Cierra pronto" / "Abre pronto". */
   soonMinutes: 60,
   /**
-   * "Abre hoy" a la noche (cenar o "esta noche"): abierto en algún momento desde `from`. Antes de `until` (madrugada)
-   * todavía es la noche anterior: alcanza con estar abierto ahora.
+   * "Esta noche" (o cenar hoy): abierto en algún momento desde max(ahora, `from`). Antes de `until` (madrugada) todavía
+   * es la noche anterior: alcanza con estar abierto ahora.
    */
-  night: { from: '20:00', until: '06:00', late: '23:30' },
+  night: { from: '19:00', until: '06:00', late: '23:30' },
+  /** "Hoy al mediodía" (almorzar hoy, "al mediodía"): abierto en algún momento entre max(ahora, from) y until. */
+  midday: { from: '11:00', until: '15:00' },
   /**
    * Horas de las franjas del texto ("a la tarde", "a la noche"). "tarde" con bares es trasnoche: night.late, antes de la
    * medianoche para que siga siendo el día pedido ("martes 00:00" sería la noche del lunes).

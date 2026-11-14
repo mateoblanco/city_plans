@@ -3,7 +3,7 @@ import type { Chip, IntentBar, SearchLocation } from "@/server/search";
 import { choiceKey } from "@/server/discounts/selection";
 import { parseFilters } from "@/server/search/filters";
 import { PRICES, type DietKey } from "@/server/search/interpretation";
-import { dietLabel, PRICE_FILTER_LABELS } from "@/server/search/labels";
+import { dietLabel, isTextMomentChip, PRICE_FILTER_LABELS } from "@/server/search/labels";
 import FilterChip from "./FilterChip/FilterChip";
 import LocationSelect from "./LocationSelect/LocationSelect";
 import PriceSelect from "./PriceSelect/PriceSelect";
@@ -69,8 +69,8 @@ const FilterBar = (props: Props) => {
   const toggle = { state: props.state, chips: props.chips };
   // Segunda fila: sólo las opciones de la intención activa. Lo que pidió el texto (momentos, platos, tags…) no va como
   // chip: ya está en el buscador. Quedan los filtros de la URL que no tienen otro lugar (tag de una fila de la home,
-  // "Ver todos" de un grupo), para poder verlos y quitarlos.
-  const extras = props.bar.extras.filter((chip) => chip.fromFilter);
+  // "Ver todos" de un grupo) y el horario escrito ("Hoy", "Esta noche", "Hoy al mediodía"), para poder verlos y quitarlos.
+  const extras = props.bar.extras.filter((chip) => chip.fromFilter || isTextMomentChip(chip));
   const showSubs = props.bar.subs.length > 0 || extras.length > 0;
 
   return (
@@ -83,7 +83,7 @@ const FilterBar = (props: Props) => {
           <PriceSelect options={prices} chips={priceChips} state={props.state} />
           <DietSelect options={diets} chips={dietChips} state={props.state} />
           {discountProviders.length > 0 && <DiscountFilter providers={discountProviders} active={activeDiscounts} state={props.state} />}
-          <Toggle {...toggle} kind="openAt" id="today" text="Abre hoy" />
+          <Toggle {...toggle} kind="openAt" id="now" text="Abierto ahora" />
         </div>
       </ScrollFade>
       {showSubs && (

@@ -42,7 +42,7 @@ export type FuseContext = {
   preferDiet: DietKey[]
   /** Precios pedidos (must.price); vacío si la consulta no habla de precio. */
   price: Price[]
-  /** Momento pedido con openAt (today: "Abre hoy"); null si la consulta no habla de horario. */
+  /** Horario pedido (now, una ventana de hoy o un día/hora); null si la consulta no habla de horario. */
   openAt: OpenFilter | null
   /** La consulta pide lo mejor: rango de calidad más amplio. */
   wantsBest: boolean
@@ -361,8 +361,9 @@ export function boostsFor(row: CandidateRow, context: FuseContext, open: OpenSta
   if (moment > 0) result.momentFit = moment * boosts.momentFit
   const group = groupFit(context.moments, row)
   if (group > 0) result.groupFit = group
-  // "Abre hoy" no empuja a los abiertos: ordena la relevancia y la card dice si abre más tarde.
-  if (!context.openAt?.today && open?.state === 'open' && hoursConfirmed(row.hours)) result.confirmedOpen = boosts.confirmedOpen
+  // Sólo con un día/hora pedidos: "Abierto ahora" son todos abiertos y una ventana de hoy no empuja a los abiertos
+  // (ordena la relevancia y la card dice si abre más tarde).
+  if ((!context.openAt || context.openAt.kind === 'at') && open?.state === 'open' && hoursConfirmed(row.hours)) result.confirmedOpen = boosts.confirmedOpen
   const kids = context.requestedTags.includes('kids_friendly')
   if (kids && row.tags.includes('kids_area')) result.kidsArea = boosts.kidsArea
   if ((kids || context.avoidNight) && isKidsNight(row)) result.kidsNight = boosts.kidsNight
@@ -380,8 +381,8 @@ const tierOf = (item: Fused, context: FuseContext) => [
   item.pinned ? 0 : 1,
   item.matchLevel === 'has' ? 0 : 1,
   // Con openAt: abiertos confirmados, después sin confirmar, al final los cerrados (sólo un fijado por nombre).
-  // Con "Abre hoy" los confirmados van juntos (abiertos o que abren más tarde) y los sin confirmar al final.
-  !context.openAt ? 0 : item.open?.state === 'unconfirmed' ? 1 : context.openAt.today || item.open?.state === 'open' ? 0 : 2,
+  // Con una ventana de hoy los que la cumplen van juntos (abiertos o que abren más tarde).
+  !context.openAt ? 0 : item.open?.state === 'unconfirmed' ? 1 : context.openAt.kind === 'window' || item.open?.state === 'open' ? 0 : 2,
 ]
 
 export function fuse(rows: CandidateRow[], rankings: Rankings, context: FuseContext): Fused[] {

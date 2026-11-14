@@ -38,8 +38,9 @@ describe('"Descuentos con <Banco>" de la home', () => {
     expect(rows.map((entry) => entry.title)).toEqual(['Descuentos con BROU', 'Descuentos con Itaú'])
     // Itaú crédito: el de crédito y el de cualquier tarjeta, no el de débito.
     expect(ids(rows)).toEqual([['b'], ['c', 'o']])
-    // Sin texto y siempre con "Abre hoy".
-    expect(calls.every((call) => call.filters.openAt?.today)).toBe(true)
+    // Sin texto, "Abierto ahora" y todo Montevideo, igual que su "Ver todos".
+    expect(calls.every((call) => call.filters.openAt?.kind === 'now' && call.filters.openAt.moment.time === '13:00')).toBe(true)
+    expect(rows[1].href).toBe(`/search?f=${encodeURIComponent('open:now,discount:itau.credit')}&loc=all`)
   })
 
   it('con débito y crédito del mismo banco, una sola fila con los dos', async () => {
@@ -47,7 +48,7 @@ describe('"Descuentos con <Banco>" de la home', () => {
     const rows = await homeDiscountRows(d, ['itau.debit', 'itau.credit'], now)
     expect(rows).toHaveLength(1)
     expect(ids(rows)).toEqual([['c', 'd']])
-    expect(rows[0].href).toBe(`/search?f=${encodeURIComponent('open:today,discount:itau.debit,discount:itau.credit')}`)
+    expect(rows[0].href).toBe(`/search?f=${encodeURIComponent('open:now,discount:itau.debit,discount:itau.credit')}&loc=all`)
   })
 
   it('ignora claves fuera del catálogo', async () => {

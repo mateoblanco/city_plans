@@ -223,7 +223,7 @@ describe('PlaceEditDialog', () => {
   it('los tags nuevos están en el selector', async () => {
     fakeApi({ 'GET /api/places/uuid-1': () => jsonResponse({ place: detail({ tags: ['rooftop', 'wood_fired_oven', 'shared_afternoon_tea', 'all_you_can_eat'] }) }) })
     renderDialog()
-    for (const name of ['Azotea', 'Horno a leña', 'Merienda para compartir', 'Tenedor libre']) {
+    for (const name of ['Azotea', 'Horno a leña', 'Merienda para 2', 'Tenedor libre']) {
       expect(await screen.findByRole('button', { name: `Sacar ${name}` })).toBeTruthy()
     }
   })

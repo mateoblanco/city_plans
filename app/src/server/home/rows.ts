@@ -1,38 +1,38 @@
 import { searchHref } from '@/components/pages/SearchPage/utils/search-href'
-import { runSearch, type SearchDeps, type SearchResponse } from '../search/search'
+import { runSearch, type SearchDeps } from '../search/search'
+import type { Affinity } from './affinity'
 import type { HomeRow } from './assemble'
-import { HOME_CONFIG, HOME_SECTIONS, homeSearchUrl } from './config'
+import { HOME_CONFIG, homeSearchUrl, type HomeSectionDef } from './config'
+import { openNowResults } from './open'
 
-/** "Abre hoy" de las filas, el mismo filtro de la barra de /search. */
-const OPEN_TODAY = 'open:today'
-
-/**
- * Si nada abría hoy, la búsqueda soltó el horario (relajó openAt) y trae cerrados: la fila queda vacía y no sale.
- */
-export const openResults = (response: SearchResponse) => (response.relaxed.some((notice) => notice.what === 'openAt') ? [] : response.results)
+/** "Abierto ahora": el filtro de la barra con el que buscan todas las filas (salvo Guardados). */
+export const OPEN_NOW = 'open:now'
 
 /**
- * Cada fila del config con los primeros HOME_CONFIG.candidates resultados de su búsqueda (sin texto: sólo SQL, en
- * paralelo). Sin likes: es igual para todos. href es su "Ver todos": los mismos parámetros que la búsqueda.
+ * Cada fila con los primeros HOME_CONFIG.candidates lugares abiertos en `now` (el pool; sin texto: sólo SQL, en paralelo).
+ * Sin guardados: es igual para todos. href es su "Ver todos": la misma búsqueda en /search.
  */
-export async function homeSectionRows(deps: SearchDeps, now?: Date): Promise<HomeRow[]> {
+export async function homeSectionRows(deps: SearchDeps, sections: HomeSectionDef[], now: Date): Promise<HomeRow[]> {
   return Promise.all(
-    HOME_SECTIONS.map(async (section) => {
+    sections.map(async (section) => {
       const url = homeSearchUrl(section.search)
-      const response = await runSearch(url.q, deps, { intent: url.intent, sub: url.sub, filters: url.f, now })
-      return { id: section.id, title: section.title, places: openResults(response).slice(0, HOME_CONFIG.candidates), href: searchHref(url) }
+      const response = await runSearch('', deps, { intent: url.intent, sub: url.sub, filters: url.f, loc: url.loc, now })
+      return { id: section.id, title: section.title, places: openNowResults(response).slice(0, HOME_CONFIG.candidates), href: searchHref(url) }
     }),
   )
 }
 
 /**
- * "Para vos" de la home con los guardados de la cookie como señal de gustos: el perfil con más guardados, de 4 a 8 lugares, sólo entre los que abren
- * hoy (como las demás filas). null sin perfil.
+ * "Para vos" de la home con los guardados de la cookie como señal de gustos: el perfil con más guardados, de 4 a 8 lugares,
+ * sólo entre los abiertos ahora (como las demás filas). affinity: la de cada candidato con el perfil de su tipo, para
+ * reordenar las demás filas sin otra consulta. null sin guardados.
  */
-export async function homeForYouRow(deps: SearchDeps, likes: string[], now?: Date): Promise<HomeRow | null> {
+export async function homeForYouRow(deps: SearchDeps, likes: string[], now: Date = new Date()): Promise<{ row: HomeRow | null; affinity: Affinity | null } | null> {
   if (likes.length === 0) return null
-  const response = await runSearch('', deps, { likes, home: true, filters: OPEN_TODAY, now })
-  if (!response.forYou) return null
-  const byId = new Map(openResults(response).map((place) => [place.id, place]))
-  return { id: 'for_you', title: response.forYou.title, places: response.forYou.placeIds.flatMap((id) => byId.get(id) ?? []), href: null }
+  const response = await runSearch('', deps, { likes, home: true, filters: OPEN_NOW, now })
+  const affinity = response.affinity ?? null
+  if (!response.forYou) return { row: null, affinity }
+  const byId = new Map(openNowResults(response).map((place) => [place.id, place]))
+  const row = { id: 'for_you', title: response.forYou.title, places: response.forYou.placeIds.flatMap((id) => byId.get(id) ?? []), href: null }
+  return { row, affinity }
 }

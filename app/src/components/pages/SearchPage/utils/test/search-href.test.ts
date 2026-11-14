@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addFilterHref, barIntentHref, extraHref, intentHref, nearbyHref, removeChipHref, searchHref, sectionHref, setDietsHref, setLocationHref, setNeighborhoodsHref, setPricesHref, zoneHref, subHref, widenUrl, type BarRef } from "../search-href";
+import { addFilterHref, barIntentHref, extraHref, filterKey, intentHref, nearbyHref, removeChipHref, searchHref, sectionHref, setDietsHref, setLocationHref, setNeighborhoodsHref, setPricesHref, zoneHref, subHref, widenUrl, type BarRef } from "../search-href";
 
 describe("searchHref", () => {
   it("suma el chip a los remove que ya estaban, sin duplicar", () => {
@@ -16,7 +16,7 @@ describe("searchHref", () => {
   });
 
   it("sin texto queda sólo con los filtros", () => {
-    expect(searchHref({ q: "", f: "diet:vegan,open:today" })).toBe("/search?f=diet%3Avegan%2Copen%3Atoday");
+    expect(searchHref({ q: "", f: "diet:vegan,open:now" })).toBe("/search?f=diet%3Avegan%2Copen%3Anow");
     expect(searchHref({ q: "" })).toBe("/search");
   });
 });
@@ -47,8 +47,23 @@ describe("chips y barra de filtros", () => {
   });
 
   it("prender un filtro lo suma a f y lo saca de remove", () => {
-    const href = read(addFilterHref({ q: "cafés", remove: "openAt:today,tag:terrace" }, { kind: "openAt", id: "today" }));
-    expect(href).toEqual({ q: "cafés", remove: "tag:terrace", f: "open:today" });
+    const href = read(addFilterHref({ q: "cafés", remove: "openAt:now,tag:terrace" }, { kind: "openAt", id: "now" }));
+    expect(href).toEqual({ q: "cafés", remove: "tag:terrace", f: "open:now" });
+  });
+
+  it('"Abierto ahora": su clave es open:now; los horarios escritos ("Hoy", "Esta noche") no son de la barra', () => {
+    expect(filterKey({ kind: "openAt", id: "now" })).toBe("open:now");
+    for (const id of ["today", "tonight", "midday", "day"]) expect(filterKey({ kind: "openAt", id })).toBeNull();
+    // Quitar "Hoy" escrito va a remove.
+    expect(read(removeChipHref({ q: "bares hoy" }, { kind: "openAt", id: "today", fromText: true }))).toEqual({ q: "bares hoy", remove: "openAt:today" });
+  });
+
+  it('links viejos con "Abre hoy" (open:today): salen como "Abierto ahora" y quitarlo funciona', () => {
+    const old = { q: "", f: "open:today,diet:vegan" };
+    expect(read(searchHref(old)).f).toBe("open:now,diet:vegan");
+    expect(read(removeChipHref(old, { kind: "openAt", id: "now", fromFilter: true })).f).toBe("diet:vegan");
+    // Prenderlo de nuevo no lo duplica.
+    expect(read(addFilterHref(old, { kind: "openAt", id: "now" })).f).toBe("open:now,diet:vegan");
   });
 
   it("los barrios reemplazan a los anteriores y quitan los del texto; Todos también", () => {
@@ -84,12 +99,12 @@ describe("chips y barra de filtros", () => {
   it("buscar en esta zona reemplaza el barrio (de la barra y del texto) y conserva lo demás; la URL nunca lleva la ubicación", () => {
     const palermo = [{ kind: "neighborhood", id: "PALERMO", fromText: true, fromFilter: false }];
     const bounds = { south: -34.92049, west: -56.16051, north: -34.90012, east: -56.14001 };
-    expect(read(zoneHref({ q: "tragos en palermo", intent: "bars", sub: "cocktails", f: "open:today" }, bounds, palermo))).toEqual({
+    expect(read(zoneHref({ q: "tragos en palermo", intent: "bars", sub: "cocktails", f: "open:now" }, bounds, palermo))).toEqual({
       q: "tragos en palermo",
       remove: "neighborhood:PALERMO",
       intent: "bars",
       sub: "cocktails",
-      f: "open:today",
+      f: "open:now",
       loc: "-34.921,-56.161,-34.9,-56.14",
     });
     expect(read(zoneHref(state, { south: -34.92, west: -56.16, north: -34.9, east: -56.14 }, [])).f).toBe("diet:vegan");
@@ -203,7 +218,7 @@ describe("intención y sub-filtros", () => {
 
 describe("chips de intención de la barra: texto + intención", () => {
   const empty: BarRef = { intent: null, textIntent: null, subs: [], extras: [] };
-  const f = "open:today";
+  const f = "open:now";
 
   it("texto + intención: conserva el texto y no quita lo que pidió (ya no se ve como extra)", () => {
     // "salir con mi pareja" (Cita es un momento) y "pizza" (plato): elegir Cafés suma la intención y nada más.

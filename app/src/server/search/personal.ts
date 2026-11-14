@@ -366,6 +366,23 @@ export function personalize(
     const norm = Math.sqrt(ids.reduce((sum, a) => sum + ids.reduce((inner, b) => inner + (a === b ? 1 : data.pairs[a]?.[b] ?? 0), 0), 0))
     return norm ? ids.reduce((sum, likeId) => sum + (byLike[likeId] ?? 0), 0) / norm : null
   }
+  /**
+   * Home: la afinidad de cada candidato con el perfil de su tipo, la misma cuenta que "Para vos" (parecido con el perfil
+   * + beta × rasgos), para reordenar en memoria las demás filas. Sin perfil de su tipo (o sin parecido), no está.
+   */
+  const homeAffinity = () => {
+    const scores = new Map<string, number>()
+    for (const item of fused) {
+      const kind = placeKind(item.row)
+      const profile = kind ? profiles.get(kind) : undefined
+      if (!profile) continue
+      const similarity = profileSimilarity(profile, item.row.id)
+      if (similarity === null) continue
+      const score = similarity + config.affinity.beta * affinityOf(profile.traits, item.row).value
+      for (const id of cardIds(item)) scores.set(id, score)
+    }
+    return scores
+  }
   const chain = (item: Collapsed) => (item.row.brandCount >= config.chainMinBranches ? `cadena (${item.row.brandCount} sucursales)` : null)
 
   const likedIds = new Set(liked.keys())
@@ -420,7 +437,7 @@ export function personalize(
 
   if (!context.grouped || context.home) {
     const forYou = take(profileGroup('for_you', pool, context.home ? config.home : config.forYou))
-    return { groups: [] as PersonalGroup[], forYou, debug }
+    return { groups: [] as PersonalGroup[], forYou, debug, affinity: context.home ? homeAffinity() : null }
   }
 
   const limits = { min: config.minPlaces, max: config.maxPlaces }
@@ -456,7 +473,7 @@ export function personalize(
     const similar = take(pickGroup('similar', entries, { limits, diverse: false, skipped, title: () => ({ title, traits: [] }) }))
     if (similar) {
       debug.groups.push(none('profile', TITLES.profile[context.lang], 'ya hay "Parecido a"').debug)
-      return { groups: [similar], forYou: null, debug }
+      return { groups: [similar], forYou: null, debug, affinity: null }
     }
   } else {
     const which = active.kind ? `ningún like de ${active.kind}` : 'ningún like'
@@ -467,5 +484,5 @@ export function personalize(
   const top = new Set<Collapsed>(fused.slice(0, config.profileMaxPosition))
   const profile = take(profileGroup('profile', pool.filter((item) => top.has(item)), limits))
   if (profile) groups.push(profile)
-  return { groups, forYou: null, debug }
+  return { groups, forYou: null, debug, affinity: null }
 }

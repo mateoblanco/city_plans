@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { PgDialect } from 'drizzle-orm/pg-core'
-import { candidatesQuery, openAtSql, opensTodaySql } from '../candidates'
+import { candidatesQuery, openAtSql, openFilterSql, openWindowSql } from '../candidates'
 import { dishTarget } from '../dishes'
-import { montevideoNow, nextOpening, openStatus, opensToday, resolveOpenAt, type Hours } from '../hours'
+import { matchesOpenFilter, montevideoNow, nextOpening, openStatus, opensToday, resolveOpenAt, type Hours } from '../hours'
 import { openStateLabel, openStateText } from '../labels'
 
 const lateBar: Hours = { status: 'exact', slots: [{ day: 5, opens: '20:00', closes: '02:00' }] }
@@ -16,13 +16,19 @@ describe('montevideoNow', () => {
     expect(montevideoNow(new Date('2026-10-12T15:05:00Z'))).toEqual({ day: 1, time: '12:05' })
   })
 
-  it('resuelve openAt: abre hoy (con la hora actual), un día y hoy a una hora', () => {
+  it('resuelve openAt: abierto ahora, hoy, esta noche, hoy al mediodía, un día y hoy a una hora', () => {
     const now = new Date('2026-10-12T15:05:00Z') // lunes 12:05
-    expect(resolveOpenAt('today', now)).toEqual({ moment: { day: 1, time: '12:05' }, today: true, night: false })
-    expect(resolveOpenAt('tonight', now)).toEqual({ moment: { day: 1, time: '12:05' }, today: true, night: true })
-    expect(resolveOpenAt('today', now, { dinner: true })).toEqual({ moment: { day: 1, time: '12:05' }, today: true, night: true })
-    expect(resolveOpenAt({ day: 0, time: null }, now, { dinner: true })).toEqual({ moment: { day: 0, time: null }, today: false, night: false })
-    expect(resolveOpenAt({ day: null, time: '21:00' }, now)).toEqual({ moment: { day: 1, time: '21:00' }, today: false, night: false })
+    const moment = { day: 1, time: '12:05' }
+    expect(resolveOpenAt('now', now)).toEqual({ kind: 'now', moment, confirmed: true })
+    expect(resolveOpenAt('today', now)).toEqual({ kind: 'window', moment, from: '12:05', until: null, night: false, confirmed: true })
+    // Esta noche: desde las 19:00 (o ahora, si ya es más tarde).
+    expect(resolveOpenAt('tonight', now)).toEqual({ kind: 'window', moment, from: '19:00', until: null, night: true, confirmed: true })
+    expect(resolveOpenAt('tonight', new Date('2026-10-13T01:30:00Z'))).toMatchObject({ from: '22:30' })
+    // Hoy al mediodía: desde las 11:00 (o ahora) hasta las 15:00.
+    expect(resolveOpenAt('midday', now)).toEqual({ kind: 'window', moment, from: '12:05', until: '15:00', night: false, confirmed: true })
+    expect(resolveOpenAt('midday', new Date('2026-10-12T12:00:00Z'))).toMatchObject({ from: '11:00', until: '15:00' })
+    expect(resolveOpenAt({ day: 0, time: null }, now)).toEqual({ kind: 'at', moment: { day: 0, time: null }, confirmed: false })
+    expect(resolveOpenAt({ day: null, time: '21:00' }, now)).toEqual({ kind: 'at', moment: { day: 1, time: '21:00' }, confirmed: false })
     expect(resolveOpenAt(null, now)).toBeNull()
   })
 })
@@ -213,21 +219,35 @@ describe('opensToday', () => {
 describe('SQL de candidatos', () => {
   const dialect = new PgDialect()
 
-  it('openAt mira el día anterior para los horarios que cruzan la medianoche', () => {
+  it('openAt mira el día anterior para los horarios que cruzan la medianoche; un día/hora deja pasar los sin confirmar', () => {
     const query = dialect.sqlToQuery(openAtSql({ day: 0, time: '01:00' }))
     expect(query.params).toEqual([0, '01:00', '01:00', 6, '01:00'])
-    expect(query.sql).toContain("hours->>'status' not in ('exact', 'partial')")
+    expect(query.sql).toContain("jsonb_array_length(hours->'slots') = 0) or exists")
   })
 
-  it('abre hoy: abierto ahora o un turno de hoy que abre más tarde', () => {
-    const query = dialect.sqlToQuery(opensTodaySql({ day: 3, time: '01:00' }))
+  it('"Abierto ahora": abierto en ese momento y sólo con horario confirmado', () => {
+    const query = dialect.sqlToQuery(openFilterSql({ kind: 'now', moment: { day: 0, time: '01:00' }, confirmed: true }))
+    expect(query.params).toEqual([0, '01:00', '01:00', 6, '01:00'])
+    expect(query.sql).toContain("(false or exists")
+    expect(query.sql).toContain("and not (hours->>'status' not in ('exact', 'partial')")
+  })
+
+  it('hoy: abierto ahora o un turno de hoy que abre más tarde, sin los de horario sin confirmar', () => {
+    const query = dialect.sqlToQuery(openWindowSql(3, { from: '01:00', until: null, night: false }))
     expect(query.params).toEqual([3, '01:00', '01:00', 2, '01:00', 3, '01:00'])
     expect(query.sql).toContain("s->>'opens' >")
+    expect(query.sql).toContain("not (hours->>'status' not in ('exact', 'partial')")
   })
 
-  it('abre hoy a la noche: desde las 20 y sólo turnos que llegan a la noche', () => {
-    const query = dialect.sqlToQuery(opensTodaySql({ day: 1, time: '13:00' }, true))
-    expect(query.params).toEqual([1, '20:00', '20:00', 0, '20:00', 1, '20:00', '20:00'])
+  it('esta noche: desde las 19 y sólo turnos que llegan a la noche', () => {
+    const query = dialect.sqlToQuery(openWindowSql(1, { from: '19:00', until: null, night: true }))
+    expect(query.params).toEqual([1, '19:00', '19:00', 0, '19:00', 1, '19:00', '19:00'])
+  })
+
+  it('hoy al mediodía: turnos que abren antes de las 15; pasada la ventana, nada', () => {
+    const query = dialect.sqlToQuery(openWindowSql(1, { from: '11:00', until: '15:00', night: false }))
+    expect(query.params).toEqual([1, '11:00', '11:00', 0, '11:00', 1, '11:00', '15:00'])
+    expect(dialect.sqlToQuery(openWindowSql(1, { from: '15:30', until: '15:00', night: false })).sql).toBe('false')
   })
 
   it('la regla de una sección puede pedir íconos', () => {
@@ -285,5 +305,51 @@ describe('SQL de candidatos', () => {
     expect(query.sql).toContain('ST_Distance(location, ST_SetSRID(ST_MakePoint($')
     // ST_MakePoint(lng, lat): primero la longitud.
     expect(query.params.slice(0, 3)).toEqual([-56.185, -34.905, 1500])
+  })
+})
+
+describe('ventanas de hoy (opensWithin / matchesOpenFilter)', () => {
+  // Lunes: uno sólo al mediodía (12–15), uno de noche (20–01), uno de tarde (16–19:30) y uno sin horario.
+  const midday: Hours = { status: 'exact', slots: [{ day: 1, opens: '12:00', closes: '15:00' }] }
+  const night: Hours = { status: 'exact', slots: [{ day: 1, opens: '20:00', closes: '01:00' }] }
+  const afternoon: Hours = { status: 'exact', slots: [{ day: 1, opens: '16:00', closes: '19:30' }] }
+  const unknown: Hours = { status: 'none', slots: [] }
+  const at = (time: string) => new Date(`2026-10-12T${time}:00-03:00`)
+  const matches = (hours: Hours, openAt: 'now' | 'today' | 'tonight' | 'midday', time: string) => matchesOpenFilter(hours, resolveOpenAt(openAt, at(time))!)
+
+  it('esta noche a las 14:00: los que abren a la noche, no el del mediodía', () => {
+    expect(matches(night, 'tonight', '14:00')).toBe('yes')
+    expect(matches(midday, 'tonight', '14:00')).toBe('no')
+    // Abierto a las 19:00 (cierra 19:30): llega a la noche.
+    expect(matches(afternoon, 'tonight', '14:00')).toBe('yes')
+  })
+
+  it('esta noche a las 19:30 y a las 22:30: no trae los que ya cerraron', () => {
+    expect(matches(afternoon, 'tonight', '19:30')).toBe('no')
+    expect(matches(night, 'tonight', '22:30')).toBe('yes')
+    expect(matches(afternoon, 'tonight', '22:30')).toBe('no')
+  })
+
+  it('esta noche a la 01:00 del martes: sigue la noche del lunes (abierto ahora)', () => {
+    const lateNow = matchesOpenFilter(night, resolveOpenAt('tonight', new Date('2026-10-13T00:30:00-03:00'))!)
+    expect(lateNow).toBe('yes')
+  })
+
+  it('hoy al mediodía: a las 10:00 y 13:00 sí; a las 15:30 ya no', () => {
+    expect(matches(midday, 'midday', '10:00')).toBe('yes')
+    expect(matches(midday, 'midday', '13:00')).toBe('yes')
+    expect(matches(midday, 'midday', '15:30')).toBe('no')
+    expect(matches(night, 'midday', '10:00')).toBe('no')
+  })
+
+  it('hoy: abierto ahora o abre más tarde; abierto ahora: sólo los abiertos', () => {
+    expect(matches(night, 'today', '13:00')).toBe('yes')
+    expect(matches(midday, 'today', '16:00')).toBe('no')
+    expect(matches(midday, 'now', '13:00')).toBe('yes')
+    expect(matches(night, 'now', '13:00')).toBe('no')
+  })
+
+  it('sin horario confirmado no se sabe (la búsqueda los saca con estos cuatro)', () => {
+    for (const openAt of ['now', 'today', 'tonight', 'midday'] as const) expect(matches(unknown, openAt, '13:00')).toBe('unconfirmed')
   })
 })

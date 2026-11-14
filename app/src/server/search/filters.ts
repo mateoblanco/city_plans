@@ -1,17 +1,17 @@
 import { NEIGHBORHOOD_NAMES } from '@shared/neighborhood-names.ts'
 import { isSectionId, type SectionId } from '@shared/sections.ts'
-import { isOccasionTag, TAG_IDS, type TagId } from '@shared/tags.ts'
+import { TAG_IDS, type TagId } from '@shared/tags.ts'
 import { parseChoice, type DiscountChoice } from '../discounts/selection'
 import { roundCoord } from './coords'
 import { DIET_KEYS, PRICES, type DietKey, type Interpretation, type Price } from './interpretation'
 
 /**
- * Filtros de la barra (`f=open:today,diet:vegan,neighborhood:CORDON,neighborhood:POCITOS,price:low`). No son un sistema aparte: se aplican sobre
+ * Filtros de la barra (`f=open:now,diet:vegan,neighborhood:CORDON,neighborhood:POCITOS,price:low`). No son un sistema aparte: se aplican sobre
  * la interpretación y salen como los mismos chips que lo escrito. Las categorías van por la intención (intents.ts).
  */
 export type SearchFilters = {
-  /** "Abre hoy": abierto ahora o abre más tarde hoy. */
-  opensToday: boolean
+  /** "Abierto ahora" (`open:now`; `open:today`, el "Abre hoy" de los links viejos, cuenta igual). */
+  opensNow: boolean
   diet: DietKey[]
   /** Reemplazan los barrios del texto. */
   neighborhoods: string[]
@@ -41,12 +41,16 @@ export type SearchFilters = {
 
 export type LatLng = { lat: number; lng: number }
 
-export const emptyFilters = (): SearchFilters => ({ opensToday: false, diet: [], neighborhoods: [], price: [], section: null, tags: [], discounts: [], nearby: false })
+export const emptyFilters = (): SearchFilters => ({ opensNow: false, diet: [], neighborhoods: [], price: [], section: null, tags: [], discounts: [], nearby: false })
 
 export const hasFilters = (filters: SearchFilters) =>
-  filters.opensToday || filters.diet.length > 0 || filters.neighborhoods.length > 0 || filters.price.length > 0 || filters.section !== null || filters.tags.length > 0 || filters.discounts.length > 0 || filters.nearby
+  filters.opensNow || filters.diet.length > 0 || filters.neighborhoods.length > 0 || filters.price.length > 0 || filters.section !== null || filters.tags.length > 0 || filters.discounts.length > 0 || filters.nearby
 
-const FILTER_TAGS = new Set<string>(TAG_IDS.filter((id) => !isOccasionTag(id)))
+/**
+ * Todos los tags del catálogo, momentos incluidos (`tag:groups`, `tag:date`): pedidos en la URL son un filtro explícito
+ * (las filas de la home y su "Ver todos"). Escritos en el texto siguen siendo sólo preferencia (validateInterpretation).
+ */
+const FILTER_TAGS = new Set<string>(TAG_IDS)
 
 /** Parsea `f`; descarta lo que no está en los catálogos. */
 export function parseFilters(raw: string | null | undefined): SearchFilters {
@@ -56,7 +60,7 @@ export function parseFilters(raw: string | null | undefined): SearchFilters {
     if (index <= 0) continue
     const kind = part.slice(0, index).trim()
     const id = part.slice(index + 1).trim()
-    if (kind === 'open' && id === 'today') filters.opensToday = true
+    if (kind === 'open' && (id === 'now' || id === 'today')) filters.opensNow = true
     else if (kind === 'diet' && (DIET_KEYS as readonly string[]).includes(id) && !filters.diet.includes(id as DietKey)) filters.diet.push(id as DietKey)
     else if (kind === 'neighborhood' && id in NEIGHBORHOOD_NAMES && !filters.neighborhoods.includes(id)) filters.neighborhoods.push(id)
     else if (kind === 'price' && (PRICES as readonly string[]).includes(id) && !filters.price.includes(id as Price)) filters.price.push(id as Price)
@@ -83,14 +87,14 @@ export function parseNear(raw: string | null | undefined): LatLng | null {
 }
 
 /**
- * Suma los filtros a lo interpretado. La dieta y los tags se suman; "abre hoy", los barrios y el precio reemplazan lo del texto:
+ * Suma los filtros a lo interpretado. La dieta y los tags se suman; "Abierto ahora", los barrios y el precio reemplazan lo del texto
+ * (también "hoy", "esta noche" o un día escritos):
  * si se contradicen, gana el filtro.
  */
 export function applyFilters(value: Interpretation, filters: SearchFilters): Interpretation {
   const must = { ...value.must, diet: { ...value.must.diet } }
   for (const key of filters.diet) must.diet[key] = true
-  // "esta noche" del texto ya es "Abre hoy" (a la noche): el filtro no lo pisa.
-  if (filters.opensToday && must.openAt !== 'tonight') must.openAt = 'today'
+  if (filters.opensNow) must.openAt = 'now'
   if (filters.neighborhoods.length) must.neighborhoods = [...filters.neighborhoods]
   if (filters.price.length) must.price = [...filters.price]
   if (filters.tags.length) must.tags = [...new Set([...must.tags, ...filters.tags])]
@@ -100,7 +104,7 @@ export function applyFilters(value: Interpretation, filters: SearchFilters): Int
 /** Claves `kind:id` de chip que vienen de los filtros, para saber cómo se apaga cada chip. */
 export function filterChipKeys(filters: SearchFilters): Set<string> {
   return new Set([
-    ...(filters.opensToday ? ['openAt:today'] : []),
+    ...(filters.opensNow ? ['openAt:now'] : []),
     ...filters.diet.map((key) => `diet:${key}`),
     ...filters.neighborhoods.map((id) => `neighborhood:${id}`),
     ...filters.price.map((id) => `price:${id}`),

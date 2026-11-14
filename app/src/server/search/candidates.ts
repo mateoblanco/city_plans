@@ -2,7 +2,7 @@ import { sql, type SQL } from 'drizzle-orm'
 import { withPartialTags, withSubcuisines } from '@shared/tags.ts'
 import { SEARCH_CONFIG } from './config'
 import type { DishTarget } from './dishes'
-import { opensTodayFrom, type Hours, type Moment, type OpenFilter } from './hours'
+import type { Hours, Moment, OpenFilter } from './hours'
 import type { DietKey, Price } from './interpretation'
 import type { IntentMatch } from '@shared/intents.ts'
 import type { IconCategory } from '@shared/icon-categories.ts'
@@ -136,33 +136,50 @@ function dishExactSql(dish: string): SQL {
   return sql`exists (select 1 from unnest(dishes) d where f_unaccent(lower(d)) = f_unaccent(lower(${dish})))`
 }
 
-/** Misma regla que openStatus(): cruces de medianoche, closes null y horarios sin confirmar que no se excluyen. */
-export function openAtSql(moment: Moment): SQL {
-  const unconfirmed = sql`(hours->>'status' not in ('exact', 'partial') or jsonb_array_length(hours->'slots') = 0)`
+const UNCONFIRMED_SQL = sql`(hours->>'status' not in ('exact', 'partial') or jsonb_array_length(hours->'slots') = 0)`
+
+/**
+ * Misma regla que openStatus(): cruces de medianoche y closes null. Los de horario sin confirmar pasan salvo con
+ * `confirmed` ("Abierto ahora", "Hoy", "Esta noche", "Hoy al mediodía": si no se puede confirmar, no salen).
+ */
+export function openAtSql(moment: Moment, confirmed = false): SQL {
+  const unconfirmed = confirmed ? sql`false` : UNCONFIRMED_SQL
+  const known = confirmed ? sql` and not ${UNCONFIRMED_SQL}` : sql``
   if (moment.time === null) {
-    return sql`(${unconfirmed} or exists (select 1 from jsonb_array_elements(hours->'slots') s where (s->>'day')::int = ${moment.day}))`
+    return sql`((${unconfirmed} or exists (select 1 from jsonb_array_elements(hours->'slots') s where (s->>'day')::int = ${moment.day}))${known})`
   }
   const previousDay = (moment.day + 6) % 7
-  return sql`(${unconfirmed} or exists (
+  return sql`((${unconfirmed} or exists (
     select 1 from jsonb_array_elements(hours->'slots') s
     where ((s->>'day')::int = ${moment.day} and s->>'opens' <= ${moment.time}
            and (s->>'closes' is null or s->>'closes' <= s->>'opens' or ${moment.time} < s->>'closes'))
        or ((s->>'day')::int = ${previousDay} and s->>'closes' is not null
            and s->>'closes' <= s->>'opens' and ${moment.time} < s->>'closes')
-  ))`
+  ))${known})`
 }
 
-/** "Abre hoy", misma regla que opensToday(): abierto desde ya (o desde la noche), o un turno de hoy que abre más tarde. */
-export function opensTodaySql(moment: { day: number; time: string }, night = false): SQL {
-  const from = opensTodayFrom(moment.time, night)
+/**
+ * Una ventana de hoy, misma regla que opensWithin(): abierto a `from` o un turno de ese día que abre después de `from`
+ * y antes de `until` (night: sólo turnos que llegan a la noche). Siempre sin los de horario sin confirmar.
+ */
+export function openWindowSql(day: number, window: { from: string; until: string | null; night: boolean }): SQL {
+  const { from, until, night } = window
+  if (until !== null && from >= until) return sql`false`
   const nightFrom = SEARCH_CONFIG.night.from
   const reachesNight = night
     ? sql` and (s->>'closes' is null or s->>'closes' <= s->>'opens' or s->>'closes' > ${nightFrom})`
     : sql``
-  return sql`(${openAtSql({ day: moment.day, time: from })} or exists (
+  const before = until === null ? sql`` : sql` and s->>'opens' < ${until}`
+  return sql`(${openAtSql({ day, time: from }, true)} or (not ${UNCONFIRMED_SQL} and exists (
     select 1 from jsonb_array_elements(hours->'slots') s
-    where (s->>'day')::int = ${moment.day} and s->>'opens' > ${from}${reachesNight}
-  ))`
+    where (s->>'day')::int = ${day} and s->>'opens' > ${from}${before}${reachesNight}
+  )))`
+}
+
+/** El horario pedido como condición SQL (misma regla que matchesOpenFilter). */
+export function openFilterSql(filter: OpenFilter): SQL {
+  if (filter.kind === 'window') return openWindowSql(filter.moment.day, filter)
+  return openAtSql(filter.moment, filter.confirmed)
 }
 
 function groupSql(group: FilterGroup): SQL {
@@ -213,8 +230,7 @@ export function filterConditions(filters: CandidateFilters): SQL[] {
   // Precio pedido: sólo los que lo tienen confirmado ("barato" son sólo los Accesible, aunque sean pocos).
   if (filters.price.length) conditions.push(sql`price = any(${textArray(filters.price)})`)
   if (filters.openAt) {
-    const { moment, today, night } = filters.openAt
-    conditions.push(today && moment.time ? opensTodaySql({ day: moment.day, time: moment.time }, night) : openAtSql(moment))
+    conditions.push(openFilterSql(filters.openAt))
   }
   if (filters.near) conditions.push(sql`ST_DWithin(location, ${pointSql(filters.near)}, ${filters.near.radiusM})`)
   if (filters.zone) {

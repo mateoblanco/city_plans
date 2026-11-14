@@ -8,7 +8,7 @@ export type SearchUrl = {
   /** Intención elegida en la barra (bars) y sus sub-filtros (cocktails,live_music). */
   intent?: string | null;
   sub?: string | null;
-  /** Filtros de la barra (open:today,diet:vegan,neighborhood:CORDON). */
+  /** Filtros de la barra (open:now,diet:vegan,neighborhood:CORDON). */
   f?: string | null;
   /**
    * Dónde (`src/lib/location.ts`): `near` (cerca mío; nunca coordenadas: usa la ubicación de quien abre el link), `all`
@@ -38,12 +38,18 @@ const list = (raw: string | null | undefined) =>
 
 /**
  * Clave del chip en `f`; null si ese chip no es un filtro de la barra. section es el "Ver todos" de un grupo, nearby el de
- * "Cerca de <barrio>" y tag, el de una fila de la home (Merienda).
+ * "Cerca de <barrio>" y tag, el de una fila de la home (Brunch).
  */
 export function filterKey({ kind, id }: { kind: string; id: string }): string | null {
-  if (kind === "openAt") return id === "today" ? "open:today" : null;
+  if (kind === "openAt") return id === "now" ? "open:now" : null;
   return kind === "diet" || kind === "neighborhood" || kind === "price" || kind === "section" || kind === "nearby" || kind === "tag" ? `${kind}:${id}` : null;
 }
+
+/** Claves de `f` de links viejos y su forma actual: "Abre hoy" (`open:today`) es "Abierto ahora". */
+const LEGACY_FILTERS: Record<string, string> = { "open:today": "open:now" };
+
+/** `f` con las claves viejas en su forma actual, sin repetidos. */
+const currentFilters = (raw: string | null | undefined) => [...new Set(list(raw).map((item) => LEGACY_FILTERS[item] ?? item))];
 
 /** URL de /search. `add` suma un chip a remove (lo que hacía antes quitar un chip). */
 export function searchHref({ q, remove, intent, sub, f, loc, debug, profile, add }: SearchUrl & { add?: { kind: string; id: string } }): string {
@@ -59,7 +65,8 @@ export function searchHref({ q, remove, intent, sub, f, loc, debug, profile, add
     const subs = [...new Set(list(sub))];
     if (subs.length) params.set("sub", subs.join(","));
   }
-  const filters = [...new Set(list(f))];
+  // Un link viejo con "Abre hoy" (`open:today`) sale con "Abierto ahora" (`open:now`).
+  const filters = currentFilters(f);
   if (filters.length) params.set("f", filters.join(","));
   if (loc) params.set("loc", loc);
   if (debug) params.set("debug", "1");
@@ -77,7 +84,7 @@ const without = (raw: string | null | undefined, key: string) => list(raw).filte
 export function removeChipHref(state: SearchUrl, chip: ChipRef): string {
   if (chip.kind === "near") return searchHref({ ...state, loc: "all" });
   const key = filterKey(chip);
-  const f = chip.fromFilter && key ? without(state.f, key) : state.f;
+  const f = chip.fromFilter && key ? without(currentFilters(state.f).join(","), key) : state.f;
   const fromText = chip.fromText ?? !chip.fromFilter;
   return searchHref({ ...state, f, add: fromText ? chip : undefined });
 }
@@ -147,7 +154,8 @@ function textRow(bar: BarRef): string[] {
     ...bar.subs.filter((sub) => sub.active && sub.fromText).flatMap((sub) => sub.removeKeys),
     // Los momentos y el style ("con amigos", "de barrio") no son de la intención: siguen al cambiarla. El venue
     // ("En Mercado del Puerto") tampoco: es dónde.
-    ...(bar.intent ? bar.extras.filter((chip) => chip.fromText !== false && chip.kind !== "prefer" && chip.kind !== "venue").map((chip) => `${chip.kind}:${chip.id}`) : []),
+    // El horario escrito ("Hoy", "Esta noche") tampoco: es cuándo.
+    ...(bar.intent ? bar.extras.filter((chip) => chip.fromText !== false && chip.kind !== "prefer" && chip.kind !== "venue" && chip.kind !== "openAt").map((chip) => `${chip.kind}:${chip.id}`) : []),
   ].filter((key) => !key.startsWith("category:"));
 }
 
@@ -155,7 +163,7 @@ const intentKeys = (bar: BarRef) => (bar.textIntent ? [`intent:${bar.textIntent}
 
 /**
  * Elegir una intención (o null = "Todo"): limpia los sub-filtros de la anterior, vengan de la URL o del texto,
- * pero conserva barrio, abre hoy, dietas (f) y la ubicación (loc).
+ * pero conserva barrio, "Abierto ahora", dietas (f) y la ubicación (loc).
  */
 export function intentHref(state: SearchUrl, id: string | null, bar: BarRef): string {
   return searchHref({ ...state, intent: id, sub: null, remove: [...list(state.remove), ...intentKeys(bar), ...textRow(bar)].join(",") });

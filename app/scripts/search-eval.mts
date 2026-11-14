@@ -1,6 +1,6 @@
 // Corre el set de consultas de prueba contra Neon y muestra la interpretación y el top 5 de cada una, más las
 // verificaciones de search-checks.ts (sale con error si alguna falla).
-// Uso: yarn search:eval [--debug] [--top=10] [--f=open:today,diet:vegan] [--intent=eat] [--sub=breakfast] [--likes=<id>,<id>…] [consulta...]
+// Uso: yarn search:eval [--debug] [--top=10] [--f=open:now,diet:vegan] [--intent=eat] [--sub=breakfast] [--likes=<id>,<id>…] [consulta...]
 //      yarn search:check   (sólo las consultas con verificaciones, sin el detalle)
 //      yarn search:eval --baseline=<archivo.json> consulta...   (punto de partida antes de un cambio en la base: top 10, tags de los publicados, interpretación y embeddings)
 //      yarn search:eval --compare=<archivo.json> [--out=<archivo.md>]   (top 10 antes y después, con la misma interpretación, los mismos embeddings de consulta y la misma hora; sin llamadas pagas)

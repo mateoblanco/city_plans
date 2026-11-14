@@ -38,7 +38,7 @@ type InterpretedProps = {
 const Interpreted = (props: InterpretedProps) => {
   const { interpretation: value, semanticText, source } = props.debug;
   const at = value.must.openAt;
-  const openAt = at === null ? "—" : at === "today" ? "abre hoy" : at === "tonight" ? "abre hoy (noche)" : `${at.day === null ? "hoy" : DAY_NAMES.es[at.day]}${at.time ? ` ${at.time}` : ""}`;
+  const openAt = at === null ? "—" : at === "now" ? "abierto ahora" : at === "today" ? "hoy" : at === "tonight" ? "esta noche" : at === "midday" ? "hoy al mediodía" : `${at.day === null ? "hoy" : DAY_NAMES.es[at.day]}${at.time ? ` ${at.time}` : ""}`;
   const rows: [string, string][] = [
     ["Fuente", SOURCE_LABELS[source]],
     ["Intención", props.bar.intent ? `${props.bar.intent.id} (${props.bar.intent.fromText ? "texto" : "URL"})` : "—"],

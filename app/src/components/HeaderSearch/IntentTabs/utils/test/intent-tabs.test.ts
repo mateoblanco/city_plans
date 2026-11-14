@@ -23,14 +23,14 @@ describe("pestañas de intención", () => {
   });
 
   it("/search: cambiar de intención conserva texto, filtros y ubicación; Todo saca la intención", () => {
-    const state = { q: "con amigos", f: "neighborhood:CORDON,open:today", loc: "near", intent: "bars", sub: "cocktails" };
+    const state = { q: "con amigos", f: "neighborhood:CORDON,open:now", loc: "near", intent: "bars", sub: "cocktails" };
     const bar: BarRef = { intent: { id: "bars", fromText: false }, textIntent: null, subs: [], extras: [] };
     const tabs = intentTabs(state, bar);
     expect(currentOf(tabs)).toEqual(["Tomar algo"]);
     const cafes = params(tabs.find((tab) => tab.id === "cafes")!.href);
-    expect([cafes.get("q"), cafes.get("f"), cafes.get("loc"), cafes.get("intent"), cafes.get("sub")]).toEqual(["con amigos", "neighborhood:CORDON,open:today", "near", "cafes", null]);
+    expect([cafes.get("q"), cafes.get("f"), cafes.get("loc"), cafes.get("intent"), cafes.get("sub")]).toEqual(["con amigos", "neighborhood:CORDON,open:now", "near", "cafes", null]);
     const all = params(tabs[0].href);
-    expect([all.get("q"), all.get("f"), all.get("loc"), all.get("intent"), all.get("sub")]).toEqual(["con amigos", "neighborhood:CORDON,open:today", "near", null, null]);
+    expect([all.get("q"), all.get("f"), all.get("loc"), all.get("intent"), all.get("sub")]).toEqual(["con amigos", "neighborhood:CORDON,open:now", "near", null, null]);
     // La actual vuelve a la misma búsqueda.
     expect(params(tabs.find((tab) => tab.current)!.href).get("intent")).toBe("bars");
   });

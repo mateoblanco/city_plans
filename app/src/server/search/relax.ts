@@ -2,7 +2,7 @@ import { intentDef, type IntentId } from '@shared/intents.ts'
 import { neighborhoodDisplayName } from '@shared/neighborhood-names.ts'
 import type { CandidateRow, DishMode } from './candidates'
 import { hasBroaderRelated, relatedLabel, type DishTarget } from './dishes'
-import { openStatus, opensToday, type Moment, type OpenFilter } from './hours'
+import { matchesOpenFilter, openStatus, type Moment, type OpenFilter } from './hours'
 import { intentGroups, matchesGroup, subTerms } from './intents'
 import { DIET_KEYS, type DietKey, type Interpretation, type Lang } from './interpretation'
 import { DAY_NAMES, dietLabel, DISPLAY_LANG, excludedTerm } from './labels'
@@ -146,21 +146,20 @@ export function relaxNotice(step: RelaxStep, context: NoticeContext): { what: No
   if (step === 'openAt') {
     const openAt = context.openAt
     if (!openAt) return null
-    const { moment, today, night } = openAt
-    if (today && moment.time) {
-      const at = { day: moment.day, time: moment.time }
-      if (!rows.some((row) => opensToday(row.hours, at, night) === 'no')) return null
-      const when = night ? (es ? 'esta noche' : 'tonight') : es ? 'hoy' : 'today'
+    if (openAt.kind === 'at') {
+      if (!rows.some((row) => openStatus(row.hours, openAt.moment).state === 'closed')) return null
+      const when = whenText(openAt.moment, lang)
       return {
         what: step,
-        message: es ? `No hay nada que abra ${when}; te mostramos también los cerrados.` : `Nothing opens ${when}; showing closed places too.`,
+        message: es ? `No hay nada abierto ${when}; te mostramos también los cerrados.` : `Nothing open ${when}; showing closed places too.`,
       }
     }
-    if (!rows.some((row) => openStatus(row.hours, moment).state === 'closed')) return null
-    const when = whenText(moment, lang)
+    // "Abierto ahora" y las ventanas de hoy sacan también los de horario sin confirmar: el aviso es si alguno no cumple.
+    if (!rows.some((row) => matchesOpenFilter(row.hours, openAt) !== 'yes')) return null
+    const when = openAt.kind === 'now' ? (es ? 'abierto ahora' : 'open now') : windowText(openAt, lang)
     return {
       what: step,
-      message: es ? `No hay nada abierto ${when}; te mostramos también los cerrados.` : `Nothing open ${when}; showing closed places too.`,
+      message: es ? `No hay nada ${when}; te mostramos también los cerrados.` : `Nothing ${when}; showing closed places too.`,
     }
   }
 
@@ -218,4 +217,12 @@ export function noMatchNotice(
     : text ? es ? `No encontramos lugares para “${text}”. Probá con otras palabras o sacá algún filtro.` : `We couldn't find places for “${text}”. Try other words or remove a filter.`
     : es ? 'No encontramos lugares con estos filtros. Probá sacar alguno.' : "We couldn't find places with these filters. Try removing one."
   return { what: 'noMatch' as const, message }
+}
+
+/** La ventana de hoy pedida, dicha en el aviso: "que abra hoy", "abierto esta noche", "abierto hoy al mediodía". */
+function windowText(filter: Extract<OpenFilter, { kind: 'window' }>, lang: Lang) {
+  const es = lang === 'es'
+  if (filter.night) return es ? 'abierto esta noche' : 'open tonight'
+  if (filter.until !== null) return es ? 'abierto hoy al mediodía' : 'open at midday today'
+  return es ? 'que abra hoy' : 'opening today'
 }

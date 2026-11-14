@@ -24,21 +24,37 @@ export function montevideoDate(date = new Date()): string {
 }
 
 /**
- * today: "Abre hoy", con el momento actual (abierto ahora o abre más tarde hoy).
- * night: a la noche ("esta noche" o cenar): tiene que estar abierto en algún momento desde SEARCH_CONFIG.night.from.
+ * El horario pedido, resuelto contra la hora de Montevideo:
+ * - now: abierto en `moment` ("Abierto ahora", el filtro de la barra).
+ * - window: abierto en algún momento de hoy entre `from` y `until` (null = hasta el cierre de la noche): "Hoy" (desde
+ *   ahora), "Esta noche" (desde max(ahora, night.from), sólo turnos que llegan a la noche: `night`) y "Hoy al mediodía"
+ *   (max(ahora, midday.from)–midday.until).
+ * - at: un día u hora concretos ("el sábado", "mañana a la noche").
+ * confirmed: sin los lugares de horario sin confirmar (now y window); at los deja pasar, como siempre.
  */
-export type OpenFilter = { moment: Moment; today: boolean; night: boolean }
+export type OpenFilter =
+  | { kind: 'now'; moment: { day: number; time: string }; confirmed: true }
+  | { kind: 'window'; moment: { day: number; time: string }; from: string; until: string | null; night: boolean; confirmed: true }
+  | { kind: 'at'; moment: Moment; confirmed: false }
 
-/** El momento concreto que pide openAt, en hora de Montevideo. dinner: se pidió cenar (con "hoy" es a la noche). */
-export function resolveOpenAt(openAt: OpenAt, now: Date, { dinner = false }: { dinner?: boolean } = {}): OpenFilter | null {
+/** El momento concreto que pide openAt, en hora de Montevideo. */
+export function resolveOpenAt(openAt: OpenAt, now: Date): OpenFilter | null {
   if (!openAt) return null
   const current = montevideoNow(now)
-  if (openAt === 'today' || openAt === 'tonight') return { moment: current, today: true, night: openAt === 'tonight' || dinner }
-  return { moment: { day: openAt.day ?? current.day, time: openAt.time }, today: false, night: false }
+  if (openAt === 'now') return { kind: 'now', moment: current, confirmed: true }
+  if (openAt === 'today' || openAt === 'tonight') {
+    const night = openAt === 'tonight'
+    return { kind: 'window', moment: current, from: opensTodayFrom(current.time, night), until: null, night, confirmed: true }
+  }
+  if (openAt === 'midday') {
+    const { from, until } = SEARCH_CONFIG.midday
+    return { kind: 'window', moment: current, from: current.time > from ? current.time : from, until, night: false, confirmed: true }
+  }
+  return { kind: 'at', moment: { day: openAt.day ?? current.day, time: openAt.time }, confirmed: false }
 }
 
 /**
- * Desde qué hora cuenta "Abre hoy": ahora o, a la noche y antes de que empiece, desde SEARCH_CONFIG.night.from.
+ * Desde qué hora cuenta "Hoy": ahora o, a la noche y antes de que empiece, desde SEARCH_CONFIG.night.from.
  * En la madrugada (antes de night.until) sigue siendo la noche anterior: cuenta ahora.
  */
 export function opensTodayFrom(time: string, night: boolean): string {
@@ -85,15 +101,29 @@ export function openStatus(hours: Hours, at: Moment): OpenState {
 }
 
 /**
- * "Abre hoy": abierto en `at` (también un turno de ayer que cruza la medianoche) o con un turno que abre más
- * tarde ese día. night: lo mismo desde night.from y sólo turnos que llegan a la noche (cenar a las 13:00 no
- * trae un lugar que cierra a las 15:00). Sin horario confiable no se sabe.
+ * Abierto en algún momento de la ventana de hoy: abierto a `from` (también un turno de ayer que cruza la medianoche) o
+ * con un turno de ese día que abre después de `from` y antes de `until` (null: sin tope). night: sólo turnos que llegan
+ * a la noche (cenar a las 13:00 no trae un lugar que cierra a las 15:00). Ventana vacía (from ≥ until): no. Sin horario
+ * confiable no se sabe.
  */
-export function opensToday(hours: Hours, at: { day: number; time: string }, night = false): 'yes' | 'no' | 'unconfirmed' {
+export function opensWithin(hours: Hours, day: number, window: { from: string; until: string | null; night: boolean }): 'yes' | 'no' | 'unconfirmed' {
   if (!hoursConfirmed(hours)) return 'unconfirmed'
-  const from = opensTodayFrom(at.time, night)
-  if (openStatus(hours, { day: at.day, time: from }).state === 'open') return 'yes'
-  return hours.slots.some((slot) => slot.day === at.day && slot.opens > from && (!night || reachesNight(slot))) ? 'yes' : 'no'
+  const { from, until, night } = window
+  if (until !== null && from >= until) return 'no'
+  if (openStatus(hours, { day, time: from }).state === 'open') return 'yes'
+  return hours.slots.some((slot) => slot.day === day && slot.opens > from && (until === null || slot.opens < until) && (!night || reachesNight(slot))) ? 'yes' : 'no'
+}
+
+/** "Hoy" / "Esta noche": abierto ahora (o desde la noche) o con un turno que abre más tarde ese día. */
+export function opensToday(hours: Hours, at: { day: number; time: string }, night = false): 'yes' | 'no' | 'unconfirmed' {
+  return opensWithin(hours, at.day, { from: opensTodayFrom(at.time, night), until: null, night })
+}
+
+/** Si el lugar cumple el horario pedido: 'unconfirmed' sin horario confiable (now y window lo sacan, at no). */
+export function matchesOpenFilter(hours: Hours, filter: OpenFilter): 'yes' | 'no' | 'unconfirmed' {
+  if (filter.kind === 'window') return opensWithin(hours, filter.moment.day, filter)
+  const state = openStatus(hours, filter.moment).state
+  return state === 'open' ? 'yes' : state === 'closed' ? 'no' : 'unconfirmed'
 }
 
 /** Próxima apertura: días desde hoy (0 = hoy), el día y la hora. */

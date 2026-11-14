@@ -11,8 +11,12 @@ export const DIET_KEYS = ['vegan', 'vegetarian', 'glutenFree'] as const
 export type DietKey = (typeof DIET_KEYS)[number]
 export type Lang = 'es' | 'en'
 
-/** "today" (abierto ahora o abre más tarde hoy), "tonight" (lo mismo, a la noche), o un día (0 = domingo; null = hoy) y una hora HH:MM (null = en algún momento de ese día). */
-export type OpenAt = 'today' | 'tonight' | { day: number | null; time: string | null } | null
+/**
+ * "now" (abierto ahora), "today" (abierto ahora o abre más tarde hoy), "tonight" (esta noche), "midday" (hoy al
+ * mediodía), o un día (0 = domingo; null = hoy) y una hora HH:MM (null = en algún momento de ese día).
+ */
+export type OpenAt = 'now' | 'today' | 'tonight' | 'midday' | { day: number | null; time: string | null } | null
+export const OPEN_MOMENTS = ['now', 'today', 'tonight', 'midday'] as const
 
 /** Un plato pedido y los tags o categorías que lo representan si ningún lugar lo tiene (ceviche → peruvian, seafood). */
 export type Dish = { name: string; relatedTags: string[]; relatedCategories: string[] }
@@ -78,7 +82,7 @@ export const LlmInterpretationSchema = z.object({
     diet: z.object({ vegan: z.boolean(), vegetarian: z.boolean(), glutenFree: z.boolean() }),
     neighborhoods: z.array(z.string()),
     price: z.array(z.string()),
-    openAt: z.object({ today: z.boolean(), tonight: z.boolean(), day: z.number().int().nullable(), time: z.string().nullable() }).nullable(),
+    openAt: z.object({ moment: z.enum(OPEN_MOMENTS).nullable(), day: z.number().int().nullable(), time: z.string().nullable() }).nullable(),
   }),
   prefer: z.object({ categories: z.array(z.string()), tags: z.array(z.string()) }),
   exclude: z.object({ categories: z.array(z.string()), tags: z.array(z.string()) }),
@@ -143,7 +147,7 @@ function normalizeTime(raw: string | null): string | null {
 
 function validOpenAt(raw: LlmInterpretation['must']['openAt']): OpenAt {
   if (!raw) return null
-  if (raw.today) return raw.tonight ? 'tonight' : 'today'
+  if (raw.moment) return raw.moment
   const day = raw.day !== null && Number.isInteger(raw.day) && raw.day >= 0 && raw.day <= 6 ? raw.day : null
   const time = normalizeTime(raw.time)
   return day === null && time === null ? null : { day, time }

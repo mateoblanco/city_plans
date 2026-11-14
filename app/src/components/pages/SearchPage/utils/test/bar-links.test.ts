@@ -12,7 +12,7 @@ import { intentHref, subHref, type SearchUrl } from "../search-href";
 
 const now = new Date("2026-10-12T16:00:00Z");
 // Barrio, abierto ahora y dieta (todo en f) más cerca mío: lo que ningún cambio de intención puede tocar.
-const KEPT = { f: "neighborhood:CORDON,open:today,diet:vegan", loc: "near" };
+const KEPT = { f: "neighborhood:CORDON,open:now,diet:vegan", loc: "near" };
 
 const places = [
   row({ id: "bar", categories: ["bar"], tags: ["classic_cocktails", "live_music"] }),

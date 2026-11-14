@@ -25,8 +25,8 @@ export function buildChips(value: Interpretation, today: number, near = false): 
   for (const price of value.must.price) chips.push({ kind: 'price', id: price, label: PRICE_LABELS[lang][price] })
   if (value.must.openAt) {
     const openAt = value.must.openAt
-    // "esta noche" es el mismo chip "Abre hoy" (el de la barra).
-    if (openAt === 'today' || openAt === 'tonight') chips.push({ kind: 'openAt', id: 'today', label: momentLabel('today', lang, today) })
+    // "now" es el chip "Abierto ahora" de la barra; "Hoy", "Esta noche" y "Hoy al mediodía" son del texto.
+    if (typeof openAt === 'string') chips.push({ kind: 'openAt', id: openAt, label: momentLabel(openAt, lang, today) })
     else chips.push({ kind: 'openAt', id: 'day', label: momentLabel({ day: openAt.day ?? today, time: openAt.time }, lang, today) })
   }
   for (const id of [...value.prefer.categories, ...value.prefer.tags]) chips.push({ kind: 'prefer', id, label: label(id, lang) })

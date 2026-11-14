@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { CandidateRow } from '../../search/candidates'
 import { everyDay, fakeCache, fakeStore, row } from '../../search/test/fixtures'
 import { assembleHome } from '../assemble'
+import { orderNear } from '../affinity'
 import { homeNearRow, NEAR_HREF } from '../near'
 
 // Lunes 12/10/2026 13:00 en Montevideo.
@@ -43,28 +44,37 @@ describe('"Abierto ahora cerca tuyo"', () => {
       at('closed', 200, { slots: [{ day: 1, opens: '08:00', closes: '12:00' }], status: 'exact' }),
       at('unknown', 50, { slots: [], status: 'none' }),
     ])
-    const result = await homeNearRow(d, CORDON, now)
+    const result = (await homeNearRow(d, CORDON, now))?.row
     expect(result?.id).toBe('near')
     expect(result?.title).toBe('Abierto ahora cerca tuyo')
     expect(result?.places.map((place) => place.id)).toEqual(['near', 'mid', 'far'])
     expect(result?.places.every((place) => place.distance?.startsWith('a '))).toBe(true)
     expect(result?.href).toBe(NEAR_HREF)
-    expect(NEAR_HREF).toBe('/search?f=open%3Atoday&loc=near')
-    // Sin texto: sólo SQL, siempre con "Abre hoy" y desde la ubicación de la cookie.
-    expect(calls.every((call) => call.filters.openAt?.today)).toBe(true)
+    expect(NEAR_HREF).toBe('/search?f=open%3Anow&loc=near')
+    // Sin texto: sólo SQL, abierto en este momento y desde la ubicación de la cookie.
+    expect(calls.every((call) => call.filters.openAt?.kind === 'now' && call.filters.openAt.moment.time === '13:00')).toBe(true)
   })
 
-  it('si nada abre hoy, la fila queda vacía (no muestra cerrados)', async () => {
+  it('si nada está abierto, la fila queda vacía (no muestra cerrados)', async () => {
     const closed = { slots: [{ day: 1, opens: '08:00', closes: '12:00' }], status: 'exact' as const }
     const result = await homeNearRow(deps([at('a', 100, closed), at('b', 200, closed)]).deps, CORDON, now)
-    expect(result?.places ?? []).toEqual([])
+    expect(result?.row.places ?? []).toEqual([])
   })
 
   it('va antes de "Para vos" con las reglas de siempre: sus lugares no se repiten abajo', async () => {
     const places = ['a', 'b', 'c', 'd', 'e'].map((id, index) => at(id, 100 * (index + 1)))
-    const near = (await homeNearRow(deps(places).deps, CORDON, now))!
+    const near = (await homeNearRow(deps(places).deps, CORDON, now))!.row
     const forYou = { id: 'for_you', title: 'Para vos', places: near.places, href: null }
     const rows = assembleHome([near, forYou])
     expect(rows.map((entry) => entry.id)).toEqual(['near'])
+  })
+
+  it('manda la distancia: la afinidad sólo desempata dentro de la misma banda de 250 m', () => {
+    const item = (id: string, meters: number) => ({ place: { id }, meters })
+    const items = [item('a', 100), item('b', 200), item('c', 300), item('d', 600)]
+    // Sin afinidad: del más cercano al más lejano.
+    expect(orderNear(items, null).map((place) => place.id)).toEqual(['a', 'b', 'c', 'd'])
+    // b (200 m) gusta más que a (100 m): pasa adelante, misma banda. d gusta muchísimo pero está lejos: sigue último.
+    expect(orderNear(items, { a: 0.6, b: 0.9, c: 0.6, d: 1 }).map((place) => place.id)).toEqual(['b', 'a', 'c', 'd'])
   })
 })

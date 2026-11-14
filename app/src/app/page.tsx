@@ -14,8 +14,6 @@ export const metadata: Metadata = {
   twitter: { card: "summary_large_image", title: TITLE, description: DESCRIPTION, images: [IMAGE.url] },
 };
 
-export default function Home() {
-  return (
-      <HomePage />
-  );
+export default function Home({ searchParams }: PageProps<"/">) {
+  return <HomePage searchParams={searchParams} />;
 }

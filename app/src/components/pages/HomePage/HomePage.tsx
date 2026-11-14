@@ -12,7 +12,12 @@ import styles from "./HomePage.module.scss";
 /** El h1 de la home: no se ve (el header es el de /search), sólo para lectores de pantalla y buscadores. */
 const HOME_HEADING = "Lugares para salir en Montevideo";
 
-const HomePage = () => {
+type Props = {
+  /** Sólo en desarrollo: `?now=` simula la hora de las filas (server/home/dev-now.ts). En producción no se lee. */
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+const HomePage = ({ searchParams }: Props) => {
   return (
     <>
       <SkipLinks links={[{ target: SKIP_TARGETS.content, label: "Ir al contenido" }]} />
@@ -25,7 +30,7 @@ const HomePage = () => {
           <HomeDishes eager />
           {/* Lee las cookies de guardados y de ubicación: el resto de la home no espera por ellas. */}
           <Suspense fallback={<HomeSectionsSkeleton />}>
-            <HomeSections />
+            <HomeSections searchParams={searchParams} />
           </Suspense>
         </div>
         {/* Con el permiso ya dado, actualiza la ubicación sin preguntar; nunca la pide. */}

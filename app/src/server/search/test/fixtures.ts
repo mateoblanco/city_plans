@@ -1,6 +1,6 @@
 import { withPartialTags, withSubcuisines } from '@shared/tags.ts'
 import type { CandidateFilters, CandidateRow, NameMatch, ScoreInputs } from '../candidates'
-import { openStatus, opensToday, type OpenFilter } from '../hours'
+import { matchesOpenFilter, type OpenFilter } from '../hours'
 import { matchesGroup } from '../intents'
 import type { LlmInterpretation } from '../interpretation'
 import type { SearchCache } from '../cache'
@@ -72,9 +72,12 @@ export function fakeStore(places: CandidateRow[], names: NameMatch[] = [], vecto
   const calls: { filters: CandidateFilters; scores: ScoreInputs }[] = []
   // Las consultas de "Cerca de <barrio>" (filters.nearby) van aparte: calls son las del barrio, como siempre.
   const nearbyCalls: { filters: CandidateFilters; scores: ScoreInputs }[] = []
-  // Misma regla que openAtSql / opensTodaySql.
-  const matchesOpenAt = (place: CandidateRow, { moment, today, night }: OpenFilter) =>
-    today && moment.time ? opensToday(place.hours, { day: moment.day, time: moment.time }, night) !== 'no' : openStatus(place.hours, moment).state !== 'closed'
+  // Misma regla que openFilterSql: con un día/hora concretos los de horario sin confirmar pasan; con "Abierto ahora" o
+  // una ventana de hoy, no.
+  const matchesOpenAt = (place: CandidateRow, filter: OpenFilter) => {
+    const match = matchesOpenFilter(place.hours, filter)
+    return match === 'yes' || (match === 'unconfirmed' && !filter.confirmed)
+  }
   // Misma regla que venueSql: located_in pedido, o sin located_in y cerca de uno de sus locales.
   const inVenue = (place: CandidateRow, venues: Venue[]) =>
     venues.some((venue) => place.locatedIn === venue.name) ||
