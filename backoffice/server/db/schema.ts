@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  bigserial,
   boolean,
   check,
   customType,
@@ -13,12 +14,14 @@ import {
   real,
   text,
   timestamp,
+  unique,
   uuid,
   vector,
 } from "drizzle-orm/pg-core";
 import { ICON_CATEGORY_KEYS } from "../../src/data/icon-categories.ts";
 import { STYLE_IDS } from "../../src/data/tags.ts";
 import { REVIEW_REASON_IDS } from "../../src/data/review-reasons.ts";
+import { DAILY_EVENT_TYPES, EVENT_ORIGINS, EVENT_TYPES } from "../../src/data/events.ts";
 import type { ManualOverrides } from "../../src/data/manual-overrides.ts";
 import {
   BENEFIT_MODES,
@@ -385,6 +388,62 @@ export const discountRuns = pgTable("discount_runs", {
   providers: jsonb("providers").$type<DiscountRunProvider[]>().notNull(),
   errors: jsonb("errors").$type<DiscountRunError[]>().notNull().default([]),
   warnings: jsonb("warnings").$type<string[]>().notNull().default([]),
+});
+
+// ── Popularidad (etapa 1: sólo se guarda; la app escribe con las consultas de /shared/events.ts) ──
+// Sin cookies ni datos personales: `visitor` es sha256(clave del día ‖ IP ‖ user agent), y la clave se borra al terminar
+// el día (event_salts). La IP y el user agent nunca se guardan.
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return "bytea";
+  },
+});
+
+// Un evento por persona, lugar, tipo y día (la restricción única lo garantiza). Se borran a los 90 días (cron de la app).
+export const placeEvents = pgTable(
+  "place_events",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    placeId: uuid("place_id").notNull().references(() => places.id, { onDelete: "cascade" }),
+    type: text("type", { enum: EVENT_TYPES }).notNull(),
+    visitor: text("visitor").notNull(),
+    // Día en Montevideo.
+    day: date("day", { mode: "string" }).notNull(),
+    origin: text("origin", { enum: EVENT_ORIGINS }).notNull(),
+    // Id de la fila de la home (origin = home o saved); null en el resto.
+    originRow: text("origin_row"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("place_events_once_per_day").on(t.placeId, t.type, t.visitor, t.day),
+    check("place_events_type_check", sql`${t.type} in (${inList(EVENT_TYPES)})`),
+    check("place_events_origin_check", sql`${t.origin} in (${inList(EVENT_ORIGINS)})`),
+    index("place_events_visitor_created_idx").on(t.visitor, t.createdAt),
+    index("place_events_day_idx").on(t.day),
+  ]
+);
+
+// Resumen diario, para siempre. `save` es el neto del día (guardar − sacar) y puede ser negativo.
+export const placeEventDaily = pgTable(
+  "place_event_daily",
+  {
+    placeId: uuid("place_id").notNull().references(() => places.id, { onDelete: "cascade" }),
+    type: text("type", { enum: DAILY_EVENT_TYPES }).notNull(),
+    day: date("day", { mode: "string" }).notNull(),
+    total: integer("total").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.placeId, t.type, t.day] }),
+    check("place_event_daily_type_check", sql`${t.type} in (${inList(DAILY_EVENT_TYPES)})`),
+    index("place_event_daily_day_idx").on(t.day),
+  ]
+);
+
+// Clave aleatoria de cada día (32 bytes). No sale de ninguna clave fija: borrada, los códigos de ese día no se recalculan.
+export const eventSalts = pgTable("event_salts", {
+  day: date("day", { mode: "string" }).primaryKey(),
+  salt: bytea("salt").notNull(),
 });
 
 export type Place = typeof places.$inferSelect;

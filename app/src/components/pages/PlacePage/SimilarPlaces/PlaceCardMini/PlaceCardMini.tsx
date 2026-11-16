@@ -1,5 +1,5 @@
 import { memo } from "react";
-import Link from "next/link";
+import OriginLink from "@/components/Tracking/OriginLink/OriginLink";
 import { label } from "@shared/tags.ts";
 import type { SearchResult } from "@/server/search";
 import PlaceImage from "@/components/pages/SearchPage/Results/PlaceCard/PlaceImage/PlaceImage";
@@ -18,7 +18,7 @@ const PlaceCardMini = (props: Props) => (
     <div className={styles.body}>
       {/* El ::after del link cubre toda la card. */}
       <h3 className={styles.name}>
-        <Link href={`/place/${props.place.slug}`} className={styles.link}>{props.place.name}</Link>
+        <OriginLink slug={props.place.slug} origin="similar" className={styles.link}>{props.place.name}</OriginLink>
       </h3>
 
       <p className={styles.meta}>

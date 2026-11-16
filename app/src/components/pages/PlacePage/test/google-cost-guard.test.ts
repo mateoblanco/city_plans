@@ -37,15 +37,19 @@ const openings = (source: ts.SourceFile, tag: string): JsxOpening[] => {
 const attribute = (node: JsxOpening, name: string) =>
   node.attributes.properties.find((prop): prop is ts.JsxAttribute => ts.isJsxAttribute(prop) && prop.name.getText() === name);
 
-/** Los <Link> cuyo href apunta a una ficha (`/place/...`), en todo src/. */
+/**
+ * Los links a una ficha en todo src/: los <Link> cuyo href apunta a `/place/...` y los <OriginLink> (el <Link> a la
+ * ficha que recuerda el origen para la popularidad; arma el href con el slug).
+ */
 function placeLinks() {
   return filesUnder(".")
     .filter((file) => file.endsWith(".tsx"))
     .flatMap((file) => {
       const source = parse(file);
-      return openings(source, "Link")
-        .filter((link) => attribute(link, "href")?.initializer?.getText(source).includes("/place/"))
-        .map((link) => ({ file, link, source }));
+      return [
+        ...openings(source, "Link").filter((link) => attribute(link, "href")?.initializer?.getText(source).includes("/place/")),
+        ...openings(source, "OriginLink"),
+      ].map((link) => ({ file, link, source }));
     });
 }
 
@@ -54,6 +58,15 @@ describe("precarga de fichas sin costo de Google Places", () => {
     const files = placeLinks().map(({ file }) => file);
     expect(files).toContain(path.join("components/pages/SearchPage/Results/PlaceCard/PlaceCard.tsx"));
     expect(files).toContain(path.join("components/pages/PlacePage/PlaceBranches/BranchCard/BranchCard.tsx"));
+    expect(files).toContain(path.join("components/Tracking/OriginLink/OriginLink.tsx"));
+  });
+
+  it("OriginLink no deja pasar props al <Link> (como prefetch): sólo href, className, onClick y children", () => {
+    const file = "components/Tracking/OriginLink/OriginLink.tsx";
+    const source = parse(file);
+    const [link] = openings(source, "Link");
+    const props = link.attributes.properties.map((prop) => (ts.isJsxAttribute(prop) ? prop.name.getText() : "...spread"));
+    expect(props.sort()).toEqual(["className", "href", "onClick"]);
   });
 
   it("ningún <Link> a una ficha cambia el prefetch por defecto (nada de prefetch={true})", () => {

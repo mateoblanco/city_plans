@@ -60,6 +60,7 @@ const database = process.env.DATABASE_URL?.trim()
         import('./places/list.ts'),
         import('./places/edit.ts'),
       ])
+      const [{ sqlClient }, { neonPopularityReader }] = await Promise.all([import('./db/index.ts'), import('./popularity/list.ts')])
       const [{ drizzleDiscountStore }, { drizzleOurPlaces }] = await Promise.all([import('./discounts/drizzle-store.ts'), import('./discounts/our-places.ts')])
       return {
         placesSaver: placesSaver(drizzlePlacesStore(db)),
@@ -85,6 +86,7 @@ const database = process.env.DATABASE_URL?.trim()
         discountCandidates: drizzleDiscountCandidates(db),
         discountStore: drizzleDiscountStore(db),
         ourPlaces: drizzleOurPlaces(db),
+        popularityReader: neonPopularityReader(sqlClient),
       }
     })()
   : undefined
@@ -135,6 +137,7 @@ serve(
       placeIds: database?.placeIds,
       placeEditor: database?.placeEditor,
       discounts,
+      popularityReader: database?.popularityReader,
     }).fetch,
     hostname: '127.0.0.1',
     port: apiPort,

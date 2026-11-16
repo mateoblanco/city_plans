@@ -5,10 +5,15 @@ import HeartFill from "@/assets/heart_fill.svg";
 import CardToggle from "../CardToggle/CardToggle";
 import styles from "./SaveButton.module.scss";
 import { toggleSaved, useIsSaved } from "../../../utils/saved";
+import type { EventOrigin } from "@shared/events.ts";
+import { track } from "@/components/Tracking/utils/track";
 
 type Props = {
   placeId: string;
   name: string;
+  /** Origen de la card, para el evento de guardar. */
+  origin: EventOrigin;
+  originRow?: string;
 };
 
 /**
@@ -27,7 +32,9 @@ const SaveButton = (props: Props) => {
       label={`Guardar ${props.name}`}
       tooltip={isSaved ? "Guardado" : "Guardar"}
       icon={isSaved ? <HeartFill className={styles.heartSaved} aria-hidden /> : <Heart aria-hidden />}
-      onToggle={() => toggleSaved(props.placeId)}
+      onToggle={() => {
+        if (toggleSaved(props.placeId)) track(props.placeId, isSaved ? "unsave" : "save", { origin: props.origin, row: props.originRow ?? null });
+      }}
     />
   );
 };

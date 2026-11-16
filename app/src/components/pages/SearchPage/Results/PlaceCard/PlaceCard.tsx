@@ -1,8 +1,9 @@
 "use client";
 
 import { memo } from "react";
-import Link from "next/link";
 import { label } from "@shared/tags.ts";
+import type { EventOrigin } from "@shared/events.ts";
+import OriginLink from "@/components/Tracking/OriginLink/OriginLink";
 import type { SearchResult } from "@/server/search";
 import type { KeptBy } from "@/server/search/relevance";
 import PlaceImage from "./PlaceImage/PlaceImage";
@@ -47,6 +48,9 @@ type Props = {
   debug?: CardDebug;
   /** Card visible al cargar la página: el logo se pide ya, y con "high" con prioridad alta (ver eager-images.ts). */
   eagerImage?: ImageLoad;
+  /** De dónde se tocó (popularidad): por defecto búsqueda; las filas de la home pasan home o saved y su id. */
+  origin?: EventOrigin;
+  originRow?: string;
 };
 
 /** Tarjeta de un resultado, con el hover sincronizado con su marcador. */
@@ -69,7 +73,7 @@ const PlaceCard = (props: Props) => {
 
         {/* El ::after del link cubre la card; el corazón y guardar quedan arriba (z-index) y no navegan. */}
         <h3 className={styles.name}>
-          <Link href={`/place/${props.place.slug}`} className={styles.link}>{props.place.name}</Link>
+          <OriginLink slug={props.place.slug} origin={props.origin ?? "search"} row={props.originRow} className={styles.link}>{props.place.name}</OriginLink>
         </h3>
 
         {/* Con cerca mío, la distancia al final: "Pocitos · Café · a 400 m". */}
@@ -103,7 +107,7 @@ const PlaceCard = (props: Props) => {
 
       {/* Fuera del flujo: que aparezca con el hover no reacomoda el texto ni los chips. */}
       <div className={styles.actions}>
-        <SaveButton placeId={props.place.id} name={props.place.name} />
+        <SaveButton placeId={props.place.id} name={props.place.name} origin={props.origin ?? "search"} originRow={props.originRow} />
       </div>
     </article>
   );

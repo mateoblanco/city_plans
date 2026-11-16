@@ -4,6 +4,7 @@ import Button from "@/components/base/Button/Button";
 import Heart from "@/assets/heart.svg";
 import HeartFill from "@/assets/heart_fill.svg";
 import { toggleSaved, useIsSaved } from "@/components/pages/SearchPage/utils/saved";
+import { track } from "@/components/Tracking/utils/track";
 
 type Props = {
   placeId: string;
@@ -28,7 +29,10 @@ const PlaceActions = (props: Props) => {
       size="md"
       label={isSaved ? "Guardado" : "Guardar"}
       icon={isSaved ? <HeartFill aria-hidden /> : <Heart aria-hidden />}
-      onClick={() => toggleSaved(props.placeId)}
+      onClick={() => {
+        // Con el origen de la vista de esta ficha.
+        if (toggleSaved(props.placeId)) track(props.placeId, isSaved ? "unsave" : "save");
+      }}
     />
   );
 };

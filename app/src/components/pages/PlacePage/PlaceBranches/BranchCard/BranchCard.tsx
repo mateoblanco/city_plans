@@ -1,4 +1,4 @@
-import Link from "next/link";
+import OriginLink from "@/components/Tracking/OriginLink/OriginLink";
 import styles from "./BranchCard.module.scss";
 
 type Props = {
@@ -12,7 +12,7 @@ type Props = {
 const BranchCard = (props: Props) => (
   <article className={styles.card}>
     <h3 className={styles.title}>
-      <Link href={`/place/${props.slug}`} className={styles.link}>Sucursal {props.neighborhood}</Link>
+      <OriginLink slug={props.slug} origin="branch" className={styles.link}>Sucursal {props.neighborhood}</OriginLink>
     </h3>
     {props.address && <p className={styles.address}>{props.address}</p>}
   </article>

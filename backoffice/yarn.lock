@@ -686,6 +686,11 @@
     "@duckdb/node-bindings-win32-arm64" "1.5.6-r.1"
     "@duckdb/node-bindings-win32-x64" "1.5.6-r.1"
 
+"@electric-sql/pglite@^0.5.16":
+  version "0.5.16"
+  resolved "https://registry.yarnpkg.com/@electric-sql/pglite/-/pglite-0.5.16.tgz#6a844eea4838cba9841366b0036183f484a70cf0"
+  integrity sha512-Nj8KcIsJL748W408U2N8q4+9IlONdpRIU8MJypIAAINMJ5nqKyqpX7Mgg/5XKkXiAib3AoZGR6hnJFlrlLBrcg==
+
 "@emnapi/core@^1.11.1":
   version "1.11.3"
   resolved "https://registry.yarnpkg.com/@emnapi/core/-/core-1.11.3.tgz#5e95348a42cd1e06f0b9aa380cd74091daa4d520"

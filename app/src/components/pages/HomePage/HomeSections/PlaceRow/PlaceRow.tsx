@@ -8,6 +8,8 @@ import RowScroller from "../RowScroller/RowScroller";
 import styles from "./PlaceRow.module.scss";
 
 type Props = {
+  /** Id de la fila (popularidad: de qué fila vino el click). "saved" es Guardados. */
+  id: string;
   title: string;
   places: SearchResult[];
   /** "Ver todos": la misma búsqueda en /search. null: sin link ("Para vos"). */
@@ -44,7 +46,12 @@ const PlaceRow = (props: Props) => (
     <RowScroller className={styles.scroller}>
       {props.places.map((place, index) => (
         <li key={place.id} className={styles.item}>
-          <PlaceCard place={place} eagerImage={eagerImage(index, props.eagerCount)} />
+          <PlaceCard
+            place={place}
+            eagerImage={eagerImage(index, props.eagerCount)}
+            origin={props.id === "saved" ? "saved" : "home"}
+            originRow={props.id}
+          />
         </li>
       ))}
     </RowScroller>

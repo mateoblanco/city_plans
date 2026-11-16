@@ -37,7 +37,7 @@ const HomeSections = async ({ searchParams }: Props) => {
     <div className={styles.sections}>
       {rows.map((row, index) => (
         // La primera fila de lugares sigue a la vista al cargar, debajo de los platos: sus primeros logos van eager.
-        <PlaceRow key={row.id} title={row.title} places={row.places} href={row.href} eagerCount={index === 0 ? EAGER_HOME_CARDS : undefined} />
+        <PlaceRow key={row.id} id={row.id} title={row.title} places={row.places} href={row.href} eagerCount={index === 0 ? EAGER_HOME_CARDS : undefined} />
       ))}
     </div>
   );

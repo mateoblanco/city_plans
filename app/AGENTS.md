@@ -101,6 +101,14 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Código puro que usan el cliente y el servidor va en `src/lib/` (`coords.ts`, `discount-cards.ts`, `discount-section-ids.ts`); `server/` lo reexporta. Un componente de cliente no importa nada de `src/server/` (salvo tipos) ni zod.
 - `next.config.ts` sirve AVIF y WebP.
 
+# Popularidad (etapa 1: sólo se guarda, no se muestra)
+
+- Interruptor `TRACK_EVENTS` (`server/events/config.ts`): apagado salvo que sea exactamente `"true"` (sólo Production de Vercel). Apagado, `/api/events` responde 204 sin guardar, el layout no renderiza `Tracking/TrackingEnabled` (el envío) y la ficha no renderiza `Tracking/PlaceViewBeacon` ni `Tracking/DirectionsTracker`: al navegador sólo llega el stub `Tracking/utils/track.ts`, que no envía nada. Se lee en el build de las páginas: cambiarlo requiere un deploy nuevo.
+- Eventos (`/shared/events.ts`, el mismo SQL que lee el backoffice): `view` (la ficha visible, en un efecto del cliente; nunca en el render del servidor ni en el prefetch), `save`/`unsave` (el corazón de la card y "Guardar" de la ficha, después de `toggleSaved`) y `directions` (click o click del medio en el link "Google Maps" de `PlaceLocation`, que sigue siendo server component). `sendBeacon` o `fetch` con `keepalive`, sin esperar ni reintentar.
+- Origen (`search`, `home` con el id de la fila, `saved`, `similar`, `branch`, `direct`): `Tracking/OriginLink` (el `<Link>` a la ficha de `PlaceCard`, `PlaceCardMini` y `BranchCard`) lo guarda en memoria del módulo al hacer click y la ficha lo usa una vez; sin click a esa ficha (link externo, recarga, atrás, pestaña nueva), `direct`. Nunca el texto de la búsqueda. La URL no cambia y el prefetch es el de siempre (`google-cost-guard.test.ts` cubre `OriginLink`).
+- `POST /api/events`: ignora bots (`server/events/bots.ts`, por user agent), pedidos de otro sitio (`Sec-Fetch-Site`) y bodies inválidos; guarda con `after()`. El código anónimo (`server/events/visitor.ts`) es sha256(clave del día ‖ IP ‖ user agent); la IP y el user agent no se guardan ni se loguean. Sin cookies ni localStorage. Una vez por persona, lugar, tipo y día (restricción única en la base), hasta `EVENTS_PER_MINUTE` (30) por código por minuto, sólo lugares publicados; guardar y sacar el mismo día se cancelan.
+- Cron diario (`app/vercel.json`, 04:00 UTC = 01:00 de Montevideo, `GET /api/cron/events-daily` con `Authorization: Bearer $CRON_SECRET`): rearma el resumen (`place_event_daily`) de los 3 días cerrados anteriores (idempotente), borra los eventos de más de 90 días y las claves de días anteriores. Escribir en la base es sólo esto: `getSql()` de `server/db.ts`.
+
 # Accesibilidad
 
 - Objetivo: WCAG 2.2 AA y 100 en Accesibilidad de Lighthouse en home, /search y ficha (mobile y desktop).

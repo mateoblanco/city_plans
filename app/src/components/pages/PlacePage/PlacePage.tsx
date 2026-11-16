@@ -7,6 +7,8 @@ import { SKIP_TARGETS } from "@/components/SkipLinks/utils/skip-targets";
 import { getPlacePage } from "@/server/places/page-data";
 import { montevideoNow } from "@/server/search/hours";
 import { siteUrl } from "@/server/seo/indexing";
+import { trackEvents } from "@/server/events/config";
+import PlaceViewBeacon from "@/components/Tracking/PlaceViewBeacon/PlaceViewBeacon";
 import PlaceContact from "./PlaceContact/PlaceContact";
 import PlaceInfoCard from "./PlaceInfoCard/PlaceInfoCard";
 import PlaceBranches from "./PlaceBranches/PlaceBranches";
@@ -40,11 +42,15 @@ const Details = async (props: DetailsProps) => {
   const status = placeOpenText(place.hours, google?.openNow ?? null, now);
 
   // Datos estructurados sólo con datos propios (la fila y el logo de R2): nunca `google`.
+  // Popularidad (TRACK_EVENTS): apagado, ni el beacon ni el contador de "Google Maps" se renderizan.
+  const tracking = trackEvents();
+
   const jsonLd = placeJsonLd({ place, siteUrl: siteUrl(), logoUrl: data.logoUrl, neighborhood: data.neighborhood });
 
   return (
     <div className={styles.page}>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(jsonLd) }} />
+      {tracking && <PlaceViewBeacon placeId={place.id} slug={place.slug} />}
       <PlaceHeader placeId={place.id} name={place.name} logoUrl={data.logoUrl} logoBgColor={place.logo_bg_color} instagram={place.instagram} />
 
       <div className={styles.content}>
@@ -69,6 +75,7 @@ const Details = async (props: DetailsProps) => {
                 locatedIn={place.located_in}
                 lines={transitLines(place.transit_lines)}
                 mapsHref={place.google_place_id ? googleMapsHref(place.name, place.google_place_id) : null}
+                trackPlaceId={tracking ? place.id : null}
               />
             </div>
             <PlaceDiscounts providers={data.discounts} />

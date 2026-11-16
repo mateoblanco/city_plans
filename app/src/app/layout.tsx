@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { allowIndexing, rootRobots, siteUrl } from "@/server/seo/indexing";
+import { trackEvents } from "@/server/events/config";
+import TrackingEnabled from "@/components/Tracking/TrackingEnabled/TrackingEnabled";
 import '@/styles/reset.scss';
 import '@/styles/global.scss';
 
@@ -34,6 +36,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         </div>
         {/* Web Vitals reales (LCP, INP, CLS) en el dashboard de Vercel. */}
         <SpeedInsights />
+        {/* Popularidad: sólo con TRACK_EVENTS=true (Production) se carga el envío de eventos. */}
+        {trackEvents() && <TrackingEnabled />}
       </body>
     </html>
   );
