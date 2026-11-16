@@ -1,0 +1,14 @@
+@use '../../../../styles/breakpoints' as *;
+
+// Como la línea de FilterBar: desde el borde izquierdo en mobile (sin scroll: lo que no entra se corta), centrada
+// desde md.
+.line {
+  display: flex;
+  gap: 8px;
+  overflow: hidden;
+  width: 100%;
+
+  @include media(md) {
+    justify-content: center;
+  }
+}

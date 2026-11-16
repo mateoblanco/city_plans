@@ -214,3 +214,31 @@ export function nearbyHref(state: SearchUrl): string {
 export function widenUrl(state: SearchUrl): string {
   return `/api/search/widen${searchHref({ ...state, debug: false }).slice("/search".length)}`;
 }
+
+/** Los filtros de la barra que el texto puede prender: al borrar el texto pasan a `f` para que sigan puestos. */
+const BAR_FILTER_KINDS = new Set(["neighborhood", "diet", "price", "openAt"]);
+
+/**
+ * Borrar el texto (× o Escape del buscador): la misma búsqueda sin q, con la pestaña, los sub-filtros y todo lo de la
+ * barra, aunque lo haya puesto el texto (barrio, dieta, precio, "Abierto ahora" van a `f`; "Cerca mío", a `loc`). Lo
+ * demás del texto se va: "Hoy", "Esta noche", "Hoy al mediodía" (no son filtros de la barra), platos, tags y `remove`.
+ */
+export function clearTextHref(state: SearchUrl, chips: ChipRef[], bar: BarRef): string {
+  const fromText = chips.filter((chip) => chip.fromText ?? !chip.fromFilter);
+  const textFilters = fromText
+    .filter((chip) => BAR_FILTER_KINDS.has(chip.kind))
+    .map(filterKey)
+    .filter((key): key is string => key !== null);
+  // El chip "Cerca mío" no dice de dónde vino: sin loc en la URL, lo pidió el texto.
+  const textNear = chips.some((chip) => chip.kind === "near");
+  return searchHref({
+    ...state,
+    q: "",
+    remove: null,
+    intent: bar.intent?.id ?? state.intent ?? null,
+    // Sin la barra de la búsqueda (falló), los sub-filtros de la URL.
+    sub: bar.subs.length ? bar.subs.filter((sub) => sub.active).map((sub) => sub.id).join(",") : state.sub,
+    f: [...currentFilters(state.f), ...textFilters].join(","),
+    loc: state.loc ?? (textNear ? "near" : null),
+  });
+}

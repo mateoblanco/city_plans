@@ -31,3 +31,17 @@
     display: none;
   }
 }
+
+// La barra de filtros: también desde md una caja de borde a borde del header (su padding de 48px), con el degradado.
+.wrapper[data-desktop] {
+  @include media(md) {
+    display: block;
+    margin: 0 -48px;
+  }
+
+  .fade {
+    @include media(md) {
+      display: block;
+    }
+  }
+}

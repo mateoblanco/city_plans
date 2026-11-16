@@ -4,7 +4,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
+    gap: 8px;
     // Mobile más bajo; desde md, el de siempre.
     padding: 8px 8px;
     border: 1px solid var(--color-border-input);
@@ -82,6 +82,54 @@
       font-size: 16px;
     }
   }
+
+// Con texto, lugar para el × (va encima del input, a la derecha): sin texto no hay botón ni padding, y con texto el
+// input no cambia de ancho ("Buscar" no se mueve).
+.withClear {
+    padding-right: 44px;
+
+    @include media(md) {
+      padding-right: 36px;
+    }
+}
+
+// × de borrar: 44×44 en mobile (área táctil; sale del alto del input sobre el padding de la píldora, sin agrandarla),
+// 32×32 desde md. El ícono toma el color del botón (currentColor).
+.clear {
+    align-items: center;
+    background: none;
+    border: none;
+    border-radius: 50%;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    display: flex;
+    height: 44px;
+    justify-content: center;
+    margin: 0;
+    padding: 0;
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    transition: color 0.2s ease-in-out, background-color 0.2s ease-in-out;
+    width: 44px;
+
+    svg {
+      height: 16px;
+      width: 16px;
+    }
+
+    &:hover,
+    &:focus-visible {
+      background-color: var(--color-surface-hover);
+      color: var(--color-text);
+    }
+
+    @include media(md) {
+      height: 32px;
+      width: 32px;
+    }
+}
 
 // Placeholder rotativo de la home (Search rotatingPlaceholder): encima del input, sin recibir toques, con el mismo
 // aspecto que ::placeholder. Cada ejemplo es absoluto, así el que sale y el que entra se cruzan.

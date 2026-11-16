@@ -20,7 +20,7 @@
 
   // Mobile más chico (13px, 6px 10px), como el resto de los filtros de la barra; desde md, el de siempre.
   @include media(md) {
-    font-size: 14px;
+    // font-size: 14px;
     padding: 8px 12px;
   }
 

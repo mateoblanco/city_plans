@@ -1,0 +1,83 @@
+@use '../../../../styles/breakpoints' as *;
+
+// El alto de la línea de la barra (el chip más alto, FilterChip: 28,94px en mobile y 32,94px desde md): sin CLS al
+// cambiar el skeleton por la barra.
+.pill {
+  animation: pulse 1.2s ease-in-out infinite;
+  background-color: var(--color-skeleton);
+  border-radius: 999px;
+  flex-shrink: 0;
+  height: 29px;
+
+  @include media(md) {
+    height: 33px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+// Más o menos el ancho de cada filtro: Todo Montevideo, Precio, Dieta, Descuentos, Abierto ahora.
+.pill[data-kind="filters"] {
+  &:nth-child(1) {
+    width: 136px;
+  }
+
+  &:nth-child(2) {
+    width: 76px;
+  }
+
+  &:nth-child(3) {
+    width: 70px;
+  }
+
+  &:nth-child(4) {
+    width: 108px;
+  }
+
+  &:nth-child(5) {
+    width: 104px;
+  }
+
+  @include media(md) {
+    &:nth-child(1) {
+      width: 152px;
+    }
+
+    &:nth-child(2) {
+      width: 84px;
+    }
+
+    &:nth-child(3) {
+      width: 78px;
+    }
+
+    &:nth-child(4) {
+      width: 120px;
+    }
+
+    &:nth-child(5) {
+      width: 112px;
+    }
+  }
+}
+
+// Sub-filtros: largos variados, como "Tragos", "Música en vivo", "Cerveza".
+.pill[data-kind="subs"] {
+  width: 72px;
+
+  &:nth-of-type(3n + 2) {
+    width: 112px;
+  }
+
+  &:nth-of-type(3n) {
+    width: 84px;
+  }
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.5;
+  }
+}

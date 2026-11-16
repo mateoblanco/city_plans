@@ -1,32 +1,21 @@
 @use '../../../styles/breakpoints' as *;
 
-// La barra de filtros, en dos líneas: los filtros arriba; sub-filtros y extras de la intención abajo (las intenciones
-// son las pestañas de arriba del buscador).
-// Mobile: cada línea con su propio scroll horizontal, sin barra y de borde a borde del header (el margen negativo
-// compensa su padding de 16px). Desde md: un flex con wrap, centrado (la primera línea no es una caja).
+// La barra de filtros: una sola línea, en mobile y desktop. Primero los filtros; después, separados, los sub-filtros
+// de la intención y los extras (las intenciones son las pestañas de arriba del buscador). Si no entra, scroll
+// horizontal sin barra, de borde a borde del header: el margen negativo lo pone ScrollFade (su envoltorio, donde va el
+// degradado) y el padding de la línea lo compensa.
 .filterBar {
-  align-items: stretch;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  justify-content: center;
-
-  @include media(md) {
-    align-items: center;
-    flex-direction: row;
-    flex-wrap: wrap;
-    gap: 16px;
-  }
+  min-width: 0;
+  width: 100%;
 }
 
-.mainLine,
-.subRow {
+.line {
   align-items: center;
   display: flex;
   flex-wrap: nowrap;
-  gap: 12px;
-  justify-content: flex-start;
-  margin: 0 -16px;
+  gap: 8px;
   overflow-x: auto;
   padding: 0 16px;
   scrollbar-width: none;
@@ -36,78 +25,40 @@
     display: none;
   }
 
+  // Nada se achica: la línea scrollea. Los chips de los sub-filtros también son de la línea (.subs no es una caja).
+  > *,
+  .subs > * {
+    flex-shrink: 0;
+  }
+
+  // Desde md, centrada si entra y desde la izquierda si no: con justify-content: center lo que desborda por la
+  // izquierda quedaría cortado y fuera de alcance. Los márgenes auto sólo toman el espacio que sobra.
   @include media(md) {
-    margin: 0;
-    overflow-x: visible;
-    padding: 0;
-    scrollbar-width: auto;
-    white-space: normal;
+    padding: 0 48px;
+
+    > :first-child {
+      margin-left: auto;
+    }
+
+    > :last-child:not(.subs),
+    .subs > :last-child {
+      margin-right: auto;
+    }
   }
 }
 
-// Primera línea: el margen negativo de borde a borde lo pone ScrollFade (su envoltorio, donde va el degradado).
-// Desde md sus hijos son parte del flex de .filterBar (sin caja propia).
-.mainLine {
-  margin: 0;
-
-  @include media(md) {
-    align-items: normal;
-    display: contents;
-    gap: normal;
-    justify-content: normal;
-  }
+// Sub-filtros y extras: un grupo para los lectores de pantalla, sin caja propia.
+.subs {
+  display: contents;
 }
 
-// Sub-filtros y extras de la intención: desde md, en su propia línea, debajo de los filtros. Con .filterRow para
-// ganarle a su `justify-content: center` (más abajo): en mobile la fila scrollea y, centrada, lo que desborda por la
-// izquierda quedaba cortado y fuera de alcance.
-.filterRow.subRow {
-  gap: 8px;
-  justify-content: flex-start;
-
-  @include media(md) {
-    flex-basis: 100%;
-    justify-content: center;
-  }
-}
-
-// Separa los sub-filtros de la intención de lo que pidió el texto (extras): línea vertical del gris del borde del header.
+// Entre los filtros y los sub-filtros, y entre los sub-filtros y lo que pidió el texto (extras): línea vertical del gris
+// del borde del header, con un poco más de aire que el gap entre chips.
 .divider {
-  // align-self: stretch;
   background-color: var(--color-border);
   border: none;
-  flex-shrink: 0;
   // El reset le pone height: 0 a los hr, y con alto fijo el stretch no aplica.
   height: 20px;
-  margin: 0;
+  margin: 0 4px;
   width: 1px;
-}
-
-.filterRow {
-  align-items: center;
-  display: flex;
-  gap: 8px;
-  // justify-content: flex-start;
-  justify-content: center;
-
-  // @include media(md) {
-  //   justify-content: center;
-  // }
-}
-
-// Mobile: nada se achica, la línea scrollea. Con :where (sin especificidad), el flex-shrink: 0 propio de .divider
-// siempre gana, también desde md.
-:where(.mainLine > *, .filterRow > *) {
-  flex-shrink: 0;
-
-  @include media(md) {
-    flex-shrink: 1;
-  }
-}
-
-// Barrio, precio, dieta, descuentos y abre hoy: desde md bajan de línea si no entran.
-.selectRow {
-  @include media(md) {
-    flex-wrap: wrap;
-  }
 }

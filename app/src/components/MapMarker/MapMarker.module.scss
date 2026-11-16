@@ -13,6 +13,14 @@ $marker-active-scale: 1.5;
   transition:
     transform 0.15s ease-out,
     box-shadow 0.15s ease-out;
+  // Al aparecer por primera vez, crece desde 0. Cada marcador se monta una vez por lugar (key = id en SearchMap): con
+  // "Ver más" o una búsqueda nueva sólo crecen los nuevos. Sin `to`, termina en su transform de siempre (el activo,
+  // 1.5 en la ficha).
+  animation: marker-in 0.25s ease-out;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
 
   &[data-active] {
     // Anillo negro como box-shadow: no agranda la caja (el ancla no se mueve) y escala con el transform.
@@ -20,6 +28,12 @@ $marker-active-scale: 1.5;
       0 0 0 1px var(--color-selected),
       var(--shadow-marker);
     transform: scale($marker-active-scale);
+  }
+}
+
+@keyframes marker-in {
+  from {
+    transform: scale(0);
   }
 }
 

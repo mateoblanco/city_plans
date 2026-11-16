@@ -10,6 +10,7 @@ import PriceSelect from "./PriceSelect/PriceSelect";
 import DietSelect from "./DietSelect/DietSelect";
 import DiscountFilter from "./DiscountFilter/DiscountFilter";
 import ScrollFade from "../ScrollFade/ScrollFade";
+import ChipSkeletons from "./ChipSkeletons/ChipSkeletons";
 import { DIET_OPTIONS } from "./DietSelect/utils/diet-selection";
 import type { FilterBarData } from "./utils/filter-bar-data";
 import { addFilterHref, extraHref, removeChipHref, subHref, type SearchUrl } from "@/components/pages/SearchPage/utils/search-href";
@@ -44,6 +45,8 @@ type Props = {
   data: FilterBarData;
   /** La home: "Cerca mío" sin ubicación no la pide, lleva a /search (que la pide ahí). */
   deferLocation?: boolean;
+  /** La barra provisoria (SearchBar, mientras llega la búsqueda): el texto puede traer sub-filtros; van skeletons. */
+  pendingSubs?: boolean;
 };
 
 const FilterBar = (props: Props) => {
@@ -67,34 +70,42 @@ const FilterBar = (props: Props) => {
   const discountProviders = props.data.discountProviders;
   const activeDiscounts = parseFilters(props.state.f).discounts.map(choiceKey);
   const toggle = { state: props.state, chips: props.chips };
-  // Segunda fila: las opciones de la intención activa y los extras que no repiten el buscador (showsInBar).
+  // Después de los filtros: las opciones de la intención activa y los extras que no repiten el buscador (showsInBar).
   const extras = props.bar.extras.filter(showsInBar);
   const showSubs = props.bar.subs.length > 0 || extras.length > 0;
 
   return (
     <nav className={styles.filterBar} aria-label="Filtros">
-      {/* Primera línea: los filtros (las intenciones son las pestañas de arriba del buscador, IntentTabs). En desktop no
-          existe como caja (display: contents); en mobile es la línea con su propio scroll horizontal y degradado. */}
-      <ScrollFade className={styles.mainLine}>
-        <div className={`${styles.filterRow} ${styles.selectRow}`}>
-          <LocationSelect options={neighborhoods} chips={neighborhoodChips} state={props.state} location={props.location} deferLocation={props.deferLocation} />
-          <PriceSelect options={prices} chips={priceChips} state={props.state} />
-          <DietSelect options={diets} chips={dietChips} state={props.state} />
-          {discountProviders.length > 0 && <DiscountFilter providers={discountProviders} active={activeDiscounts} state={props.state} />}
-          <Toggle {...toggle} kind="openAt" id="now" text="Abierto ahora" />
-        </div>
+      {/* Una sola línea, en mobile y desktop: filtros | sub-filtros | extras (las intenciones son las pestañas de arriba
+          del buscador, IntentTabs). Si no entra, scroll horizontal con degradado (ScrollFade). */}
+      <ScrollFade className={styles.line} desktop>
+        <LocationSelect options={neighborhoods} chips={neighborhoodChips} state={props.state} location={props.location} deferLocation={props.deferLocation} />
+        <PriceSelect options={prices} chips={priceChips} state={props.state} />
+        <DietSelect options={diets} chips={dietChips} state={props.state} />
+        {discountProviders.length > 0 && <DiscountFilter providers={discountProviders} active={activeDiscounts} state={props.state} />}
+        <Toggle {...toggle} kind="openAt" id="now" text="Abierto ahora" />
+        {showSubs && (
+          <>
+            <hr className={styles.divider} />
+            {/* Sin caja propia (display: contents): sus chips son parte de la línea. */}
+            <div className={styles.subs} role="group" aria-label="Sub-filtros">
+              {props.bar.subs.map((sub) => (
+                <FilterChip key={sub.id} active={sub.active} href={subHref(props.state, sub.id, props.bar)} text={sub.label} />
+              ))}
+              {props.bar.subs.length > 0 && extras.length > 0 && <hr className={styles.divider} />}
+              {extras.map((chip) => (
+                <FilterChip key={`${chip.kind}:${chip.id}`} active href={extraHref(props.state, chip, props.bar)} text={chip.label} />
+              ))}
+            </div>
+          </>
+        )}
+        {props.pendingSubs && !showSubs && (
+          <>
+            <hr className={styles.divider} aria-hidden="true" />
+            <ChipSkeletons kind="subs" />
+          </>
+        )}
       </ScrollFade>
-      {showSubs && (
-        <div className={`${styles.filterRow} ${styles.subRow}`} role="group" aria-label="Sub-filtros">
-          {props.bar.subs.map((sub) => (
-            <FilterChip key={sub.id} active={sub.active} href={subHref(props.state, sub.id, props.bar)} text={sub.label} />
-          ))}
-          {props.bar.subs.length > 0 && extras.length > 0 && <hr className={styles.divider} />}
-          {extras.map((chip) => (
-            <FilterChip key={`${chip.kind}:${chip.id}`} active href={extraHref(props.state, chip, props.bar)} text={chip.label} />
-          ))}
-        </div>
-      )}
     </nav>
   );
 };

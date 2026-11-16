@@ -7,12 +7,14 @@ type Props = {
   /** Clase del contenedor que scrollea (la línea de la barra o de las pestañas). */
   className: string;
   children: React.ReactNode;
+  /** También desde md (la barra de filtros): sigue siendo una caja de borde a borde del header, con el degradado. */
+  desktop?: boolean;
 };
 
 /**
- * La línea de la barra con scroll horizontal (mobile) y un degradado sobre el borde derecho, como los carruseles de la
- * home (RowScroller): se va al llegar al final o si no hay nada que scrollear; no tapa clicks ni scroll. Desde md el
- * envoltorio no es una caja (display: contents) y el degradado no se muestra.
+ * La línea con scroll horizontal y un degradado sobre el borde derecho, como los carruseles de la home (RowScroller):
+ * se va al llegar al final o si no hay nada que scrollear; no tapa clicks ni scroll. Sin `desktop` (las pestañas), desde
+ * md el envoltorio no es una caja (display: contents) y el degradado no se muestra.
  */
 const ScrollFade = (props: Props) => {
   const ref = useRef<HTMLDivElement>(null);
@@ -34,7 +36,7 @@ const ScrollFade = (props: Props) => {
   }, []);
 
   return (
-    <div className={styles.wrapper} data-at-end={atEnd || undefined}>
+    <div className={styles.wrapper} data-at-end={atEnd || undefined} data-desktop={props.desktop || undefined}>
       <div ref={ref} className={props.className}>
         {props.children}
       </div>
