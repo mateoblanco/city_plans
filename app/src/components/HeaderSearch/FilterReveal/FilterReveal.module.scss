@@ -1,0 +1,6 @@
+// El contenido de la fila de filtros: a todo el ancho, con su alto natural aunque `.bottom` (el que se pliega) se
+// achique; FilterReveal lo mide para plegar y desplegar.
+.reveal {
+  min-width: 0;
+  width: 100%;
+}

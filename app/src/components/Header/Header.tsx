@@ -22,6 +22,8 @@ type Props = {
    * hidratar, y con la barra de filtros eso corría el contenido (CLS). Sin mapa fijo debajo no hace falta.
    */
   sticky?: boolean;
+  /** La home: la segunda fila se pliega al scrollear (la anima HeaderSearch/FilterReveal). */
+  collapsibleBottom?: boolean;
 };
 
 const Header = (props: Props) => {
@@ -49,7 +51,11 @@ const Header = (props: Props) => {
           <div className={styles.end} />
           {/* <UserButton /> */}
         </div>
-        {props.bottom && <div className={styles.bottom}>{props.bottom}</div>}
+        {props.bottom && (
+          <div className={styles.bottom} data-collapsible={props.collapsibleBottom || undefined}>
+            {props.bottom}
+          </div>
+        )}
       </header>
       {/* El header es fixed y no ocupa lugar: el espaciador reserva su alto para que el contenido arranque debajo. */}
       {!props.sticky && <div className={styles.spacer} aria-hidden="true" />}

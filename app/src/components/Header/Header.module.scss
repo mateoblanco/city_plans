@@ -184,6 +184,19 @@
     visibility: hidden;
 }
 
+// La home (prop collapsibleBottom): la fila de filtros la pliega FilterReveal con motion/mini al scrollear, en mobile y
+// desktop. Un bloque (no la grilla de data-sheet-high, sin su transición de CSS, que chocaría con la animación): el
+// contenido mantiene su alto natural mientras `.bottom` se achica. Recorta sólo mientras se pliega o está plegada
+// (data-folded), así los anillos de foco no se cortan con la fila quieta.
+.header[data-compact] .bottom[data-collapsible] {
+    display: block;
+    transition: none;
+
+    &[data-folded] {
+        overflow: clip;
+    }
+}
+
 .header[data-compact="ml"] {
     @include media(ml) {
         @include full;

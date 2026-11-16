@@ -6,6 +6,7 @@ import SearchBar from "./SearchBar/SearchBar";
 import SearchInput from "./SearchInput/SearchInput";
 import IntentTabs from "./IntentTabs/IntentTabs";
 import SearchTabs from "./SearchTabs/SearchTabs";
+import FilterReveal from "./FilterReveal/FilterReveal";
 import { emptyBar } from "@/server/search/intents";
 import HeaderBack from "@/components/Header/HeaderBack/HeaderBack";
 import styles from "./HeaderSearch.module.scss";
@@ -36,11 +37,21 @@ const HeaderSearch = (props: Props) => {
           <IntentTabs state={{ q: "" }} bar={emptyBar()} home />
         )
       }
+      collapsibleBottom={!props.searchParams}
       bottom={
         // Mientras llega la barra, su primera línea ya ocupa su alto: el header no crece después (CLS).
-        <Suspense fallback={<div className={styles.barPlaceholder} aria-hidden="true" />}>
-          <SearchBar searchParams={props.searchParams} />
-        </Suspense>
+        props.searchParams ? (
+          <Suspense fallback={<div className={styles.barPlaceholder} aria-hidden="true" />}>
+            <SearchBar searchParams={props.searchParams} />
+          </Suspense>
+        ) : (
+          // La home: la fila se guarda al bajar y vuelve al tope o al enfocar el buscador.
+          <FilterReveal>
+            <Suspense fallback={<div className={styles.barPlaceholder} aria-hidden="true" />}>
+              <SearchBar />
+            </Suspense>
+          </FilterReveal>
+        )
       }
     >
       {/* Mobile: la flecha de volver y el input en la misma línea. Desde md, sólo el input (la línea no es una caja). */}
