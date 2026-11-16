@@ -52,6 +52,7 @@
   padding: 0;
   text-decoration: none;
   transition: color 0.1s ease-in-out, border-color 0.1s ease-in-out;
+  font-weight: 500;
 
   @include media(md) {
     font-size: 16px;
@@ -60,8 +61,12 @@
   }
 
   &:hover {
-    border-bottom-color: var(--color-border);
+    // border-bottom-color: var(--color-border);
     color: var(--color-text);
+
+    .icon{
+      transform:scale(1.1);
+    }
   }
 
   &[aria-current] {
@@ -80,6 +85,8 @@
   flex-shrink: 0;
   height: 16px;
   width: 16px;
+  transition: transform 0.2s ease-in-out;
+  transform:scale(0.9);
 
   @include media(md) {
     height: 20px;

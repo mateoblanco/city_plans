@@ -1,6 +1,8 @@
-import { Suspense, type ReactNode } from "react";
+import { Suspense } from "react";
+import ArrowExternal from "@/assets/arrow_external.svg";
 import Star from "@/assets/star.svg";
 import type { OpenStateText } from "@/server/search/labels";
+import type { PriceText, RatingInfo } from "../utils/summary";
 import PlaceTags from "./PlaceTags/PlaceTags";
 import styles from "./PlaceSummary.module.scss";
 
@@ -12,131 +14,147 @@ type Props = {
    */
   status: OpenStateText | null | Promise<OpenStateText | null>;
   category: string | null;
-  price: string | null;
-  /** Puntaje de Google ya formateado ("4,6"), como promesa (llega con Google); null si el lugar no está en Google. */
-  rating: Promise<string | null> | null;
+  /** "$$ (Normal)" y "Precio: normal" para lectores de pantalla; null con precio desconocido. */
+  price: PriceText | null;
+  /** Puntaje de Google ("4,6", "1.230" reseñas y el link), como promesa (llega con Google); null si no está en Google. */
+  rating: Promise<RatingInfo | null> | null;
   description: string | null;
   /** Chips de dietas y tags (placeChips). */
   chips: string[];
   instagram: string | null;
 };
 
-type Fact = { key: string; content: ReactNode };
+// La línea de estado: más alta que la de datos por el fondo del estado; reservada (vacía) mide lo mismo.
+const STATUS_LINE = `${styles.facts} ${styles.statusFacts}`;
 
-/** Una línea de datos separados por " · "; nada si está vacía. */
-const FactLine = ({ facts }: { facts: Fact[] }) =>
-  facts.length > 0 ? (
-    <p className={styles.facts}>
-      {facts.map((fact, index) => (
-        <span key={fact.key} className={styles.fact}>
-          {index > 0 && <span className={styles.separator} aria-hidden>·</span>}
-          {fact.content}
-        </span>
-      ))}
-    </p>
+const Separator = () => <span className={styles.separator} aria-hidden />;
+
+type StatusProps = { status: OpenStateText | null };
+
+/** "Abierto Cierra 00:00": el estado con el color y el fondo del tono y, sin separador, su horario (cerrado, sin él). */
+const Status = (props: StatusProps) =>
+  props.status ? (
+    <span className={styles.fact}>
+      <span className={styles.status} data-tone={props.status.tone}>
+        {props.status.status}
+      </span>
+      {/* Cerrado va sin la próxima apertura ("Abre el miércoles 16:30"): la semana está en los horarios. */}
+      {props.status.tone !== "closed" && props.status.detail}
+    </span>
   ) : null;
-
-/** La línea de estado y su horario: "Abierto · cierra 00:00". */
-const statusFacts = (status: OpenStateText | null): Fact[] => {
-  if (!status) return [];
-  const facts: Fact[] = [
-    {
-      key: "status",
-      content: (
-        <span className={styles.status} data-tone={status.tone}>
-          {status.status}
-        </span>
-      ),
-    },
-  ];
-  if (status.detail) facts.push({ key: "detail", content: status.detail });
-  return facts;
-};
 
 type GoogleStatusProps = { status: Promise<OpenStateText | null> };
 
-/** El estado que depende de Google; sin respuesta, la línea reservada queda vacía (no sube lo de abajo). */
-const GoogleStatus = async (props: GoogleStatusProps) => {
-  const facts = statusFacts(await props.status);
-  return facts.length > 0 ? <FactLine facts={facts} /> : <p className={styles.facts} aria-hidden />;
-};
+/** El estado que depende de Google; sin respuesta no se muestra (la línea ya tiene su alto). */
+const GoogleStatus = async (props: GoogleStatusProps) => <Status status={await props.status} />;
 
-type RatingProps = { rating: Promise<string | null>; separated: boolean };
+type RatingTextProps = { rating: RatingInfo };
 
-/** "· ★ 4,6 en Google", al final de la línea de categoría y precio (así aparecer no corre nada de esa línea). */
+/** "★ 4,4 (1.230) en Google". */
+const RatingText = (props: RatingTextProps) => (
+  <>
+    <Star className={styles.star} aria-hidden width={14} height={13} />
+    <span>
+      {props.rating.value}
+      {props.rating.count && ` (${props.rating.count})`} en Google
+    </span>
+  </>
+);
+
+/** preceded: hay tipo o precio antes (lleva separador). */
+type RatingProps = { rating: Promise<RatingInfo | null>; preceded: boolean };
+
+/**
+ * "· ★ 4,4 (1.230) en Google ↗", al final de la línea (así aparecer no corre nada de lo de antes). Todo es un link a
+ * las reseñas en Google Maps, en otra pestaña.
+ */
 const Rating = async (props: RatingProps) => {
   const rating = await props.rating;
   if (!rating) return null;
+  const count = rating.count ? ` ${rating.count} reseñas.` : "";
   return (
     <span className={styles.fact}>
-      {props.separated && <span className={styles.separator} aria-hidden>·</span>}
-      <Star className={styles.star} aria-hidden width={14} height={13} /> {rating} en Google
+      {props.preceded && <Separator />}
+      {rating.href ? (
+        <a className={styles.ratingLink} href={rating.href} target="_blank" rel="noopener noreferrer">
+          <RatingText rating={rating} />
+          <span className={styles.visuallyHidden}>{`:${count} Ver en Google Maps (se abre en otra pestaña)`}</span>
+          <ArrowExternal className={styles.external} aria-hidden width={8} height={8} />
+        </a>
+      ) : (
+        <span className={styles.rating}>
+          <RatingText rating={rating} />
+        </span>
+      )}
     </span>
   );
 };
 
-/**
- * Lugar del puntaje mientras llega Google: el mismo texto invisible, así la línea ya tiene su ancho y no cambia de
- * corte al llegar.
- */
-const RatingReserve = (props: { separated: boolean }) => (
+/** Lugar del puntaje mientras llega Google: un texto invisible del mismo largo, así la línea ya tiene su ancho. */
+const RatingReserve = (props: { preceded: boolean }) => (
   <span className={`${styles.fact} ${styles.reserve}`} aria-hidden>
-    {props.separated && <span className={styles.separator}>·</span>}
-    <Star className={styles.star} width={14} height={13} /> 4,6 en Google
+    {props.preceded && <span className={styles.separator} />}
+    <span className={styles.ratingLink}>
+      <RatingText rating={{ value: "4,6", count: "1.230", href: null }} />
+      <ArrowExternal className={styles.external} width={8} height={8} />
+    </span>
   </span>
 );
 
 /**
- * Nombre, la línea de estado y horario, la de categoría · precio · puntaje, la descripción y los chips. Lo de la base
- * sale enseguida; el puntaje (y el estado, si la base no tiene horarios confirmados) llega de Google en su Suspense,
- * con el lugar ya reservado.
+ * Nombre, la línea de tipo · precio · puntaje, la de estado y horario, la descripción y los chips. Lo de la base sale
+ * enseguida; el puntaje (y el estado, si la base no tiene horarios confirmados) llega de Google en su Suspense, con el
+ * lugar ya reservado.
  */
 const PlaceSummary = (props: Props) => {
   const description = props.description?.trim();
-
-  // Dos líneas: arriba el estado y su horario; abajo categoría · precio · puntaje. Dentro de cada una, " · ".
   const pendingStatus = props.status instanceof Promise ? props.status : null;
-  const hours = pendingStatus ? [] : statusFacts(props.status as OpenStateText | null);
+  const status = pendingStatus ? null : (props.status as OpenStateText | null);
 
-  const details: Fact[] = [];
-  if (props.category) details.push({ key: "category", content: props.category });
-  if (props.price) details.push({ key: "price", content: props.price });
-  const separated = details.length > 0;
-
-  const statusLine = pendingStatus ? (
-    <Suspense fallback={<p className={styles.facts} aria-hidden />}>
-      <GoogleStatus status={pendingStatus} />
-    </Suspense>
-  ) : (
-    <FactLine facts={hours} />
-  );
-
-  const detailsLine =
-    details.length > 0 || props.rating ? (
+  // Dos líneas, con " · " sólo entre tramos que están (sin tipo, puntaje o precio no queda un separador suelto).
+  // Arriba: tipo · precio ("$$ (Normal)"; los lectores de pantalla leen "Precio: normal") · puntaje.
+  const preceded = !!(props.category || props.price);
+  const ratingLine =
+    props.category || props.rating || props.price ? (
       <p className={styles.facts}>
-        {details.map((fact, index) => (
-          <span key={fact.key} className={styles.fact}>
-            {index > 0 && <span className={styles.separator} aria-hidden>·</span>}
-            {fact.content}
+        {props.category && <span className={styles.fact}>{props.category}</span>}
+        {props.price && (
+          <span className={styles.fact}>
+            {props.category && <Separator />}
+            <span aria-hidden>{`${props.price.signs} (${props.price.level})`}</span>
+            <span className={styles.visuallyHidden}>{props.price.label}</span>
           </span>
-        ))}
+        )}
         {props.rating && (
-          <Suspense fallback={<RatingReserve separated={separated} />}>
-            <Rating rating={props.rating} separated={separated} />
+          <Suspense fallback={<RatingReserve preceded={preceded} />}>
+            <Rating rating={props.rating} preceded={preceded} />
           </Suspense>
         )}
       </p>
     ) : null;
+
+  // Abajo: el estado y su horario; si depende de Google, la línea queda reservada hasta que llega.
+  const statusLine = pendingStatus ? (
+    <p className={STATUS_LINE}>
+      <Suspense fallback={null}>
+        <GoogleStatus status={pendingStatus} />
+      </Suspense>
+    </p>
+  ) : status ? (
+    <p className={STATUS_LINE}>
+      <Status status={status} />
+    </p>
+  ) : null;
 
   return (
     <div className={styles.summary}>
       <div className={styles.main}>
         <h1 className={styles.name}>{props.name}</h1>
 
-        {(pendingStatus || hours.length > 0 || detailsLine) && (
+        {(ratingLine || statusLine) && (
           <div className={styles.factLines}>
+            {ratingLine}
             {statusLine}
-            {detailsLine}
           </div>
         )}
       </div>

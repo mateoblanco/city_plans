@@ -49,6 +49,10 @@
 	--color-status-open: #{palette.get(green-700)}; // PlaceCard, PlaceSummary
 	--color-status-closing-soon: #{palette.get(status-closing-soon)}; // PlaceCard, PlaceSummary
 	--color-status-closed: #{palette.get(status-closed)}; // PlaceCard, PlaceSummary
+	// Fondos claros del estado en PlaceSummary (15 % del color + blanco)
+	--color-status-open-bg: #{color.mix(palette.get(white), palette.get(green-700), $weight: 85%)};
+	--color-status-closing-soon-bg: #{color.mix(palette.get(white), palette.get(status-closing-soon), $weight: 85%)};
+	--color-status-closed-bg: #{color.mix(palette.get(white), palette.get(status-closed), $weight: 85%)};
 	--color-rating: #{palette.get(yellow-500)}; // PlaceSummary (estrella del puntaje de Google)
 
 	--color-like: #{palette.get(red-600)}; // SaveButton (corazón lleno)

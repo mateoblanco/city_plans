@@ -1,8 +1,11 @@
 import 'server-only'
 
-// Place Details (New). rating, regularOpeningHours y los de contacto (websiteUri, internationalPhoneNumber) son del SKU
-// Enterprise (≈ USD 0,02); shortFormattedAddress entra en él. El teléfono sólo se usa para el WhatsApp del celular.
-export const DETAILS_FIELD_MASK = 'rating,regularOpeningHours,shortFormattedAddress,websiteUri,internationalPhoneNumber'
+// Place Details (New). rating, userRatingCount, regularOpeningHours y los de contacto (websiteUri,
+// internationalPhoneNumber) son del SKU Enterprise (≈ USD 0,02); shortFormattedAddress (Essentials) y googleMapsLinks
+// (Pro) entran en él: se cobra el SKU más alto de los campos pedidos. El teléfono sólo se usa para el WhatsApp del
+// celular. Nada de `reviews`: pasaría a Enterprise + Atmosphere.
+export const DETAILS_FIELD_MASK =
+  'rating,userRatingCount,googleMapsLinks,regularOpeningHours,shortFormattedAddress,websiteUri,internationalPhoneNumber'
 // Sólo la dirección de una sucursal: SKU Place Details Essentials (≈ USD 0,005).
 export const BRANCH_FIELD_MASK = 'shortFormattedAddress'
 
@@ -58,6 +61,10 @@ export type DayHours = { day: number; ranges: string[]; allDay: boolean }
 export type PlaceGoogleInfo = {
   openNow: boolean | null
   rating: number | null
+  /** Cantidad de reseñas detrás del puntaje; null si no vino. */
+  ratingCount: number | null
+  /** Las reseñas del lugar en Google Maps (googleMapsLinks.reviewsUri) o, si no vino, el lugar (placeUri); null si ninguno. */
+  reviewsHref: string | null
   address: string | null
   week: DayHours[] | null
   /** Web del lugar; null si no hay, si es Instagram (ya va aparte) o si es un link de WhatsApp (va en whatsappHref). */
@@ -152,14 +159,24 @@ export function whatsappHref(website: unknown, internationalPhone: unknown): str
   return digits && /^\+5989\d{7}$/.test(digits) ? `https://wa.me/${digits.slice(1)}` : null
 }
 
+/** Un link de googleMapsLinks: sólo https a Google (maps.google.com, google.com/maps, goo.gl/maps…); si no, null. */
+export function googleMapsLink(value: unknown): string | null {
+  const url = httpUrl(value)
+  if (!url || url.protocol !== 'https:' || !hostIs(url, ['google.com', 'goo.gl', 'app.goo.gl'])) return null
+  return url.toString()
+}
+
 /** Lee la respuesta de Place Details sin confiar en su forma: lo que no es válido queda en null. */
 export function parseDetails(data: unknown): PlaceGoogleInfo {
   const body = isRecord(data) ? data : {}
   const hours = isRecord(body.regularOpeningHours) ? body.regularOpeningHours : null
   const rating = typeof body.rating === 'number' && Number.isFinite(body.rating) && body.rating > 0 ? body.rating : null
+  const links = isRecord(body.googleMapsLinks) ? body.googleMapsLinks : null
   return {
     openNow: typeof hours?.openNow === 'boolean' ? hours.openNow : null,
     rating,
+    ratingCount: rating !== null && isInt(body.userRatingCount, 1, Number.MAX_SAFE_INTEGER) ? body.userRatingCount : null,
+    reviewsHref: googleMapsLink(links?.reviewsUri) ?? googleMapsLink(links?.placeUri),
     address: streetAddress(body.shortFormattedAddress),
     week: hours ? weekHours(hours.periods) : null,
     website: contactWebsite(body.websiteUri),

@@ -26,7 +26,7 @@ import SimilarPlaces from "./SimilarPlaces/SimilarPlaces";
 import { placeChips } from "./utils/place-options";
 import { jsonLdScript, placeJsonLd } from "./utils/structured-data";
 import { mapLikelyAboveFold } from "./utils/static-map";
-import { baseHoursKnown, googleMapsHref, instagramHandle, instagramPopularHref, mainCategory, placeOpenText, priceLabel, ratingText, transitLines } from "./utils/summary";
+import { baseHoursKnown, googleMapsHref, instagramHandle, instagramPopularHref, mainCategory, placeOpenText, priceText, ratingInfo, transitLines } from "./utils/summary";
 import styles from "./PlacePage.module.scss";
 
 /** Una semana de mentira para reservar el alto de los horarios mientras llega Google (invisible). */
@@ -95,13 +95,13 @@ const Details = async (props: DetailsProps) => {
   const status = baseHoursKnown(place.hours, now) || !inGoogle
     ? placeOpenText(place.hours, null, now)
     : data.google.then((google) => placeOpenText(place.hours, google?.openNow ?? null, now));
-  const rating = inGoogle ? data.google.then((google) => (google?.rating ? ratingText(google.rating) : null)) : null;
   const address = inGoogle ? data.google.then((google) => google?.address ?? null) : null;
 
   // Datos estructurados sólo con datos propios (la fila y el logo de R2): nunca `google`.
   // Popularidad (TRACK_EVENTS): apagado, ni el beacon ni el contador de "Google Maps" se renderizan.
   const tracking = trackEvents();
   const mapsHref = place.google_place_id ? googleMapsHref(place.name, place.google_place_id) : null;
+  const rating = inGoogle ? data.google.then((google) => ratingInfo(google, mapsHref)) : null;
   const chips = placeChips(place);
   const contact = { instagramHandle: instagramHandle(place.instagram), popularHref: instagramPopularHref(place.name) };
 
@@ -120,7 +120,7 @@ const Details = async (props: DetailsProps) => {
               name={place.name}
               status={status}
               category={mainCategory(place.categories)}
-              price={priceLabel(place.price)}
+              price={priceText(place.price)}
               rating={rating}
               description={place.description_es}
               chips={chips}

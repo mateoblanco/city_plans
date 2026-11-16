@@ -1,13 +1,27 @@
 import { describe, expect, it } from "vitest";
 import type { Hours } from "@/server/search/hours";
-import { baseHoursKnown, googleMapsHref, instagramHandle, instagramPopularHref, mainCategory, isNearWhite, placeOpenText, priceLabel, ratingText, toneOn } from "../summary";
+import { baseHoursKnown, googleMapsHref, instagramHandle, instagramPopularHref, mainCategory, isNearWhite, placeOpenText, priceText, ratingInfo, ratingText, countText, toneOn } from "../summary";
 
 describe("línea de info", () => {
-  it("precio con signos y etiqueta; desconocido no se muestra", () => {
-    expect(priceLabel("low")).toBe("$ (Accesible)");
-    expect(priceLabel("moderate")).toBe("$$ (Normal)");
-    expect(priceLabel("high")).toBe("$$$ (Caro)");
-    expect(priceLabel("unknown")).toBeNull();
+  it("precio en signos con su nivel, y el texto accesible; desconocido no se muestra", () => {
+    expect(priceText("low")).toEqual({ signs: "$", level: "Accesible", label: "Precio: accesible" });
+    expect(priceText("moderate")).toEqual({ signs: "$$", level: "Normal", label: "Precio: normal" });
+    expect(priceText("high")).toEqual({ signs: "$$$", level: "Caro", label: "Precio: caro" });
+    expect(priceText("unknown")).toBeNull();
+  });
+
+  it("cantidad de reseñas con punto de miles", () => {
+    expect(countText(12)).toBe("12");
+    expect(countText(1230)).toBe("1.230");
+    expect(countText(1234567)).toBe("1.234.567");
+  });
+
+  it("puntaje con cantidad y link; sin link de reseñas, el del lugar; sin puntaje, nada", () => {
+    const google = { rating: 4.4, ratingCount: 1230, reviewsHref: "https://www.google.com/maps/reviews" };
+    expect(ratingInfo(google, "https://fallback")).toEqual({ value: "4,4", count: "1.230", href: google.reviewsHref });
+    expect(ratingInfo({ ...google, reviewsHref: null, ratingCount: null }, "https://fallback")).toEqual({ value: "4,4", count: null, href: "https://fallback" });
+    expect(ratingInfo({ ...google, rating: null }, "https://fallback")).toBeNull();
+    expect(ratingInfo(null, "https://fallback")).toBeNull();
   });
 
   it("una sola categoría, la principal", () => {
@@ -90,10 +104,17 @@ describe("placeOpenText", () => {
   const none: Hours = { status: "none", slots: [] };
   const line = (text: ReturnType<typeof placeOpenText>) => text && (text.detail ? `${text.status} · ${text.detail}` : text.status);
 
-  it("los mismos textos que la card, con los horarios de la base", () => {
-    expect(line(placeOpenText(lunch, null, { day: 1, time: "20:00" }))).toBe("Abierto · cierra 00:00");
+  it("con los horarios de la base, mayúscula inicial en las dos partes", () => {
+    expect(line(placeOpenText(lunch, null, { day: 1, time: "20:00" }))).toBe("Abierto · Cierra 00:00");
     expect(placeOpenText(lunch, null, { day: 1, time: "15:30" })).toMatchObject({ tone: "closing_soon", status: "Cierra pronto", detail: "16:00" });
-    expect(placeOpenText(lunch, null, { day: 1, time: "16:30" })).toMatchObject({ tone: "closed", status: "Cerrado", detail: "Abre 19:00" });
+    expect(placeOpenText(lunch, null, { day: 1, time: "16:30" })).toMatchObject({ tone: "closed", status: "Cerrado", detail: "Abre hoy 19:00" });
+  });
+
+  it("cerrado: abre hoy, mañana o el día de la semana", () => {
+    const week: Hours = { status: "exact", slots: [{ day: 1, opens: "12:30", closes: "16:00" }, { day: 3, opens: "16:30", closes: "23:00" }] };
+    expect(line(placeOpenText(week, null, { day: 0, time: "20:00" }))).toBe("Cerrado · Abre mañana 12:30");
+    expect(line(placeOpenText(week, null, { day: 1, time: "17:00" }))).toBe("Cerrado · Abre el miércoles 16:30");
+    expect(line(placeOpenText(week, null, { day: 3, time: "10:00" }))).toBe("Cerrado · Abre hoy 16:30");
   });
 
   it("baseHoursKnown: con horarios de la base el estado no espera a Google; sin ellos, sí", () => {

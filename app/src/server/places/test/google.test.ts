@@ -14,7 +14,11 @@ describe('fetchPlaceDetails', () => {
     expect(url.toString()).toBe('https://places.googleapis.com/v1/places/ChIJ%2Fabc?languageCode=es')
     expect(init.headers).toEqual({ 'X-Goog-Api-Key': 'clave', 'X-Goog-FieldMask': DETAILS_FIELD_MASK })
     expect(init.cache).toBe('no-store')
-    expect(DETAILS_FIELD_MASK).toBe('rating,regularOpeningHours,shortFormattedAddress,websiteUri,internationalPhoneNumber')
+    expect(DETAILS_FIELD_MASK).toBe(
+      'rating,userRatingCount,googleMapsLinks,regularOpeningHours,shortFormattedAddress,websiteUri,internationalPhoneNumber',
+    )
+    // Sin reviews: pasaría a Enterprise + Atmosphere.
+    expect(DETAILS_FIELD_MASK.split(',')).not.toContain('reviews')
   })
 
   it('un error HTTP trae el mensaje de Google', async () => {
@@ -82,7 +86,7 @@ describe('weekHours', () => {
   })
 })
 
-const EMPTY = { openNow: null, rating: null, address: null, week: null, website: null, whatsappHref: null }
+const EMPTY = { openNow: null, rating: null, ratingCount: null, reviewsHref: null, address: null, week: null, website: null, whatsappHref: null }
 
 describe('parseDetails', () => {
   it('lee abierto, puntaje, calle y semana', () => {
@@ -95,6 +99,19 @@ describe('parseDetails', () => {
     expect(info.rating).toBe(4.6)
     expect(info.address).toBe('Sarmiento 1345')
     expect(info.week![0].ranges).toEqual(['10:00 – 23:00'])
+  })
+
+  it('cantidad de reseñas y link a las reseñas; sin reviewsUri, el link del lugar; sólo links de Google', () => {
+    const links = { reviewsUri: 'https://www.google.com/maps/place//data=!4m4!3m3!1s0x1!9m1!1b1', placeUri: 'https://maps.google.com/?cid=1' }
+    expect(parseDetails({ rating: 4.4, userRatingCount: 1230, googleMapsLinks: links })).toMatchObject({
+      ratingCount: 1230,
+      reviewsHref: links.reviewsUri,
+    })
+    expect(parseDetails({ rating: 4.4, googleMapsLinks: { placeUri: links.placeUri } }).reviewsHref).toBe(links.placeUri)
+    expect(parseDetails({ rating: 4.4, googleMapsLinks: { reviewsUri: 'https://malo.com/maps' } }).reviewsHref).toBeNull()
+    // Sin puntaje, la cantidad no sirve.
+    expect(parseDetails({ userRatingCount: 12 }).ratingCount).toBeNull()
+    expect(parseDetails({ rating: 4, userRatingCount: 'muchas' }).ratingCount).toBeNull()
   })
 
   it('una respuesta vacía o con otra forma no tira: todo null', () => {

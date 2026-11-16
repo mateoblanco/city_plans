@@ -1,14 +1,19 @@
 import { label } from "@shared/tags.ts";
-import { nextOpening, openStatus, type Hours } from "@/server/search/hours";
-import { DISPLAY_LANG, openStateText, PRICE_LABELS, type OpenStateText } from "@/server/search/labels";
+import { nextOpening, openStatus, type Hours, type NextOpening } from "@/server/search/hours";
+import { DAY_NAMES, DISPLAY_LANG, openStateText, PRICE_LABELS, type OpenStateText } from "@/server/search/labels";
 
 /** El precio en signos: "$", "$$", "$$$" (también el priceRange del JSON-LD). */
 export const PRICE_SIGNS: Record<string, string> = { low: "$", moderate: "$$", high: "$$$" };
 
-/** "$$ (Normal)"; null con precio desconocido. */
-export function priceLabel(price: string): string | null {
-  const sign = PRICE_SIGNS[price];
-  return sign ? `${sign} (${PRICE_LABELS.es[price as keyof (typeof PRICE_LABELS)["es"]]})` : null;
+/** El precio de la ficha: "$$ (Normal)" a la vista y "Precio: normal" para lectores de pantalla. */
+export type PriceText = { signs: string; level: string; label: string };
+
+/** Signos, nivel ("Normal") y texto accesible ("Precio: normal"); null con precio desconocido. */
+export function priceText(price: string): PriceText | null {
+  const signs = PRICE_SIGNS[price];
+  if (!signs) return null;
+  const level = PRICE_LABELS.es[price as keyof (typeof PRICE_LABELS)["es"]];
+  return { signs, level, label: `Precio: ${level.toLowerCase()}` };
 }
 
 /**
@@ -19,10 +24,20 @@ export function baseHoursKnown(hours: Hours, now: { day: number; time: string })
   return openStatus(hours, now).state !== "unconfirmed";
 }
 
+const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+/** "Abre hoy 16:30", "Abre mañana 9:00", "Abre el miércoles 16:30" (la card dice "Abre 16:30" para hoy). */
+function opensText(next: NextOpening): string {
+  const time = next.opens.replace(/^0(\d)/, "$1");
+  if (next.daysAhead === 0) return `Abre hoy ${time}`;
+  if (next.daysAhead === 1) return `Abre mañana ${time}`;
+  return `Abre el ${DAY_NAMES.es[next.day]} ${time}`;
+}
+
 /**
- * La línea de estado, con los mismos textos que la PlaceCard (similarCard): "Abierto · cierra 00:00", "Cierra pronto · 16:00",
- * "Cerrado · Abre 19:00". Sale de los horarios de la base; si no están confirmados, del abierto/cerrado de Google, y si
- * tampoco hay, null (no se muestra).
+ * La línea de estado, con mayúscula inicial en las dos partes: "Abierto · Cierra 00:00", "Cierra pronto · 16:00",
+ * "Cerrado · Abre hoy 19:00". Sale de los horarios de la base (los textos de la PlaceCard, salvo "Cierra" y "Abre
+ * hoy"); si no están confirmados, del abierto/cerrado de Google, sin detalle, y si tampoco hay, null (no se muestra).
  */
 export function placeOpenText(hours: Hours, googleOpenNow: boolean | null, now: { day: number; time: string }): OpenStateText | null {
   const open = openStatus(hours, now);
@@ -31,7 +46,30 @@ export function placeOpenText(hours: Hours, googleOpenNow: boolean | null, now: 
     return { tone: googleOpenNow ? "open" : "closed", prefix: "", status: googleOpenNow ? "Abierto" : "Cerrado", detail: null };
   }
   const next = open.state === "closed" ? nextOpening(hours, now) : null;
-  return openStateText(open, DISPLAY_LANG, now, true, next);
+  const text = openStateText(open, DISPLAY_LANG, now, true, next);
+  if (text.tone === "closed" && next) return { ...text, detail: opensText(next) };
+  return { ...text, detail: text.detail && capitalize(text.detail) };
+}
+
+/** "1.230": con punto de miles también en 4 cifras (el formato de es-UY lo omite en algunos motores). */
+export function countText(count: number): string {
+  return String(Math.round(count)).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+}
+
+/** El puntaje de Google en la ficha: "4,4", "1.230" reseñas y el link a las reseñas en Google Maps. */
+export type RatingInfo = { value: string; count: string | null; href: string | null };
+
+/** null sin puntaje; sin link de reseñas de Google, el link general del lugar (fallbackHref). */
+export function ratingInfo(
+  google: { rating: number | null; ratingCount: number | null; reviewsHref: string | null } | null,
+  fallbackHref: string | null,
+): RatingInfo | null {
+  if (!google?.rating) return null;
+  return {
+    value: ratingText(google.rating),
+    count: google.ratingCount ? countText(google.ratingCount) : null,
+    href: google.reviewsHref ?? fallbackHref,
+  };
 }
 
 /** La categoría principal (la primera), en español; null sin categorías. */

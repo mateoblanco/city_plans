@@ -86,6 +86,8 @@ export const HOME_CONFIG = {
   /** Una fila con menos lugares (después de sacar los repetidos y las cadenas) no se muestra. */
   minPlaces: 4,
   maxPlaces: 8,
+  /** La card "Ver todos" al final de la fila: los logos de tantos lugares del pool que siguen a los que se ven. */
+  viewAllLogos: 3,
   /** El pool de cada fila: cuántos resultados de su búsqueda se guardan en la caché, para completar sin repetir y reordenar. */
   candidates: 30,
   /** Las filas cacheadas (clave: fecha y franja) se rearman en segundo plano cada tantos minutos como máximo (home/swr.ts). */

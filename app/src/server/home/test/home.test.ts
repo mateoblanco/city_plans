@@ -185,6 +185,49 @@ describe('assembleHome', () => {
   })
 })
 
+describe('assembleHome: los logos de la card "Ver todos" (more)', () => {
+  const range = (prefix: string, count: number) => Array.from({ length: count }, (_, index) => `${prefix}${index}`)
+  const withHref = (row: HomeRow): HomeRow => ({ ...row, href: `/search?${row.id}` })
+  const more = (rows: HomeRow[], id: string) => rows.find((entry) => entry.id === id)!.more!.map((logo) => logo.id)
+
+  it('los 3 siguientes a los 8 que se ven, con nombre y logo del pool', () => {
+    const pool = withHref(homeRow('a', range('x', 12)))
+    pool.places[8] = { ...pool.places[8], name: 'Lugar 8', logoUrl: 'https://logos/x8.png', logoBgColor: '#000' }
+    const [row] = assembleHome([pool])
+    expect(row.places.map((item) => item.id)).toEqual(range('x', 8))
+    expect(row.more).toEqual([
+      { id: 'x8', name: 'Lugar 8', logoUrl: 'https://logos/x8.png', logoBgColor: '#000' },
+      { id: 'x9', name: undefined, logoUrl: undefined, logoBgColor: undefined },
+      { id: 'x10', name: undefined, logoUrl: undefined, logoBgColor: undefined },
+    ])
+    expect(HOME_CONFIG.viewAllLogos).toBe(3)
+  })
+
+  it('con menos de 3 extras, los que haya; si la fila ya muestra todo, ninguno', () => {
+    expect(more(assembleHome([withHref(homeRow('a', range('x', 10)))]), 'a')).toEqual(['x8', 'x9'])
+    expect(more(assembleHome([withHref(homeRow('a', range('x', 8)))]), 'a')).toEqual([])
+    expect(more(assembleHome([withHref(homeRow('a', range('x', 5)))]), 'a')).toEqual([])
+  })
+
+  it('sólo en las filas con "Ver todos" (href): "Para vos" no tiene', () => {
+    expect(more(assembleHome([homeRow('for_you', range('x', 12))]), 'for_you')).toEqual([])
+  })
+
+  it('mismas reglas que la fila: sin cadenas, sin lo de filas anteriores ni sucursales de lo que ya se ve', () => {
+    const first = withHref(homeRow('a', range('x', 8)))
+    const chain = place('chain', { branchCount: 4 })
+    const branchOfVisible = place('z', { branches: [{ id: 'y0', lat: 0, lng: 0 }] })
+    const second = withHref({ ...homeRow('b', range('y', 8)), places: [...homeRow('b', range('y', 8)).places, place('x0'), chain, branchOfVisible, place('y8'), place('y9')] })
+    expect(more(assembleHome([first, second]), 'b')).toEqual(['y8', 'y9'])
+  })
+
+  it('los extras no cuentan como mostrados: la fila siguiente los puede mostrar como cards', () => {
+    const rows = assembleHome([withHref(homeRow('a', range('x', 11))), withHref(homeRow('b', ['x8', 'x9', 'x10', 'y0']))])
+    expect(more(rows, 'a')).toEqual(['x8', 'x9', 'x10'])
+    expect(ids(rows)[1]).toEqual(['b', ['x8', 'x9', 'x10', 'y0']])
+  })
+})
+
 describe('búsquedas de la home', () => {
   const open = everyDay('08:00', '23:59')
   const places = [

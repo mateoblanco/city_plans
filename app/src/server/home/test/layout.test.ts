@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { SearchResult } from '../../search/search'
 import type { HomeRow } from '../assemble'
 import { HOME_SECTIONS } from '../config'
+import { reorderByAffinity } from '../affinity'
 import { layoutHome, type HomeParts } from '../layout'
 
 // Montevideo es UTC−3. 12/10/2026 es lunes; 17/10/2026, sábado.
@@ -117,5 +118,33 @@ describe('orden personalizado dentro de las filas', () => {
     expect(of('for_you')).toEqual(['f0', 'f1', 'f2', 'f3'])
     // Cada uno en su banda de 250 m: la afinidad no los cruza.
     expect(of('near')).toEqual(['n0', 'n1', 'n2', 'n3'])
+  })
+})
+
+describe('card "Ver todos": los logos salen del pool ya procesado', () => {
+  const now = mvd('2026-10-12T13:00')
+  const pool = Array.from({ length: 30 }, (_, index) => (index === 8 ? closed(`l${index}`) : open(`l${index}`)))
+  const withLunch = () => cached().map((row) => (row.id === 'lunch' ? { ...row, places: pool, href: '/search?intent=eat&sub=lunch' } : row))
+  const moreOf = (rows: HomeRow[]) => rows.find((row) => row.id === 'lunch')!.more!.map((logo) => logo.id)
+
+  it('los siguientes 3 abiertos después de los 8 que se ven (l8 cerró)', () => {
+    expect(moreOf(layoutHome(parts(now, { cached: withLunch() }), now))).toEqual(['l9', 'l10', 'l11'])
+  })
+
+  it('en el orden personalizado: los siguientes del pool reordenado con la afinidad', () => {
+    const affinity = Object.fromEntries(pool.map((place, index) => [place.id, index % 2 ? 1 : 0]))
+    const openPool = pool.filter((place) => place.id !== 'l8')
+    const expected = reorderByAffinity(openPool, affinity).slice(8, 11).map((place) => place.id)
+    const rows = layoutHome(parts(now, { cached: withLunch(), forYou: { row: null, affinity } }), now)
+    expect(moreOf(rows)).toEqual(expected)
+    expect(expected).not.toEqual(['l9', 'l10', 'l11'])
+  })
+
+  it('sin consultas nuevas: layoutHome es puro y no cambia el pool cacheado', () => {
+    const cachedRows = withLunch()
+    const before = JSON.stringify(cachedRows)
+    layoutHome(parts(now, { cached: cachedRows }), now)
+    expect(JSON.stringify(cachedRows)).toBe(before)
+    expect(cachedRows.every((row) => !('more' in row))).toBe(true)
   })
 })

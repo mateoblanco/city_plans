@@ -35,7 +35,7 @@
   gap: 32px;
   padding: 16px 0 0;
 
-  @include media(ml) {
+  @include media(lg) {
     align-items: start;
     display: grid;
     gap: 40px;
@@ -67,7 +67,7 @@
   flex-direction: column;
   padding: 24px;
 
-  @include media(ml) {
+  @include media(lg) {
     display: flex;
     grid-area: main;
   }
@@ -95,7 +95,7 @@
   // flex-direction: column;
   padding: 24px;
 
-  @include media(ml) {
+  @include media(lg) {
     display: flex;
     grid-area: side;
     // position: sticky;
@@ -114,7 +114,7 @@
     display: none;
   }
 
-  @include media(ml) {
+  @include media(lg) {
     gap: 48px;
     grid-area: more;
   }

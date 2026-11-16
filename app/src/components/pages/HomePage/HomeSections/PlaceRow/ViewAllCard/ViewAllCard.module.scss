@@ -1,0 +1,68 @@
+// Superficie, borde, sombra, radio y padding de PlaceCard; el alto y el ancho los pone el <li> de PlaceRow.
+.card {
+  align-items: center;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border-card);
+  border-radius: 16px;
+  box-shadow: var(--shadow-card);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  justify-content: center;
+  padding: 16px;
+  position: relative;
+}
+
+// Encimados como avatares, con un anillo del color de la card para separarlos. Los de los costados, girados hacia
+// afuera y un poco más chicos; el del medio (con 3), por encima. Con uno solo, derecho.
+.logos {
+  display: flex;
+}
+
+.logo {
+  border-radius: 6px;
+  box-shadow: 0 0 0 2px var(--color-surface);
+  display: flex;
+
+  & + & {
+    margin-left: -16px;
+  }
+
+  &:first-child:not(:only-child) {
+    transform: rotate(-15deg) scale(0.9);
+  }
+
+  &:last-child:not(:only-child) {
+    transform: rotate(15deg) scale(0.9);
+  }
+
+  &:nth-child(2):not(:last-child) {
+    z-index: 1;
+  }
+}
+
+// Toda la card es el link: el ::after la cubre entera. El anillo de foco va hacia adentro: en mobile PlaceRow le pone
+// overflow: hidden al hijo del <li>, que cortaría un anillo por fuera del ::after.
+.link {
+  color: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  text-decoration: none;
+
+  &::after {
+    border-radius: 16px;
+    content: "";
+    inset: 0;
+    position: absolute;
+  }
+
+  &:focus-visible {
+    outline: none;
+
+    &::after {
+      outline: 2px solid var(--color-focus-ring);
+      outline-offset: -2px;
+    }
+  }
+}

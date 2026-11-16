@@ -13,6 +13,8 @@ type Props = {
   onLightBar?: boolean;
   /** Visible al cargar (primeras cards, logo de la ficha): se pide ya, y con "high" además antes que el resto; sin load, lazy. */
   load?: ImageLoad;
+  /** Decorativo (los logos de la card "Ver todos" de la home): alt="", el nombre accesible es del link que lo contiene. */
+  decorative?: boolean;
 };
 
 /** Banner de la card (y logo de la ficha): el logo centrado sobre su color de fondo; sin logo, el nombre. */
@@ -24,7 +26,7 @@ const PlaceImage = (props: Props) => {
     <div className={props.onLightBar ? `${styles.image} ${styles.onLightBar}` : styles.image} style={background} data-size={props.size}>
       {props.logoUrl && <Image
         src={props.logoUrl}
-        alt={`Logo de ${props.name}`}
+        alt={props.decorative ? "" : `Logo de ${props.name}`}
         width={props.size === "lg" ? 120 : 60}
         height={props.size === "lg" ? 120 : 66}
         unoptimized
