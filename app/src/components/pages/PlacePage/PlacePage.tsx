@@ -34,8 +34,6 @@ const Details = async (props: DetailsProps) => {
   const data = await getPlacePage(slug);
   if (!data) notFound();
   const { place, google } = data;
-  // TODO: sacar. Server Component: sale en la terminal de `yarn dev`, no en el navegador.
-  console.log("transit_lines", place.slug, JSON.stringify(place.transit_lines, null, 2));
 
   const now = montevideoNow();
   // Estado con los textos de la card: de los horarios de la base; sin confirmar, de Google; sin ninguno, no se muestra.
