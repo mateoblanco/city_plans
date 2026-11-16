@@ -105,6 +105,43 @@
     white-space: nowrap;
 }
 
+// La misma curva y duración que tenía con motion: entra desde abajo y sale hacia arriba.
+$rotate-ease: cubic-bezier(0.32, 0.72, 0, 1);
+
+@keyframes placeholderIn {
+    from {
+        opacity: 0;
+        transform: translateY(100%);
+    }
+}
+
+@keyframes placeholderOut {
+    to {
+        opacity: 0;
+        transform: translateY(-100%);
+    }
+}
+
+.entering {
+    animation: placeholderIn 0.4s $rotate-ease both;
+}
+
+.leaving {
+    animation: placeholderOut 0.4s $rotate-ease both;
+}
+
+// Con movimiento reducido no rota (Search.tsx); por las dudas, sin animación.
+@media (prefers-reduced-motion: reduce) {
+    .entering,
+    .leaving {
+        animation: none;
+    }
+
+    .leaving {
+        display: none;
+    }
+}
+
 // Botón de enviar: flecha sola en mobile, "Buscar" desde md. display: contents para que el span no cuente en el flex.
 .submitMobile {
   display: contents;

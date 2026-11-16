@@ -1,0 +1,28 @@
+@use '../../../../../styles/breakpoints' as *;
+
+// Llena el recuadro de PlaceMap (16:10). Desde ml no se ve: va el mapa interactivo.
+.link,
+.picture {
+  display: block;
+  height: 100%;
+  width: 100%;
+
+  @include media(ml) {
+    display: none;
+  }
+}
+
+.link {
+  border-radius: 16px;
+}
+
+// El mismo borde y radio que el mapa de Maps JS (MapView). La imagen tiene la misma proporción que el recuadro: cover
+// no recorta la atribución de Google.
+.image {
+  border: 1px solid var(--color-border-input);
+  border-radius: 16px;
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}

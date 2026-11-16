@@ -18,6 +18,11 @@
   font-size: 14px;
 }
 
+// La línea de la dirección mide lo mismo vacía (mientras llega Google) que con texto.
+.address {
+  min-height: 24px;
+}
+
 // La celda de la grilla se estira al alto de la dirección; sin align-items el botón (flex) se estira con ella.
 .actions {
   display: flex;

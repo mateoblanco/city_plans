@@ -19,9 +19,12 @@
     padding: 2px 8px;
   }
 
+  // El ícono es una máscara del color del texto (blanco, como el fill del SVG).
   .icon {
+    background-color: currentColor;
     flex-shrink: 0;
     height: 12px;
+    mask: url('/icons/discount.svg') center / contain no-repeat;
     width: 12px;
   }
 

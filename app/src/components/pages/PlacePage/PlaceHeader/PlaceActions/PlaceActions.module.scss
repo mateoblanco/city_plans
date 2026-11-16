@@ -1,0 +1,14 @@
+// El corazón es una máscara (public/icons/heart*.svg) del color del texto, del tamaño del SVG (16×14), como el de la
+// card.
+.heart {
+  background-color: currentColor;
+  display: block;
+  flex-shrink: 0;
+  height: 14px;
+  mask: url('/icons/heart.svg') center / contain no-repeat;
+  width: 16px;
+
+  &[data-saved] {
+    mask-image: url('/icons/heart_fill.svg');
+  }
+}

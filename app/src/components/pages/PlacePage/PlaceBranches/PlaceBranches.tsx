@@ -4,17 +4,19 @@ import BranchCard from "./BranchCard/BranchCard";
 import styles from "./PlaceBranches.module.scss";
 
 type Props = {
-  branches: BranchCardData[];
+  /** Llega con las direcciones de Google (PlacePage lo pone en su propio Suspense). */
+  branches: Promise<BranchCardData[]>;
 };
 
 /** "Otras sucursales" de la marca, sin el lugar actual. Sin sucursales, no se muestra. */
-const PlaceBranches = (props: Props) => {
-  if (props.branches.length === 0) return null;
+const PlaceBranches = async (props: Props) => {
+  const branches = await props.branches;
+  if (branches.length === 0) return null;
 
   return (
     <PlaceSection title="Otras sucursales">
       <div className={styles.grid}>
-        {props.branches.map((branch) => (
+        {branches.map((branch) => (
           <BranchCard key={branch.id} slug={branch.slug} neighborhood={branch.neighborhood} address={branch.address} />
         ))}
       </div>

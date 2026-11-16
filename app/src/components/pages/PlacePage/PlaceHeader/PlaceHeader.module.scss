@@ -86,9 +86,9 @@ $logo-overlap-md: 96px;
   align-items: center;
   display: flex;
   gap: 8px;
-  position: absolute;
+  // position: absolute;
   right: var(--place-gutter);
-  top: calc(100% + 16px);
+  // top: calc(100% + 16px);
 
   @include media(ml) {
     gap: 16px;

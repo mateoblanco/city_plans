@@ -12,6 +12,14 @@ export function priceLabel(price: string): string | null {
 }
 
 /**
+ * Si los horarios de la base alcanzan para el estado (abierto, cerrado, cierra pronto…). Así la ficha lo muestra sin
+ * esperar a Google, que sólo cuenta cuando la base no lo sabe (placeOpenText).
+ */
+export function baseHoursKnown(hours: Hours, now: { day: number; time: string }): boolean {
+  return openStatus(hours, now).state !== "unconfirmed";
+}
+
+/**
  * La línea de estado, con los mismos textos que la PlaceCard (similarCard): "Abierto · cierra 00:00", "Cierra pronto · 16:00",
  * "Cerrado · Abre 19:00". Sale de los horarios de la base; si no están confirmados, del abierto/cerrado de Google, y si
  * tampoco hay, null (no se muestra).

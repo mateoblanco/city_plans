@@ -36,6 +36,8 @@
 
 .facts {
   align-items: center;
+  // Una línea vacía (estado reservado mientras llega Google) mide lo mismo que una con texto.
+  min-height: 24px;
   display: flex;
   flex-wrap: wrap;
   font-size: 15px;
@@ -45,6 +47,7 @@
   @include media(ml) {
     font-size: 16px;
     line-height: 26px;
+    min-height: 26px;
   }
 }
 
@@ -52,6 +55,11 @@
   align-items: center;
   display: flex;
   gap: 8px;
+}
+
+// Lugar reservado para lo que llega de Google: ocupa su ancho, no se ve ni se lee.
+.reserve {
+  visibility: hidden;
 }
 
 .separator {

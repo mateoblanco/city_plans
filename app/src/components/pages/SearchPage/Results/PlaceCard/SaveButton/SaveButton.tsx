@@ -1,7 +1,5 @@
 "use client";
 
-import Heart from "@/assets/heart.svg";
-import HeartFill from "@/assets/heart_fill.svg";
 import CardToggle from "../CardToggle/CardToggle";
 import styles from "./SaveButton.module.scss";
 import { toggleSaved, useIsSaved } from "../../../utils/saved";
@@ -31,7 +29,8 @@ const SaveButton = (props: Props) => {
       active={isSaved}
       label={`Guardar ${props.name}`}
       tooltip={isSaved ? "Guardado" : "Guardar"}
-      icon={isSaved ? <HeartFill className={styles.heartSaved} aria-hidden /> : <Heart aria-hidden />}
+      // Máscara de CSS y no un <svg> inline: hay un corazón por card y la home tiene decenas.
+      icon={<span className={styles.heart} data-saved={isSaved || undefined} aria-hidden />}
       onToggle={() => {
         if (toggleSaved(props.placeId)) track(props.placeId, isSaved ? "unsave" : "save", { origin: props.origin, row: props.originRow ?? null });
       }}

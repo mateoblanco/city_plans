@@ -3,13 +3,12 @@
 import { AdvancedMarker, APIProvider, Map } from "@vis.gl/react-google-maps";
 import type { IconCategory } from "@shared/icon-categories.ts";
 import MapMarker from "@/components/MapMarker/MapMarker";
-import { useMobile } from "@/components/pages/SearchPage/utils/use-mobile";
+import { PLACE_MAP_ZOOM } from "@/lib/place-map";
 import styles from "./MapView.module.scss";
 
 // La misma clave de navegador (restringida por referrer) y el mismo Map ID que el mapa de /search.
 const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 const MAP_ID = process.env.NEXT_PUBLIC_GOOGLE_MAP_ID;
-const ZOOM = 16;
 
 type Props = {
   name: string;
@@ -18,10 +17,11 @@ type Props = {
   iconCategory: IconCategory | null;
 };
 
-/** No interactivo: sin arrastrar, zoom, teclado ni controles. El logo y los términos de Google quedan visibles. */
+/**
+ * Sin zoom, teclado ni controles; se puede arrastrar. El logo y los términos de Google quedan visibles. Sólo en desktop
+ * (desde ml): en mobile va la imagen de Static Maps (StaticMap).
+ */
 const MapView = (props: Props) => {
-  // Mobile: quieto, así no le roba el scroll a la página.
-  const mobile = useMobile("ml");
   if (!API_KEY) return <p className={styles.mapMessage}>Mapa no disponible</p>;
   const position = { lat: props.lat, lng: props.lng };
 
@@ -31,9 +31,9 @@ const MapView = (props: Props) => {
         className={styles.map}
         mapId={MAP_ID}
         defaultCenter={position}
-        defaultZoom={ZOOM}
+        defaultZoom={PLACE_MAP_ZOOM}
         disableDefaultUI
-        gestureHandling={mobile ? "none" : "greedy"}
+        gestureHandling="greedy"
         keyboardShortcuts={false}
         clickableIcons={false}
       >

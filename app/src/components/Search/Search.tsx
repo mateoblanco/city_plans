@@ -1,13 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import Form from "next/form";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Button from "../base/Button/Button";
 import styles from './Search.module.scss';
 import { Input } from '@base-ui/react/input';
 import ArrowRight from "@/assets/arrow_right.svg";
 import { DEFAULT_PLACEHOLDER, HOME_PLACEHOLDERS, PLACEHOLDER_INTERVAL_MS } from "./utils/placeholders";
+
+const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
+const subscribeReducedMotion = (onChange: () => void) => {
+  const query = window.matchMedia(REDUCED_MOTION);
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+};
+
+/** prefers-reduced-motion; false en el servidor (el primer ejemplo del HTML es el mismo en los dos casos). */
+const useReducedMotion = () =>
+  useSyncExternalStore(subscribeReducedMotion, () => window.matchMedia(REDUCED_MOTION).matches, () => false);
 
 type Props = {
   defaultValue?: string;
@@ -34,7 +44,11 @@ const Search = (props: Props) => {
   // la intención.
   const blocked = empty && !props.intent && !props.filters && !props.loc;
 
-  const [placeholderIndex, setPlaceholderIndex] = useState(0);
+  // El ejemplo que se ve y el que sale (animación de salida en CSS); leaving es null en el primero, que no se anima, y
+  // cuando terminó de salir.
+  const [rotation, setRotation] = useState<{ index: number; leaving: number | null }>({ index: 0, leaving: null });
+  const placeholderIndex = rotation.index;
+  const leavingIndex = rotation.leaving;
   const [stopped, setStopped] = useState(false);
   const reducedMotion = useReducedMotion();
   // Con movimiento reducido no rota: queda el primer ejemplo fijo, como placeholder nativo.
@@ -43,13 +57,15 @@ const Search = (props: Props) => {
   // Rota sólo mientras se ve (input vacío y sin tocar).
   useEffect(() => {
     if (!rotating || !empty) return;
-    const timer = setInterval(() => setPlaceholderIndex((index) => (index + 1) % HOME_PLACEHOLDERS.length), PLACEHOLDER_INTERVAL_MS);
+    const timer = setInterval(
+      () => setRotation((current) => ({ index: (current.index + 1) % HOME_PLACEHOLDERS.length, leaving: current.index })),
+      PLACEHOLDER_INTERVAL_MS,
+    );
     return () => clearInterval(timer);
   }, [rotating, empty]);
 
   // Rotando, el placeholder nativo va vacío y el texto lo dibuja la capa animada de encima.
   const placeholder = !props.rotatingPlaceholder ? DEFAULT_PLACEHOLDER : rotating ? "" : HOME_PLACEHOLDERS[placeholderIndex];
-  const offset = "100%";
 
   return (
     // Con el botón deshabilitado el navegador ya no envía con Enter; el chequeo cubre cualquier otro envío.
@@ -69,19 +85,16 @@ const Search = (props: Props) => {
           />
           {rotating && empty && (
             <span className={styles.rotatingPlaceholder} aria-hidden>
-              {/* initial={false}: el primer ejemplo (el del HTML del servidor) no entra animado. */}
-              <AnimatePresence initial={false}>
-                <motion.span
-                  key={placeholderIndex}
-                  className={styles.rotatingText}
-                  initial={{ y: offset, opacity: 0 }}
-                  animate={{ y: "0%", opacity: 1 }}
-                  exit={{ y: `-${offset}`, opacity: 0 }}
-                  transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
-                >
-                  {HOME_PLACEHOLDERS[placeholderIndex]}
-                </motion.span>
-              </AnimatePresence>
+              {/* El que sale y el que entra se cruzan (@keyframes en el SCSS). El primero (el del HTML del servidor) no
+                  entra animado: sin uno saliendo, no lleva la clase de entrada. */}
+              {leavingIndex !== null && (
+                <span key={`out-${leavingIndex}`} className={`${styles.rotatingText} ${styles.leaving}`} onAnimationEnd={() => setRotation((current) => ({ ...current, leaving: null }))}>
+                  {HOME_PLACEHOLDERS[leavingIndex]}
+                </span>
+              )}
+              <span key={placeholderIndex} className={leavingIndex !== null ? `${styles.rotatingText} ${styles.entering}` : styles.rotatingText}>
+                {HOME_PLACEHOLDERS[placeholderIndex]}
+              </span>
             </span>
           )}
         </div>

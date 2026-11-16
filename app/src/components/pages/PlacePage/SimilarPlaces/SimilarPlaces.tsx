@@ -5,17 +5,19 @@ import styles from "./SimilarPlaces.module.scss";
 
 type Props = {
   name: string;
-  places: SearchResult[];
+  /** Llega después de lo de la base (PlacePage lo pone en su propio Suspense). */
+  places: Promise<SearchResult[]>;
 };
 
 /** "Parecidos a <lugar>" con cards mini, en dos columnas. Sin ninguno, no se muestra. */
-const SimilarPlaces = (props: Props) => {
-  if (props.places.length === 0) return null;
+const SimilarPlaces = async (props: Props) => {
+  const places = await props.places;
+  if (places.length === 0) return null;
 
   return (
     <PlaceSection title={`Lugares similares`}>
       <div className={styles.grid}>
-        {props.places.map((place) => (
+        {places.map((place) => (
           <PlaceCardMini key={place.id} place={place} />
         ))}
       </div>

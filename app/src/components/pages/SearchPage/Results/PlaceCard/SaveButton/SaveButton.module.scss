@@ -1,4 +1,14 @@
 // La visibilidad y la posición en la card son de CardToggle.
-.heartSaved {
-  color: var(--color-like);
+// El corazón es una máscara (public/icons/heart*.svg) del color del texto: 12px, como el <svg> del botón de ícono sm.
+.heart {
+  background-color: currentColor;
+  display: block;
+  height: 12px;
+  mask: url('/icons/heart.svg') center / contain no-repeat;
+  width: 12px;
+
+  &[data-saved] {
+    background-color: var(--color-like);
+    mask-image: url('/icons/heart_fill.svg');
+  }
 }

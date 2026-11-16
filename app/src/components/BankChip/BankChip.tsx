@@ -1,4 +1,3 @@
-import DiscountIcon from "@/assets/discount.svg";
 import styles from "./BankChip.module.scss";
 
 type Props = {
@@ -14,7 +13,8 @@ type Props = {
 /** El nombre de un banco en un chip con su color de marca y el texto blanco (ficha, filtro de Descuentos y card). */
 const BankChip = (props: Props) => (
   <span className={styles.chip} data-provider={props.id} data-size={props.size}>
-    {props.icon && <DiscountIcon className={styles.icon} aria-hidden />}
+    {/* Máscara de CSS (public/icons/discount.svg) y no un <svg> inline: la card lo repite decenas de veces en el HTML. */}
+    {props.icon && <span className={styles.icon} aria-hidden />}
     {props.name}
   </span>
 );

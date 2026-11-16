@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Hours } from "@/server/search/hours";
-import { googleMapsHref, instagramHandle, instagramPopularHref, mainCategory, isNearWhite, placeOpenText, priceLabel, ratingText, toneOn } from "../summary";
+import { baseHoursKnown, googleMapsHref, instagramHandle, instagramPopularHref, mainCategory, isNearWhite, placeOpenText, priceLabel, ratingText, toneOn } from "../summary";
 
 describe("línea de info", () => {
   it("precio con signos y etiqueta; desconocido no se muestra", () => {
@@ -94,6 +94,13 @@ describe("placeOpenText", () => {
     expect(line(placeOpenText(lunch, null, { day: 1, time: "20:00" }))).toBe("Abierto · cierra 00:00");
     expect(placeOpenText(lunch, null, { day: 1, time: "15:30" })).toMatchObject({ tone: "closing_soon", status: "Cierra pronto", detail: "16:00" });
     expect(placeOpenText(lunch, null, { day: 1, time: "16:30" })).toMatchObject({ tone: "closed", status: "Cerrado", detail: "Abre 19:00" });
+  });
+
+  it("baseHoursKnown: con horarios de la base el estado no espera a Google; sin ellos, sí", () => {
+    expect(baseHoursKnown(lunch, { day: 1, time: "16:30" })).toBe(true);
+    expect(baseHoursKnown(none, { day: 1, time: "16:30" })).toBe(false);
+    // Lo que se muestra sin Google es lo mismo que con Google cuando la base lo sabe.
+    expect(placeOpenText(lunch, null, { day: 1, time: "20:00" })).toEqual(placeOpenText(lunch, false, { day: 1, time: "20:00" }));
   });
 
   it("los horarios de la base mandan sobre el abierto de Google", () => {
