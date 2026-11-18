@@ -14,7 +14,9 @@
 
 .root {
 	isolation: isolate;
-  }
+	// viewport-fit=cover (layout): en landscape con notch, el contenido no queda debajo. En portrait vale 0.
+	padding-inline: env(safe-area-inset-left, 0px) env(safe-area-inset-right, 0px);
+}
   
 html {
 	@include breakpoints.custom-properties;
@@ -23,6 +25,9 @@ html {
 	--header-height: 56px;
 	// Alto real del header, medido por HeaderOffset: lo fijo debajo (el mapa de /search) arranca acá.
 	--header-offset: var(--header-height);
+	// Curvas de la app: entradas, salidas y press feedback (ease-out fuerte) y paneles/diálogos (la de iOS).
+	--ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+	--ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 
 	background-color: var(--color-bg);
 	box-sizing: border-box;
@@ -31,7 +36,7 @@ html {
 	position: relative;
 	text-size-adjust: 100%;
 	touch-action: manipulation;
-	-webkit-text-size-adjust: none;
+	-webkit-text-size-adjust: 100%;
 	scroll-behavior: smooth !important;
 
 }
@@ -56,7 +61,7 @@ body {
 	text-rendering: optimizespeed;
 	overscroll-behavior-x: contain;
 	touch-action: manipulation;
-	-webkit-text-size-adjust: none;
+	-webkit-text-size-adjust: 100%;
 }
 
 // Foco de teclado (WCAG 2.4.7): el mismo anillo en todo lo que no define el suyo (FilterChip, títulos de sección, logo

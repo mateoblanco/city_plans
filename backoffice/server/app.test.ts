@@ -321,6 +321,8 @@ describe('exploración multi-fuente', () => {
 
     await app.request('/api/places?missing=price,instagram,price&category=bar&status=review')
     expect(list).toHaveBeenLastCalledWith({ sort: 'recent', page: 1, pageSize: 50, edited: false, missing: ['price', 'instagram'], category: 'bar', status: 'review' })
+    expect((await app.request('/api/places?missing=website')).status).toBe(200)
+    expect(list).toHaveBeenLastCalledWith({ sort: 'recent', page: 1, pageSize: 50, edited: false, missing: ['website'] })
 
     await app.request('/api/places?price=moderate&category=bar')
     expect(list).toHaveBeenLastCalledWith({ sort: 'recent', page: 1, pageSize: 50, edited: false, price: 'moderate', category: 'bar' })

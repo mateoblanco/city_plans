@@ -19,9 +19,17 @@ $breakpoints: (
   @return map.get($breakpoints, $name);
 }
 
-// Desde el breakpoint (incluido) para arriba. El único mixin: sin max-width.
+// Desde el breakpoint (incluido) para arriba. Sin max-width.
 @mixin media($name) {
   @media (min-width: breakpoint($name)) {
+    @content;
+  }
+}
+
+// Hover sólo con mouse o trackpad: en touch el :hover queda pegado después del toque. Todo :hover va acá adentro:
+// `@include hover { &:hover { … } }`.
+@mixin hover {
+  @media (hover: hover) and (pointer: fine) {
     @content;
   }
 }

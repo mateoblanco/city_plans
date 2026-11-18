@@ -1,3 +1,5 @@
+@use '../../../../../styles/breakpoints' as *;
+
 // Versión chica de PlaceCard para "Lugares similares": menos protagonista que el contenido de la ficha.
 .card {
   position: relative;
@@ -11,8 +13,10 @@
   background-color: var(--color-surface);
   transition: border-color 0.15s ease-out;
 
-  &:hover {
-    border-color: var(--color-selected);
+  @include hover {
+    &:hover {
+      border-color: var(--color-selected);
+    }
   }
 }
 

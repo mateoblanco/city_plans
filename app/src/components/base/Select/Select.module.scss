@@ -28,7 +28,12 @@
   white-space: nowrap;
   -webkit-user-select: none;
 
-  &:hover,
+  @include hover {
+    &:hover {
+      background-color: var(--color-surface-hover);
+    }
+  }
+
   &[data-popup-open] {
     background-color: var(--color-surface-hover);
   }

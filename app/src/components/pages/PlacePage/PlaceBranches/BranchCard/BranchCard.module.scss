@@ -1,3 +1,5 @@
+@use '../../../../../styles/breakpoints' as *;
+
 .card {
   background-color: var(--color-surface);
   border: 1px solid var(--color-border-card);
@@ -10,8 +12,10 @@
   position: relative;
   transition: border-color 0.15s ease-out;
 
-  &:hover {
-    border-color: var(--color-selected);
+  @include hover {
+    &:hover {
+      border-color: var(--color-selected);
+    }
   }
 }
 

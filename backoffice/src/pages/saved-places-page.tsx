@@ -58,7 +58,7 @@ const SORT_LABELS: Record<PlaceListQuery['sort'], string> = { recent: 'Más reci
 const RATING_SORT_LABELS: Record<RatingSort, string> = { rating_desc: 'Puntaje de Google (mayor primero)', rating_asc: 'Puntaje de Google (menor primero)' }
 // Place Details Enterprise (rating y userRatingCount), primer tramo; los primeros 1.000 del mes son gratis.
 const PLACE_DETAILS_USD = 0.02
-const MISSING_LABELS: Record<PlaceListMissing, string> = { price: 'Precio', hours: 'Horario', logo: 'Logo', instagram: 'Instagram' }
+const MISSING_LABELS: Record<PlaceListMissing, string> = { price: 'Precio', hours: 'Horario', logo: 'Logo', instagram: 'Instagram', website: 'Web' }
 // Sin precio al final, como en la lista de opciones.
 const PRICE_OPTIONS: PriceLevel[] = [...PRICE_LEVELS.filter((id) => id !== 'unknown'), 'unknown']
 // Cuánto queda "Guardado" en la celda.

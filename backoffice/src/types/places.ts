@@ -361,8 +361,8 @@ export type PriceSuggestion = {
 
 export const PLACE_LIST_CATEGORIES = ['restaurant', 'bar', 'cafe'] as const
 export const PLACE_LIST_SORTS = ['recent', 'prominence', 'name'] as const
-/** Datos que le pueden faltar a un lugar ("Le falta…"): precio unknown, horario none, sin logo o sin Instagram. */
-export const PLACE_LIST_MISSING = ['price', 'hours', 'logo', 'instagram'] as const
+/** Datos que le pueden faltar a un lugar ("Le falta…"): precio unknown, horario none, sin logo, sin Instagram o sin web. */
+export const PLACE_LIST_MISSING = ['price', 'hours', 'logo', 'instagram', 'website'] as const
 export type PlaceListMissing = (typeof PLACE_LIST_MISSING)[number]
 
 /** Filtros, orden y página de GET /api/places. */

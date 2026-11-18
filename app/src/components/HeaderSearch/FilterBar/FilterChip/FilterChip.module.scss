@@ -21,11 +21,13 @@
   // background-color: var(--color-surface);
   background-color: var(--color-surface-chip);
 
-  transition: transform 0.1s ease-in-out, background-color 0.1s ease-in-out;
-  &:hover {
-    background-color: var(--color-surface-hover);
-    border-color: var(--color-selected);
+  transition: transform 160ms var(--ease-out), background-color 100ms ease;
+  @include hover {
+    &:hover {
+      background-color: var(--color-surface-hover);
+      border-color: var(--color-selected);
 
+    }
   }
 
   &[data-active] {

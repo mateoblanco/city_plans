@@ -1,3 +1,5 @@
+@use '../../../styles/breakpoints' as *;
+
 // Link de texto: el tamaño lo hereda del contexto; la flecha va al final en los externos.
 .link {
   align-items: center;
@@ -7,9 +9,11 @@
   text-decoration: none;
   text-underline-offset: 3px;
 
-  &:hover {
-    color: var(--color-text);
-    text-decoration: underline;
+  @include hover {
+    &:hover {
+      color: var(--color-text);
+      text-decoration: underline;
+    }
   }
 
   &:focus-visible {

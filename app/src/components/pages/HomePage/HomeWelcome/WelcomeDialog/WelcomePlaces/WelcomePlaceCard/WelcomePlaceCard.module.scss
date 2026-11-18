@@ -1,3 +1,5 @@
+@use '../../../../../../../styles/breakpoints' as *;
+
 // Card compacta y seleccionable de la bienvenida (no es PlaceCard): logo chico, nombre, tipo y un check al marcarla.
 
 .card {
@@ -14,8 +16,10 @@
   padding: 8px 32px 8px 8px;
   position: relative;
 
-  &:hover {
-    background-color: var(--color-surface-hover);
+  @include hover {
+    &:hover {
+      background-color: var(--color-surface-hover);
+    }
   }
 
   &[data-checked] {
@@ -27,8 +31,10 @@
     cursor: not-allowed;
     opacity: 0.55;
 
-    &:hover {
-      background-color: var(--color-surface);
+    @include hover {
+      &:hover {
+        background-color: var(--color-surface);
+      }
     }
   }
 

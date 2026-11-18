@@ -26,7 +26,7 @@
   max-height: calc(100dvh - 24px);
   position: fixed;
   right: 0;
-  transition: transform 250ms ease, opacity 250ms ease;
+  transition: transform 300ms var(--ease-drawer), opacity 200ms var(--ease-out);
 
   &[data-starting-style],
   &[data-ending-style] {

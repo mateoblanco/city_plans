@@ -45,6 +45,7 @@ function filtersOf(query: Omit<PlaceListQuery, 'page' | 'pageSize'>): SQL[] {
       hours: sql`${places.hours}->>'status' = 'none'`,
       logo: sql`${places.logoKey} is null`,
       instagram: sql`${places.instagram} is null`,
+      website: sql`${places.website} is null`,
     }
     conditions.push(or(...query.missing.map((field) => missing[field]))!)
   }

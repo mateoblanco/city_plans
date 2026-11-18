@@ -16,8 +16,10 @@
       padding: 12px 16px;
     }
 
-    &:has(.input:hover){
-      border-color: var(--color-focus-ring);
+    @include hover {
+      &:has(.input:hover){
+        border-color: var(--color-focus-ring);
+      }
     }
 
     &:has(.input:active),
@@ -119,7 +121,13 @@
       width: 16px;
     }
 
-    &:hover,
+    @include hover {
+      &:hover {
+        background-color: var(--color-surface-hover);
+        color: var(--color-text);
+      }
+    }
+
     &:focus-visible {
       background-color: var(--color-surface-hover);
       color: var(--color-text);
@@ -154,7 +162,7 @@
 }
 
 // La misma curva y duración que tenía con motion: entra desde abajo y sale hacia arriba.
-$rotate-ease: cubic-bezier(0.32, 0.72, 0, 1);
+$rotate-ease: var(--ease-drawer);
 
 @keyframes placeholderIn {
     from {

@@ -51,7 +51,7 @@
   height: 30px;
   padding: 0;
   text-decoration: none;
-  transition: color 0.1s ease-in-out, border-color 0.1s ease-in-out;
+  transition: color 100ms ease, border-color 100ms ease;
   font-weight: 500;
 
   @include media(md) {
@@ -60,12 +60,14 @@
     height: 38px;
   }
 
-  &:hover {
-    // border-bottom-color: var(--color-border);
-    color: var(--color-text);
+  @include hover {
+    &:hover {
+      // border-bottom-color: var(--color-border);
+      color: var(--color-text);
 
-    .icon{
-      transform:scale(1.1);
+      .icon{
+        transform:scale(1.1);
+      }
     }
   }
 
@@ -85,7 +87,7 @@
   flex-shrink: 0;
   height: 16px;
   width: 16px;
-  transition: transform 0.2s ease-in-out;
+  transition: transform 150ms var(--ease-out);
   transform:scale(0.9);
 
   @include media(md) {

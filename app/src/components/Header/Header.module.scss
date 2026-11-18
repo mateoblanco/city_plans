@@ -61,8 +61,10 @@
     color: inherit;
     cursor: pointer;
 
-    &:hover {
-        background-color: var(--color-surface-hover);
+    @include hover {
+        &:hover {
+            background-color: var(--color-surface-hover);
+        }
     }
 }
 
@@ -151,7 +153,7 @@
         display: grid;
         grid-template-columns: minmax(0, 1fr);
         grid-template-rows: 1fr;
-        transition: grid-template-rows 250ms ease, opacity 200ms ease, margin-top 250ms ease, visibility 250ms;
+        transition: grid-template-rows 250ms var(--ease-out), opacity 200ms var(--ease-out), margin-top 250ms var(--ease-out), visibility 250ms;
 
         > * {
             min-height: 0;
