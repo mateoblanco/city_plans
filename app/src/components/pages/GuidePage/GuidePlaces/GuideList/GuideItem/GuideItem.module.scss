@@ -1,0 +1,178 @@
+@use '../../../../../../styles/breakpoints' as *;
+
+.item {
+  // El scroll desde un pin deja el lugar en el centro, pero sin quedar debajo del header.
+  scroll-margin-top: calc(var(--header-offset) + 16px);
+}
+
+.card {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border-card);
+  border-radius: 16px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  gap: 16px;
+  padding: 16px;
+  position: relative;
+  transition: border-color 150ms var(--ease-out);
+
+  // Barra al costado del resaltado: aparece con el número relleno (el resaltado no depende sólo del color).
+  &::before {
+    background-color: var(--color-selected);
+    border-radius: 2px;
+    bottom: 16px;
+    content: '';
+    left: -1px;
+    opacity: 0;
+    position: absolute;
+    top: 16px;
+    transition: opacity 150ms var(--ease-out);
+    width: 4px;
+  }
+
+  &[data-active] {
+    border-color: var(--color-selected);
+
+    &::before {
+      opacity: 1;
+    }
+
+    .number {
+      background-color: var(--color-selected);
+      color: var(--color-text-inverse);
+    }
+  }
+
+  // El foco llega acá desde un pin (programático): el anillo lo da el link al tabular, no la card.
+  &:focus {
+    outline: none;
+  }
+
+  // Foco de teclado en el link: el anillo rodea toda la card (el link la cubre).
+  &:has(.link:focus-visible) {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+
+  @include media(md) {
+    gap: 20px;
+    padding: 20px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+
+    &::before {
+      transition: none;
+    }
+  }
+}
+
+// Número grande: con borde; relleno cuando está resaltado.
+.number {
+  align-items: center;
+  border: 2px solid var(--color-selected);
+  border-radius: 50%;
+  box-sizing: border-box;
+  display: flex;
+  flex-shrink: 0;
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  height: 44px;
+  justify-content: center;
+  line-height: 1;
+  transition:
+    background-color 150ms var(--ease-out),
+    color 150ms var(--ease-out);
+  width: 44px;
+
+  @include media(md) {
+    font-size: 24px;
+    height: 52px;
+    width: 52px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.top {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+}
+
+.heading {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.name {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 24px;
+  margin: 0;
+}
+
+// El link cubre toda la card (::after); el corazón queda arriba (CardToggle, z-index 1).
+.link {
+  color: inherit;
+  text-decoration: none;
+
+  &::after {
+    border-radius: 16px;
+    content: '';
+    inset: 0;
+    position: absolute;
+  }
+
+  // El anillo va en la card (:has en .card), no en el texto.
+  &:focus-visible {
+    outline: none;
+  }
+
+  @include hover {
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}
+
+.meta {
+  color: var(--color-text-subtle);
+  font-size: 14px;
+  line-height: 20px;
+  margin: 0;
+}
+
+.actions {
+  flex-shrink: 0;
+  margin: -4px -4px 0 0;
+}
+
+.photo {
+  border-radius: 12px;
+  display: block;
+  height: auto;
+  width: 100%;
+}
+
+.text {
+  font-size: 16px;
+  line-height: 24px;
+  margin: 0;
+  text-wrap: pretty;
+}

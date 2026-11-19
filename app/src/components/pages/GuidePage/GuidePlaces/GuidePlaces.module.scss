@@ -1,0 +1,26 @@
+@use '../../../../styles/breakpoints' as *;
+
+// Mobile: una columna. Desde md: la lista a la izquierda y el mapa fijo (sticky) a la derecha.
+.layout {
+  display: block;
+
+  @include media(md) {
+    align-items: start;
+    display: grid;
+    gap: 32px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr);
+  }
+
+  @include media(lg) {
+    gap: 48px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+.main {
+  min-width: 0;
+
+  @include media(md) {
+    max-width: 680px;
+  }
+}

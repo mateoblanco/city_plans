@@ -1,0 +1,53 @@
+@use '../../styles/breakpoints' as *;
+
+// La fila no puede ensanchar la página: el scroll queda adentro de .scroller.
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.title {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 28px;
+  margin: 0;
+  padding: 0 16px;
+
+  @include media(md) {
+    padding: 0 48px;
+  }
+}
+
+// Mobile: de borde a borde con scroll horizontal (el padding alinea la primera tarjeta con el título y deja ver la
+// sombra). Desde md: grilla, sin scroll.
+.scroller {
+  display: flex;
+  gap: 16px;
+  list-style: none;
+  margin: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 16px 12px;
+  // Sin barra visible: se sigue scrolleando con el dedo, el trackpad o Shift + rueda.
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+
+  @include media(md) {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    overflow: visible;
+    padding: 4px 48px 12px;
+  }
+}
+
+.item {
+  // Mobile: asoma la tarjeta siguiente.
+  flex: 0 0 min(72vw, 300px);
+  min-width: 0;
+}

@@ -15,8 +15,10 @@ import {
 import { popularityQuery } from './queries.ts'
 
 // Postgres real en memoria (PGlite), sin Neon: una tabla places mínima (lo que la 0025 necesita para la clave foránea y
-// el filtro de publicados) y sólo la migración 0025. Las anteriores usan PostGIS y pgvector y no se replican.
-const MIGRATION = readFileSync(path.resolve(import.meta.dirname, '../../drizzle/0025_place_events.sql'), 'utf8')
+// el filtro de publicados) y sólo las migraciones de eventos (0025 y 0026, que suma el origen 'guide'). Las anteriores
+// usan PostGIS y pgvector y no se replican.
+const migration = (file: string) => readFileSync(path.resolve(import.meta.dirname, '../../drizzle', file), 'utf8')
+const MIGRATION = [migration('0025_place_events.sql'), migration('0026_guide_origin.sql')].join('\n--> statement-breakpoint\n')
 
 const PUBLISHED = '00000000-0000-4000-8000-000000000001'
 const OTHER = '00000000-0000-4000-8000-000000000002'
@@ -91,6 +93,11 @@ describe('place_events: una vez por persona, lugar, tipo y día', () => {
   it('los checks rechazan tipos y orígenes fuera del catálogo', async () => {
     await expect(run(insertEventQuery(event({ type: 'like' as never })))).rejects.toThrow(/place_events_type_check/)
     await expect(run(insertEventQuery(event({ origin: 'ads' as never })))).rejects.toThrow(/place_events_origin_check/)
+  })
+
+  it('el origen guide (0026) se guarda, con el slug de la guía como fila', async () => {
+    await run(insertEventQuery(event({ origin: 'guide', originRow: 'cafes-donde-nadie-te-apura' })))
+    expect((await events()).map((row) => [row.origin, row.origin_row])).toEqual([['guide', 'cafes-donde-nadie-te-apura']])
   })
 })
 

@@ -3,7 +3,7 @@ import type { Metadata, MetadataRoute } from 'next'
 /**
  * Indexación con interruptor (ALLOW_INDEXING). Mientras no se lanza (por defecto), nada se indexa: robots.txt bloquea
  * todo, cada página va con noindex, nofollow y el sitemap está vacío. Con ALLOW_INDEXING=true: robots permite y apunta al
- * sitemap, que lista la home y las fichas publicadas; /search sigue con noindex (búsquedas libres: un espacio infinito de
+ * sitemap, que lista la home, las guías y las fichas publicadas; /search sigue con noindex (búsquedas libres: un espacio infinito de
  * URLs, y cada una nueva paga el modelo y el embedding). En los dos modos, /api/place-google/ va con Disallow. Se lee en
  * el build (robots, sitemap y metadata se prerenderizan): cambiarla requiere un deploy nuevo.
  */
@@ -39,11 +39,20 @@ export const searchRobots = (allow: boolean): Metadata['robots'] => ({ index: fa
 
 export type SitemapPlace = { slug: string; updatedAt: Date | string | null }
 
-/** La home y cada ficha publicada; sin indexación, vacío. */
-export function sitemapEntries(allow: boolean, base: string, places: SitemapPlace[]): MetadataRoute.Sitemap {
+/** Una página de guías (un barrio o una guía): su ruta (/guides/montevideo/cordon/…) y su fecha (YYYY-MM-DD). */
+export type SitemapGuide = { path: string; updatedAt: string }
+
+/** La home, las guías y cada ficha publicada; sin indexación, vacío. */
+export function sitemapEntries(allow: boolean, base: string, places: SitemapPlace[], guides: SitemapGuide[] = []): MetadataRoute.Sitemap {
   if (!allow) return []
   return [
     { url: `${base}/`, changeFrequency: 'daily', priority: 1 },
+    ...guides.map((guide) => ({
+      url: `${base}${guide.path}`,
+      lastModified: new Date(`${guide.updatedAt}T00:00:00Z`),
+      changeFrequency: 'weekly' as const,
+      priority: 0.9,
+    })),
     ...places.map((place) => ({
       url: `${base}/place/${place.slug}`,
       ...(place.updatedAt ? { lastModified: new Date(place.updatedAt) } : {}),

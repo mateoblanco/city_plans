@@ -1,5 +1,2 @@
-// Crawlers, previsualizadores de links, herramientas de medición y clientes sin navegador. Sin user agent también es bot.
-const BOT_PATTERN =
-  /bot|crawl|spider|slurp|scrap|headless|lighthouse|pagespeed|chrome-lighthouse|gtmetrix|pingdom|uptime|monitor|preview|facebookexternalhit|embedly|whatsapp\/|vercel-|curl|wget|python|httpclient|http-client|okhttp|axios|node-fetch|undici|go-http|java\/|libwww|phantom|puppeteer|playwright|selenium/i
-
-export const isBot = (userAgent: string | null | undefined) => !userAgent?.trim() || BOT_PATTERN.test(userAgent)
+// La regla vive en src/lib (la usa también el navegador: el mapa de las guías); acá se reexporta para el servidor.
+export { isBot } from '@/lib/bots'

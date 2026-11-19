@@ -1,0 +1,58 @@
+@use '../../../../../styles/breakpoints' as *;
+
+// Fijo abajo y centrado, sobre la lista; desde md no existe (el mapa está al costado).
+.trigger {
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  border-radius: 999px;
+  box-shadow: var(--shadow-button);
+  left: 50%;
+  position: fixed;
+  transform: translateX(-50%);
+  z-index: 10;
+
+  @include media(md) {
+    display: none;
+  }
+}
+
+// Pantalla completa. Cerrado pero montado (keepMounted), Base UI lo oculta con `hidden`.
+.popup {
+  background-color: var(--color-surface);
+  display: flex;
+  flex-direction: column;
+  inset: 0;
+  position: fixed;
+  transition: opacity 200ms var(--ease-out);
+  z-index: 100;
+
+  &[data-starting-style],
+  &[data-ending-style] {
+    opacity: 0;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+}
+
+.bar {
+  align-items: center;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: calc(8px + env(safe-area-inset-top)) 8px 8px 16px;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  line-height: 24px;
+  margin: 0;
+}
+
+.map {
+  background-color: var(--color-map-placeholder);
+  flex: 1;
+  min-height: 0;
+}

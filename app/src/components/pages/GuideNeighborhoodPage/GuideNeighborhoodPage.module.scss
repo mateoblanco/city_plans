@@ -1,0 +1,35 @@
+@use '../../../styles/breakpoints' as *;
+
+// Las filas van de borde a borde en mobile (el scroll llega al borde); el encabezado, con los costados de siempre.
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  margin: 0 auto;
+  max-width: 1440px;
+  padding: 16px 0 64px;
+  width: 100%;
+
+  @include media(md) {
+    gap: 40px;
+    padding: 32px 0 80px;
+  }
+}
+
+.content {
+  padding: 0 16px;
+
+  @include media(md) {
+    padding: 0 48px;
+  }
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+
+  @include media(md) {
+    gap: 48px;
+  }
+}

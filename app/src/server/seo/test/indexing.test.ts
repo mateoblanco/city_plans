@@ -6,6 +6,7 @@ const places = [
   { slug: 'trouville', updatedAt: '2026-11-01T12:00:00Z' },
   { slug: 'anastasia', updatedAt: null },
 ]
+const guides = [{ path: '/guides/montevideo/cordon/cafes-donde-nadie-te-apura', updatedAt: '2026-11-19' }]
 
 describe('interruptor ALLOW_INDEXING', () => {
   it('por defecto (sin la variable o con otro valor) no se indexa', () => {
@@ -27,8 +28,8 @@ describe('sin indexación (antes del lanzamiento)', () => {
     expect(searchRobots(false)).toEqual({ index: false, follow: false })
   })
 
-  it('sitemap vacío aunque haya fichas', () => {
-    expect(sitemapEntries(false, BASE, places)).toEqual([])
+  it('sitemap vacío aunque haya fichas y guías', () => {
+    expect(sitemapEntries(false, BASE, places, guides)).toEqual([])
   })
 })
 
@@ -52,6 +53,17 @@ describe('con indexación (lanzamiento)', () => {
     expect(entries[2]).not.toHaveProperty('lastModified')
     // Nunca /search.
     expect(entries.some((entry) => entry.url.includes('/search'))).toBe(false)
+  })
+
+  it('sitemap: las guías van después de la home, con la fecha de actualización del archivo', () => {
+    const entries = sitemapEntries(true, BASE, places, guides)
+    expect(entries.map((entry) => entry.url)).toEqual([
+      `${BASE}/`,
+      `${BASE}/guides/montevideo/cordon/cafes-donde-nadie-te-apura`,
+      `${BASE}/place/trouville`,
+      `${BASE}/place/anastasia`,
+    ])
+    expect(entries[1].lastModified).toEqual(new Date('2026-11-19T00:00:00Z'))
   })
 })
 

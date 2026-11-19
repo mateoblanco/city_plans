@@ -1,0 +1,47 @@
+@use '../../../../../styles/breakpoints' as *;
+
+// Superficie, borde, sombra y radio de las cards de la app; el nombre a la izquierda y una flecha a la derecha.
+.card {
+  align-items: center;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border-card);
+  border-radius: 16px;
+  box-shadow: var(--shadow-card);
+  box-sizing: border-box;
+  color: var(--color-text);
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  min-height: 64px;
+  padding: 16px;
+  text-decoration: none;
+  transition: border-color 150ms var(--ease-out);
+
+  @include hover {
+    &:hover {
+      border-color: var(--color-selected);
+    }
+  }
+
+  // Anillo hacia adentro, como el de las tarjetas de guía.
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+}
+
+.name {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 24px;
+}
+
+.arrow {
+  color: var(--color-text-subtle);
+  flex-shrink: 0;
+}

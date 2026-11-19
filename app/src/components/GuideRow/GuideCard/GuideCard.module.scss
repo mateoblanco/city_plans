@@ -1,0 +1,104 @@
+@use '../../../styles/breakpoints' as *;
+
+// Superficie, borde, sombra y radio de las cards de la app. Toda la tarjeta es el link (::after del título).
+.card {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border-card);
+  border-radius: 16px;
+  box-shadow: var(--shadow-card);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  height: 100%;
+  overflow: hidden;
+  padding: 16px;
+  position: relative;
+  transition: border-color 150ms var(--ease-out);
+
+  @include hover {
+    &:hover {
+      border-color: var(--color-selected);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+}
+
+// Portada opcional: de borde a borde arriba de la tarjeta.
+.cover {
+  display: block;
+  height: auto;
+  margin: -16px -16px 12px;
+  width: calc(100% + 32px);
+}
+
+// Encimados como avatares, con un anillo del color de la tarjeta para separarlos; el del medio por encima.
+.logos {
+  display: flex;
+  margin-bottom: 12px;
+  padding-left: 4px;
+}
+
+.logo {
+  border-radius: 6px;
+  box-shadow: 0 0 0 2px var(--color-surface);
+  display: flex;
+
+  & + & {
+    margin-left: -14px;
+  }
+
+  &:first-child:not(:only-child) {
+    transform: rotate(-8deg);
+  }
+
+  &:last-child:not(:only-child) {
+    transform: rotate(8deg);
+  }
+
+  &:nth-child(2):not(:last-child) {
+    z-index: 1;
+  }
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 26px;
+  margin: 0;
+  text-wrap: balance;
+}
+
+.link {
+  color: inherit;
+  text-decoration: none;
+
+  &::after {
+    border-radius: 16px;
+    content: '';
+    inset: 0;
+    position: absolute;
+    z-index: 2;
+  }
+
+  // El anillo, hacia adentro de la tarjeta (el overflow de la fila cortaría uno por fuera).
+  &:focus-visible {
+    outline: none;
+
+    &::after {
+      outline: 2px solid var(--color-focus-ring);
+      outline-offset: -2px;
+    }
+  }
+}
+
+.count {
+  color: var(--color-text-subtle);
+  font-size: 14px;
+  line-height: 20px;
+  margin: 0;
+}

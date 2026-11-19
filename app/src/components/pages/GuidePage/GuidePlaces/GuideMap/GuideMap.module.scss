@@ -1,0 +1,11 @@
+.message {
+  color: var(--color-text-muted);
+  font-size: 14px;
+  padding: 16px;
+}
+
+// Con className, <Map> deja de aplicar su width/height 100% por defecto.
+.map {
+  height: 100%;
+  width: 100%;
+}

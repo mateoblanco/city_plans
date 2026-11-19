@@ -1,0 +1,30 @@
+@use '../../../../styles/breakpoints' as *;
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+// Mismo título que las filas de guías (GuideRow).
+.title {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 28px;
+  margin: 0;
+}
+
+// Mobile: dos columnas. Desde md, las que entren.
+.grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  list-style: none;
+  margin: 0;
+  padding: 0;
+
+  @include media(md) {
+    gap: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  }
+}

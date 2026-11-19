@@ -1,0 +1,34 @@
+@use '../../styles/breakpoints' as *;
+
+.list {
+  color: var(--color-text-subtle);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 14px;
+  line-height: 20px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.item[aria-current] {
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.separator {
+  padding: 0 8px;
+}
+
+// Subrayado: el link se distingue por más que el color.
+.link {
+  color: var(--color-text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+
+  @include hover {
+    &:hover {
+      text-decoration-thickness: 2px;
+    }
+  }
+}

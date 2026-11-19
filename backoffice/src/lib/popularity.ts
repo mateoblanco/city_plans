@@ -12,6 +12,7 @@ export const ORIGIN_LABELS: Record<EventOrigin, string> = {
   similar: 'Similares',
   branch: 'Sucursales',
   direct: 'Directo',
+  guide: 'Guías',
 }
 
 const collator = new Intl.Collator('es', { sensitivity: 'base' })

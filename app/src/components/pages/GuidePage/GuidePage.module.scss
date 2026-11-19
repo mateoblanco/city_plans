@@ -1,0 +1,18 @@
+@use '../../../styles/breakpoints' as *;
+
+// El ancho y los costados del contenido; las columnas las arma GuidePlaces.
+.page {
+  box-sizing: border-box;
+  margin: 0 auto;
+  max-width: 1440px;
+  padding: 16px 16px 96px;
+  width: 100%;
+
+  @include media(md) {
+    padding: 24px 32px 64px;
+  }
+
+  @include media(lg) {
+    padding: 32px 48px 80px;
+  }
+}

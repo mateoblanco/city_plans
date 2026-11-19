@@ -1,0 +1,21 @@
+@use '../../../../../styles/breakpoints' as *;
+
+// Sólo desde md: en mobile el mapa es el de pantalla completa (GuideMapDialog).
+.column {
+  display: none;
+
+  @include media(md) {
+    display: block;
+    height: calc(100dvh - var(--header-offset) - 48px);
+    position: sticky;
+    top: calc(var(--header-offset) + 24px);
+  }
+}
+
+.frame {
+  background-color: var(--color-map-placeholder);
+  border: 1px solid var(--color-border-input);
+  border-radius: 16px;
+  height: 100%;
+  overflow: hidden;
+}

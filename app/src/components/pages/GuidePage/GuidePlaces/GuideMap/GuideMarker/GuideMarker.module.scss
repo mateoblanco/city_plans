@@ -1,0 +1,46 @@
+.marker {
+  align-items: center;
+  background-color: var(--color-surface);
+  border: 2px solid var(--color-selected);
+  border-radius: 50%;
+  box-shadow: var(--shadow-marker);
+  box-sizing: border-box;
+  color: var(--color-text);
+  display: flex;
+  font-family: var(--font-base);
+  font-size: 14px;
+  font-weight: 700;
+  height: 32px;
+  justify-content: center;
+  line-height: 1;
+  transition:
+    transform 0.15s ease-out,
+    background-color 0.15s ease-out,
+    color 0.15s ease-out;
+  user-select: none;
+  width: 32px;
+  // Como el marcador de /search: crece desde la mitad con un fundido al aparecer.
+  animation: marker-in 0.25s ease-out;
+
+  &[data-active] {
+    background-color: var(--color-selected);
+    box-shadow:
+      0 0 0 3px var(--color-surface),
+      0 0 0 4px var(--color-selected),
+      var(--shadow-marker);
+    color: var(--color-text-inverse);
+    transform: scale(1.25);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    transition: none;
+  }
+}
+
+@keyframes marker-in {
+  from {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+}

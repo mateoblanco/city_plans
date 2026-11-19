@@ -14,12 +14,13 @@ export type DailyEventType = (typeof DAILY_EVENT_TYPES)[number]
 
 /**
  * De dónde llegó la persona a la ficha: búsqueda, una fila de la home (con su id), la fila Guardados, similares,
- * otra sucursal o directo (link externo, recarga, atrás). Nunca el texto de la búsqueda.
+ * otra sucursal, una guía (con el slug de la guía como fila) o directo (link externo, recarga, atrás). Nunca el texto de
+ * la búsqueda.
  */
-export const EVENT_ORIGINS = ['search', 'home', 'saved', 'similar', 'branch', 'direct'] as const
+export const EVENT_ORIGINS = ['search', 'home', 'saved', 'similar', 'branch', 'direct', 'guide'] as const
 export type EventOrigin = (typeof EVENT_ORIGINS)[number]
 
-/** Id de fila de la home: `breakfast`, `near`, `discount:itau`… */
+/** Id de fila de la home (`breakfast`, `near`, `discount:itau`…) o slug de la guía. */
 export const ORIGIN_ROW_PATTERN = /^[a-z0-9_:-]{1,40}$/
 
 /** Más que esto por código por minuto no se guarda (bots o scripts). */
