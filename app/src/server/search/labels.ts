@@ -2,16 +2,14 @@ import { neighborhoodDisplayName } from '@shared/neighborhood-names.ts'
 import { ATMOSPHERE, CUISINES, DRINKS, FEATURES, FOODS, label, OFFERS, type OccasionTag, type StyleId } from '@shared/tags.ts'
 import type { DietKey, Lang, Price } from './interpretation'
 import { SEARCH_CONFIG } from './config'
+import { DAY_NAMES as DAY_NAMES_BY_LANG } from '@/lib/day-names'
 import type { Moment, NextOpening, OpenState } from './hours'
 import type { PlaceKind } from './personal'
 
 /** Idioma de todo lo que se muestra. El detectado (interpretation.language) sólo sirve para interpretar la consulta. */
 export const DISPLAY_LANG: Lang = 'es'
 
-export const DAY_NAMES: Record<Lang, string[]> = {
-  es: ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'],
-  en: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
-}
+export const DAY_NAMES: Record<Lang, readonly string[]> = DAY_NAMES_BY_LANG
 
 export const PRICE_LABELS: Record<Lang, Record<Price, string>> = {
   es: { low: 'Accesible', moderate: 'Normal', high: 'Caro' },

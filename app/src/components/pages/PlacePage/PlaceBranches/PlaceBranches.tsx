@@ -4,7 +4,7 @@ import BranchCard from "./BranchCard/BranchCard";
 import styles from "./PlaceBranches.module.scss";
 
 type Props = {
-  /** Llega con las direcciones de Google (PlacePage lo pone en su propio Suspense). */
+  /** Llegan de la base, después de la fila (PlacePage lo pone en su propio Suspense). */
   branches: Promise<BranchCardData[]>;
 };
 
@@ -17,7 +17,7 @@ const PlaceBranches = async (props: Props) => {
     <PlaceSection title="Otras sucursales">
       <div className={styles.grid}>
         {branches.map((branch) => (
-          <BranchCard key={branch.id} slug={branch.slug} neighborhood={branch.neighborhood} address={branch.address} />
+          <BranchCard key={branch.id} slug={branch.slug} neighborhood={branch.neighborhood} />
         ))}
       </div>
     </PlaceSection>

@@ -19,7 +19,7 @@ describe('interruptor ALLOW_INDEXING', () => {
 
 describe('sin indexación (antes del lanzamiento)', () => {
   it('robots.txt: Disallow: / para todos, sin sitemap', () => {
-    expect(robotsConfig(false, BASE)).toEqual({ rules: { userAgent: '*', disallow: '/' } })
+    expect(robotsConfig(false, BASE)).toEqual({ rules: { userAgent: '*', disallow: ['/', '/api/place-google/'] } })
   })
 
   it('todas las páginas con noindex, nofollow; /search también', () => {
@@ -34,7 +34,10 @@ describe('sin indexación (antes del lanzamiento)', () => {
 
 describe('con indexación (lanzamiento)', () => {
   it('robots.txt: Allow y el link al sitemap', () => {
-    expect(robotsConfig(true, BASE)).toEqual({ rules: { userAgent: '*', allow: '/' }, sitemap: `${BASE}/sitemap.xml` })
+    expect(robotsConfig(true, BASE)).toEqual({
+      rules: { userAgent: '*', allow: '/', disallow: '/api/place-google/' },
+      sitemap: `${BASE}/sitemap.xml`,
+    })
   })
 
   it('las páginas sin robots propio se indexan; /search siempre noindex, follow', () => {

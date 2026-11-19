@@ -6,8 +6,6 @@ import 'server-only'
 // celular. Nada de `reviews`: pasaría a Enterprise + Atmosphere.
 export const DETAILS_FIELD_MASK =
   'rating,userRatingCount,googleMapsLinks,regularOpeningHours,shortFormattedAddress,websiteUri,internationalPhoneNumber'
-// Sólo la dirección de una sucursal: SKU Place Details Essentials (≈ USD 0,005).
-export const BRANCH_FIELD_MASK = 'shortFormattedAddress'
 
 export type PlaceDetailsResult = { ok: true; data: unknown } | { ok: false; error: string }
 
@@ -15,7 +13,8 @@ type ErrorBody = { error?: { message?: string; status?: string } }
 
 /**
  * Pide los detalles en cada request: por los términos de Google no se guardan ni se cachean. Nunca tira: cualquier
- * falla vuelve como `{ ok: false }` para que la página se muestre igual.
+ * falla vuelve como `{ ok: false }` para que la página se muestre igual. Sólo lo llama /api/place-google/[id] (desde el
+ * navegador); el render del servidor de la ficha no (google-cost-guard.test.ts).
  */
 export async function fetchPlaceDetails(
   placeId: string | null,

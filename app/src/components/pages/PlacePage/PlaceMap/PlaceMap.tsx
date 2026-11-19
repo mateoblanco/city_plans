@@ -14,19 +14,25 @@ type Props = {
   lat: number;
   lng: number;
   iconCategory: IconCategory | null;
-  /** La imagen de Static Maps para mobile (StaticMap, del servidor); se oculta desde ml con CSS. */
+  /**
+   * Un bot (por user agent, en el servidor): el recuadro liso, sin imagen de Static Maps ni Maps JS (cada uno se cobra).
+   */
+  plain: boolean;
+  /** La imagen de Static Maps para mobile (StaticMap, del servidor); se oculta desde ml con CSS. Con plain, nada. */
   children?: ReactNode;
 };
 
 /**
  * Mapa chico con sólo este lugar. Mobile (debajo de ml): la imagen de Static Maps que viene en el HTML; Maps JS nunca
- * se baja. Desktop: el mapa interactivo de Maps JS, montado después de cargar la página (useDeferredMount). Mientras
- * tanto, el mismo recuadro (ya tiene su tamaño final: no salta nada).
+ * se baja. Desktop: el mapa interactivo de Maps JS, montado cuando el recuadro entra en pantalla, después de cargar la
+ * página (useDeferredMount). Mientras tanto, el mismo recuadro (ya tiene su tamaño final: no salta nada). Para un bot,
+ * sólo el recuadro liso.
  */
 const PlaceMap = (props: Props) => {
   const ref = useRef<HTMLDivElement>(null);
-  const ready = useDeferredMount(ref, "ml");
+  const ready = useDeferredMount(ref, "ml", !props.plain);
 
+  if (props.plain) return <div className={styles.map} data-plain aria-hidden />;
   return (
     <div ref={ref} className={styles.map}>
       {props.children}

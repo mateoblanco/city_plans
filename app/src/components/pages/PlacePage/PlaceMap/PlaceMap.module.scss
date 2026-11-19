@@ -12,3 +12,9 @@
     height: 280px;
   }
 }
+
+// Para un bot: el recuadro liso del color de fondo del mapa (el mismo de /search), sin nada de Google.
+.map[data-plain] {
+  background-color: var(--color-map-placeholder);
+  border: 1px solid var(--color-border-input);
+}

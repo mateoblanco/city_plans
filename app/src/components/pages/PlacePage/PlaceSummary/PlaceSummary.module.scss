@@ -57,11 +57,6 @@
   gap: 8px;
 }
 
-// Lugar reservado para lo que llega de Google: ocupa su ancho, no se ve ni se lee.
-.reserve {
-  visibility: hidden;
-}
-
 .separator {
   &::before {
     content: '';
@@ -74,35 +69,6 @@
   }
 }
 
-// Estado con fondo claro del color del tono, sin punto.
-.status {
-  align-items: center;
-  border-radius: 8px;
-  color: var(--color-status-closed);
-  // background-color: var(--color-status-closed-bg);
-  display: inline-flex;
-  font-weight: 600;
-  line-height: 20px;
-  // padding: 4px 8px;
-
-  &[data-tone="open"] {
-    color: var(--color-status-open);
-    // background-color: var(--color-status-open-bg);
-  }
-
-  &[data-tone="closing_soon"] {
-    color: var(--color-status-closing-soon);
-    // background-color: var(--color-status-closing-soon-bg);
-  }
-
-  // Abre pronto: sin color propio, como en la card.
-  &[data-tone="opening_soon"] {
-    color: inherit;
-    background-color: transparent;
-    padding: 0;
-  }
-}
-
 // La línea de estado mide lo que el estado con fondo (20px + 4px arriba y abajo), también reservada mientras llega
 // Google: así no salta.
 // Va después de .facts: gana también sobre su min-height de ml.
@@ -110,33 +76,7 @@
   min-height: 28px;
 }
 
-.rating,
-.ratingLink {
-  align-items: center;
-  display: inline-flex;
-  gap: 4px;
-}
-
-.ratingLink {
-  border-radius: 2px;
-  color: inherit;
-  text-decoration: none;
-  text-underline-offset: 3px;
-
-  @include hover {
-    &:hover {
-      text-decoration: underline;
-    }
-  }
-}
-
-.external {
-  color: var(--color-text-subtle);
-  display: block;
-  flex-shrink: 0;
-}
-
-// Sólo para lectores de pantalla (el nivel de precio, el detalle del puntaje).
+// Sólo para lectores de pantalla (el nivel de precio).
 .visuallyHidden {
   clip-path: inset(50%);
   height: 1px;
@@ -144,11 +84,6 @@
   position: absolute;
   white-space: nowrap;
   width: 1px;
-}
-
-.star {
-  color: var(--color-rating);
-  vertical-align: -1px;
 }
 
 .description {

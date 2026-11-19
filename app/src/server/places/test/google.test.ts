@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { BRANCH_FIELD_MASK, contactWebsite, DETAILS_FIELD_MASK, fetchPlaceDetails, parseDetails, streetAddress, weekHours, whatsappHref } from '../google'
+import { contactWebsite, DETAILS_FIELD_MASK, fetchPlaceDetails, parseDetails, streetAddress, weekHours, whatsappHref } from '../google'
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -44,14 +44,7 @@ describe('fetchPlaceDetails', () => {
   })
 })
 
-describe('dirección de una sucursal', () => {
-  it('pide sólo shortFormattedAddress (SKU Essentials)', async () => {
-    const fetchFn = vi.fn(async () => json({ shortFormattedAddress: 'Sarmiento 1345, Montevideo' }))
-    await fetchPlaceDetails('abc', 'k', fetchFn, BRANCH_FIELD_MASK)
-    const [, init] = fetchFn.mock.calls[0] as unknown as [URL, RequestInit]
-    expect(init.headers).toEqual({ 'X-Goog-Api-Key': 'k', 'X-Goog-FieldMask': 'shortFormattedAddress' })
-  })
-
+describe('dirección', () => {
   it('se queda con la calle', () => {
     expect(streetAddress('Sarmiento 1345, 11300 Montevideo')).toBe('Sarmiento 1345')
     expect(streetAddress('  ')).toBeNull()

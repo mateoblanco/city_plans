@@ -4,8 +4,8 @@ import type { Metadata, MetadataRoute } from 'next'
  * Indexación con interruptor (ALLOW_INDEXING). Mientras no se lanza (por defecto), nada se indexa: robots.txt bloquea
  * todo, cada página va con noindex, nofollow y el sitemap está vacío. Con ALLOW_INDEXING=true: robots permite y apunta al
  * sitemap, que lista la home y las fichas publicadas; /search sigue con noindex (búsquedas libres: un espacio infinito de
- * URLs, y cada una nueva paga el modelo y el embedding). Se lee en el build (robots, sitemap y metadata se prerenderizan):
- * cambiarla requiere un deploy nuevo.
+ * URLs, y cada una nueva paga el modelo y el embedding). En los dos modos, /api/place-google/ va con Disallow. Se lee en
+ * el build (robots, sitemap y metadata se prerenderizan): cambiarla requiere un deploy nuevo.
  */
 type Env = Record<string, string | undefined>
 
@@ -23,9 +23,12 @@ export function siteUrl(env: Env = process.env): string {
   return 'http://localhost:3000'
 }
 
+/** Lo de Google de la ficha (lo pide el navegador): nunca para un buscador, también con la indexación activa. */
+export const PLACE_GOOGLE_DISALLOW = '/api/place-google/'
+
 export function robotsConfig(allow: boolean, base: string): MetadataRoute.Robots {
-  if (!allow) return { rules: { userAgent: '*', disallow: '/' } }
-  return { rules: { userAgent: '*', allow: '/' }, sitemap: `${base}/sitemap.xml` }
+  if (!allow) return { rules: { userAgent: '*', disallow: ['/', PLACE_GOOGLE_DISALLOW] } }
+  return { rules: { userAgent: '*', allow: '/', disallow: PLACE_GOOGLE_DISALLOW }, sitemap: `${base}/sitemap.xml` }
 }
 
 /** robots de todas las páginas (layout): sin indexación, noindex, nofollow; con ella, lo de siempre (cada página decide). */

@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { allowIndexing, rootRobots, siteUrl } from "@/server/seo/indexing";
 import { trackEvents } from "@/server/events/config";
@@ -39,6 +40,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <div className="root">
           {children}
         </div>
+        {/* Visitas y páginas vistas en el dashboard de Vercel. En local no envía. */}
+        <Analytics />
         {/* Web Vitals reales (LCP, INP, CLS) en el dashboard de Vercel. */}
         <SpeedInsights />
         {/* Popularidad: sólo con TRACK_EVENTS=true (Production) se carga el envío de eventos. */}

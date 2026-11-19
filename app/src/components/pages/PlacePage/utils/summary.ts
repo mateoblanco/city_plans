@@ -2,6 +2,8 @@ import { label } from "@shared/tags.ts";
 import { nextOpening, openStatus, type Hours, type NextOpening } from "@/server/search/hours";
 import { DAY_NAMES, DISPLAY_LANG, openStateText, PRICE_LABELS, type OpenStateText } from "@/server/search/labels";
 
+export { countText, ratingInfo, ratingText, type RatingInfo } from "./rating";
+
 /** El precio en signos: "$", "$$", "$$$" (también el priceRange del JSON-LD). */
 export const PRICE_SIGNS: Record<string, string> = { low: "$", moderate: "$$", high: "$$$" };
 
@@ -51,35 +53,9 @@ export function placeOpenText(hours: Hours, googleOpenNow: boolean | null, now: 
   return { ...text, detail: text.detail && capitalize(text.detail) };
 }
 
-/** "1.230": con punto de miles también en 4 cifras (el formato de es-UY lo omite en algunos motores). */
-export function countText(count: number): string {
-  return String(Math.round(count)).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-}
-
-/** El puntaje de Google en la ficha: "4,4", "1.230" reseñas y el link a las reseñas en Google Maps. */
-export type RatingInfo = { value: string; count: string | null; href: string | null };
-
-/** null sin puntaje; sin link de reseñas de Google, el link general del lugar (fallbackHref). */
-export function ratingInfo(
-  google: { rating: number | null; ratingCount: number | null; reviewsHref: string | null } | null,
-  fallbackHref: string | null,
-): RatingInfo | null {
-  if (!google?.rating) return null;
-  return {
-    value: ratingText(google.rating),
-    count: google.ratingCount ? countText(google.ratingCount) : null,
-    href: google.reviewsHref ?? fallbackHref,
-  };
-}
-
 /** La categoría principal (la primera), en español; null sin categorías. */
 export function mainCategory(categories: string[]): string | null {
   return categories[0] ? label(categories[0], "es") : null;
-}
-
-/** "4,6": un decimal, con coma. */
-export function ratingText(rating: number): string {
-  return rating.toLocaleString("es-UY", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 }
 
 /** El usuario de Instagram sin @, espacios ni URL; null si no queda nada válido. */

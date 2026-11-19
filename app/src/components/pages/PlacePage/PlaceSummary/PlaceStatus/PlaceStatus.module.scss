@@ -1,0 +1,30 @@
+.fact {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+// El estado con el color del tono, sin punto ni fondo.
+.status {
+  align-items: center;
+  border-radius: 8px;
+  color: var(--color-status-closed);
+  display: inline-flex;
+  font-weight: 600;
+  line-height: 20px;
+
+  &[data-tone="open"] {
+    color: var(--color-status-open);
+  }
+
+  &[data-tone="closing_soon"] {
+    color: var(--color-status-closing-soon);
+  }
+
+  // Abre pronto: sin color propio, como en la card.
+  &[data-tone="opening_soon"] {
+    color: inherit;
+    background-color: transparent;
+    padding: 0;
+  }
+}

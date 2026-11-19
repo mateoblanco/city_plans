@@ -79,3 +79,15 @@ export async function getBranches(brandKey: string | null, placeId: string): Pro
   `)
   return rows as BranchRow[]
 }
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** El google_place_id de un lugar publicado, por nuestro id (uuid); null si el id no es válido, no está o no tiene. */
+export async function getPublishedGooglePlaceId(id: string): Promise<string | null> {
+  if (!UUID.test(id)) return null
+  const { rows } = await getDb().execute(sql`
+    select google_place_id from places where id::text = ${id.toLowerCase()} and status = 'published' limit 1
+  `)
+  const value = (rows[0] as { google_place_id?: unknown } | undefined)?.google_place_id
+  return typeof value === 'string' && value ? value : null
+}

@@ -1,5 +1,5 @@
 import type { DayHours } from "@/server/places/google";
-import { DAY_NAMES } from "@/server/search/labels";
+import { DAY_NAMES } from "@/lib/day-names";
 import HoursToggle from "./HoursToggle/HoursToggle";
 import styles from "./PlaceHours.module.scss";
 
