@@ -23,6 +23,8 @@ import { STYLE_IDS } from "../../src/data/tags.ts";
 import { REVIEW_REASON_IDS } from "../../src/data/review-reasons.ts";
 import { DAILY_EVENT_TYPES, EVENT_ORIGINS, EVENT_TYPES } from "../../src/data/events.ts";
 import type { ManualOverrides } from "../../src/data/manual-overrides.ts";
+import { GUIDE_CITIES, GUIDE_GROUPS, GUIDE_STATUSES } from "../../src/data/guides.ts";
+import { DEFAULT_GUIDE_COLOR, GUIDE_COLORS } from "../../src/data/guide-colors.ts";
 import {
   BENEFIT_MODES,
   CAP_CURRENCIES,
@@ -445,6 +447,79 @@ export const eventSalts = pgTable("event_salts", {
   day: date("day", { mode: "string" }).primaryKey(),
   salt: bytea("salt").notNull(),
 });
+
+// ── Guías editoriales (las escribe el backoffice, las lee la app) ──
+
+// Una guía: lista ordenada de lugares elegidos a mano. Sin barrio, es de toda la ciudad (/guides/montevideo/<slug>).
+// El slug es único en la ciudad (también entre barrios) y no puede ser el de un barrio (lo valida el servidor).
+export const guides = pgTable(
+  "guides",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    slug: text("slug").notNull(),
+    city: text("city", { enum: GUIDE_CITIES }).notNull().default("montevideo"),
+    // neighborhood_id de places ('CORDON'); null = toda la ciudad.
+    neighborhoodId: text("neighborhood_id"),
+    group: text("group", { enum: GUIDE_GROUPS }).notNull(),
+    title: text("title").notNull().default(""),
+    seoTitle: text("seo_title").notNull().default(""),
+    seoDescription: text("seo_description").notNull().default(""),
+    // Párrafos separados por una línea en blanco.
+    intro: text("intro").notNull().default(""),
+    status: text("status", { enum: GUIDE_STATUSES }).notNull().default("draft"),
+    featured: boolean("featured").notNull().default(false),
+    // La franja de la tarjeta en la app: un color de /shared/guide-colors.ts.
+    color: text("color").notNull().default(DEFAULT_GUIDE_COLOR),
+    // Lo gastado en generar textos con IA para esta guía (todas las generaciones, también las descartadas), en USD.
+    aiCostUsd: numeric("ai_cost_usd", { precision: 10, scale: 4 }).notNull().default("0"),
+    // La primera vez que se publicó.
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    // La fecha visible ("Actualizada el…"): cambia con el contenido, no con featured ni al publicar.
+    contentUpdatedAt: timestamp("content_updated_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("guides_city_slug_unique").on(t.city, t.slug),
+    check("guides_city_check", sql`${t.city} in (${inList(GUIDE_CITIES)})`),
+    check("guides_group_check", sql`${t.group} in (${inList(GUIDE_GROUPS)})`),
+    check("guides_status_check", sql`${t.status} in (${inList(GUIDE_STATUSES)})`),
+    check("guides_color_check", sql`${t.color} in (${inList(GUIDE_COLORS)})`),
+    index("guides_status_idx").on(t.status),
+  ]
+);
+
+// Los lugares de una guía, en orden (position desde 0, sin huecos). Un lugar borrado sale de la guía (cascade); uno
+// despublicado queda y la app lo saltea.
+export const guidePlaces = pgTable(
+  "guide_places",
+  {
+    guideId: uuid("guide_id").notNull().references(() => guides.id, { onDelete: "cascade" }),
+    placeId: uuid("place_id").notNull().references(() => places.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    text: text("text").notNull().default(""),
+  },
+  (t) => [
+    primaryKey({ columns: [t.guideId, t.placeId] }),
+    unique("guide_places_position_unique").on(t.guideId, t.position),
+    index("guide_places_place_idx").on(t.placeId),
+  ]
+);
+
+// La introducción de la página de una ciudad (neighborhood_id null) o de un barrio. Una por cada una.
+export const guideIntros = pgTable(
+  "guide_intros",
+  {
+    city: text("city", { enum: GUIDE_CITIES }).notNull().default("montevideo"),
+    neighborhoodId: text("neighborhood_id"),
+    intro: text("intro").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("guide_intros_city_neighborhood_unique").on(t.city, t.neighborhoodId).nullsNotDistinct(),
+    check("guide_intros_city_check", sql`${t.city} in (${inList(GUIDE_CITIES)})`),
+  ]
+);
 
 export type Place = typeof places.$inferSelect;
 export type NewPlace = typeof places.$inferInsert;

@@ -1,17 +1,20 @@
 import type { Metadata, Viewport } from "next";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
-import { allowIndexing, rootRobots, siteUrl } from "@/server/seo/indexing";
+import { allowIndexing, rootRobots } from "@/server/seo/indexing";
 import { trackEvents } from "@/server/events/config";
 import TrackingEnabled from "@/components/Tracking/TrackingEnabled/TrackingEnabled";
 import '@/styles/reset.scss';
 import '@/styles/global.scss';
+import { SITE_NAME, SITE_URL } from "@/lib/site";
 
-// metadataBase: canonical y Open Graph con URL absoluta (SITE_URL). Sin ALLOW_INDEXING, noindex, nofollow en todo.
+// metadataBase: canonical y Open Graph con URL absoluta (SITE_URL, el dominio principal). Sin ALLOW_INDEXING (o fuera de
+// Production), noindex, nofollow en todo. Open Graph base (locale y nombre del sitio) para las páginas que no lo definen.
 export const metadata: Metadata = {
-  metadataBase: new URL(siteUrl()),
-  title: "Salimos",
+  metadataBase: new URL(SITE_URL),
+  title: SITE_NAME,
   description: "Lugares para salir en Montevideo.",
+  openGraph: { type: "website", locale: "es_UY", siteName: SITE_NAME },
   robots: rootRobots(allowIndexing()),
 };
 
@@ -22,7 +25,7 @@ export const viewport: Viewport = { viewportFit: "cover", themeColor: "#ffffff" 
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="es">
+    <html lang="es-UY">
       <head>
         <link rel="preconnect" href="https://api.fontshare.com" crossOrigin="" />
         {/* Una familia por link: con varios f[] en la misma URL, Fontshare sólo devuelve la primera. */}

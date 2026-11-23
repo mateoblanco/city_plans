@@ -1,5 +1,6 @@
 import { Suspense, type ReactNode } from 'react';
 import Link from 'next/link';
+import CitySelect from './CitySelect/CitySelect';
 import HeaderOffset from './HeaderOffset';
 import NavigationTracker from './NavigationTracker';
 import styles from './Header.module.scss';
@@ -40,10 +41,12 @@ const Header = (props: Props) => {
           <NavigationTracker />
         </Suspense>
         <div className={styles.top} data-header-top data-with-tabs={props.tabs ? true : undefined}>
-          <Link href="/" className={styles.logo}>
-            <Logo width={40} height={40} />
-            Montevideo
-          </Link>
+          <div className={styles.logo}>
+            <Link href="/" className={styles.home} aria-label="Inicio">
+              <Logo width={40} height={40} aria-hidden />
+            </Link>
+            <CitySelect />
+          </div>
           <div className={styles.center} data-with-tabs={props.tabs ? true : undefined}>
             {props.tabs}
             {props.children}

@@ -10,15 +10,26 @@
 }
 
 .title {
-  font-size: 20px;
+  align-items: center;
+  display: flex;
+  font-size: 24px;
+  gap: 8px;
   font-weight: 600;
   line-height: 28px;
-  margin: 0;
-  padding: 0 16px;
+  // Margen y no padding a los costados: la línea de abajo queda del ancho de las tarjetas, no de borde a borde.
+  border-bottom: 1px solid var(--color-border);
+  margin: 0 16px;
+  padding-bottom: 12px;
 
   @include media(md) {
-    padding: 0 48px;
+    margin: 0 48px;
   }
+}
+
+.icon {
+  flex-shrink: 0;
+  height: 32px;
+  width: 32px;
 }
 
 // Mobile: de borde a borde con scroll horizontal (el padding alinea la primera tarjeta con el título y deja ver la
@@ -40,7 +51,7 @@
 
   @include media(md) {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
     overflow: visible;
     padding: 4px 48px 12px;
   }
@@ -48,6 +59,6 @@
 
 .item {
   // Mobile: asoma la tarjeta siguiente.
-  flex: 0 0 min(72vw, 300px);
+  flex: 0 0 min(84vw, 360px);
   min-width: 0;
 }

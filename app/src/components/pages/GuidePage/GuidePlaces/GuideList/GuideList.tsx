@@ -15,7 +15,11 @@ type Props = {
   places: GuidePagePlace[];
 };
 
-/** La lista numerada (<ol>): marca en el store el lugar que cruza la franja del centro al scrollear. */
+/**
+ * La lista numerada (<ol>): marca en el store el lugar que cruza la franja del centro al scrollear. El número se lee una
+ * sola vez, como la posición de la lista ("1 de 9"): el número grande de cada lugar es aria-hidden, y role="list" evita
+ * que Safari/VoiceOver le saque la semántica de lista por el list-style: none (y con ella, la posición).
+ */
 const GuideList = (props: Props) => {
   const ref = useRef<HTMLOListElement>(null);
   const store = useGuideFocus();
@@ -37,7 +41,7 @@ const GuideList = (props: Props) => {
   }, [store, props.places]);
 
   return (
-    <ol ref={ref} className={styles.list}>
+    <ol ref={ref} className={styles.list} role="list">
       {props.places.map((place) => (
         <GuideItem key={place.id} guideSlug={props.guideSlug} place={place} />
       ))}

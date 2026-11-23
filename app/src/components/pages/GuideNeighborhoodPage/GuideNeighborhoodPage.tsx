@@ -1,9 +1,10 @@
 import { notFound } from "next/navigation";
 import { breadcrumbJsonLd } from "@/components/GuideBreadcrumb/utils/structured-data";
 import GuideRow from "@/components/GuideRow/GuideRow";
+import { TAB_ICONS } from "@/components/HeaderSearch/IntentTabs/utils/intent-tabs";
 import GuidesShell from "@/components/GuidesShell/GuidesShell";
 import { getNeighborhoodPage } from "@/server/guides/neighborhood-data";
-import { siteUrl } from "@/server/seo/indexing";
+import { SITE_URL } from "@/lib/site";
 import { jsonLdScript } from "../PlacePage/utils/structured-data";
 import NeighborhoodHeader from "./NeighborhoodHeader/NeighborhoodHeader";
 import { neighborhoodItemListJsonLd } from "./utils/structured-data";
@@ -21,7 +22,7 @@ export const NeighborhoodContent = async (props: ContentProps) => {
   const data = await getNeighborhoodPage(await props.barrio);
   if (!data) notFound();
 
-  const base = siteUrl();
+  const base = SITE_URL;
   const jsonLd = [
     neighborhoodItemListJsonLd({ name: data.name, path: data.path, siteUrl: base, groups: data.groups }),
     breadcrumbJsonLd(data.breadcrumb, base),
@@ -35,7 +36,7 @@ export const NeighborhoodContent = async (props: ContentProps) => {
       </div>
       <div className={styles.rows}>
         {data.groups.map((row) => (
-          <GuideRow key={row.group} id={row.group} title={row.title} guides={row.guides} />
+          <GuideRow key={row.group} id={row.group} title={row.title} icon={TAB_ICONS[row.group]} guides={row.guides} />
         ))}
       </div>
     </div>

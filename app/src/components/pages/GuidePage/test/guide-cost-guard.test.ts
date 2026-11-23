@@ -10,10 +10,9 @@ import { describe, expect, it } from "vitest";
  * bots. Estos tests fallan si algo de eso cambia.
  */
 const SRC = path.resolve(import.meta.dirname, "../../../..");
-const ROUTE = "app/guides/montevideo/[segment]/[slug]/page.tsx";
 const SEGMENT_ROUTE = "app/guides/montevideo/[segment]/page.tsx";
 const CITY_ROUTE = "app/guides/montevideo/page.tsx";
-const ROUTES = [ROUTE, SEGMENT_ROUTE, CITY_ROUTE];
+const ROUTES = [SEGMENT_ROUTE, CITY_ROUTE];
 const read = (file: string) => fs.readFileSync(path.join(SRC, file), "utf8");
 const parse = (file: string) => ts.createSourceFile(file, read(file), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const EXTENSIONS = [".ts", ".tsx", ".mts"];
@@ -106,14 +105,13 @@ describe("las páginas de guías (ciudad, barrio y guía) se arman igual para to
     expect(offenders).toEqual([]);
   });
 
-  it("los datos de las dos páginas están cacheados ('use cache' con tag y vida en horas) y se prerenderizan", () => {
-    for (const file of ["server/guides/page-data.ts", "server/guides/neighborhood-data.ts", "server/guides/city-data.ts"]) {
+  it("los datos de las dos páginas están cacheados ('use cache' con tag y vida corta) y se prerenderizan", () => {
+    for (const file of ["server/guides/page-data.ts", "server/guides/neighborhood-data.ts", "server/guides/city-data.ts", "server/guides/home-data.ts", "server/guides/place-data.ts"]) {
       const text = read(file);
       expect(text).toMatch(/'use cache'/);
       expect(text).toMatch(/cacheTag\('guides'\)/);
-      expect(text).toMatch(/cacheLife\('hours'\)/);
+      expect(text).toMatch(/cacheLife\('guides'\)/);
     }
-    expect(read(ROUTE)).toMatch(/generateStaticParams/);
     expect(read(SEGMENT_ROUTE)).toMatch(/generateStaticParams/);
   });
 
@@ -141,5 +139,28 @@ describe("el mapa de la guía no se paga para bots ni sin mirarlo", () => {
     expect(dialog).toMatch(/\{opened && <GuideMap /);
     // Los dos con next/dynamic sin SSR: el chunk de Maps no viene en el HTML.
     for (const text of [column, dialog]) expect(text).toMatch(/dynamic\(\(\) => import\("\.\.\/GuideMap\/GuideMap"\), \{ ssr: false \}\)/);
+  });
+});
+
+describe("vista previa: aparte de las páginas públicas", () => {
+  const PREVIEW_ROUTE = "app/guide-preview/[...path]/page.tsx";
+
+  it("ninguna página pública llega a la vista previa (que lee searchParams y no tiene cache)", () => {
+    const offenders = [...renderGraph().keys()].filter((file) => file.includes("GuidePreviewPage") || file.includes("guide-preview"));
+    expect(offenders).toEqual([]);
+  });
+
+  it("la vista previa nunca se indexa, vuelve a chequear la clave y lee sin cache", () => {
+    expect(read(PREVIEW_ROUTE)).toMatch(/robots: \{ index: false, follow: false \}/);
+    const page = read("components/pages/GuidePreviewPage/GuidePreviewPage.tsx");
+    expect(page).toMatch(/if \(!isPreviewKey\(/);
+    expect(page).toMatch(/getGuidePreview\(/);
+    expect(read("server/guides/page-data.ts")).toMatch(/export async function getGuidePreview[\s\S]*allGuidesUncached\(\)/);
+  });
+
+  it("el proxy cubre la ruta interna (directo da 404) y no consulta la base por pedido", () => {
+    const proxy = read("proxy.ts");
+    expect(proxy).toMatch(/"\/guide-preview\/:path\*"/);
+    expect(proxy).toMatch(/routesCache\.routes\(\)/);
   });
 });

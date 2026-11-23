@@ -5,6 +5,8 @@ import { logoUrl } from '../search/logo'
 import { getBranches, getPublishedPlace, type PlaceRow } from './place'
 import { similarPlaces } from './similar'
 import { placeDiscounts, type PlaceDiscountProvider } from '../discounts'
+import type { GuideLink } from '../guides/entries'
+import { getPlaceGuides } from '../guides/place-data'
 
 /** Otra sucursal en la ficha: sólo datos de la base (sin dirección: la calle es de Google y el servidor no lo llama). */
 export type BranchCardData = { id: string; slug: string; neighborhood: string }
@@ -23,6 +25,8 @@ export type PlacePageData = {
   similar: Promise<SearchResult[]>
   /** Descuentos que cuentan, por proveedor (orden de la config); [] sin descuentos o si falla la consulta. */
   discounts: PlaceDiscountProvider[]
+  /** "Aparece en estas guías": las guías publicadas que lo incluyen (cacheadas); [] si ninguna o si falla. */
+  guides: GuideLink[]
 }
 
 const neighborhoodName = (id: string) => neighborhoodDisplayName(id) ?? id
@@ -44,10 +48,18 @@ export async function getPlacePage(slug: string): Promise<PlacePageData | null> 
     .then((rows) => rows.map((row) => ({ id: row.id, slug: row.slug, neighborhood: neighborhoodName(row.neighborhoodId) })))
   // similarPlaces no tira (si falla, []).
   const similar = similarPlaces(place)
-  const discounts = await placeDiscounts(place.id).catch((error) => {
-    console.warn('placeDiscounts', error)
-    return []
-  })
+  // Descuentos y guías van debajo del resumen: se esperan (si llegaran después, moverían lo de abajo). Las guías salen
+  // de la lista cacheada (getPlaceGuides), así que no demoran.
+  const [discounts, guides] = await Promise.all([
+    placeDiscounts(place.id).catch((error) => {
+      console.warn('placeDiscounts', error)
+      return []
+    }),
+    getPlaceGuides(place.id).catch((error) => {
+      console.warn('getPlaceGuides', error)
+      return [] as GuideLink[]
+    }),
+  ])
 
   return {
     place,
@@ -56,5 +68,6 @@ export async function getPlacePage(slug: string): Promise<PlacePageData | null> 
     branches,
     similar,
     discounts,
+    guides,
   }
 }

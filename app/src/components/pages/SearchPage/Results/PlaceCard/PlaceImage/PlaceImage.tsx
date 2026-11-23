@@ -15,15 +15,18 @@ type Props = {
   load?: ImageLoad;
   /** Decorativo (los logos de la card "Ver todos" de la home): alt="", el nombre accesible es del link que lo contiene. */
   decorative?: boolean;
+  /** Sin el borde de la imagen (los logos de la tarjeta de guía, sobre la franja de color). */
+  withoutBorder?: boolean;
 };
 
 /** Banner de la card (y logo de la ficha): el logo centrado sobre su color de fondo; sin logo, el nombre. */
 const PlaceImage = (props: Props) => {
 
   const background = props.logoBgColor ? ({ "--banner-bg": props.logoBgColor } as CSSProperties) : undefined;
+  const className = [styles.image, props.onLightBar && styles.onLightBar, props.withoutBorder && styles.withoutBorder].filter(Boolean).join(" ");
 
   return (
-    <div className={props.onLightBar ? `${styles.image} ${styles.onLightBar}` : styles.image} style={background} data-size={props.size}>
+    <div className={className} style={background} data-size={props.size}>
       {props.logoUrl && <Image
         src={props.logoUrl}
         alt={props.decorative ? "" : `Logo de ${props.name}`}

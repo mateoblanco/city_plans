@@ -1,5 +1,4 @@
 import type { IconCategory } from '@shared/icon-categories.ts'
-import type { Hours } from '../search/hours'
 import type { GuidePhoto, GuidePlaceEntry } from './types'
 
 /** Lo que la guía lee de cada lugar: sólo datos propios de la tabla places (nunca nada de Google). */
@@ -12,7 +11,6 @@ export type GuidePlaceRow = {
   iconCategory: IconCategory | null
   logoKey: string | null
   logoBgColor: string | null
-  hours: Hours
   lat: number
   lng: number
 }
@@ -20,7 +18,7 @@ export type GuidePlaceRow = {
 /** Los lugares de la guía que siguen publicados (los borrados o despublicados no vuelven). */
 export const GUIDE_PLACES_SQL = `
   select p.id::text as id, p.slug, p.name, p.neighborhood_id as "neighborhoodId", p.categories, p.icon_category as "iconCategory",
-    p.logo_key as "logoKey", p.logo_bg_color as "logoBgColor", p.hours,
+    p.logo_key as "logoKey", p.logo_bg_color as "logoBgColor",
     ST_Y(p.location::geometry) as lat, ST_X(p.location::geometry) as lng
   from places p
   where p.status = 'published' and p.id::text = any($1::text[])`

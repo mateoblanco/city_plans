@@ -1,3 +1,4 @@
+import { neighborhoodDisplayName } from '@shared/neighborhood-names.ts'
 import { assembleGuidePlaces, type GuidePlaceRow } from './places'
 import { GUIDE_GROUPS, guidePath } from './catalog'
 import { groupLabel } from './groups'
@@ -10,10 +11,14 @@ export type GuideCardData = {
   slug: string
   href: string
   title: string
+  /** El barrio de la guía como etiqueta ("Pocitos"); null en una guía de toda la ciudad. */
+  neighborhood: string | null
   /** Lugares publicados de la guía (los que se ven en su página). */
   count: number
   /** Los primeros 3 lugares publicados de la guía, en su orden. */
   logos: GuideCardLogo[]
+  /** La franja de color detrás de los logos. */
+  color: string
   cover: GuidePhoto | null
 }
 
@@ -32,8 +37,10 @@ export function guideCard(guide: Guide, rows: readonly GuidePlaceRow[], logoUrl:
     slug: guide.slug,
     href: guidePath(guide),
     title: guide.title,
+    neighborhood: guide.neighborhood ? (neighborhoodDisplayName(guide.neighborhood) ?? guide.neighborhood) : null,
     count: places.length,
     logos: places.slice(0, CARD_LOGOS).map(({ row }) => ({ id: row.id, name: row.name, logoUrl: logoUrl(row.logoKey), logoBgColor: row.logoBgColor })),
+    color: guide.color,
     cover: guide.cover ?? null,
   }
 }
@@ -48,6 +55,3 @@ export function groupGuides(guides: readonly Guide[], rows: readonly GuidePlaceR
     return cards.length > 0 ? [{ group, title: groupLabel(group), guides: cards }] : []
   })
 }
-
-/** "9 lugares", "1 lugar". */
-export const placesCount = (count: number) => `${count} ${count === 1 ? 'lugar' : 'lugares'}`

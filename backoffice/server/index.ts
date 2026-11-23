@@ -1,3 +1,4 @@
+import { gatewayBalance, guideGenerator } from './guides/generate.ts'
 import { serve } from '@hono/node-server'
 import { config } from 'dotenv'
 import { createApp } from './app.ts'
@@ -60,7 +61,7 @@ const database = process.env.DATABASE_URL?.trim()
         import('./places/list.ts'),
         import('./places/edit.ts'),
       ])
-      const [{ sqlClient }, { neonPopularityReader }] = await Promise.all([import('./db/index.ts'), import('./popularity/list.ts')])
+      const [{ sqlClient }, { neonPopularityReader }, { neonGuidesStore }] = await Promise.all([import('./db/index.ts'), import('./popularity/list.ts'), import('./guides/store.ts')])
       const [{ drizzleDiscountStore }, { drizzleOurPlaces }] = await Promise.all([import('./discounts/drizzle-store.ts'), import('./discounts/our-places.ts')])
       return {
         placesSaver: placesSaver(drizzlePlacesStore(db)),
@@ -87,6 +88,7 @@ const database = process.env.DATABASE_URL?.trim()
         discountStore: drizzleDiscountStore(db),
         ourPlaces: drizzleOurPlaces(db),
         popularityReader: neonPopularityReader(sqlClient),
+        guidesStore: neonGuidesStore(sqlClient),
       }
     })()
   : undefined
@@ -138,6 +140,14 @@ serve(
       placeEditor: database?.placeEditor,
       discounts,
       popularityReader: database?.popularityReader,
+      guidesStore: database?.guidesStore,
+      guidesPreview: {
+        appUrl: process.env.APP_URL,
+        secret: process.env.GUIDES_PREVIEW_SECRET,
+        // Textos de las guías con IA (Opus por el AI Gateway, GUIDES_MODEL); sin la clave del Gateway, los botones avisan.
+        generator: process.env.AI_GATEWAY_API_KEY?.trim() ? guideGenerator() : undefined,
+        balance: gatewayBalance,
+      },
     }).fetch,
     hostname: '127.0.0.1',
     port: apiPort,

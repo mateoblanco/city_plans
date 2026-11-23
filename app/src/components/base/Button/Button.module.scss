@@ -217,3 +217,20 @@
   }
 
 }
+// Área táctil de al menos 44×44 (WCAG 2.5.8 / guías de iOS) sin cambiar el tamaño visible: un ::after invisible
+// centrado sobre el botón, que recibe el toque. Opcional (prop touchTarget).
+.touch-target {
+  position: relative;
+  // Por encima de los hermanos que vienen después (p. ej. el mapa debajo del botón de cerrar), así el área no queda tapada.
+  z-index: 1;
+
+  &::after {
+    content: '';
+    height: max(100%, 44px);
+    left: 50%;
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: max(100%, 44px);
+  }
+}

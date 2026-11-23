@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
-import { BadgePercent, ChartColumn, Database, Map as MapIcon, Search, Utensils } from 'lucide-react'
+import { BadgePercent, BookOpen, ChartColumn, Database, Map as MapIcon, Search, Utensils } from 'lucide-react'
 import { DiscountsPage } from '@/pages/discounts-page'
+import { GuidesPage } from '@/pages/guides-page'
 import { NeighborhoodSweepPage } from '@/pages/neighborhood-sweep-page'
 import { PlaceSearchPage } from '@/pages/place-search-page'
 import { PopularityPage } from '@/pages/popularity-page'
 import { SavedPlacesPage } from '@/pages/saved-places-page'
 
-type PageId = 'search' | 'neighborhood' | 'places' | 'discounts' | 'popularity'
+type PageId = 'search' | 'neighborhood' | 'places' | 'discounts' | 'popularity' | 'guides'
 
 const pages: readonly { id: PageId; hash: string; label: string; icon: typeof Search }[] = [
   { id: 'search', hash: '#/', label: 'Buscar lugares', icon: Search },
@@ -14,6 +15,7 @@ const pages: readonly { id: PageId; hash: string; label: string; icon: typeof Se
   { id: 'places', hash: '#/lugares', label: 'Lugares', icon: Database },
   { id: 'discounts', hash: '#/descuentos', label: 'Descuentos', icon: BadgePercent },
   { id: 'popularity', hash: '#/popularidad', label: 'Popularidad', icon: ChartColumn },
+  { id: 'guides', hash: '#/guias', label: 'Guías', icon: BookOpen },
 ]
 
 function pageFromHash(hash: string): PageId {
@@ -21,6 +23,7 @@ function pageFromHash(hash: string): PageId {
   if (hash === '#/lugares') return 'places'
   if (hash === '#/descuentos') return 'discounts'
   if (hash === '#/popularidad') return 'popularity'
+  if (hash === '#/guias') return 'guides'
   return 'search'
 }
 
@@ -77,6 +80,7 @@ function App() {
         {page === 'places' && <SavedPlacesPage />}
         {page === 'discounts' && <DiscountsPage />}
         {page === 'popularity' && <PopularityPage />}
+        {page === 'guides' && <GuidesPage />}
       </main>
     </div>
   )

@@ -10,15 +10,23 @@
   }
 }
 
-// Etiqueta del grupo: chip chico arriba del título.
-.group {
+// Etiquetas del grupo y del barrio: chips chicos arriba del título.
+.tags {
   align-self: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  margin: 24px 0 0;
+  padding: 0;
+}
+
+.tag {
   background-color: var(--color-surface-chip);
   border-radius: 999px;
   font-size: 13px;
   font-weight: 600;
   line-height: 18px;
-  margin: 24px 0 0;
   padding: 4px 10px;
 }
 
@@ -32,8 +40,8 @@
   text-wrap: balance;
 
   @include media(md) {
-    font-size: 48px;
-    line-height: 52px;
+    font-size: 40px;
+    line-height: 44px;
   }
 }
 

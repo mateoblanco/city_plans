@@ -1,5 +1,6 @@
 import { INTENTS, type IntentId } from "@shared/intents.ts";
 import type { Chip, SearchResponse } from "@/server/search";
+import { withSiteName } from "@/lib/site";
 
 /**
  * Título y h1 de /search, armados con lo que entendió la búsqueda (sin modelo extra: es la misma búsqueda de la página).
@@ -17,7 +18,6 @@ export type SearchTitleInput = {
   nearby?: string | null;
 };
 
-const SITE = "Salimos";
 const CITY = "Montevideo";
 const MAX_QUERY = 60;
 
@@ -86,7 +86,7 @@ export function searchHeading(input: SearchTitleInput): string {
 }
 
 /** El <title>: el h1 y el nombre del sitio. */
-export const searchTitle = (input: SearchTitleInput) => `${searchHeading(input)} · ${SITE}`;
+export const searchTitle = (input: SearchTitleInput) => withSiteName(searchHeading(input));
 
 /** La entrada del título desde la respuesta de la búsqueda; sin respuesta (falló), sólo con el texto. */
 export const searchTitleInput = (query: string, response: (Pick<SearchResponse, "bar" | "interpreted"> & Partial<Pick<SearchResponse, "nearbyOnly">>) | null): SearchTitleInput => ({

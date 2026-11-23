@@ -1,206 +1,162 @@
 import { describe, expect, it } from 'vitest'
-import { INTENTS } from '@shared/intents.ts'
-import { NEIGHBORHOOD_NAMES } from '@shared/neighborhood-names.ts'
+import { MIN_NEIGHBORHOOD_GUIDES, slugClashesWithNeighborhood } from '@shared/guides.ts'
 import {
-  cityGuideParams,
-  citySlugClashes,
-  findCityGuide,
+  activeNeighborhoods,
+  citySeo,
+  EMPTY_PARAM,
   findGuide,
-  GUIDE_CITY,
-  GUIDE_NEIGHBORHOODS,
-  GUIDES,
   guideBreadcrumb,
-  guideParams,
   guidePath,
+  liveGuides,
   neighborhoodBreadcrumb,
-  neighborhoodGuides,
-  neighborhoodParams,
   neighborhoodPath,
+  neighborhoodSeo,
   neighborhoodSlug,
   resolveCitySegment,
-  visibleGuides,
+  segmentParams,
 } from '../catalog'
 import { guideSitemapPages } from '../sitemap'
-import type { Guide } from '../types'
+import { ALL_GUIDES, CORDON_BEERS, CORDON_CAFES, CORDON_TAPAS, POCITOS_EMPTY, POCITOS_PIZZA, PUBLISHED_GUIDES, SUSHI_CITY, testGuide } from './fixtures'
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
-const production = { NODE_ENV: 'production' }
-const development = { NODE_ENV: 'development' }
-
-describe('el contenido de cada guía', () => {
-  for (const guide of GUIDES) {
-    describe(guide.slug, () => {
-      it('slug, barrio (si tiene), grupo y fecha válidos', () => {
-        expect(guide.slug).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/)
-        // También es la fila (origin_row) de los eventos de popularidad: ORIGIN_ROW_PATTERN, hasta 40.
-        expect(guide.slug.length).toBeLessThanOrEqual(40)
-        if (guide.neighborhood) expect(NEIGHBORHOOD_NAMES).toHaveProperty(guide.neighborhood)
-        expect(Object.keys(INTENTS)).toContain(guide.group)
-        expect(guide.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}$/)
-        expect(new Date(`${guide.updatedAt}T00:00:00Z`).toISOString().slice(0, 10)).toBe(guide.updatedAt)
-      })
-
-      it('textos para Google con largo razonable', () => {
-        expect(guide.seoTitle.length).toBeLessThanOrEqual(70)
-        expect(guide.seoDescription.length).toBeLessThanOrEqual(160)
-        expect(guide.intro.length).toBeGreaterThan(0)
-      })
-
-      it('lugares: ids de la base, sin repetir, con texto de 2–3 líneas', () => {
-        expect(guide.places.length).toBeGreaterThan(0)
-        const ids = guide.places.map((place) => place.id)
-        expect(new Set(ids).size).toBe(ids.length)
-        for (const place of guide.places) {
-          expect(place.id).toMatch(UUID)
-          expect(place.text.trim().length).toBeGreaterThan(40)
-          expect(place.text.length).toBeLessThanOrEqual(320)
-        }
-      })
-    })
-  }
-
-  it('cada barrio del config existe y tiene textos para Google con largo razonable; la ciudad también', () => {
-    for (const entry of [...GUIDE_NEIGHBORHOODS, GUIDE_CITY]) {
-      if ('neighborhood' in entry) expect(NEIGHBORHOOD_NAMES).toHaveProperty(entry.neighborhood)
-      expect(entry.intro.length).toBeGreaterThan(0)
-      expect(entry.seoTitle.length).toBeLessThanOrEqual(70)
-      expect(entry.seoDescription.length).toBeLessThanOrEqual(160)
-    }
+describe('URL plana', () => {
+  it('toda guía, de barrio o de ciudad, va en /guides/montevideo/<slug>', () => {
+    expect(guidePath(CORDON_CAFES)).toBe('/guides/montevideo/cafes-donde-nadie-te-apura')
+    expect(guidePath(POCITOS_PIZZA)).toBe('/guides/montevideo/pizzas-en-pocitos')
+    expect(guidePath(SUSHI_CITY)).toBe('/guides/montevideo/sushi-para-una-cita')
   })
 
-  it('no hay dos guías con la misma URL', () => {
-    const paths = GUIDES.map(guidePath)
-    expect(new Set(paths).size).toBe(paths.length)
+  it('se encuentra por slug, de barrio o de ciudad', () => {
+    expect(findGuide('cafes-donde-nadie-te-apura', ALL_GUIDES)).toBe(CORDON_CAFES)
+    expect(findGuide('sushi-para-una-cita', ALL_GUIDES)).toBe(SUSHI_CITY)
+    expect(findGuide('xyz', ALL_GUIDES)).toBeNull()
+  })
+
+  it('el slug de una guía sigue sin poder ser el de un barrio (las páginas de barrio están al mismo nivel)', () => {
+    expect(slugClashesWithNeighborhood('cordon')).toBe(true)
+    expect(slugClashesWithNeighborhood('pocitos')).toBe(true)
+    expect(slugClashesWithNeighborhood('cafes-donde-nadie-te-apura')).toBe(false)
   })
 })
 
-describe('guías de toda la ciudad', () => {
-  it('ningún slug de una guía de ciudad coincide con el de un barrio (todos los barrios, tengan guías o no)', () => {
-    expect(citySlugClashes(GUIDES)).toEqual([])
+describe(`páginas de barrio: existen con ${MIN_NEIGHBORHOOD_GUIDES} guías con página`, () => {
+  it('Cordón llega (3 publicadas con lugares; el borrador no cuenta); Pocitos no (1, y una sin lugares publicados no cuenta)', () => {
+    expect([...activeNeighborhoods(ALL_GUIDES)]).toEqual(['CORDON'])
   })
 
-  it('el chequeo de choque detecta uno: una guía de ciudad "pocitos" o "ciudad-vieja" (barrios sin guías hoy)', () => {
-    const clash = (slug: string) => ({ ...GUIDES[0], neighborhood: undefined, slug }) as Guide
-    expect(citySlugClashes([clash('pocitos'), clash('ciudad-vieja'), clash('sushi')])).toEqual(['pocitos', 'ciudad-vieja'])
+  it('el mínimo es configurable en un solo lugar', () => {
+    expect([...activeNeighborhoods(ALL_GUIDES, 1)].sort()).toEqual(['CORDON', 'POCITOS'])
+    expect([...activeNeighborhoods(ALL_GUIDES, 4)]).toEqual([])
   })
 
-  it('URL sin barrio: /guides/montevideo/<slug>', () => {
-    const guide = findCityGuide('sushi-para-una-cita', visibleGuides(development))
-    expect(guide && guidePath(guide)).toBe('/guides/montevideo/sushi-para-una-cita')
+  it('el segmento: un barrio con página, una guía con página, o nada (404)', () => {
+    expect(resolveCitySegment('cordon', PUBLISHED_GUIDES)).toEqual({ kind: 'neighborhood' })
+    expect(resolveCitySegment('pocitos', PUBLISHED_GUIDES)).toBeNull()
+    expect(resolveCitySegment('pizzas-en-pocitos', PUBLISHED_GUIDES)).toMatchObject({ kind: 'guide', guide: POCITOS_PIZZA })
+    expect(resolveCitySegment('cafes-donde-nadie-te-apura', PUBLISHED_GUIDES)).toMatchObject({ kind: 'guide', guide: CORDON_CAFES })
+    // Sin página: borrador, sin lugares publicados, inexistente.
+    expect(resolveCitySegment('cervezas-artesanales', ALL_GUIDES)).toBeNull()
+    expect(resolveCitySegment('brunch-en-pocitos', PUBLISHED_GUIDES)).toBeNull()
+    expect(resolveCitySegment('xyz', PUBLISHED_GUIDES)).toBeNull()
   })
 
-  it('la ruta resuelve primero el barrio y después la guía de ciudad', () => {
-    const cityGuide = { ...GUIDES[0], neighborhood: undefined, slug: 'cordon', draft: false } as Guide
-    const guides = [...visibleGuides(production), cityGuide]
-    expect(resolveCitySegment('cordon', guides)).toEqual({ kind: 'neighborhood' })
-    expect(resolveCitySegment('sushi-para-una-cita', visibleGuides(development))).toMatchObject({ kind: 'guide' })
-    expect(resolveCitySegment('pocitos', visibleGuides(production))).toBeNull()
-    expect(resolveCitySegment('xyz')).toBeNull()
-  })
-
-  it('una guía de ciudad no se encuentra como guía de barrio, ni al revés', () => {
-    const visible = visibleGuides(development)
-    expect(findGuide('montevideo', 'sushi-para-una-cita', visible)).toBeNull()
-    expect(findCityGuide('cafes-donde-nadie-te-apura', visible)).toBeNull()
+  it('un barrio que pasa a tener 3 guías aparece solo', () => {
+    const more = [...PUBLISHED_GUIDES, testGuide({ slug: 'p2', neighborhood: 'POCITOS' }), testGuide({ slug: 'p3', neighborhood: 'POCITOS' })]
+    expect(resolveCitySegment('pocitos', more)).toEqual({ kind: 'neighborhood' })
   })
 })
 
-describe('URLs y params', () => {
+describe('params', () => {
+  it('los barrios con página y todas las guías con página; ni borradores, ni sin lugares, ni barrios debajo del mínimo', () => {
+    expect(segmentParams(ALL_GUIDES).map((param) => param.segment)).toEqual([
+      'cordon',
+      'cafes-donde-nadie-te-apura',
+      'sushi-para-una-cita',
+      'tapas-en-cordon',
+      'vinos-en-cordon',
+      'pizzas-en-pocitos',
+    ])
+    expect(liveGuides(ALL_GUIDES)).not.toContain(CORDON_BEERS)
+  })
+
+  it('sin guías en la base, un param que no existe (cacheComponents no acepta una lista vacía)', () => {
+    expect(segmentParams([])).toEqual([{ segment: EMPTY_PARAM }])
+    expect(segmentParams([POCITOS_EMPTY, CORDON_BEERS])).toEqual([{ segment: EMPTY_PARAM }])
+    expect(resolveCitySegment(EMPTY_PARAM, [])).toBeNull()
+  })
+
   it('el barrio va sin tildes ni mayúsculas, con guiones', () => {
-    expect(neighborhoodSlug('CORDON')).toBe('cordon')
     expect(neighborhoodSlug('CIUDAD VIEJA')).toBe('ciudad-vieja')
     expect(neighborhoodSlug('PRADO NUEVA SAVONA')).toBe('prado')
     expect(neighborhoodPath('montevideo', 'CORDON')).toBe('/guides/montevideo/cordon')
   })
-
-  it('en producción: la guía publicada y su barrio; ninguna guía de ciudad', () => {
-    const visible = visibleGuides(production)
-    const guide = findGuide('cordon', 'cafes-donde-nadie-te-apura', visible)
-    expect(guide && guidePath(guide)).toBe('/guides/montevideo/cordon/cafes-donde-nadie-te-apura')
-    expect(guideParams(visible)).toEqual([{ segment: 'cordon', slug: 'cafes-donde-nadie-te-apura' }])
-    expect(neighborhoodParams(visible)).toEqual([{ segment: 'cordon' }])
-    expect(cityGuideParams(visible)).toEqual([])
-  })
-
-  it('un barrio sin guías no tiene página (ni params)', () => {
-    expect(neighborhoodGuides('pocitos', visibleGuides(production))).toEqual([])
-    expect(neighborhoodGuides('xyz')).toEqual([])
-  })
 })
 
-describe('borradores', () => {
-  const drafts = GUIDES.filter((guide) => guide.draft)
-
-  it('incluyen una guía de ciudad (sushi) y una de otro barrio (Pocitos)', () => {
-    expect(drafts.map((guide) => guide.slug)).toEqual(expect.arrayContaining(['sushi-para-una-cita', 'brunch-en-pocitos']))
-    expect(drafts.find((guide) => guide.slug === 'sushi-para-una-cita')?.neighborhood).toBeUndefined()
-    expect(drafts.find((guide) => guide.slug === 'brunch-en-pocitos')?.neighborhood).toBe('POCITOS')
-  })
-
-  it('en producción (y en el build) no existen: ni página, ni params, ni barrio, ni sitemap', () => {
-    const visible = visibleGuides(production)
-    expect(visible.every((guide) => !guide.draft)).toBe(true)
-    const paths = guideSitemapPages(visible).map((page) => page.path)
-    for (const draft of drafts) expect(paths).not.toContain(guidePath(draft))
-    expect(paths).not.toContain('/guides/montevideo/pocitos')
-    expect(neighborhoodGuides('cordon', visible).map((guide) => guide.slug)).toEqual(['cafes-donde-nadie-te-apura'])
-  })
-
-  it('con next dev se ven (también Pocitos y la guía de ciudad)', () => {
-    const visible = visibleGuides(development)
-    expect(neighborhoodParams(visible)).toEqual([{ segment: 'cordon' }, { segment: 'pocitos' }])
-    expect(cityGuideParams(visible)).toEqual([{ segment: 'sushi-para-una-cita' }])
-  })
-
-  it('sin variable (tests, scripts) cuentan como producción', () => {
-    expect(visibleGuides({}).some((guide) => guide.draft)).toBe(false)
+describe('lo de Google de ciudad y barrio', () => {
+  it('título de plantilla; descripción con el comienzo de la intro, o la plantilla sin intro', () => {
+    expect(neighborhoodSeo('Cordón', []).seoDescription).toBe('Cafés, bares y dónde comer en Cordón, Montevideo: listas elegidas a mano, con horarios y mapa.')
+    const long = 'Cordón es de los barrios con más para salir en Montevideo: cafés de especialidad, cervecerías artesanales y bares de tapas, muchos en casonas viejas y talleres reciclados.'
+    const seo = neighborhoodSeo('Cordón', [long])
+    expect(seo.seoDescription.length).toBeLessThanOrEqual(155)
+    expect(seo.seoDescription.endsWith('…')).toBe(true)
+    expect(citySeo(['Listas cortas.']).seoDescription).toBe('Listas cortas.')
   })
 })
 
 describe('migas', () => {
+  const active = activeNeighborhoods(ALL_GUIDES)
+
   it('barrio: Guías de Montevideo (link) / Cordón (actual)', () => {
     expect(neighborhoodBreadcrumb('CORDON')).toEqual([
-      { label: 'Guías de Montevideo', href: '/guides/montevideo' },
+      { label: 'Montevideo', href: '/guides/montevideo' },
       { label: 'Cordón', href: '/guides/montevideo/cordon', current: true },
     ])
   })
 
-  it('guía de barrio: Guías de Montevideo / Cordón / título (actual)', () => {
-    const guide = findGuide('cordon', 'cafes-donde-nadie-te-apura')!
-    expect(guideBreadcrumb(guide)).toEqual([
-      { label: 'Guías de Montevideo', href: '/guides/montevideo' },
+  it('guía de un barrio con página: Guías de Montevideo / Cordón (link) / título', () => {
+    expect(guideBreadcrumb(CORDON_CAFES, active)).toEqual([
+      { label: 'Montevideo', href: '/guides/montevideo' },
       { label: 'Cordón', href: '/guides/montevideo/cordon' },
-      { label: 'Cafés donde nadie te apura', href: '/guides/montevideo/cordon/cafes-donde-nadie-te-apura', current: true },
+      { label: 'Cafés donde nadie te apura', href: '/guides/montevideo/cafes-donde-nadie-te-apura', current: true },
     ])
   })
 
-  it('guía de ciudad: Guías de Montevideo / título (actual), sin barrio', () => {
-    const guide = findCityGuide('sushi-para-una-cita', visibleGuides(development))!
-    expect(guideBreadcrumb(guide)).toEqual([
-      { label: 'Guías de Montevideo', href: '/guides/montevideo' },
-      { label: 'Lugares de sushi para una cita', href: '/guides/montevideo/sushi-para-una-cita', current: true },
+  it('guía de un barrio sin página, o de toda la ciudad: Guías de Montevideo / título', () => {
+    expect(guideBreadcrumb(POCITOS_PIZZA, active)).toEqual([
+      { label: 'Montevideo', href: '/guides/montevideo' },
+      { label: POCITOS_PIZZA.title, href: '/guides/montevideo/pizzas-en-pocitos', current: true },
     ])
+    expect(guideBreadcrumb(SUSHI_CITY, active).map((crumb) => crumb.label)).toEqual(['Montevideo', 'Lugares de sushi para una cita'])
   })
 })
 
 describe('sitemap', () => {
-  it('en producción: la ciudad, el barrio y su guía, con la fecha de la guía más nueva', () => {
-    expect(guideSitemapPages(visibleGuides(production))).toEqual([
-      { path: '/guides/montevideo', updatedAt: '2026-11-19' },
+  it('la ciudad, los barrios con página y todas las guías con página en su URL plana; Pocitos (debajo del mínimo) no', () => {
+    expect(guideSitemapPages(ALL_GUIDES)).toEqual([
+      { path: '/guides/montevideo', updatedAt: '2026-11-20' },
       { path: '/guides/montevideo/cordon', updatedAt: '2026-11-19' },
-      { path: '/guides/montevideo/cordon/cafes-donde-nadie-te-apura', updatedAt: '2026-11-19' },
+      { path: '/guides/montevideo/cafes-donde-nadie-te-apura', updatedAt: '2026-11-19' },
+      { path: '/guides/montevideo/sushi-para-una-cita', updatedAt: '2026-11-20' },
+      { path: '/guides/montevideo/tapas-en-cordon', updatedAt: '2026-11-19' },
+      { path: '/guides/montevideo/vinos-en-cordon', updatedAt: '2026-11-18' },
+      { path: '/guides/montevideo/pizzas-en-pocitos', updatedAt: '2026-11-19' },
+    ])
+    const paths = guideSitemapPages(ALL_GUIDES).map((page) => page.path)
+    expect(paths).not.toContain('/guides/montevideo/pocitos')
+    expect(paths.some((path) => path.split('/').length > 4)).toBe(false)
+  })
+
+  it('sin guías con página, nada', () => {
+    expect(guideSitemapPages([])).toEqual([])
+    expect(guideSitemapPages([POCITOS_EMPTY, CORDON_BEERS])).toEqual([])
+  })
+
+  it('con barrios debajo del mínimo, ningún barrio', () => {
+    expect(guideSitemapPages([CORDON_CAFES, CORDON_TAPAS, SUSHI_CITY]).map((page) => page.path)).toEqual([
+      '/guides/montevideo',
+      '/guides/montevideo/cafes-donde-nadie-te-apura',
+      '/guides/montevideo/tapas-en-cordon',
+      '/guides/montevideo/sushi-para-una-cita',
     ])
   })
-
-  it('con guías de ciudad, van al final; /guides nunca (es un redirect)', () => {
-    const paths = guideSitemapPages(visibleGuides(development)).map((page) => page.path)
-    expect(paths[0]).toBe('/guides/montevideo')
-    expect(paths.at(-1)).toBe('/guides/montevideo/sushi-para-una-cita')
-    expect(paths).toContain('/guides/montevideo/pocitos')
-    expect(paths).not.toContain('/guides')
-  })
-
-  it('sin guías, nada', () => {
-    expect(guideSitemapPages([])).toEqual([])
-  })
 })
+

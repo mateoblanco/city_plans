@@ -1,0 +1,123 @@
+@use '../../../styles/breakpoints' as *;
+
+// El texto de la ciudad, como era el del logo (18px, 600), sin fondo ni borde de chip.
+.trigger {
+  align-items: center;
+  background: none;
+  border: 0;
+  border-radius: 8px;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 18px;
+  font-weight: 600;
+  gap: 6px;
+  // Del alto del logo (40px, Header).
+  height: 40px;
+  line-height: 1;
+  padding: 0 8px;
+  user-select: none;
+  white-space: nowrap;
+  -webkit-user-select: none;
+
+  @include hover {
+    &:hover {
+      background-color: var(--color-surface-hover);
+    }
+  }
+
+  &[data-popup-open] {
+    background-color: var(--color-surface-hover);
+  }
+
+  &:focus-visible {
+    outline-offset: 2px;
+  }
+}
+
+.triggerIcon {
+  display: flex;
+}
+
+.icon {
+  display: block;
+}
+
+.positioner {
+  outline: none;
+  user-select: none;
+  z-index: 10;
+  -webkit-user-select: none;
+}
+
+.popup {
+  background-clip: padding-box;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border-popover);
+  border-radius: 16px;
+  box-shadow: var(--shadow-popover);
+  box-sizing: border-box;
+  color: var(--color-text);
+  min-width: 220px;
+  outline: 0;
+  padding-block: 4px;
+  transform-origin: var(--transform-origin);
+  transition:
+    transform 100ms var(--ease-out),
+    opacity 100ms var(--ease-out);
+
+  &[data-starting-style],
+  &[data-ending-style] {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+.list {
+  box-sizing: border-box;
+  outline: 0;
+}
+
+.item {
+  align-items: center;
+  box-sizing: border-box;
+  cursor: default;
+  display: grid;
+  // El mismo tamaño que el texto del botón.
+  font-size: 18px;
+  gap: 8px;
+  grid-template-columns: 1fr auto 16px;
+  line-height: 24px;
+  outline: 0;
+  padding: 6px 10px 6px 16px;
+  user-select: none;
+  -webkit-user-select: none;
+
+  &[data-highlighted] {
+    background-color: var(--color-surface-hover);
+  }
+
+  &[data-disabled] {
+    color: var(--color-text-subtle);
+  }
+}
+
+.itemText {
+  grid-column: 1;
+}
+
+.soon {
+  background-color: var(--color-surface-chip);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  font-size: 12px;
+  grid-column: 2;
+  line-height: 1;
+  padding: 4px 8px;
+}
+
+.itemIndicator {
+  display: flex;
+  grid-column: 3;
+}

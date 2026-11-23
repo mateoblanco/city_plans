@@ -7,7 +7,6 @@ import PlaceImage from "@/components/pages/SearchPage/Results/PlaceCard/PlaceIma
 import SaveButton from "@/components/pages/SearchPage/Results/PlaceCard/SaveButton/SaveButton";
 import { useGuideFocus, useIsActive } from "../../../utils/guide-focus";
 import { guidePlaceId } from "../../../utils/place-anchor";
-import GuideStatus from "./GuideStatus/GuideStatus";
 import styles from "./GuideItem.module.scss";
 
 type Props = {
@@ -16,10 +15,10 @@ type Props = {
 };
 
 /**
- * Un lugar de la guía: número grande, logo, nombre (link a la ficha, con origen "guide"), barrio · tipo, estado y el
- * texto de la guía; el corazón de guardar arriba a la derecha y, si la guía tiene una, la foto. Toda la card es el link
- * (el ::after del nombre), salvo el corazón. Resaltado (hover, foco o a la vista): número relleno y barra al costado,
- * no sólo un color.
+ * Un lugar de la guía: el logo y debajo el número y el nombre (link a la ficha, con origen "guide") y barrio · tipo, y el texto de
+ * la guía; el corazón de guardar arriba a la derecha y, si la guía tiene una, la foto. Toda la card es el link (el
+ * ::after del nombre), salvo el corazón. Resaltado (hover, foco o a la vista): el borde. El número va antes del nombre
+ * ("1. Escaramuza", como en los pines del mapa) y es aria-hidden: la lista ya anuncia la posición.
  */
 const GuideItem = (props: Props) => {
   const place = props.place;
@@ -44,23 +43,24 @@ const GuideItem = (props: Props) => {
           if (!event.currentTarget.contains(event.relatedTarget)) store.setHovered(null);
         }}
       >
-        <span className={styles.number} aria-hidden>
-          {place.number}
-        </span>
         <div className={styles.body}>
           <div className={styles.top}>
-            <PlaceImage name={place.name} logoUrl={place.logoUrl} logoBgColor={place.logoBgColor} size="sm" decorative />
             <div className={styles.heading}>
-              <h2 className={styles.name} id={nameId}>
-                <OriginLink slug={place.slug} origin="guide" row={props.guideSlug} className={styles.link}>
-                  {place.name}
-                </OriginLink>
-              </h2>
-              <p className={styles.meta}>{place.meta}</p>
-              <GuideStatus status={place.status} />
+              <PlaceImage name={place.name} logoUrl={place.logoUrl} logoBgColor={place.logoBgColor} size="sm" decorative />
+              <div className={styles.titles}>
+                <h2 className={styles.name} id={nameId}>
+                  <span className={styles.number} aria-hidden>
+                    {place.number}.{" "}
+                  </span>
+                  <OriginLink slug={place.slug} origin="guide" row={props.guideSlug} className={styles.link}>
+                    {place.name}
+                  </OriginLink>
+                </h2>
+                <p className={styles.meta}>{place.meta}</p>
+              </div>
             </div>
             <div className={styles.actions}>
-              <SaveButton placeId={place.id} name={place.name} origin="guide" originRow={props.guideSlug} />
+              <SaveButton placeId={place.id} name={place.name} origin="guide" originRow={props.guideSlug} touchTarget />
             </div>
           </div>
           {place.photo && (

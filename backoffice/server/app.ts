@@ -39,6 +39,8 @@ import type { DiscountsService } from './discounts/run.ts'
 import { registerDiscountRoutes } from './discounts/routes.ts'
 import type { PopularityReader } from './popularity/list.ts'
 import { registerPopularityRoutes } from './popularity/routes.ts'
+import type { GuidesStore } from './guides/store.ts'
+import { registerGuideRoutes, type GuideRoutesConfig } from './guides/routes.ts'
 
 const pageTokenSchema = z.string().trim().min(1).max(2048).optional()
 const requestSchema = z.discriminatedUnion('mode', [
@@ -116,6 +118,10 @@ type AppDependencies = {
   placeEditor?: PlaceEditor
   discounts?: DiscountsService
   popularityReader?: PopularityReader
+  guidesStore?: GuidesStore
+  /** Para el botón "Vista previa" de las guías: la URL de la app y la clave (sólo del servidor). */
+  /** Vista previa (APP_URL y la clave), búsqueda de candidatos (APP_URL) y generación con IA de las guías. */
+  guidesPreview?: GuideRoutesConfig
 }
 
 const MAX_SAVE_PLACES = 500
@@ -215,11 +221,12 @@ function editError(error: EditError) {
   }
 }
 
-export function createApp({ provider, exaProvider, matchProviders = {}, instagramConfigured = false, extractor, sweeper, reportWriter, placesSaver, placesReader, placeIds, placeEditor, discounts, popularityReader }: AppDependencies = {}) {
+export function createApp({ provider, exaProvider, matchProviders = {}, instagramConfigured = false, extractor, sweeper, reportWriter, placesSaver, placesReader, placeIds, placeEditor, discounts, popularityReader, guidesStore, guidesPreview }: AppDependencies = {}) {
   const app = new Hono()
 
   registerDiscountRoutes(app, discounts)
   registerPopularityRoutes(app, popularityReader)
+  registerGuideRoutes(app, guidesStore, guidesPreview)
 
   app.get('/api/health', (context) =>
     context.json({

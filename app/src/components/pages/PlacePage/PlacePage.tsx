@@ -8,12 +8,13 @@ import { SKIP_TARGETS } from "@/components/SkipLinks/utils/skip-targets";
 import { getPlacePage } from "@/server/places/page-data";
 import { staticMapSources } from "@/server/places/static-map";
 import { montevideoNow } from "@/server/search/hours";
-import { siteUrl } from "@/server/seo/indexing";
+import { SITE_URL } from "@/lib/site";
 import { trackEvents } from "@/server/events/config";
 import { isBot } from "@/server/events/bots";
 import PlaceViewBeacon from "@/components/Tracking/PlaceViewBeacon/PlaceViewBeacon";
 import PlaceBranches from "./PlaceBranches/PlaceBranches";
 import PlaceDiscounts from "./PlaceDiscounts/PlaceDiscounts";
+import PlaceGuides from "./PlaceGuides/PlaceGuides";
 import PlaceGoogle from "./PlaceGoogle/PlaceGoogle";
 import PlaceHeader from "./PlaceHeader/PlaceHeader";
 import PlaceInfo from "./PlaceInfo/PlaceInfo";
@@ -62,7 +63,7 @@ const Details = async (props: DetailsProps) => {
   const chips = placeChips(place);
   const contact = { instagramHandle: instagramHandle(place.instagram), popularHref: instagramPopularHref(place.name) };
 
-  const jsonLd = placeJsonLd({ place, siteUrl: siteUrl(), logoUrl: data.logoUrl, neighborhood: data.neighborhood });
+  const jsonLd = placeJsonLd({ place, siteUrl: SITE_URL, logoUrl: data.logoUrl, neighborhood: data.neighborhood });
 
   return (
     <PlaceGoogle key={place.id} placeId={place.id} enabled={inGoogle}>
@@ -107,6 +108,7 @@ const Details = async (props: DetailsProps) => {
                 />
               </div>
               <PlaceDiscounts providers={data.discounts} />
+              <PlaceGuides guides={data.guides} />
             </div>
 
             <aside className={styles.side}>

@@ -1,7 +1,8 @@
 import GuideRow from "@/components/GuideRow/GuideRow";
+import { TAB_ICONS } from "@/components/HeaderSearch/IntentTabs/utils/intent-tabs";
 import GuidesShell from "@/components/GuidesShell/GuidesShell";
 import { getCityPage } from "@/server/guides/city-data";
-import { siteUrl } from "@/server/seo/indexing";
+import { SITE_URL } from "@/lib/site";
 import { jsonLdScript } from "../PlacePage/utils/structured-data";
 import CityHeader from "./CityHeader/CityHeader";
 import NeighborhoodGrid from "./NeighborhoodGrid/NeighborhoodGrid";
@@ -11,7 +12,7 @@ import styles from "./GuidesCityPage.module.scss";
 /** Igual para todos y cacheado (getCityPage, 'use cache'): sin datos del pedido ni Google. */
 const Content = async () => {
   const data = await getCityPage();
-  const jsonLd = cityCollectionJsonLd({ title: data.title, description: data.seoDescription, path: data.path, siteUrl: siteUrl(), groups: data.groups });
+  const jsonLd = cityCollectionJsonLd({ title: data.title, description: data.seoDescription, path: data.path, siteUrl: SITE_URL, groups: data.groups });
 
   return (
     <div className={styles.page}>
@@ -21,7 +22,7 @@ const Content = async () => {
       </div>
       <div className={styles.rows}>
         {data.groups.map((row) => (
-          <GuideRow key={row.group} id={row.group} title={row.title} guides={row.guides} />
+          <GuideRow key={row.group} id={row.group} title={row.title} icon={TAB_ICONS[row.group]} guides={row.guides} />
         ))}
       </div>
       {data.neighborhoods.length > 0 && (
@@ -34,7 +35,7 @@ const Content = async () => {
 };
 
 /**
- * Guías de Montevideo: el título y la intro (sin migas: es la raíz), una fila por grupo (Comer, Tomar algo, Cafés,
+ * La página de la ciudad (Montevideo): el título y la intro (sin migas: es la raíz), una fila por grupo (Comer, Tomar algo, Cafés,
  * Postres) con las guías destacadas de barrio y de ciudad, y los barrios con guías.
  */
 const GuidesCityPage = () => (

@@ -1,3 +1,4 @@
+import Image, { type StaticImageData } from "next/image";
 import RowScroller from "@/components/pages/HomePage/HomeSections/RowScroller/RowScroller";
 import type { GuideCardData } from "@/server/guides/neighborhood";
 import GuideCard from "./GuideCard/GuideCard";
@@ -8,6 +9,8 @@ type Props = {
   id: string;
   /** "Cafés". */
   title: string;
+  /** El ícono del mapa del grupo (TAB_ICONS), al lado del título; sin él, sólo el título ("Más guías"). */
+  icon?: StaticImageData;
   guides: GuideCardData[];
 };
 
@@ -20,6 +23,7 @@ const GuideRow = (props: Props) => {
   return (
     <section className={styles.row} aria-labelledby={titleId}>
       <h2 className={styles.title} id={titleId}>
+        {props.icon && <Image className={styles.icon} src={props.icon} alt="" width={24} height={24} />}
         {props.title}
       </h2>
       <RowScroller className={styles.scroller}>

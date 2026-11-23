@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { searchHeading, searchTitle } from "../search-title";
+import { withSiteName } from "@/lib/site";
 
 const barrio = (label: string, from: "text" | "bar") => ({ kind: "neighborhood" as const, label, fromText: from === "text", fromFilter: from === "bar" });
 
 describe("título de /search", () => {
   it("un verbo de la intención se lee con el sustantivo: Bares para tomar algo en Montevideo", () => {
-    expect(searchTitle({ query: "tomar algo", intent: "bars", chips: [] })).toBe("Bares para tomar algo en Montevideo · Salimos");
+    expect(searchTitle({ query: "tomar algo", intent: "bars", chips: [] })).toBe(withSiteName("Bares para tomar algo en Montevideo"));
     expect(searchHeading({ query: "salir a comer", intent: "eat", chips: [] })).toBe("Salir a comer en Montevideo");
     expect(searchHeading({ query: "tomar un cafe", intent: "cafes", chips: [] })).toBe("Cafés para tomar un cafe en Montevideo");
     // Si el sustantivo ya dice el verbo, no se repite.
@@ -13,7 +14,7 @@ describe("título de /search", () => {
   });
 
   it("sin verbo de la intención, la consulta tal cual (con mayúscula); un barrio del texto ya está en la consulta", () => {
-    expect(searchTitle({ query: "almorzar en Ciudad Vieja", intent: "eat", chips: [barrio("Ciudad Vieja", "text")] })).toBe("Almorzar en Ciudad Vieja · Salimos");
+    expect(searchTitle({ query: "almorzar en Ciudad Vieja", intent: "eat", chips: [barrio("Ciudad Vieja", "text")] })).toBe(withSiteName("Almorzar en Ciudad Vieja"));
     expect(searchHeading({ query: "pizza", intent: null, chips: [] })).toBe("Pizza en Montevideo");
   });
 
@@ -24,7 +25,7 @@ describe("título de /search", () => {
   });
 
   it("con opciones de la barra, van en lugar de la intención; con una consulta propia, entre paréntesis", () => {
-    expect(searchTitle({ query: "tomar algo", intent: "bars", chips: [], subs: ["Tragos"] })).toBe("Tragos en Montevideo · Salimos");
+    expect(searchTitle({ query: "tomar algo", intent: "bars", chips: [], subs: ["Tragos"] })).toBe(withSiteName("Tragos en Montevideo"));
     expect(searchHeading({ query: "", intent: "bars", chips: [barrio("Pocitos", "bar")], subs: ["Tragos", "Vinos"] })).toBe("Tragos y vinos en Pocitos");
     expect(searchHeading({ query: "", intent: "bars", chips: [], subs: ["Tragos", "Vinos", "Cerveza"] })).toBe("Tragos, vinos y cerveza en Montevideo");
     expect(searchHeading({ query: "rooftop", intent: "bars", chips: [], subs: ["Música en vivo"] })).toBe("Rooftop (música en vivo) en Montevideo");
@@ -32,7 +33,7 @@ describe("título de /search", () => {
   });
 
   it("sin texto ni intención", () => {
-    expect(searchTitle({ query: "", intent: null, chips: [] })).toBe("Lugares para salir en Montevideo · Salimos");
+    expect(searchTitle({ query: "", intent: null, chips: [] })).toBe(withSiteName("Lugares para salir en Montevideo"));
   });
 
   it("la consulta larga se corta en una palabra", () => {

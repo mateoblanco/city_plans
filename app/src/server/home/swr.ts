@@ -35,6 +35,8 @@ export type SwrRemote<T> = {
 export type SwrOptions<T> = {
   maxAgeMs: number
   maxKeys?: number
+  /** Con true, una entrada vencida se rearma antes de responder; por defecto se usa stale-while-revalidate. */
+  blockOnStale?: boolean
   /** Corre la tarea después de responder (en la app, `after()` de next/server). */
   schedule: (task: () => Promise<void>) => void
   remote?: SwrRemote<T> | null
@@ -49,7 +51,7 @@ type Slot<T> = { entry: Entry<T> | null; pending: Promise<Entry<T>> | null }
 /** Lo que se guarda en la remota: el valor y cuándo se armó. */
 type Stored = { v: unknown; at: number }
 
-export function createSwrCache<T>({ maxAgeMs, maxKeys = 2, schedule, remote = null, now = Date.now, onError = () => {} }: SwrOptions<T>) {
+export function createSwrCache<T>({ maxAgeMs, maxKeys = 2, blockOnStale = false, schedule, remote = null, now = Date.now, onError = () => {} }: SwrOptions<T>) {
   const slots = new Map<string, Slot<T>>()
   // Claves con una actualización encolada que todavía no empezó: no se encola otra.
   const queued = new Set<string>()
@@ -116,10 +118,13 @@ export function createSwrCache<T>({ maxAgeMs, maxKeys = 2, schedule, remote = nu
   }
 
   return {
-    /** El valor de la clave: lo cacheado aunque esté vencido (y se rearma atrás), o se arma si no hay. */
+    /** El valor de la clave: por defecto stale-while-revalidate; `blockOnStale` espera el valor nuevo antes de responder. */
     async get(key: string, load: () => Promise<T>): Promise<T> {
       const entry = slots.get(key)?.entry ?? (await run(key, load, true))
-      if (now() - entry.at > maxAgeMs) refresh(key, load, false)
+      if (now() - entry.at > maxAgeMs) {
+        if (blockOnStale) return (await run(key, load, false)).value
+        refresh(key, load, false)
+      }
       return entry.value
     },
     /** Arma la clave en segundo plano si todavía no está (ni se está armando); lo de la remota sirve. */

@@ -315,6 +315,8 @@ type LlmPrice = { input: number; cachedInput: number; cacheWrite: number; output
 export const LLM_PRICES_PER_MILLION: Record<string, LlmPrice> = {
   'openai/gpt-5-mini': { input: 0.25, cachedInput: 0.025, cacheWrite: 0.25, output: 2 },
   'anthropic/claude-sonnet-5.5': { input: 2, cachedInput: 0.1, cacheWrite: 2.5, output: 10 },
+  // Textos de las guías (server/guides/generate.ts).
+  'anthropic/claude-opus-5.5': { input: 4, cachedInput: 0.2, cacheWrite: 5, output: 20 },
   // Hasta 100k tokens de entrada; la clasificación del logo usa ~1k.
   'anthropic/claude-haiku-5.5': { input: 0.1, cachedInput: 0.01, cacheWrite: 0.125, output: 0.5 },
 }

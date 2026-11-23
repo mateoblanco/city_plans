@@ -1,5 +1,5 @@
 import { neighborhoodDisplayName } from '@shared/neighborhood-names.ts'
-import { GUIDE_GROUPS, neighborhoodPath } from './catalog'
+import { activeNeighborhoods, GUIDE_GROUPS, neighborhoodPath } from './catalog'
 import { groupLabel } from './groups'
 import { guideCard, type GuideGroupRow } from './neighborhood'
 import type { GuidePlaceRow } from './places'
@@ -38,12 +38,11 @@ export type CityNeighborhood = { id: string; name: string; href: string }
 const collator = new Intl.Collator('es', { sensitivity: 'base' })
 
 /**
- * Los barrios de la sección "Barrios": los que tienen al menos una guía con lugares publicados (los mismos cuya página
- * no da 404), en orden alfabético por el nombre que se muestra.
+ * Los barrios de la sección "Barrios": sólo los que tienen página (MIN_NEIGHBORHOOD_GUIDES guías con página,
+ * activeNeighborhoods), en orden alfabético por el nombre que se muestra. Vacío: la sección no se muestra.
  */
-export function cityNeighborhoods(guides: readonly Guide[], rows: readonly GuidePlaceRow[]): CityNeighborhood[] {
-  const ids = new Set(guides.flatMap((guide) => (guide.neighborhood && guideCard(guide, rows, () => null) ? [guide.neighborhood] : [])))
-  return [...ids]
+export function cityNeighborhoods(guides: readonly Guide[]): CityNeighborhood[] {
+  return [...activeNeighborhoods(guides)]
     .map((id) => ({ id, name: neighborhoodDisplayName(id) ?? id, href: neighborhoodPath('montevideo', id) }))
     .sort((a, b) => collator.compare(a.name, b.name))
 }

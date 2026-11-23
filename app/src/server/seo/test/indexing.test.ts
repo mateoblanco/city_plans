@@ -1,26 +1,45 @@
 import { describe, expect, it } from 'vitest'
-import { allowIndexing, robotsConfig, rootRobots, searchRobots, siteUrl, sitemapEntries } from '../indexing'
+import { SITE_URL } from '@/lib/site'
+import { allowIndexing, NAMED_CRAWLERS, robotsConfig, rootRobots, searchRobots, sitemapEntries } from '../indexing'
 
-const BASE = 'https://salimos.uy'
+const BASE = SITE_URL
 const places = [
   { slug: 'trouville', updatedAt: '2026-11-01T12:00:00Z' },
   { slug: 'anastasia', updatedAt: null },
 ]
-const guides = [{ path: '/guides/montevideo/cordon/cafes-donde-nadie-te-apura', updatedAt: '2026-11-19' }]
+const guides = [
+  { path: '/guides/montevideo', updatedAt: '2026-11-19' },
+  { path: '/guides/montevideo/cafes-donde-nadie-te-apura', updatedAt: '2026-11-19' },
+]
 
-describe('interruptor ALLOW_INDEXING', () => {
-  it('por defecto (sin la variable o con otro valor) no se indexa', () => {
-    expect(allowIndexing({})).toBe(false)
-    expect(allowIndexing({ ALLOW_INDEXING: 'false' })).toBe(false)
-    expect(allowIndexing({ ALLOW_INDEXING: '1' })).toBe(false)
-    expect(allowIndexing({ ALLOW_INDEXING: 'true' })).toBe(true)
-    expect(allowIndexing({ ALLOW_INDEXING: ' TRUE ' })).toBe(true)
+describe('dominio', () => {
+  it('una sola URL del sitio: el dominio principal, con www y https, sin barra final', () => {
+    expect(SITE_URL).toBe('https://www.adondevamos.com.uy')
   })
 })
 
-describe('sin indexación (antes del lanzamiento)', () => {
+describe('interruptor ALLOW_INDEXING (sólo en Production)', () => {
+  it('por defecto (sin la variable o con otro valor) no se indexa', () => {
+    const production = { VERCEL_ENV: 'production' }
+    expect(allowIndexing(production)).toBe(false)
+    expect(allowIndexing({ ...production, ALLOW_INDEXING: 'false' })).toBe(false)
+    expect(allowIndexing({ ...production, ALLOW_INDEXING: '1' })).toBe(false)
+    expect(allowIndexing({ ...production, ALLOW_INDEXING: 'true' })).toBe(true)
+    expect(allowIndexing({ ...production, ALLOW_INDEXING: ' TRUE ' })).toBe(true)
+  })
+
+  it('previews, desarrollo y local nunca se indexan, aunque esté prendida', () => {
+    for (const VERCEL_ENV of ['preview', 'development', '', undefined]) {
+      expect(allowIndexing({ ALLOW_INDEXING: 'true', VERCEL_ENV })).toBe(false)
+    }
+    expect(allowIndexing({ ALLOW_INDEXING: 'true', NODE_ENV: 'production' })).toBe(false)
+  })
+})
+
+describe('sin indexación (antes del lanzamiento, previews y local)', () => {
   it('robots.txt: Disallow: / para todos, sin sitemap', () => {
     expect(robotsConfig(false, BASE)).toEqual({ rules: { userAgent: '*', disallow: ['/', '/api/place-google/'] } })
+    expect(robotsConfig(allowIndexing({ ALLOW_INDEXING: 'true', VERCEL_ENV: 'preview' }), BASE)).toEqual(robotsConfig(false, BASE))
   })
 
   it('todas las páginas con noindex, nofollow; /search también', () => {
@@ -34,11 +53,17 @@ describe('sin indexación (antes del lanzamiento)', () => {
 })
 
 describe('con indexación (lanzamiento)', () => {
-  it('robots.txt: Allow y el link al sitemap', () => {
-    expect(robotsConfig(true, BASE)).toEqual({
-      rules: { userAgent: '*', allow: '/', disallow: '/api/place-google/' },
-      sitemap: `${BASE}/sitemap.xml`,
+  it('robots.txt: todos permitidos (también los de LLMs, con las mismas reglas), Disallow de lo interno y el sitemap absoluto', () => {
+    const config = robotsConfig(true, BASE)
+    expect(config).toEqual({
+      rules: { userAgent: ['*', ...NAMED_CRAWLERS], allow: '/', disallow: ['/api/', '/guide-preview/', '/search'] },
+      sitemap: 'https://www.adondevamos.com.uy/sitemap.xml',
     })
+    for (const bot of ['OAI-SearchBot', 'ChatGPT-User', 'GPTBot', 'Claude-SearchBot', 'Claude-User', 'ClaudeBot', 'PerplexityBot', 'Google-Extended']) {
+      expect(NAMED_CRAWLERS).toContain(bot)
+    }
+    // /api/ cubre la ruta de Google de la ficha.
+    expect('/api/place-google/x'.startsWith('/api/')).toBe(true)
   })
 
   it('las páginas sin robots propio se indexan; /search siempre noindex, follow', () => {
@@ -46,32 +71,32 @@ describe('con indexación (lanzamiento)', () => {
     expect(searchRobots(true)).toEqual({ index: false, follow: true })
   })
 
-  it('sitemap: la home y cada ficha publicada, con su última modificación si la hay', () => {
-    const entries = sitemapEntries(true, BASE, places)
-    expect(entries.map((entry) => entry.url)).toEqual([`${BASE}/`, `${BASE}/place/trouville`, `${BASE}/place/anastasia`])
-    expect(entries[1].lastModified).toEqual(new Date('2026-11-01T12:00:00Z'))
-    expect(entries[2]).not.toHaveProperty('lastModified')
-    // Nunca /search.
-    expect(entries.some((entry) => entry.url.includes('/search'))).toBe(false)
-  })
-
-  it('sitemap: las guías van después de la home, con la fecha de actualización del archivo', () => {
+  it('sitemap: la home, las guías y cada ficha, con URLs absolutas del dominio y su última modificación', () => {
     const entries = sitemapEntries(true, BASE, places, guides)
     expect(entries.map((entry) => entry.url)).toEqual([
-      `${BASE}/`,
-      `${BASE}/guides/montevideo/cordon/cafes-donde-nadie-te-apura`,
-      `${BASE}/place/trouville`,
-      `${BASE}/place/anastasia`,
+      'https://www.adondevamos.com.uy/',
+      'https://www.adondevamos.com.uy/guides/montevideo',
+      'https://www.adondevamos.com.uy/guides/montevideo/cafes-donde-nadie-te-apura',
+      'https://www.adondevamos.com.uy/place/trouville',
+      'https://www.adondevamos.com.uy/place/anastasia',
     ])
     expect(entries[1].lastModified).toEqual(new Date('2026-11-19T00:00:00Z'))
+    expect(entries[3].lastModified).toEqual(new Date('2026-11-01T12:00:00Z'))
+    expect(entries[4]).not.toHaveProperty('lastModified')
+    expect(entries.some((entry) => entry.url.includes('/search') || entry.url.includes('preview'))).toBe(false)
+  })
+
+  it('sitemap: la home lleva la modificación más nueva entre fichas y guías', () => {
+    expect(sitemapEntries(true, BASE, places, guides)[0].lastModified).toEqual(new Date('2026-11-19T00:00:00Z'))
+    expect(sitemapEntries(true, BASE, [{ slug: 'x', updatedAt: '2026-11-21T10:00:00Z' }], guides)[0].lastModified).toEqual(new Date('2026-11-21T10:00:00Z'))
+    expect(sitemapEntries(true, BASE, [], [])[0]).not.toHaveProperty('lastModified')
   })
 })
 
-describe('URL del sitio (metadataBase, sitemap)', () => {
-  it('SITE_URL sin barra final; si no, el dominio de producción de Vercel; si no, localhost', () => {
-    expect(siteUrl({ SITE_URL: 'https://salimos.uy/' })).toBe('https://salimos.uy')
-    expect(siteUrl({ VERCEL_PROJECT_PRODUCTION_URL: 'city-plans.vercel.app' })).toBe('https://city-plans.vercel.app')
-    expect(siteUrl({ SITE_URL: 'https://salimos.uy', VERCEL_PROJECT_PRODUCTION_URL: 'otro.vercel.app' })).toBe('https://salimos.uy')
-    expect(siteUrl({})).toBe('http://localhost:3000')
+describe('sitemap sin borradores ni ocultos', () => {
+  it('las fichas salen sólo de places publicados (draft, review y hidden nunca), con su updated_at', async () => {
+    const { readFileSync } = await import('node:fs')
+    const source = readFileSync(new URL('../sitemap-places.ts', import.meta.url), 'utf8')
+    expect(source).toMatch(/select slug, updated_at as "updatedAt" from places where status = 'published'/)
   })
 })

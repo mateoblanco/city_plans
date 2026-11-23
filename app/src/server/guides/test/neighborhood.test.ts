@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { groupGuides, placesCount } from '../neighborhood'
+import { groupGuides } from '../neighborhood'
 import type { GuidePlaceRow } from '../places'
 import type { Guide, GuideGroup } from '../types'
 
@@ -12,12 +12,17 @@ const row = (id: string): GuidePlaceRow => ({
   iconCategory: null,
   logoKey: `${id}.webp`,
   logoBgColor: null,
-  hours: { slots: [], status: 'none' },
   lat: -34.9,
   lng: -56.17,
 })
 
 const guide = (slug: string, group: GuideGroup, ids: string[]): Guide => ({
+  id: slug,
+  featured: false,
+  color: '#FF8E00',
+  draft: false,
+  live: true,
+  publishedPlaces: 1,
   slug,
   city: 'montevideo',
   neighborhood: 'CORDON',
@@ -56,7 +61,8 @@ describe('filas de la página del barrio', () => {
   it('tarjeta: link, cantidad de publicados y los logos de los 3 primeros publicados', () => {
     const [cafes] = groupGuides([guide('cafes', 'cafes', ['a', 'zz', 'b', 'c', 'd'])], rows, logoUrl)
     const [card] = cafes.guides
-    expect(card.href).toBe('/guides/montevideo/cordon/cafes')
+    expect(card.href).toBe('/guides/montevideo/cafes')
+    expect(card.neighborhood).toBe('Cordón')
     expect(card.count).toBe(4)
     expect(card.logos.map((logo) => [logo.id, logo.logoUrl])).toEqual([
       ['a', 'https://logos/a.webp'],
@@ -69,10 +75,5 @@ describe('filas de la página del barrio', () => {
   it('dos guías del mismo grupo van en el orden del archivo', () => {
     const [cafes] = groupGuides([guide('uno', 'cafes', ['a']), guide('dos', 'cafes', ['b'])], rows, logoUrl)
     expect(cafes.guides.map((card) => card.slug)).toEqual(['uno', 'dos'])
-  })
-
-  it('cantidad en singular y plural', () => {
-    expect(placesCount(1)).toBe('1 lugar')
-    expect(placesCount(9)).toBe('9 lugares')
   })
 })

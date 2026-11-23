@@ -12,6 +12,8 @@ type Props = {
   /** Origen de la card, para el evento de guardar. */
   origin: EventOrigin;
   originRow?: string;
+  /** Área táctil de 44×44 sin cambiar el tamaño visible (en la guía). */
+  touchTarget?: boolean;
 };
 
 /**
@@ -29,6 +31,7 @@ const SaveButton = (props: Props) => {
       active={isSaved}
       label={`Guardar ${props.name}`}
       tooltip={isSaved ? "Guardado" : "Guardar"}
+      touchTarget={props.touchTarget}
       // Máscara de CSS y no un <svg> inline: hay un corazón por card y la home tiene decenas.
       icon={<span className={styles.heart} data-saved={isSaved || undefined} aria-hidden />}
       onToggle={() => {

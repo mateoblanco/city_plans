@@ -190,6 +190,34 @@
       "when": 1795105514226,
       "tag": "0026_guide_origin",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1795111939144,
+      "tag": "0027_guides",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1795113907622,
+      "tag": "0028_guide_ai_cost",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1795200330940,
+      "tag": "0029_guide_color",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1795202188571,
+      "tag": "0030_guide_color_more",
+      "breakpoints": true
     }
   ]
 }

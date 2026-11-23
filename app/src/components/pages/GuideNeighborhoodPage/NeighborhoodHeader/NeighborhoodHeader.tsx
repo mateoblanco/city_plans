@@ -2,14 +2,14 @@ import GuideBreadcrumb, { type BreadcrumbItem } from "@/components/GuideBreadcru
 import styles from "./NeighborhoodHeader.module.scss";
 
 type Props = {
-  /** Guías de Montevideo (link) / Cordón (actual). */
+  /** Montevideo (link) / Cordón (actual). */
   breadcrumb: BreadcrumbItem[];
   /** "Cordón". */
   name: string;
   intro: string[];
 };
 
-/** Migas (Guías de Montevideo / Cordón), el barrio grande y la intro. */
+/** Migas (Montevideo / Cordón), el barrio grande y la intro. */
 const NeighborhoodHeader = (props: Props) => (
   <header className={styles.header}>
     <GuideBreadcrumb items={props.breadcrumb} />

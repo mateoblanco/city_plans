@@ -12,22 +12,27 @@ const row = (id: string): GuidePlaceRow => ({
   iconCategory: null,
   logoKey: null,
   logoBgColor: null,
-  hours: { slots: [], status: 'none' },
   lat: -34.9,
   lng: -56.17,
 })
 
 type Options = { neighborhood?: string; featured?: boolean; updatedAt?: string; ids?: string[] }
 const guide = (slug: string, group: GuideGroup, options: Options = {}): Guide => ({
+  id: slug,
   slug,
   city: 'montevideo',
-  ...(options.neighborhood ? { neighborhood: options.neighborhood } : {}),
+  neighborhood: options.neighborhood ?? null,
+  draft: false,
+  live: true,
+  publishedPlaces: 1,
   group,
   title: `Guía ${slug}`,
   seoTitle: slug,
   seoDescription: slug,
   intro: [],
   updatedAt: options.updatedAt ?? '2026-11-01',
+  featured: options.featured ?? false,
+  color: '#FF8E00',
   places: (options.ids ?? ['a']).map((id) => ({ id, text: `Texto de ${id}` })),
   ...(options.featured ? { featured: true } : {}),
 })
@@ -67,8 +72,8 @@ describe('filas de la ciudad', () => {
       noLogo,
     )
     expect(groups.map((group) => [group.group, group.title, group.guides.map((card) => card.href)])).toEqual([
-      ['eat', 'Comer', ['/guides/montevideo/pocitos/brunch', '/guides/montevideo/sushi']],
-      ['desserts', 'Postres', ['/guides/montevideo/cordon/dulces']],
+      ['eat', 'Comer', ['/guides/montevideo/brunch', '/guides/montevideo/sushi']],
+      ['desserts', 'Postres', ['/guides/montevideo/dulces']],
     ])
   })
 
@@ -79,24 +84,29 @@ describe('filas de la ciudad', () => {
 })
 
 describe('sección Barrios', () => {
-  it('sólo los barrios con alguna guía con lugares publicados, en orden alfabético, con link a su página', () => {
+  it('sólo los barrios con el mínimo de guías con página, en orden alfabético, con link a su página', () => {
     const guides = [
-      guide('a', 'eat', { neighborhood: 'POCITOS' }),
-      guide('b', 'cafes', { neighborhood: 'CORDON' }),
-      guide('c', 'cafes', { neighborhood: 'AGUADA', ids: ['zz'] }),
-      guide('d', 'eat', { neighborhood: 'BUCEO' }),
+      ...['a1', 'a2', 'a3'].map((slug) => guide(slug, 'eat', { neighborhood: 'POCITOS' })),
+      ...['b1', 'b2', 'b3'].map((slug) => guide(slug, 'cafes', { neighborhood: 'CORDON' })),
+      // Buceo: dos con página y una sin lugares publicados (no cuenta).
+      guide('c1', 'eat', { neighborhood: 'BUCEO' }),
+      guide('c2', 'eat', { neighborhood: 'BUCEO' }),
+      { ...guide('c3', 'eat', { neighborhood: 'BUCEO' }), live: false },
       guide('ciudad', 'eat'),
-      guide('e', 'bars', { neighborhood: 'CORDON' }),
     ]
-    expect(cityNeighborhoods(guides, rows)).toEqual([
-      { id: 'BUCEO', name: 'Buceo', href: '/guides/montevideo/buceo' },
+    expect(cityNeighborhoods(guides)).toEqual([
       { id: 'CORDON', name: 'Cordón', href: '/guides/montevideo/cordon' },
       { id: 'POCITOS', name: 'Pocitos', href: '/guides/montevideo/pocitos' },
     ])
   })
 
+  it('ninguno llega al mínimo: vacío (la sección no se muestra)', () => {
+    expect(cityNeighborhoods([guide('x', 'eat', { neighborhood: 'CORDON' }), guide('y', 'eat', { neighborhood: 'CORDON' })])).toEqual([])
+  })
+
   it('ordena con tildes como en español (Ituzaingó entre Ituzaingo y Jacinto Vera)', () => {
-    const names = cityNeighborhoods([guide('x', 'eat', { neighborhood: 'JACINTO VERA' }), guide('y', 'eat', { neighborhood: 'ITUZAINGO' }), guide('z', 'eat', { neighborhood: 'AGUADA' })], rows).map((entry) => entry.name)
+    const three = (id: string) => ['1', '2', '3'].map((n) => guide(`${id}-${n}`, 'eat', { neighborhood: id }))
+    const names = cityNeighborhoods([...three('JACINTO VERA'), ...three('ITUZAINGO'), ...three('AGUADA')]).map((entry) => entry.name)
     expect(names).toEqual(['Aguada', 'Ituzaingó', 'Jacinto Vera'])
   })
 })

@@ -12,6 +12,8 @@ type Props = {
   tooltip: string;
   icon: ReactElement;
   onToggle: () => void;
+  /** Área táctil de 44×44 sin cambiar el tamaño visible (Button touchTarget). Hoy, en la guía. */
+  touchTarget?: boolean;
 };
 
 /**
@@ -30,6 +32,7 @@ const CardToggle = (props: Props) => (
       pressed={props.active}
       icon={props.icon}
       onClick={props.onToggle}
+      touchTarget={props.touchTarget}
     />
   </span>
 );

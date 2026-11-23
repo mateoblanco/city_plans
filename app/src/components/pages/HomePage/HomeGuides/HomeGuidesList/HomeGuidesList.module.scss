@@ -1,0 +1,76 @@
+@use '../../../../../styles/breakpoints' as *;
+
+// Dentro de `.content` de HomePage: el mismo padding lateral que el título de las filas (PlaceRow).
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 16px;
+
+  @include media(md) {
+    padding: 0 48px;
+  }
+}
+
+// Como el encabezado de las filas (PlaceRow): el título es link y al lado va el botón de la flecha.
+.header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+}
+
+.title {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.titleLink {
+  color: inherit;
+  text-decoration: none;
+}
+
+// Una columna en mobile; dos desde md. Los links llevan su propio borde de abajo como separador.
+.list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+
+  @include media(md) {
+    column-gap: 32px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+// Área táctil de más de 44 px: el título (y el barrio) con padding vertical.
+.link {
+  // border-bottom: 1px solid var(--color-border);
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 44px;
+  padding: 12px 0;
+  text-decoration: none;
+
+  @include hover {
+    &:hover .name {
+      text-decoration: underline;
+    }
+  }
+}
+
+.name {
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 22px;
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  color: var(--color-text-subtle);
+  font-size: 14px;
+  line-height: 20px;
+}

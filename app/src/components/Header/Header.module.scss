@@ -26,14 +26,17 @@
     width: 100%;
 }
 
+// Logo (link a la home) + selector de ciudad (CitySelect).
 .logo{
     display: flex;
     align-items: center;
     width: fit-content;
+    gap: 4px;
+}
+
+.home{
+    display: flex;
     text-decoration: none;
-    gap: 8px;
-    font-size:18px;
-    font-weight: 600;
 }
 
 .center{

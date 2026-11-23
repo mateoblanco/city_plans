@@ -1,7 +1,7 @@
 import styles from "./CityHeader.module.scss";
 
 type Props = {
-  /** "Guías de Montevideo". */
+  /** "Montevideo". */
   title: string;
   intro: string[];
 };

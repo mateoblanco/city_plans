@@ -20,9 +20,18 @@
   padding: 0 8px;
 }
 
-// Subrayado: el link se distingue por más que el color.
+// Subrayado: el link se distingue por más que el color. El ::after agranda el área táctil a 44 px de alto sin mover
+// nada (la línea de migas mide 18 px).
 .link {
   color: var(--color-text);
+  position: relative;
+
+  &::after {
+    content: '';
+    inset: -13px -4px;
+    position: absolute;
+  }
+
   text-decoration: underline;
   text-underline-offset: 3px;
 

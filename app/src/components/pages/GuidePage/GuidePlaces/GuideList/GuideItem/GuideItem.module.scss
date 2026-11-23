@@ -16,31 +16,8 @@
   position: relative;
   transition: border-color 150ms var(--ease-out);
 
-  // Barra al costado del resaltado: aparece con el número relleno (el resaltado no depende sólo del color).
-  &::before {
-    background-color: var(--color-selected);
-    border-radius: 2px;
-    bottom: 16px;
-    content: '';
-    left: -1px;
-    opacity: 0;
-    position: absolute;
-    top: 16px;
-    transition: opacity 150ms var(--ease-out);
-    width: 4px;
-  }
-
   &[data-active] {
     border-color: var(--color-selected);
-
-    &::before {
-      opacity: 1;
-    }
-
-    .number {
-      background-color: var(--color-selected);
-      color: var(--color-text-inverse);
-    }
   }
 
   // El foco llega acá desde un pin (programático): el anillo lo da el link al tabular, no la card.
@@ -56,41 +33,7 @@
 
   @include media(md) {
     gap: 20px;
-    padding: 20px;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    transition: none;
-
-    &::before {
-      transition: none;
-    }
-  }
-}
-
-// Número grande: con borde; relleno cuando está resaltado.
-.number {
-  align-items: center;
-  border: 2px solid var(--color-selected);
-  border-radius: 50%;
-  box-sizing: border-box;
-  display: flex;
-  flex-shrink: 0;
-  font-family: var(--font-display);
-  font-size: 20px;
-  font-weight: 600;
-  height: 44px;
-  justify-content: center;
-  line-height: 1;
-  transition:
-    background-color 150ms var(--ease-out),
-    color 150ms var(--ease-out);
-  width: 44px;
-
-  @include media(md) {
-    font-size: 24px;
-    height: 52px;
-    width: 52px;
+    padding: 24px;
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -112,12 +55,19 @@
   gap: 12px;
 }
 
+// El logo arriba y debajo el nombre y barrio · tipo; el corazón queda a la derecha, arriba (.actions).
 .heading {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 2px;
+  gap: 12px;
   min-width: 0;
+}
+
+.titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .name {
@@ -125,6 +75,12 @@
   font-weight: 600;
   line-height: 24px;
   margin: 0;
+}
+
+// "1. ": del mismo tamaño que el nombre, en gris.
+.number {
+  color: var(--color-text-subtle);
+  font-variant-numeric: tabular-nums;
 }
 
 // El link cubre toda la card (::after); el corazón queda arriba (CardToggle, z-index 1).

@@ -2,18 +2,19 @@ import type { Metadata } from 'next'
 import { guidePath } from './catalog'
 import { getNeighborhoodPage } from './neighborhood-data'
 import type { Guide } from './types'
+import { SITE_NAME } from '@/lib/site'
 
-/** Metadata de una guía (de barrio o de ciudad): sólo el archivo, nada de la base ni de Google. */
-export function guideMetadata(guide: Guide): Metadata {
+/** Metadata de una guía (de barrio o de ciudad): sólo lo de la guía, nada de Google. */
+export function guideMetadata(guide: Guide, options: { preview?: boolean } = {}): Metadata {
   const url = guidePath(guide)
   return {
     title: guide.seoTitle,
     description: guide.seoDescription,
     alternates: { canonical: url },
-    openGraph: { type: 'article', locale: 'es_UY', siteName: 'Salimos', url, title: guide.title, description: guide.seoDescription },
+    openGraph: { type: 'article', locale: 'es_UY', siteName: SITE_NAME, url, title: guide.title, description: guide.seoDescription },
     twitter: { card: 'summary', title: guide.title, description: guide.seoDescription },
-    // Un borrador (sólo existe en desarrollo) nunca se indexa.
-    ...(guide.draft ? { robots: { index: false, follow: false } } : {}),
+    // La vista previa (también de una publicada) nunca se indexa.
+    ...(options.preview ? { robots: { index: false, follow: false } } : {}),
   }
 }
 
@@ -25,7 +26,7 @@ export async function neighborhoodMetadata(barrio: string): Promise<Metadata | n
     title: data.seoTitle,
     description: data.seoDescription,
     alternates: { canonical: data.path },
-    openGraph: { type: 'website', locale: 'es_UY', siteName: 'Salimos', url: data.path, title: `Guías de ${data.name}`, description: data.seoDescription },
+    openGraph: { type: 'website', locale: 'es_UY', siteName: SITE_NAME, url: data.path, title: `Guías de ${data.name}`, description: data.seoDescription },
     twitter: { card: 'summary', title: `Guías de ${data.name}`, description: data.seoDescription },
   }
 }

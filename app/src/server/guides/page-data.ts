@@ -2,13 +2,13 @@ import { cacheLife, cacheTag } from 'next/cache'
 import { neighborhoodDisplayName } from '@shared/neighborhood-names.ts'
 import { label } from '@shared/tags.ts'
 import type { IconCategory } from '@shared/icon-categories.ts'
-import type { WeekStatus } from '@/lib/week-status'
 import { getSql } from '../db'
 import { logoUrl } from '../search/logo'
-import { findCityGuide, findGuide, guideBreadcrumb, type GuideCrumb } from './catalog'
-import { groupLabel } from './groups'
+import { activeNeighborhoods, findGuide, guideBreadcrumb, liveGuides, type GuideCrumb } from './catalog'
 import { assembleGuidePlaces, GUIDE_PLACES_SQL, type GuidePlaceRow } from './places'
-import { weekStatus } from './status'
+import { relatedGuides } from './entries'
+import { guideCard, type GuideCardData } from './neighborhood'
+import { allGuidesUncached, publishedGuides, publishedGuidesUncached } from './published'
 import type { Guide, GuidePhoto } from './types'
 
 export type GuidePagePlace = {
@@ -25,39 +25,34 @@ export type GuidePagePlace = {
   lng: number
   text: string
   photo: GuidePhoto | null
-  status: WeekStatus
 }
 
 export type GuidePageData = {
   guide: Guide
-  /** "Cafés". */
-  groupLabel: string
-  /** Las migas con sus links: Guías de Montevideo / Cordón / título (sin barrio en una guía de ciudad). */
+  /** El barrio de la guía como etiqueta ("Pocitos"); null en una guía de toda la ciudad. */
+  neighborhoodLabel: string | null
+  /** Las migas con sus links: Montevideo / título, o con el barrio si su página está activa. */
   breadcrumb: GuideCrumb[]
   places: GuidePagePlace[]
+  /** "Más guías": hasta 4 guías publicadas relacionadas, sin la actual (relatedGuides), como tarjetas. Vacío: no se muestra. */
+  related: GuideCardData[]
 }
 
 /**
- * Todo lo de la página de una guía, igual para todos: el archivo de la guía y los lugares publicados (sólo datos
- * propios). Cacheado (`'use cache'`): la página se prerenderiza en el build y se regenera al vencer (horas), así un lugar
- * despublicado sale de la guía sin un deploy. El estado de horario va como la semana entera (weekStatus) y lo elige el
- * navegador: el HTML cacheado nunca dice "Abierto" de más. null si la guía no existe. `barrio` null: una guía de toda la ciudad.
+ * La página de una guía ya encontrada: sus lugares publicados, numerados, y las tarjetas de "Más guías". Los lugares de
+ * la guía y de las relacionadas salen en una sola consulta (sólo datos propios). `guides`: la lista de donde salen los
+ * barrios activos (migas) y las relacionadas (sólo publicadas con página).
  */
-export async function getGuidePage(barrio: string | null, slug: string): Promise<GuidePageData | null> {
-  'use cache'
-  cacheTag('guides')
-  cacheLife('hours')
-
-  // Sin barrio: una guía de toda la ciudad (/guides/montevideo/<slug>).
-  const guide = barrio === null ? findCityGuide(slug) : findGuide(barrio, slug)
-  if (!guide) return null
-  const ids = guide.places.map((place) => place.id)
-  const rows = (await getSql().query(GUIDE_PLACES_SQL, [ids])) as GuidePlaceRow[]
-
+async function buildGuidePage(guide: Guide, guides: readonly Guide[]): Promise<GuidePageData> {
+  const related = relatedGuides(guide, guides)
+  const ids = [...new Set([guide, ...related].flatMap((entry) => entry.places.map((place) => place.id)))]
+  const rows = ids.length > 0 ? ((await getSql().query(GUIDE_PLACES_SQL, [ids])) as GuidePlaceRow[]) : []
+  const active = activeNeighborhoods(guides)
   return {
+    related: related.flatMap((entry) => guideCard(entry, rows, logoUrl) ?? []),
     guide,
-    groupLabel: groupLabel(guide.group),
-    breadcrumb: guideBreadcrumb(guide),
+    neighborhoodLabel: guide.neighborhood ? (neighborhoodDisplayName(guide.neighborhood) ?? guide.neighborhood) : null,
+    breadcrumb: guideBreadcrumb(guide, active),
     places: assembleGuidePlaces(guide.places, rows).map(({ number, text, photo, row }) => ({
       id: row.id,
       number,
@@ -71,7 +66,44 @@ export async function getGuidePage(barrio: string | null, slug: string): Promise
       lng: row.lng,
       text,
       photo,
-      status: weekStatus(row.hours),
     })),
   }
+}
+
+/**
+ * Todo lo de la página de una guía (/guides/montevideo/<slug>, de barrio o de toda la ciudad), igual para todos: la guía
+ * publicada (de la base) y sus lugares publicados (sólo datos propios). Cacheado (`'use cache'`) por un minuto: la
+ * página se prerenderiza en el build y se regenera sin deploy. null si la guía no existe o no tiene lugares
+ * publicados.
+ */
+async function getCachedGuidePage(slug: string): Promise<GuidePageData | null> {
+  'use cache'
+  cacheTag('guides')
+  cacheLife('guides')
+
+  const published = await publishedGuides()
+  const guide = findGuide(slug, liveGuides(published))
+  return guide ? buildGuidePage(guide, published) : null
+}
+
+/**
+ * Si la caché todavía no conoce un slug recién publicado, se confirma una vez contra la base: así el primer pedido no
+ * queda en 404 hasta la próxima revalidación. Para las rutas normales, sólo usa getCachedGuidePage.
+ */
+export async function getGuidePage(slug: string): Promise<GuidePageData | null> {
+  const cached = await getCachedGuidePage(slug)
+  if (cached) return cached
+  const published = await publishedGuidesUncached()
+  const guide = findGuide(slug, liveGuides(published))
+  return guide ? buildGuidePage(guide, published) : null
+}
+
+/**
+ * La vista previa (sólo con la clave, ver app/guide-preview): la guía en cualquier estado, también borrador o sin
+ * lugares publicados, leída en el momento, sin cache. Las migas usan los barrios activos de lo publicado.
+ */
+export async function getGuidePreview(slug: string): Promise<GuidePageData | null> {
+  const all = await allGuidesUncached()
+  const guide = findGuide(slug, all)
+  return guide ? buildGuidePage(guide, all) : null
 }

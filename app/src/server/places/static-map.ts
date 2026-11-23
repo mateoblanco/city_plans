@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto'
 import type { IconCategory } from '@shared/icon-categories.ts'
 import { MARKER_ICONS } from '@/components/pages/SearchPage/Results/Map/SearchMap/marker-icons'
 import { PLACE_MAP_ZOOM } from '@/lib/place-map'
-import { siteUrl } from '../seo/indexing'
+import { SITE_URL } from '@/lib/site'
 
 type Env = Record<string, string | undefined>
 
@@ -52,12 +52,12 @@ export function signMapsUrl(url: string, secret: string): string {
 
 /**
  * Desde dónde baja Google el PNG del marcador (public/map-markers/). Tiene que ser público: en producción, el sitio
- * (SITE_URL); en un preview de Vercel, el propio deploy (si el preview tiene protección, Google no lo puede bajar y la
- * imagen sale sin marcador). En local (localhost) Google no llega: sale sin marcador.
+ * (SITE_URL de src/lib/site.ts); en un preview de Vercel, el propio deploy (si el preview tiene protección, Google no lo puede bajar y la
+ * imagen sale sin marcador). En local, el sitio: el marcador sale si ya está publicado ahí.
  */
 export function markerIconBase(env: Env = process.env): string {
   const preview = env.VERCEL_ENV === 'preview' ? (env.VERCEL_BRANCH_URL ?? env.VERCEL_URL)?.trim() : undefined
-  return preview ? `https://${preview}` : siteUrl(env)
+  return preview ? `https://${preview}` : SITE_URL
 }
 
 /** El PNG del ícono de la categoría; sin categoría o sin ícono, el genérico. */

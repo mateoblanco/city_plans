@@ -21,6 +21,8 @@ export type PlaceRow = Record<string, unknown> & {
   price: string
   hours: Hours
   instagram: string | null
+  /** La web propia (la elige el pipeline de fuentes propias; la de Google sólo la confirma). */
+  website: string | null
   highlights: { es?: string; en?: string }[]
   located_in: string | null
   /** Líneas de ómnibus con parada cerca: una fila por línea y parada, con la distancia en metros. */

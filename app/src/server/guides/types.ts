@@ -1,15 +1,14 @@
-import type { IntentId } from '@shared/intents.ts'
+import type { GuideGroup as SharedGuideGroup } from '@shared/guides.ts'
 
 /**
- * Una guía editorial: una lista ordenada de lugares elegidos a mano, con un texto por lugar. Por ahora vive en un archivo
- * del repo (server/guides/<ciudad>/<barrio>/<slug>.ts); todo es plano y serializable para que pasarla a la base sea
- * directo: una tabla `guides` con estos campos y otra `guide_places (guide, position, place_id, text, photo)`.
+ * Una guía editorial: una lista ordenada de lugares elegidos a mano, con un texto por lugar. Vive en la base (tablas
+ * `guides` y `guide_places`, las escribe el backoffice) y se lee con db.ts. Nada de esto está en archivos del repo.
  */
 
-/** El grupo de la guía: una de las intenciones de la barra (Comer, Cafés, Tomar algo, Postres). La etiqueta sale de ahí. */
-export type GuideGroup = Extract<IntentId, 'eat' | 'cafes' | 'bars' | 'desserts'>
+/** El grupo de la guía: una de las intenciones de la barra (Comer, Tomar algo, Cafés, Postres). La etiqueta sale de ahí. */
+export type GuideGroup = SharedGuideGroup
 
-/** Foto propia del lugar en la guía (opcional; hoy ninguna tiene). `src` es una URL del origen de LOGO_BASE_URL o de /public. */
+/** Foto propia (de un lugar o portada de la tarjeta). La base todavía no las tiene: el espacio del diseño queda vacío. */
 export type GuidePhoto = { src: string; alt: string; width: number; height: number }
 
 export type GuidePlaceEntry = {
@@ -21,58 +20,36 @@ export type GuidePlaceEntry = {
 }
 
 export type Guide = {
+  id: string
   /**
-   * Último tramo de la URL: /guides/montevideo/<barrio>/<slug> o, sin barrio, /guides/montevideo/<slug>. El de una guía
-   * de ciudad no puede ser el de un barrio (lo verifica catalog.test.ts): la ruta resuelve primero el barrio.
+   * Último tramo de la URL: /guides/montevideo/<barrio>/<slug> o, sin barrio, /guides/montevideo/<slug>. Único en la
+   * ciudad y nunca el de un barrio (lo valida el backoffice): la ruta resuelve primero el barrio.
    */
   slug: string
   city: 'montevideo'
-  /**
-   * neighborhood_id de la base (el del shapefile, ej. 'CORDON'); el tramo de la URL sale del nombre (cordon). Sin
-   * barrio, es una guía de toda la ciudad.
-   */
-  neighborhood?: string
+  /** neighborhood_id de la base ('CORDON'); el tramo de la URL sale del nombre (cordon). null: toda la ciudad. */
+  neighborhood: string | null
   group: GuideGroup
   /** El título grande de la página. */
   title: string
   /** <title> y título para Google y redes. */
   seoTitle: string
-  /** Meta description (hasta ~155 caracteres). */
   seoDescription: string
   /** La introducción, un string por párrafo. */
   intro: string[]
-  /** Fecha de la última actualización del contenido: YYYY-MM-DD. */
+  /** Fecha de la última actualización del contenido en Montevideo: YYYY-MM-DD. */
   updatedAt: string
   /** En el orden en que se muestran. */
   places: GuidePlaceEntry[]
   /** Destacada en /guides/montevideo (si su grupo no tiene ninguna, van las más recientes). */
-  featured?: boolean
-  /** Portada de la tarjeta en la página del barrio (ilustración o foto; opcional, hoy ninguna tiene). */
+  featured: boolean
+  /** La franja de su tarjeta (un hex de /shared/guide-colors.ts, elegido en el backoffice). */
+  color: string
+  /** Borrador: sólo se lee en la vista previa (con la clave). Nunca tiene página, tarjeta ni sitemap. */
+  draft: boolean
+  /** Si tiene al menos un lugar publicado (sin ninguno, su página quedaría vacía: no existe). */
+  live: boolean
+  /** Cuántos de sus lugares están publicados (los que se ven en su página). */
+  publishedPlaces: number
   cover?: GuidePhoto
-  /**
-   * Borrador: sólo se ve con `next dev` (NODE_ENV=development). En producción no existe: ni página, ni tarjeta en el
-   * barrio, ni sitemap. Sirve para probar el diseño con varias guías.
-   */
-  draft?: boolean
-}
-
-/** Lo propio de la página de un barrio (/guides/montevideo/<barrio>): la introducción y lo que ve Google. */
-export type GuideNeighborhood = {
-  /** neighborhood_id de la base ('CORDON'). */
-  neighborhood: string
-  city: 'montevideo'
-  /** Un string por párrafo; corto. */
-  intro: string[]
-  seoTitle: string
-  seoDescription: string
-}
-
-/** Lo propio de la página de una ciudad (/guides/montevideo): el título, la introducción y lo que ve Google. */
-export type GuideCity = {
-  city: 'montevideo'
-  /** "Guías de Montevideo": el h1 y el primer tramo de las migas. */
-  title: string
-  intro: string[]
-  seoTitle: string
-  seoDescription: string
 }

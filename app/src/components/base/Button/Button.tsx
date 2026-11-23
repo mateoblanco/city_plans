@@ -26,6 +26,11 @@ type Props = {
     /** Botón que muestra u oculta otra parte (aria-expanded), con el id de esa parte (aria-controls). */
     expanded?: boolean;
     controls?: string;
+    /**
+     * Área táctil de al menos 44×44 sin cambiar cómo se ve (un ::after invisible centrado). Opcional: hoy la usan las
+     * partes de guías ("Ver mapa", cerrar el mapa, el corazón de cada lugar).
+     */
+    touchTarget?: boolean;
 } & (
         | { type: 'button'; onClick: () => void }
         | { type: 'submit' }
@@ -40,6 +45,7 @@ const Button = (props: Props) => {
         styles[`size-${props.size}`],
         styles[`variant-${props.variant}`],
         props.onlyIcon && styles["icon-button"],
+        props.touchTarget && styles["touch-target"],
     )
     const isLink = 'href' in props;
 

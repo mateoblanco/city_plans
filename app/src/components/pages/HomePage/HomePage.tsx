@@ -6,7 +6,11 @@ import HomeLocation from "./HomeLocation/HomeLocation";
 import HomeWelcome from "./HomeWelcome/HomeWelcome";
 import HomeDishes from "./HomeSections/HomeDishes/HomeDishes";
 import HomeSections from "./HomeSections/HomeSections";
+import HomeGuides from "./HomeGuides/HomeGuides";
 import HomeSectionsSkeleton from "./HomeSections/HomeSectionsSkeleton/HomeSectionsSkeleton";
+import { jsonLdScript } from "../PlacePage/utils/structured-data";
+import { homeJsonLd } from "./utils/structured-data";
+import { SITE_URL } from "@/lib/site";
 import styles from "./HomePage.module.scss";
 
 /** El h1 de la home: no se ve (el header es el de /search), sólo para lectores de pantalla y buscadores. */
@@ -24,6 +28,8 @@ const HomePage = ({ searchParams }: Props) => {
       {/* El header de /search (buscador, filtros e intenciones), sin mapa: todo lleva a /search. */}
       <HeaderSearch />
       <main id={SKIP_TARGETS.content} data-skip-target>
+        {/* WebSite y Organization (nombre del sitio y logo en Google). */}
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(homeJsonLd(SITE_URL)) }} />
         <h1 className={styles.heading}>{HOME_HEADING}</h1>
         <div className={styles.content}>
           {/* Primera fila, sin cookies: va en el shell estático (su primera foto es el LCP), sin esperar a las filas. */}
@@ -31,6 +37,8 @@ const HomePage = ({ searchParams }: Props) => {
           {/* Lee las cookies de guardados y de ubicación: el resto de la home no espera por ellas. */}
           <Suspense fallback={<HomeSectionsSkeleton />}>
             <HomeSections searchParams={searchParams} />
+            {/* Al final, después de todas las filas (en el mismo Suspense: no aparece antes ni las corre). Cacheada, sin cookies. */}
+            <HomeGuides />
           </Suspense>
         </div>
         {/* Con el permiso ya dado, actualiza la ubicación sin preguntar; nunca la pide. */}

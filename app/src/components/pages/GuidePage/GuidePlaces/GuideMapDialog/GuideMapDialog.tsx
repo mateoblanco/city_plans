@@ -42,7 +42,7 @@ const GuideMapDialog = (props: Props) => {
   return (
     <>
       <span ref={triggerRef} className={styles.trigger}>
-        <Button type="button" variant="primary" size="md" label="Ver mapa" onClick={show} />
+        <Button type="button" variant="primary" size="md" label="Ver mapa" onClick={show} touchTarget />
       </span>
       <DialogBase.Root open={open} onOpenChange={setOpen} onOpenChangeComplete={(isOpen) => {
         // Ya cerrado (y con el scroll de la página devuelto): recién ahí se lleva el lugar a la vista.
@@ -57,7 +57,7 @@ const GuideMapDialog = (props: Props) => {
           >
             <div className={styles.bar}>
               <DialogBase.Title className={styles.title}>Mapa de la guía</DialogBase.Title>
-              <Button type="button" variant="tertiary" size="sm" onlyIcon label="Cerrar mapa" icon={<Close aria-hidden />} onClick={() => setOpen(false)} />
+              <Button type="button" variant="tertiary" size="sm" onlyIcon label="Cerrar mapa" icon={<Close aria-hidden />} onClick={() => setOpen(false)} touchTarget />
             </div>
             <div className={styles.map}>{opened && <GuideMap pins={props.pins} onSelect={select} gestureHandling="greedy" />}</div>
           </DialogBase.Popup>

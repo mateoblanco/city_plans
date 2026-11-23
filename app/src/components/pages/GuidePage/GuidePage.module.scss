@@ -16,3 +16,18 @@
     padding: 32px 48px 80px;
   }
 }
+
+// "Más guías" (GuideRow ya trae su padding lateral, 16 / 48 px): se come el padding de .page para que el título y las
+// tarjetas queden alineados con la lista. En mobile, el padding de abajo de .page (96 px) deja la fila por encima del
+// botón fijo "Ver mapa".
+.more {
+  margin: 40px -16px 0;
+
+  @include media(md) {
+    margin: 56px -32px 0;
+  }
+
+  @include media(lg) {
+    margin: 64px -48px 0;
+  }
+}

@@ -10,7 +10,6 @@ const row = (id: string): GuidePlaceRow => ({
   iconCategory: null,
   logoKey: null,
   logoBgColor: null,
-  hours: { slots: [], status: 'none' },
   lat: -34.9,
   lng: -56.17,
 })

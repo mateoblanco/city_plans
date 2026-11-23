@@ -77,6 +77,11 @@
     }
   }
 
+  // Sin borde (los logos de la tarjeta de guía, sobre la franja de color). Al final: gana sobre el de cada tamaño.
+  &.withoutBorder {
+    border: none;
+  }
+
   // &[data-fallback] {
   //   background-color: $fallback-bg;
   //   border: 1px solid $fallback-border;

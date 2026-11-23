@@ -1,32 +1,21 @@
 import type { SitemapGuide } from '../seo/indexing'
-import { cityPath, guidePath, neighborhoodPath, visibleGuides } from './catalog'
+import { activeNeighborhoods, cityPath, guidePath, liveGuides, neighborhoodPath } from './catalog'
 import type { Guide } from './types'
 
 const newest = (guides: readonly Guide[]) => guides.map((guide) => guide.updatedAt).sort().at(-1)!
 
 /**
- * Las páginas de guías para el sitemap: la de la ciudad (con la fecha de su guía más nueva), cada barrio (ídem) seguido
- * de sus guías y, al final, las guías de toda la ciudad. Sin borradores (visibleGuides: en el build no existen). /guides
- * no va: redirige a la ciudad.
+ * Las páginas de guías para el sitemap: la de la ciudad (con la fecha de su guía más nueva), cada barrio con página (con
+ * el mínimo de guías; con la fecha de su guía más nueva) y todas las guías con página, en /guides/montevideo/<slug>.
+ * Un barrio debajo del mínimo no va. /guides no va: redirige a la ciudad.
  */
-export function guideSitemapPages(guides: readonly Guide[] = visibleGuides()): SitemapGuide[] {
+export function guideSitemapPages(all: readonly Guide[]): SitemapGuide[] {
+  const guides = liveGuides(all)
   if (guides.length === 0) return []
-  const byNeighborhood = new Map<string, Guide[]>()
-  const cityWide: Guide[] = []
-  for (const guide of guides) {
-    if (!guide.neighborhood) {
-      cityWide.push(guide)
-      continue
-    }
-    const path = neighborhoodPath(guide.city, guide.neighborhood)
-    byNeighborhood.set(path, [...(byNeighborhood.get(path) ?? []), guide])
-  }
+  const active = activeNeighborhoods(all)
   return [
     { path: cityPath('montevideo'), updatedAt: newest(guides) },
-    ...[...byNeighborhood.entries()].flatMap(([path, list]) => [
-      { path, updatedAt: newest(list) },
-      ...list.map((guide) => ({ path: guidePath(guide), updatedAt: guide.updatedAt })),
-    ]),
-    ...cityWide.map((guide) => ({ path: guidePath(guide), updatedAt: guide.updatedAt })),
+    ...[...active].map((id) => ({ path: neighborhoodPath('montevideo', id), updatedAt: newest(guides.filter((guide) => guide.neighborhood === id)) })),
+    ...guides.map((guide) => ({ path: guidePath(guide), updatedAt: guide.updatedAt })),
   ]
 }
