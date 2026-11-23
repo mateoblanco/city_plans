@@ -10,12 +10,14 @@ const repoRoot = path.join(__dirname, "..");
 const logoBase = process.env.LOGO_BASE_URL?.trim().replace(/\/+$/, "");
 const logoPatterns = logoBase ? [new URL(`${logoBase}/**`)] : [];
 
-// Metadata bloqueante (título, descripción, canonical en el <head>) para los bots: la lista de Next, los rastreadores de
-// LLMs de robots.txt (GPTBot, ClaudeBot, PerplexityBot…, que no ejecutan JS y Next no trae) y Googlebot (Next le manda
-// la metadata por streaming porque renderiza JS; en el <head> no depende de eso). A los navegadores la metadata de una
-// página dinámica les sigue llegando por streaming al final del <body> (no esperan la base para el primer byte).
-// Definir htmlLimitedBots reemplaza la lista de Next, por eso se suma a la suya.
-const HEAD_METADATA_BOTS = [...NAMED_CRAWLERS, "Googlebot"];
+// Metadata bloqueante (título, descripción, canonical en el <head>) para los bots: la lista de Next y los rastreadores de
+// LLMs de robots.txt (GPTBot, ClaudeBot, PerplexityBot…, que no ejecutan JS y Next no trae). A los navegadores la
+// metadata de una página dinámica les sigue llegando por streaming al final del <body> (no esperan la base para el
+// primer byte). Definir htmlLimitedBots reemplaza la lista de Next, por eso se suma a la suya.
+// Googlebot NO va: Vercel le sirve el shell del PPR desde la CDN aunque esté en esta lista (x-vercel-cache: HIT), y la
+// función, al verlo en la lista, no manda la metadata por streaming: le llegaba la ficha sin <title>, description ni
+// canonical. Fuera de la lista recibe la metadata por streaming, como un navegador (Google ejecuta JS).
+const HEAD_METADATA_BOTS = [...NAMED_CRAWLERS];
 const htmlLimitedBots = new RegExp(
   [HTML_LIMITED_BOT_UA_RE.source, ...HEAD_METADATA_BOTS.map((bot) => bot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))].join("|"),
   "i",
