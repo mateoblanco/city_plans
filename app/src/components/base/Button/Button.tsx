@@ -39,14 +39,20 @@ type Props = {
         | { type?: undefined; href: string; prefetch?: boolean; external?: boolean }
     )
 
+/**
+ * Las clases del botón, para darle su estilo a un botón de Base UI que no puede ser este componente (p. ej. el
+ * Menu.Trigger de "Compartir" en la ficha).
+ */
+export const buttonClassName = (props: Pick<Props, 'variant' | 'size' | 'onlyIcon' | 'touchTarget'>) => clsx(
+    styles.button,
+    styles[`size-${props.size}`],
+    styles[`variant-${props.variant}`],
+    props.onlyIcon && styles["icon-button"],
+    props.touchTarget && styles["touch-target"],
+)
+
 const Button = (props: Props) => {
-    const buttonClass = clsx(
-        styles.button,
-        styles[`size-${props.size}`],
-        styles[`variant-${props.variant}`],
-        props.onlyIcon && styles["icon-button"],
-        props.touchTarget && styles["touch-target"],
-    )
+    const buttonClass = buttonClassName(props)
     const isLink = 'href' in props;
 
     const button = (

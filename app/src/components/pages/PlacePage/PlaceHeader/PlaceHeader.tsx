@@ -2,11 +2,14 @@ import type { CSSProperties } from "react";
 import PlaceImage from "@/components/pages/SearchPage/Results/PlaceCard/PlaceImage/PlaceImage";
 import BackButton from "./BackButton/BackButton";
 import PlaceActions from "./PlaceActions/PlaceActions";
+import ShareButton from "./ShareButton/ShareButton";
 import { instagramHandle, instagramPopularHref, isNearWhite, toneOn } from "../utils/summary";
+import { placeShareUrl } from "../utils/share";
 import styles from "./PlaceHeader.module.scss";
 
 type Props = {
   placeId: string;
+  slug: string;
   name: string;
   logoUrl: string | null;
   logoBgColor: string | null;
@@ -15,7 +18,8 @@ type Props = {
 
 /**
  * Encabezado de la ficha: con logo, una barra del color del logo y el logo encima; sin logo, sin barra y lo mismo que
- * muestra la card (el nombre). "← Volver" va arriba del logo en los dos casos; a la derecha, "Guardar" (el corazón).
+ * muestra la card (el nombre). "← Volver" va arriba del logo en los dos casos; a la derecha, "Compartir" y "Guardar" (el
+ * corazón), que queda en el borde. Las dos son islas de cliente chicas; el resto es del servidor.
  */
 const PlaceHeader = (props: Props) => {
   const barColor = props.logoUrl ? props.logoBgColor : null;
@@ -35,6 +39,7 @@ const PlaceHeader = (props: Props) => {
             <PlaceImage name={props.name} logoUrl={props.logoUrl} logoBgColor={props.logoBgColor} size="lg" onLightBar={isNearWhite(barColor)} load="high" />
           </div>
           <div className={styles.like}>
+            <ShareButton title={props.name} url={placeShareUrl(props.slug)} />
             <PlaceActions
               placeId={props.placeId}
               instagramHandle={instagramHandle(props.instagram)}

@@ -70,7 +70,7 @@ const Details = async (props: DetailsProps) => {
       <div className={styles.page}>
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(jsonLd) }} />
         {tracking && <PlaceViewBeacon placeId={place.id} slug={place.slug} />}
-        <PlaceHeader placeId={place.id} name={place.name} logoUrl={data.logoUrl} logoBgColor={place.logo_bg_color} instagram={place.instagram} />
+        <PlaceHeader placeId={place.id} slug={place.slug} name={place.name} logoUrl={data.logoUrl} logoBgColor={place.logo_bg_color} instagram={place.instagram} />
 
         <div className={styles.content}>
           <div className={styles.columns}>

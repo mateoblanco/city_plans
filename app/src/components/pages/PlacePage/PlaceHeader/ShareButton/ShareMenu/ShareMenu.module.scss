@@ -1,0 +1,50 @@
+// Basado en el demo de Menu de Base UI (v1.9.0, css-modules), en px, con la superficie del de base/Select.
+
+.positioner {
+  outline: 0;
+  z-index: 20;
+}
+
+.popup {
+  background-clip: padding-box;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border-popover);
+  border-radius: 16px;
+  box-shadow: var(--shadow-popover);
+  box-sizing: border-box;
+  color: var(--color-text);
+  min-width: max(var(--anchor-width), 160px);
+  outline: 0;
+  overflow: hidden;
+  padding-block: 4px;
+  transform-origin: var(--transform-origin);
+  transition:
+    transform 100ms var(--ease-out),
+    opacity 100ms var(--ease-out);
+
+  &[data-starting-style],
+  &[data-ending-style] {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+.item {
+  align-items: center;
+  box-sizing: border-box;
+  color: inherit;
+  cursor: default;
+  display: flex;
+  font-size: 14px;
+  line-height: 20px;
+  outline: 0;
+  padding: 8px 16px;
+  text-decoration: none;
+  user-select: none;
+  -webkit-user-select: none;
+
+  // Teclado y mouse: Base UI marca el ítem activo con data-highlighted.
+  &[data-highlighted] {
+    background-color: var(--color-surface-hover);
+  }
+}

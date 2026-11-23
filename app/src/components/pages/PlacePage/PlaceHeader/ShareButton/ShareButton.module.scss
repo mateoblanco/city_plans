@@ -1,0 +1,25 @@
+// El aviso ("Link copiado") se posiciona contra esto.
+.share {
+  position: relative;
+}
+
+// Vacía no ocupa ni se ve; con texto, una burbuja como el tooltip, debajo del botón y alineada a su borde derecho.
+.status {
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  white-space: nowrap;
+  z-index: 20;
+
+  &:not(:empty) {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border-popover);
+    border-radius: 8px;
+    box-shadow: var(--shadow-popover);
+    color: var(--color-text);
+    font-size: 13px;
+    line-height: 18px;
+    padding: 8px 12px;
+  }
+}
