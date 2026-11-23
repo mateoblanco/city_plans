@@ -4,15 +4,14 @@ import { SITE_NAME } from "@/lib/site";
 
 const TITLE = `${SITE_NAME} · Lugares para salir en Montevideo`;
 const DESCRIPTION = "Bares, cafés y restaurantes de Montevideo para salir hoy: buscá por plan, barrio, dieta o descuento.";
-// Imagen genérica (recorte 1200×630 del hero).
-const IMAGE = { url: "/og-home.jpg", width: 1200, height: 630, alt: "Ilustración de la Plaza Independencia de Montevideo" };
+// La imagen es la de la raíz (app/opengraph-image.jpg).
 
 export const metadata: Metadata = {
   title: TITLE,
   description: DESCRIPTION,
   alternates: { canonical: "/" },
-  openGraph: { type: "website", locale: "es_UY", siteName: SITE_NAME, url: "/", title: TITLE, description: DESCRIPTION, images: [IMAGE] },
-  twitter: { card: "summary_large_image", title: TITLE, description: DESCRIPTION, images: [IMAGE.url] },
+  openGraph: { type: "website", locale: "es_UY", siteName: SITE_NAME, url: "/", title: TITLE, description: DESCRIPTION },
+  twitter: { card: "summary_large_image", title: TITLE, description: DESCRIPTION },
 };
 
 export default function Home({ searchParams }: PageProps<"/">) {

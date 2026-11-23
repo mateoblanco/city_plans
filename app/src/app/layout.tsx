@@ -15,6 +15,7 @@ export const metadata: Metadata = {
   title: SITE_NAME,
   description: "Lugares para salir en Montevideo.",
   openGraph: { type: "website", locale: "es_UY", siteName: SITE_NAME },
+  twitter: { card: "summary_large_image" },
   robots: rootRobots(allowIndexing()),
 };
 

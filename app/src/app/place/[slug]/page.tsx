@@ -4,8 +4,8 @@ import { neighborhoodDisplayName } from "@shared/neighborhood-names.ts";
 import PlacePage from "@/components/pages/PlacePage/PlacePage";
 import { placeDescription, placeTitle } from "@/components/pages/PlacePage/utils/metadata";
 import { getPublishedPlace } from "@/server/places/place";
-import { logoUrl } from "@/server/search/logo";
 import { SITE_NAME, withSiteName } from "@/lib/site";
+import { placeOgImage } from "@/server/og/model";
 
 export async function generateMetadata({ params }: PageProps<"/place/[slug]">): Promise<Metadata> {
   const { slug } = await params;
@@ -17,15 +17,15 @@ export async function generateMetadata({ params }: PageProps<"/place/[slug]">): 
   const title = placeTitle(place, neighborhood);
   const description = placeDescription(place, neighborhood);
   const url = `/place/${place.slug}`;
-  // Sólo datos propios (nunca lo de Google Places): el nombre, la categoría, el barrio, la descripción y el logo de R2.
-  const logo = logoUrl(place.logo_key);
-  const images = logo ? [{ url: logo, alt: `Logo de ${place.name}` }] : undefined;
+  // Sólo datos propios (nunca lo de Google Places): el nombre, la categoría, el barrio, la descripción y la imagen para
+  // compartir (banda + logo de R2, generada en og/[version]/route.tsx; absoluta por metadataBase).
+  const image = placeOgImage({ slug: place.slug, name: place.name, logoKey: place.logo_key, logoBgColor: place.logo_bg_color });
   return {
     title: withSiteName(title),
     description,
     alternates: { canonical: url },
-    openGraph: { type: "website", locale: "es_UY", siteName: SITE_NAME, url, title, description, images },
-    twitter: { card: "summary", title, description, images: logo ? [logo] : undefined },
+    openGraph: { type: "website", locale: "es_UY", siteName: SITE_NAME, url, title, description, images: [image] },
+    twitter: { card: "summary_large_image", title, description, images: [image] },
   };
 }
 
