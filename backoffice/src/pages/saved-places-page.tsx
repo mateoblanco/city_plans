@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { GoogleFlagsPanel } from '@/components/google-flags-panel'
 import { PlaceEditDialog } from '@/components/place-edit-dialog'
 import { PlaceIcon } from '@/components/place-icon'
 import { PlaceLogo } from '@/components/place-logo'
@@ -359,6 +360,13 @@ export function SavedPlacesPage() {
             Lugares guardados en la base. Hacé clic en uno para editarlo: lo que cambies queda editado a mano y el pipeline no lo pisa. En «A revisar» están los que el pipeline no publicó, con su motivo.
           </p>
         </div>
+
+        <GoogleFlagsPanel
+          onUnpublished={(name) => {
+            setNotice(`Se despublicó ${name}: quedó en «A revisar».`)
+            refresh()
+          }}
+        />
 
         <div className="mb-4 flex flex-wrap items-end gap-2" role="search" aria-label="Filtrar lugares">
           <label className="relative min-w-56 flex-1">

@@ -3,6 +3,8 @@ import booleanIntersects from '@turf/boolean-intersects'
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon'
 import { polygon as turfPolygon } from '@turf/helpers'
 import type { Feature, Polygon } from 'geojson'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { getNeighborhoodFeature } from '../../src/lib/getNeighborhood.ts'
 import { NEIGHBORHOOD_NAMES } from '../../src/data/neighborhood-names.ts'
@@ -366,5 +368,19 @@ describe('GoogleNeighborhoodSweeper', () => {
 describe('catálogo de barrios', () => {
   it('tiene nombre visible para cada polígono', () => {
     expect([...NEIGHBORHOOD_IDS].sort()).toEqual(Object.keys(NEIGHBORHOOD_NAMES).sort())
+  })
+
+  it('ningún id ni nombre de barrio tiene texto mal decodificado (Ã, Â), en el GeoJSON ni en lo que sale de él', () => {
+    const broken = /[ÃÂ]/
+    expect([...NEIGHBORHOOD_IDS, ...Object.values(NEIGHBORHOOD_NAMES)].filter((text) => broken.test(text))).toEqual([])
+    const files = [
+      '../../src/lib/barrios.json',
+      '../../src/data/neighborhoods.ts',
+      '../../../shared/neighborhood-names.ts',
+      '../../../shared/neighborhood-aliases.ts',
+      '../../../shared/neighborhood-polygons.json',
+      '../../../shared/neighborhood-centroids.json',
+    ]
+    expect(files.filter((file) => broken.test(readFileSync(resolve(import.meta.dirname, file), 'utf8')))).toEqual([])
   })
 })

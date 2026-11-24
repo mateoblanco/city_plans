@@ -19,7 +19,7 @@ const ALL_GUIDES = cityPath("montevideo");
 const HomeGuidesList = (props: Props) => {
   if (props.guides.length === 0) return null;
   return (
-    <section className={styles.section} aria-labelledby="home-guides">
+    <section className={styles.section} aria-labelledby="home-guides" data-home-guides>
       <header className={styles.header}>
         <h2 className={styles.title} id="home-guides">
           <Link className={styles.titleLink} href={ALL_GUIDES}>

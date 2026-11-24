@@ -1,0 +1,186 @@
+@use '../../../styles/breakpoints' as *;
+
+// Ancho de lectura como la introducción de las guías (GuideHeader): ~640px de texto.
+.page {
+  margin: 0 auto;
+  max-width: 720px;
+  min-height: 50vh;
+  padding: 40px 16px 64px;
+
+  @include media(md) {
+    padding: 64px 40px 96px;
+  }
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+}
+
+// Como el título de GuideHeader.
+.title {
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 38px;
+  margin: 0;
+  text-wrap: balance;
+
+  @include media(md) {
+    font-size: 36px;
+    line-height: 42px;
+  }
+}
+
+.updated {
+  color: var(--color-text-subtle);
+  font-size: 14px;
+  line-height: 20px;
+  margin: 12px 0 0;
+}
+
+// Índice: una tarjeta con la lista numerada de secciones.
+.toc {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border-card);
+  border-radius: 16px;
+  margin-top: 32px;
+  padding: 16px 20px;
+
+  @include media(md) {
+    padding: 20px 24px;
+  }
+}
+
+.tocTitle {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  margin: 0;
+}
+
+.tocList {
+  display: flex;
+  flex-direction: column;
+  font-size: 15px;
+  line-height: 22px;
+  margin: 8px 0 0;
+  padding-left: 22px;
+}
+
+// 32 px de alto mínimo para el toque, sin separar demasiado la lista.
+.tocLink {
+  color: var(--color-text-muted);
+  display: inline-block;
+  padding: 5px 0;
+  text-decoration: none;
+  text-underline-offset: 3px;
+
+  @include hover {
+    &:hover {
+      color: var(--color-text);
+      text-decoration: underline;
+    }
+  }
+}
+
+// Cuerpo: 17/26 como la introducción de las guías.
+.content {
+  font-size: 17px;
+  line-height: 26px;
+  max-width: 640px;
+
+  p,
+  ul,
+  ol {
+    margin: 12px 0 0;
+    text-wrap: pretty;
+  }
+
+  ul,
+  ol {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-left: 22px;
+  }
+
+  h3 {
+    font-size: 17px;
+    font-weight: 600;
+    line-height: 24px;
+    margin: 24px 0 0;
+  }
+
+  strong {
+    font-weight: 600;
+  }
+
+  // Links del texto: subrayados (en un párrafo no alcanza con el color). Los largos (URLs, mails) cortan la línea.
+  a {
+    color: var(--color-text);
+    overflow-wrap: anywhere;
+    text-decoration: underline;
+    text-decoration-color: var(--color-text-subtle);
+    text-underline-offset: 3px;
+
+    @include hover {
+      &:hover {
+        text-decoration-color: currentColor;
+      }
+    }
+  }
+
+  code {
+    background-color: var(--color-surface-chip);
+    border-radius: 4px;
+    font-size: 15px;
+    padding: 1px 5px;
+  }
+}
+
+.section {
+  margin-top: 40px;
+
+  @include media(md) {
+    margin-top: 48px;
+  }
+}
+
+// El destino del ancla no queda debajo del header fijo.
+.heading {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 30px;
+  margin: 0;
+  scroll-margin-top: calc(var(--header-offset) + 16px);
+  text-wrap: balance;
+
+  @include media(md) {
+    font-size: 24px;
+    line-height: 32px;
+  }
+}
+
+// "#" al final del título: se ve al pasar por el título o con foco; en pantallas táctiles, siempre (tenue).
+.anchor {
+  color: var(--color-text-subtle);
+  margin-left: 8px;
+  opacity: 0.6;
+  text-decoration: none;
+
+  @include hover {
+    opacity: 0;
+
+    .heading:hover & {
+      opacity: 1;
+    }
+  }
+
+  &:focus-visible {
+    opacity: 1;
+  }
+}

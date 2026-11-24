@@ -1,4 +1,7 @@
 {
   "regions": ["gru1"],
-  "crons": [{ "path": "/api/cron/events-daily", "schedule": "0 4 * * *" }]
+  "crons": [
+    { "path": "/api/cron/events-daily", "schedule": "0 4 * * *" },
+    { "path": "/api/cron/google-refresh", "schedule": "0 7 * * *" }
+  ]
 }

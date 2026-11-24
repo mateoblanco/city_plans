@@ -1,14 +1,21 @@
 @use '../../../../../styles/breakpoints' as *;
 
 // Dentro de `.content` de HomePage: el mismo padding lateral que el título de las filas (PlaceRow).
+// Fondo de borde a borde sin salir de `.content` (va en el mismo Suspense que las filas): el outset de border-image pinta
+// hasta 100vw a los costados y no suma área de scroll (100vw con márgenes negativos desbordaba con la barra de scroll).
 .section {
+  border-image-outset: 0 100vw;
+  border-image-slice: 0 fill;
+  // Longhands: en Sass, el `//` del shorthand (`fill 0 // 0 100vw`) es un comentario. La línea de arriba (como el
+  // borde del Footer) va en la misma imagen: con border-image, un `border-top` no se dibujaría.
+  border-image-source: linear-gradient(var(--color-border) 0 1px, var(--color-bg-guides) 1px);
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 0 16px;
+  padding: 24px 16px;
 
   @include media(md) {
-    padding: 0 48px;
+    padding: 40px 48px;
   }
 }
 

@@ -1,10 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import { Merriweather } from "next/font/google";
-import { Analytics } from "@vercel/analytics/next";
-import { SpeedInsights } from "@vercel/speed-insights/next";
 import { allowIndexing, rootRobots } from "@/server/seo/indexing";
 import { trackEvents } from "@/server/events/config";
 import TrackingEnabled from "@/components/Tracking/TrackingEnabled/TrackingEnabled";
+import WebAnalytics from "@/components/WebAnalytics/WebAnalytics";
 import '@/styles/reset.scss';
 import '@/styles/global.scss';
 import { SITE_NAME, SITE_URL } from "@/lib/site";
@@ -14,7 +13,7 @@ import { SITE_NAME, SITE_URL } from "@/lib/site";
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: SITE_NAME,
-  description: "Lugares para salir en Montevideo.",
+  description: "Lugares para salir en Uruguay.",
   openGraph: { type: "website", locale: "es_UY", siteName: SITE_NAME },
   twitter: { card: "summary_large_image" },
   robots: rootRobots(allowIndexing()),
@@ -44,10 +43,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <div className="root">
           {children}
         </div>
-        {/* Visitas y páginas vistas en el dashboard de Vercel. En local no envía. */}
-        <Analytics />
-        {/* Web Vitals reales (LCP, INP, CLS) en el dashboard de Vercel. */}
-        <SpeedInsights />
+        {/* Visitas, páginas vistas y Web Vitals en el dashboard de Vercel, sin el texto de búsqueda en la URL. En local no envía. */}
+        <WebAnalytics />
         {/* Popularidad: sólo con TRACK_EVENTS=true (Production) se carga el envío de eventos. */}
         {trackEvents() && <TrackingEnabled />}
       </body>

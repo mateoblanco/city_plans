@@ -2,8 +2,8 @@ import 'server-only'
 import { neon } from '@neondatabase/serverless'
 import { drizzle } from 'drizzle-orm/neon-http'
 
-// Lectura de la tabla places que llena el backoffice; la única escritura son los eventos de popularidad
-// (server/events). El esquema y las migraciones viven allá.
+// Lectura de la tabla places que llena el backoffice; las únicas escrituras son los eventos de popularidad
+// (server/events) y el refresco de coordenadas de Google (server/places/refresh). El esquema y las migraciones viven allá.
 let client: ReturnType<typeof drizzle> | null = null
 let raw: ReturnType<typeof neon> | null = null
 

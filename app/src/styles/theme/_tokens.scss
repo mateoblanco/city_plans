@@ -16,6 +16,7 @@
 	// Fondos
 	--color-bg: #{palette.get(white)}; // html (global.scss)
 	--color-bg-page: #{palette.get(gray-50)}; // body (global.scss), ResultSections, RowScroller
+	--color-bg-guides: #{palette.get(neutral-50)}; // HomeGuidesList (fondo de la sección Guías, a todo el ancho), Footer
 	// Header, FilterBar, FilterChip, Select, Search, PlaceCard, PlaceImage, MapMarker, DebugPanel, CopyResponse, BranchCard, PlaceHours,
 	// Dialog, WelcomePlaces, WelcomePlaceCard
 	--color-surface: #{palette.get(white)};

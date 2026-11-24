@@ -25,6 +25,7 @@ import { DAILY_EVENT_TYPES, EVENT_ORIGINS, EVENT_TYPES } from "../../src/data/ev
 import type { ManualOverrides } from "../../src/data/manual-overrides.ts";
 import { GUIDE_CITIES, GUIDE_GROUPS, GUIDE_STATUSES } from "../../src/data/guides.ts";
 import { DEFAULT_GUIDE_COLOR, GUIDE_COLORS } from "../../src/data/guide-colors.ts";
+import { GOOGLE_FLAG_REASON_IDS, GOOGLE_REFRESH_STOP_REASONS } from "../../src/data/google-flags.ts";
 import {
   BENEFIT_MODES,
   CAP_CURRENCIES,
@@ -247,6 +248,57 @@ export const priceSuggestions = pgTable(
   (t) => [
     check("price_suggestions_price_check", sql`${t.price} in ('low', 'moderate', 'high')`),
     check("price_suggestions_signal_check", sql`${t.signal} in (${inList(PRICE_SUGGESTION_SIGNAL)})`),
+  ]
+);
+
+// ── Refresco de coordenadas de Google (cron /api/cron/google-refresh de la app, server/places/refresh/) ──
+// Los términos permiten guardar lat/lng 30 días: el cron los refresca en tandas y abre un aviso por lo que hay que
+// revisar (se movió más de 100 m, el place_id no existe, Google lo reemplazó). Sólo códigos nuestros, metros y place
+// IDs (Google permite guardarlos sin límite); nunca la respuesta de Google. Un aviso por lugar y motivo: "Ignorar" pone
+// ignored_at y "Despublicar" o la corrida que ve que ya no vale ponen resolved_at; el cron lo reabre si vuelve a pasar.
+export const placeGoogleFlags = pgTable(
+  "place_google_flags",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    placeId: uuid("place_id").notNull().references(() => places.id, { onDelete: "cascade" }),
+    reason: text("reason", { enum: GOOGLE_FLAG_REASON_IDS }).notNull(),
+    detectedAt: timestamp("detected_at", { withTimezone: true }).notNull().defaultNow(),
+    // Sólo moved: metros entre la ubicación guardada y la nueva.
+    distanceM: integer("distance_m"),
+    // Sólo replaced: el movedPlaceId que dio Google (no se aplica solo).
+    newGooglePlaceId: text("new_google_place_id"),
+    ignoredAt: timestamp("ignored_at", { withTimezone: true }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  },
+  (t) => [
+    unique("place_google_flags_place_reason").on(t.placeId, t.reason),
+    check("place_google_flags_reason_check", sql`${t.reason} in (${inList(GOOGLE_FLAG_REASON_IDS)})`),
+    index("place_google_flags_open_idx").on(t.detectedAt).where(sql`${t.ignoredAt} is null and ${t.resolvedAt} is null`),
+  ]
+);
+
+// Una fila por corrida del cron: el control de que el refresco va al día.
+export const googleRefreshRuns = pgTable(
+  "google_refresh_runs",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }).notNull(),
+    batchSize: integer("batch_size").notNull(),
+    refreshed: integer("refreshed").notNull(),
+    // Lugares con algún aviso nuevo o reabierto.
+    flagged: integer("flagged").notNull(),
+    failed: integer("failed").notNull(),
+    stoppedReason: text("stopped_reason", { enum: GOOGLE_REFRESH_STOP_REASONS }),
+    // Publicados con coordenadas de Google de más de 30 días (o sin fecha) al terminar.
+    staleAfter: integer("stale_after").notNull(),
+  },
+  (t) => [
+    check(
+      "google_refresh_runs_stopped_reason_check",
+      sql`${t.stoppedReason} is null or ${t.stoppedReason} in (${inList(GOOGLE_REFRESH_STOP_REASONS)})`
+    ),
+    index("google_refresh_runs_started_idx").on(t.startedAt),
   ]
 );
 

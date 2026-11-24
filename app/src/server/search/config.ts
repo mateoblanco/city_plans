@@ -271,8 +271,9 @@ export const SEARCH_CONFIG = {
    * no vegetariano, y las cocinas del texto se suman a lo del modelo. 8: más frases de groups ("con amigas", "para un
    * grupo", "juntada"…), en el prompt y en el diccionario. 9: "con mis viejos" no es kids_friendly, "atardecer" pide vista
    * o terraza, y sin una etiqueta que corresponda de verdad no se inventa un mapeo aproximado ("bohemia", "escondido").
+   * 13: ids de barrio con la Ñ bien codificada ("LARRAÑAGA", no "LARRAÃ‘AGA"), en el catálogo y en lo guardado.
    */
-  interpretationCacheVersion: 12,
+  interpretationCacheVersion: 13,
 
   timeZone: 'America/Montevideo',
   /** Faltando esto o menos para el cierre o la apertura, la card dice "Cierra pronto" / "Abre pronto". */

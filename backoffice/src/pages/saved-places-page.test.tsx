@@ -55,6 +55,8 @@ function fakeServer(rows: PlaceListItem[], fail: { list?: number; featured?: boo
       row.editedFields = [...new Set([...row.editedFields, 'price' as const])]
       return jsonResponse({ place: { ...row, editedFields: row.editedFields }, warnings: [] })
     }
+    // El panel de Avisos de Google (tiene su propio test): sin avisos.
+    if (url.pathname === '/api/google-flags') return jsonResponse({ flags: [], stale: 0, lastRun: null })
     if (url.pathname === '/api/places/neighborhoods') {
       if (fail.neighborhoods) return jsonResponse({ error: { code: 'UNKNOWN_ERROR', message: 'No se pudieron cargar los barrios.' } }, 500)
       const counts = new Map<string, number>()

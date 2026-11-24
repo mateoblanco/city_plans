@@ -58,6 +58,13 @@ describe("chips y barra de filtros", () => {
     expect(read(removeChipHref({ q: "bares hoy" }, { kind: "openAt", id: "today", fromText: true }))).toEqual({ q: "bares hoy", remove: "openAt:today" });
   });
 
+  it("links viejos con un barrio con la Ñ mal decodificada: salen con el id actual y quitarlo funciona", () => {
+    const old = { q: "", f: "neighborhood:LARRA\u00C3\u2018AGA,diet:vegan" };
+    expect(read(searchHref(old)).f).toBe("neighborhood:LARRAÑAGA,diet:vegan");
+    expect(read(removeChipHref(old, { kind: "neighborhood", id: "LARRAÑAGA", fromFilter: true })).f).toBe("diet:vegan");
+    expect(read(addFilterHref(old, { kind: "neighborhood", id: "LARRAÑAGA" })).f).toBe("neighborhood:LARRAÑAGA,diet:vegan");
+  });
+
   it('links viejos con "Abre hoy" (open:today): salen como "Abierto ahora" y quitarlo funciona', () => {
     const old = { q: "", f: "open:today,diet:vegan" };
     expect(read(searchHref(old)).f).toBe("open:now,diet:vegan");

@@ -25,7 +25,7 @@ Las rutas (`/`, `/search`, `/place/[slug]`, `/api/...`) y los nombres de los par
    - `dish:<plato>`, por ejemplo `dish:milanesa`.
    - `venue:<located_in>`, por ejemplo `venue:Mercado del Puerto`.
    - `name:<texto>`.
-3. **Barrios en `f`:** `f=neighborhood:CORDON`. Son los ids del shapefile del INE, en mayúsculas y en español. Algunos tienen la codificación rota del archivo original: `BAÃ‘ADOS DE CARRASCO`, `FLOR DE MAROÃ‘AS`.
+3. **Barrios en `f`:** `f=neighborhood:CORDON`. Son los ids del shapefile del INE, en mayúsculas y en español. Algunos tienen la codificación rota del archivo original: `BAÑADOS DE CARRASCO`, `FLOR DE MAROÑAS`.
 4. **Anclas de los skip links** (aparecen en la URL al usarlos): `#contenido`, `#resultados` y `#mapa` (`SKIP_TARGETS`).
 5. **Slugs de las fichas:** `/place/inocencio-cafe`, `/place/croissanteria-la-fabrica`. Salen del nombre del lugar. Los de las guías son en español a propósito.
 

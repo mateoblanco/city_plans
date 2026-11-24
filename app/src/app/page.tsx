@@ -3,7 +3,7 @@ import HomePage from "@/components/pages/HomePage/HomePage";
 import { SITE_NAME } from "@/lib/site";
 import { shareDescription } from "@/lib/description";
 
-const TITLE = `${SITE_NAME} · Lugares para salir en Montevideo`;
+const TITLE = `${SITE_NAME} · Lugares para salir en Uruguay`;
 const DESCRIPTION = "Bares, cafés y restaurantes de Montevideo para salir hoy: buscá por plan, barrio, dieta o descuento.";
 const SHARE_DESCRIPTION = shareDescription(DESCRIPTION);
 // La imagen es la de la raíz (app/opengraph-image.jpg).

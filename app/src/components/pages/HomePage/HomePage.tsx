@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import Footer from "@/components/Footer/Footer";
 import HeaderSearch from "@/components/HeaderSearch/HeaderSearch";
 import SkipLinks from "@/components/SkipLinks/SkipLinks";
 import { SKIP_TARGETS } from "@/components/SkipLinks/utils/skip-targets";
@@ -44,6 +45,7 @@ const HomePage = ({ searchParams }: Props) => {
         {/* Con el permiso ya dado, actualiza la ubicación sin preguntar; nunca la pide. */}
         <HomeLocation />
       </main>
+      <Footer />
       {/* Bienvenida (primera visita): la decide el cliente después de cargar; nunca va en el HTML del servidor. */}
       <Suspense fallback={null}>
         <HomeWelcome />

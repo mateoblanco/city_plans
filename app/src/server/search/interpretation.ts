@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { CATEGORIES, DIETARY, TAG_IDS, isOccasionTag, isStyleId, normalize, type StyleId } from '@shared/tags.ts'
 import { neighborhoodsIn, resolveNeighborhood } from '@shared/neighborhood-aliases.ts'
+import { currentNeighborhoodId } from '@shared/neighborhood-names.ts'
 import { isIntentId, type IntentId } from '@shared/intents.ts'
 import { isSectionId, type SectionId } from '@shared/sections.ts'
 import { canonicalOf } from './dishes'
@@ -285,7 +286,9 @@ export function parseRemove(raw: string | null | undefined): { kind: ChipKind; i
     const index = part.indexOf(':')
     if (index <= 0) return []
     const kind = part.slice(0, index).trim() as ChipKind
-    const id = part.slice(index + 1).trim()
+    const value = part.slice(index + 1).trim()
+    // Un barrio de un link viejo con la Ñ mal decodificada (neighborhood:LARRAÃ‘AGA) cuenta como el actual.
+    const id = kind === 'neighborhood' ? currentNeighborhoodId(value) : value
     return REMOVABLE_KINDS.includes(kind) && id ? [{ kind, id }] : []
   })
 }

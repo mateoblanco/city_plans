@@ -1,10 +1,12 @@
 import type { Metadata, MetadataRoute } from 'next'
+// Relativo: next.config.ts importa este archivo y ahí no resuelve el alias @/.
+import { LEGAL_PAGES } from '../../lib/legal'
 
 /**
  * Indexación con interruptor (ALLOW_INDEXING). Sólo vale en Production de Vercel (VERCEL_ENV=production): en previews,
  * `next dev` y local nada se indexa aunque esté prendida. Apagada (por defecto): robots.txt bloquea todo, cada página va
  * con noindex, nofollow y el sitemap está vacío. Prendida: robots permite a todos (también a los rastreadores de LLMs) y
- * apunta al sitemap, que lista la home, las guías y las fichas publicadas; /api/, /guide-preview/ y /search van con
+ * apunta al sitemap, que lista la home, las guías, las fichas publicadas y Privacidad y Términos; /api/, /guide-preview/ y /search van con
  * Disallow, y /search sigue con noindex (búsquedas libres: un espacio infinito de URLs, y cada una nueva paga el modelo y
  * el embedding). Se lee en el build (robots, sitemap y metadata se prerenderizan): cambiarla requiere un deploy nuevo.
  */
@@ -67,8 +69,8 @@ const latest = (dates: (Date | null)[]): Date | null =>
 const lastModified = (date: Date | null) => (date ? { lastModified: date } : {})
 
 /**
- * La home (con la modificación más nueva de lo que muestra: fichas y guías), las páginas de guías y cada ficha publicada;
- * sin indexación, vacío. Recibe sólo lo publicado: borradores, en revisión y ocultos nunca llegan acá.
+ * La home (con la modificación más nueva de lo que muestra: fichas y guías), las páginas de guías, cada ficha publicada y
+ * Privacidad y Términos (con su fecha de "Última actualización", LEGAL_PAGES); sin indexación, vacío. Recibe sólo lo publicado: borradores, en revisión y ocultos nunca llegan acá.
  */
 export function sitemapEntries(allow: boolean, base: string, places: SitemapPlace[], guides: SitemapGuide[] = []): MetadataRoute.Sitemap {
   if (!allow) return []
@@ -87,6 +89,12 @@ export function sitemapEntries(allow: boolean, base: string, places: SitemapPlac
       ...lastModified(placeDates[index]),
       changeFrequency: 'weekly' as const,
       priority: 0.8,
+    })),
+    ...Object.values(LEGAL_PAGES).map((page) => ({
+      url: `${base}${page.path}`,
+      ...lastModified(toDate(page.updatedAt)),
+      changeFrequency: 'yearly' as const,
+      priority: 0.3,
     })),
   ]
 }

@@ -1,4 +1,5 @@
 import { Suspense, type ReactNode } from "react";
+import Footer from "@/components/Footer/Footer";
 import Header from "@/components/Header/Header";
 import HeaderBack from "@/components/Header/HeaderBack/HeaderBack";
 import SkipLinks from "@/components/SkipLinks/SkipLinks";
@@ -9,7 +10,7 @@ type Props = {
   children: ReactNode;
 };
 
-/** El marco de las páginas de guías (ciudad, barrio y guía): saltos, header con volver y el <main>. */
+/** El marco de las páginas de guías (ciudad, barrio y guía): saltos, header con volver, el <main> y el footer. */
 const GuidesShell = (props: Props) => (
   <>
     <SkipLinks links={[{ target: SKIP_TARGETS.content, label: "Ir al contenido" }]} />
@@ -19,6 +20,7 @@ const GuidesShell = (props: Props) => (
     <main id={SKIP_TARGETS.content} data-skip-target>
       <Suspense fallback={null}>{props.children}</Suspense>
     </main>
+    <Footer />
   </>
 );
 

@@ -61,7 +61,7 @@ const database = process.env.DATABASE_URL?.trim()
         import('./places/list.ts'),
         import('./places/edit.ts'),
       ])
-      const [{ sqlClient }, { neonPopularityReader }, { neonGuidesStore }] = await Promise.all([import('./db/index.ts'), import('./popularity/list.ts'), import('./guides/store.ts')])
+      const [{ sqlClient }, { neonPopularityReader }, { neonGuidesStore }, { neonGoogleFlagsStore }] = await Promise.all([import('./db/index.ts'), import('./popularity/list.ts'), import('./guides/store.ts'), import('./google-flags/store.ts')])
       const [{ drizzleDiscountStore }, { drizzleOurPlaces }] = await Promise.all([import('./discounts/drizzle-store.ts'), import('./discounts/our-places.ts')])
       return {
         placesSaver: placesSaver(drizzlePlacesStore(db)),
@@ -88,6 +88,7 @@ const database = process.env.DATABASE_URL?.trim()
         discountStore: drizzleDiscountStore(db),
         ourPlaces: drizzleOurPlaces(db),
         popularityReader: neonPopularityReader(sqlClient),
+        googleFlags: neonGoogleFlagsStore(sqlClient),
         guidesStore: neonGuidesStore(sqlClient),
       }
     })()
@@ -140,6 +141,7 @@ serve(
       placeEditor: database?.placeEditor,
       discounts,
       popularityReader: database?.popularityReader,
+      googleFlags: database?.googleFlags,
       guidesStore: database?.guidesStore,
       guidesPreview: {
         appUrl: process.env.APP_URL,

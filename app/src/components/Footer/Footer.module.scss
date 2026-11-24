@@ -1,0 +1,81 @@
+@use '../../styles/breakpoints' as *;
+
+.footer {
+  background: var(--color-bg-guides);
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-subtle);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+// Mismo ancho y padding lateral que la home. Mobile en columna; desde md, logo y © a la izquierda y los links a la derecha.
+.inner {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 0 auto;
+  max-width: 1200px;
+  padding: 24px 16px calc(24px + env(safe-area-inset-bottom));
+
+  @include media(md) {
+    align-items: center;
+    flex-direction: row;
+    justify-content: space-between;
+    padding: 32px 48px calc(32px + env(safe-area-inset-bottom));
+  }
+}
+
+// Logo y, debajo, el ©.
+.start {
+  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.brand {
+  align-items: center;
+  color: var(--color-text);
+  display: inline-flex;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+  gap: 8px;
+  min-height: 44px;
+  text-decoration: none;
+}
+
+.links {
+  column-gap: 24px;
+  display: flex;
+  flex-wrap: wrap;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+// Área táctil de 44 px de alto.
+.link {
+  align-items: center;
+  color: inherit;
+  display: inline-flex;
+  min-height: 44px;
+  text-decoration: none;
+
+  @include hover {
+    &:hover {
+      color: var(--color-text);
+      text-decoration: none;
+    }
+  }
+
+  // La página actual (/privacy o /terms): se ve como texto.
+  &[aria-current='page'] {
+    color: var(--color-text);
+    cursor: default;
+  }
+}
+
+.copyright {
+  margin: 0;
+}

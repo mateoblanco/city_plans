@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { NEIGHBORHOOD_DISPLAY_NAMES, NEIGHBORHOOD_NAMES, neighborhoodDisplayName } from '@shared/neighborhood-names.ts'
+import { LEGACY_NEIGHBORHOOD_IDS, NEIGHBORHOOD_DISPLAY_NAMES, NEIGHBORHOOD_NAMES, neighborhoodDisplayName } from '@shared/neighborhood-names.ts'
 import { neighborhoodsIn, resolveNeighborhood } from '@shared/neighborhood-aliases.ts'
 import { removedWordsOf } from '../search'
 import centroids from '@shared/neighborhood-centroids.json'
+import polygons from '@shared/neighborhood-polygons.json'
 import { interpretWithDictionary } from '../dictionary'
 import { dishTarget } from '../dishes'
 import { applyRemove, classifyTerm, emptyInterpretation, parseRemove, validateInterpretation } from '../interpretation'
@@ -24,8 +25,27 @@ describe('barrios', () => {
     expect(resolveNeighborhood('parque rodo')).toBe('PARQUE RODO')
     expect(resolveNeighborhood('el prado')).toBe('PRADO NUEVA SAVONA')
     expect(resolveNeighborhood('Ciudad Vieja')).toBe('CIUDAD VIEJA')
-    expect(resolveNeighborhood('Bañados de Carrasco')).toBe('BAÃ‘ADOS DE CARRASCO')
+    expect(resolveNeighborhood('Bañados de Carrasco')).toBe('BAÑADOS DE CARRASCO')
     expect(resolveNeighborhood('Narnia')).toBeNull()
+  })
+
+  it('ningún id ni nombre de barrio tiene texto mal decodificado (Ã, Â)', () => {
+    const broken = /[ÃÂ]/
+    const texts = [
+      ...Object.entries(NEIGHBORHOOD_NAMES).flat(),
+      ...Object.entries(NEIGHBORHOOD_DISPLAY_NAMES).flat(),
+      ...Object.keys(centroids),
+      ...Object.keys(polygons),
+      ...Object.values(LEGACY_NEIGHBORHOOD_IDS),
+    ].filter((text): text is string => typeof text === 'string')
+    expect(texts.filter((text) => broken.test(text))).toEqual([])
+    // Los alias apuntan a ids que existen (con la Ñ bien escrita).
+    expect(['maronas', 'penarol', 'villa munoz', 'retiro'].map(resolveNeighborhood)).toEqual(['MAROÑAS PARQUE GUARANI', 'PEÑAROL LAVALLEJA', 'VILLA MUÑOZ RETIRO', 'VILLA MUÑOZ RETIRO'])
+    expect(resolveNeighborhood('Larrañaga')).toBe('LARRAÑAGA')
+  })
+
+  it('los quitados de links viejos con la Ñ mal decodificada cuentan como el barrio actual', () => {
+    expect(parseRemove('neighborhood:LARRA\u00C3\u2018AGA,tag:terrace')).toEqual([{ kind: 'neighborhood', id: 'LARRAÑAGA' }, { kind: 'tag', id: 'terrace' }])
   })
 
   it('el nombre para mostrar no cambia el id y los nombres viejos siguen resolviendo', () => {

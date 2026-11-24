@@ -19,11 +19,16 @@
   margin: 0 auto;
   max-width: 1200px;
   min-width: 0;
-  padding: 24px 0 64px;
+  // Sin padding abajo: Guías (la última sección, con fondo) llega pegada al footer.
+  padding: 24px 0 0;
 
   @include media(md) {
     gap: 40px;
-    padding: 40px 0 64px;
+    padding: 40px 0 0;
+  }
 
+  // Sin Guías (sin guías publicadas o si falló), el espacio de siempre antes del footer.
+  &:not(:has(> [data-home-guides])) {
+    padding-bottom: 64px;
   }
 }

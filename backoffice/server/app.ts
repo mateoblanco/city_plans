@@ -39,6 +39,8 @@ import type { DiscountsService } from './discounts/run.ts'
 import { registerDiscountRoutes } from './discounts/routes.ts'
 import type { PopularityReader } from './popularity/list.ts'
 import { registerPopularityRoutes } from './popularity/routes.ts'
+import type { GoogleFlagsStore } from './google-flags/store.ts'
+import { registerGoogleFlagsRoutes } from './google-flags/routes.ts'
 import type { GuidesStore } from './guides/store.ts'
 import { registerGuideRoutes, type GuideRoutesConfig } from './guides/routes.ts'
 
@@ -118,6 +120,8 @@ type AppDependencies = {
   placeEditor?: PlaceEditor
   discounts?: DiscountsService
   popularityReader?: PopularityReader
+  /** Avisos del refresco de coordenadas de Google (Lugares › Avisos de Google). */
+  googleFlags?: GoogleFlagsStore
   guidesStore?: GuidesStore
   /** Para el botón "Vista previa" de las guías: la URL de la app y la clave (sólo del servidor). */
   /** Vista previa (APP_URL y la clave), búsqueda de candidatos (APP_URL) y generación con IA de las guías. */
@@ -221,11 +225,12 @@ function editError(error: EditError) {
   }
 }
 
-export function createApp({ provider, exaProvider, matchProviders = {}, instagramConfigured = false, extractor, sweeper, reportWriter, placesSaver, placesReader, placeIds, placeEditor, discounts, popularityReader, guidesStore, guidesPreview }: AppDependencies = {}) {
+export function createApp({ provider, exaProvider, matchProviders = {}, instagramConfigured = false, extractor, sweeper, reportWriter, placesSaver, placesReader, placeIds, placeEditor, discounts, popularityReader, googleFlags, guidesStore, guidesPreview }: AppDependencies = {}) {
   const app = new Hono()
 
   registerDiscountRoutes(app, discounts)
   registerPopularityRoutes(app, popularityReader)
+  registerGoogleFlagsRoutes(app, googleFlags)
   registerGuideRoutes(app, guidesStore, guidesPreview)
 
   app.get('/api/health', (context) =>

@@ -23,6 +23,7 @@
     "extraction:replay": "tsx server/scripts/extraction-replay.ts",
     "brands:backfill": "tsx server/scripts/brand-keys-backfill.ts",
     "chains:backfill": "tsx server/scripts/chains-backfill.ts",
+    "neighborhoods:fix-ids": "tsx server/scripts/neighborhood-ids-fix.ts",
     "websites:check": "tsx server/scripts/websites-check.ts",
     "places:clear-review-reasons": "tsx server/scripts/review-reasons-cleanup.ts",
     "places:check-status": "tsx server/scripts/places-status-check.ts",

@@ -11,6 +11,9 @@ export const REVIEW_REASONS = {
   closed_temporarily: 'Cerrado temporalmente',
   // Lo agregó la búsqueda de Descuentos › "No están en la base": siempre se revisa a mano antes de publicar.
   from_discounts: 'Agregado desde descuentos',
+  // Los pone "Despublicar" en Lugares › Avisos de Google (refresco de coordenadas de la app, place_google_flags).
+  location_moved: 'Se movió según Google',
+  not_found_in_google: 'No encontrado en Google',
 } as const
 
 export type ReviewReason = keyof typeof REVIEW_REASONS

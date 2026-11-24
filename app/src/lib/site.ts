@@ -12,6 +12,9 @@ export const SITE_ALTERNATE_NAME = "adondevamos";
 /** Dominio principal, sin barra final. */
 export const SITE_URL = "https://www.adondevamos.com.uy";
 
+/** Año del © del footer (Footer). Constante: con cacheComponents, leer la fecha en el render haría dinámica la página. */
+export const COPYRIGHT_YEAR = 2026;
+
 /** "<título> · <nombre>": el formato de la pestaña en todas las páginas. */
 export const withSiteName = (title: string) => `${title} · ${SITE_NAME}`;
 

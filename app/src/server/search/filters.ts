@@ -1,4 +1,4 @@
-import { NEIGHBORHOOD_NAMES } from '@shared/neighborhood-names.ts'
+import { NEIGHBORHOOD_NAMES, currentNeighborhoodId } from '@shared/neighborhood-names.ts'
 import { isSectionId, type SectionId } from '@shared/sections.ts'
 import { TAG_IDS, type TagId } from '@shared/tags.ts'
 import { parseChoice, type DiscountChoice } from '../discounts/selection'
@@ -59,7 +59,9 @@ export function parseFilters(raw: string | null | undefined): SearchFilters {
     const index = part.indexOf(':')
     if (index <= 0) continue
     const kind = part.slice(0, index).trim()
-    const id = part.slice(index + 1).trim()
+    const value = part.slice(index + 1).trim()
+    // Un link viejo con la Ñ mal decodificada (neighborhood:LARRAÃ‘AGA) cuenta como el barrio actual.
+    const id = kind === 'neighborhood' ? currentNeighborhoodId(value) : value
     if (kind === 'open' && (id === 'now' || id === 'today')) filters.opensNow = true
     else if (kind === 'diet' && (DIET_KEYS as readonly string[]).includes(id) && !filters.diet.includes(id as DietKey)) filters.diet.push(id as DietKey)
     else if (kind === 'neighborhood' && id in NEIGHBORHOOD_NAMES && !filters.neighborhoods.includes(id)) filters.neighborhoods.push(id)

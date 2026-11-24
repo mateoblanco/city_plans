@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
+import Footer from "@/components/Footer/Footer";
 import Header from "@/components/Header/Header";
 import HeaderBack from "@/components/Header/HeaderBack/HeaderBack";
 import SkipLinks from "@/components/SkipLinks/SkipLinks";
@@ -154,6 +155,7 @@ const PlacePage = (props: Props) => {
           <Details params={props.params} />
         </Suspense>
       </main>
+      <Footer />
     </>
   );
 };

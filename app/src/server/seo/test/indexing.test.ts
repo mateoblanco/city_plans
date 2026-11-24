@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { SITE_URL } from '@/lib/site'
+import { LEGAL_PAGES } from '@/lib/legal'
 import { allowIndexing, NAMED_CRAWLERS, robotsConfig, rootRobots, searchRobots, sitemapEntries } from '../indexing'
 
 const BASE = SITE_URL
@@ -79,7 +80,10 @@ describe('con indexación (lanzamiento)', () => {
       'https://www.adondevamos.com.uy/guides/montevideo/cafes-donde-nadie-te-apura',
       'https://www.adondevamos.com.uy/place/trouville',
       'https://www.adondevamos.com.uy/place/anastasia',
+      'https://www.adondevamos.com.uy/privacy',
+      'https://www.adondevamos.com.uy/terms',
     ])
+    expect(entries[5]).toMatchObject({ lastModified: new Date(`${LEGAL_PAGES.privacy.updatedAt}T00:00:00Z`), changeFrequency: 'yearly' })
     expect(entries[1].lastModified).toEqual(new Date('2026-11-19T00:00:00Z'))
     expect(entries[3].lastModified).toEqual(new Date('2026-11-01T12:00:00Z'))
     expect(entries[4]).not.toHaveProperty('lastModified')

@@ -131,6 +131,13 @@ describe('applyFilters', () => {
     expect([...filterChipKeys(parseFilters('open:today'))]).toEqual(['openAt:now'])
   })
 
+  it('links viejos: un barrio con la Ñ mal decodificada (LARRAÃ‘AGA) es el barrio actual', () => {
+    expect(parseFilters('neighborhood:LARRA\u00C3\u2018AGA,neighborhood:VILLA MU\u00C3\u2018OZ RETIRO').neighborhoods).toEqual(['LARRAÑAGA', 'VILLA MUÑOZ RETIRO'])
+    // El viejo y el nuevo juntos no se repiten.
+    expect(parseFilters('neighborhood:LARRA\u00C3\u2018AGA,neighborhood:LARRAÑAGA').neighborhoods).toEqual(['LARRAÑAGA'])
+    expect([...filterChipKeys(parseFilters('neighborhood:LARRA\u00C3\u2018AGA'))]).toEqual(['neighborhood:LARRAÑAGA'])
+  })
+
   it('"Abierto ahora" de la barra gana sobre el horario escrito ("esta noche", "hoy", "hoy al mediodía", un día)', () => {
     for (const openAt of ['tonight', 'today', 'midday', { day: 6, time: null }] as const) {
       const value = fromText()

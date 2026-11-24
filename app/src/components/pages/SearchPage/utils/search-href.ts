@@ -1,4 +1,5 @@
 import { normalizeBounds, zoneParam, type Bounds } from "@/lib/location";
+import { LEGACY_NEIGHBORHOOD_IDS } from "@shared/neighborhood-names.ts";
 
 /** Todo el estado de /search vive en la URL: texto, chips quitados, intención, filtros de la barra y ubicación. */
 export type SearchUrl = {
@@ -45,8 +46,14 @@ export function filterKey({ kind, id }: { kind: string; id: string }): string | 
   return kind === "diet" || kind === "neighborhood" || kind === "price" || kind === "section" || kind === "nearby" || kind === "tag" ? `${kind}:${id}` : null;
 }
 
-/** Claves de `f` de links viejos y su forma actual: "Abre hoy" (`open:today`) es "Abierto ahora". */
-const LEGACY_FILTERS: Record<string, string> = { "open:today": "open:now" };
+/**
+ * Claves de `f` de links viejos y su forma actual: "Abre hoy" (`open:today`) es "Abierto ahora" y un barrio con la Ñ mal
+ * decodificada (`neighborhood:LARRAÃ‘AGA`) es el actual.
+ */
+const LEGACY_FILTERS: Record<string, string> = {
+  "open:today": "open:now",
+  ...Object.fromEntries(Object.entries(LEGACY_NEIGHBORHOOD_IDS).map(([old, id]) => [`neighborhood:${old}`, `neighborhood:${id}`])),
+};
 
 /** `f` con las claves viejas en su forma actual, sin repetidos. */
 const currentFilters = (raw: string | null | undefined) => [...new Set(list(raw).map((item) => LEGACY_FILTERS[item] ?? item))];
