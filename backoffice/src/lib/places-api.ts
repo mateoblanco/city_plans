@@ -33,16 +33,23 @@ export class PlacesApiError extends Error {
   readonly code: ApiErrorResponse['error']['code']
   /** Con INSTAGRAM_IN_USE: los otros lugares que ya tienen ese Instagram. */
   readonly owners: InstagramOwner[]
+  /** En un error de extracción: lo ya gastado en fuentes y logo. */
+  readonly spent?: ApiErrorResponse['spent']
+  /** Con INSUFFICIENT_FUNDS: dónde cargar crédito. */
+  readonly creditUrl?: string
 
   constructor(
     code: ApiErrorResponse['error']['code'],
     message: string,
     owners: InstagramOwner[] = [],
+    extra: { spent?: ApiErrorResponse['spent']; creditUrl?: string } = {},
   ) {
     super(message)
     this.name = 'PlacesApiError'
     this.code = code
     this.owners = owners
+    if (extra.spent) this.spent = extra.spent
+    if (extra.creditUrl) this.creditUrl = extra.creditUrl
   }
 }
 
@@ -84,10 +91,13 @@ export async function parseApiResponse<T>(response: Response): Promise<T> {
       ? payload.error
       : null
     const owners = payload && typeof payload === 'object' && 'owners' in payload && Array.isArray(payload.owners) ? payload.owners as InstagramOwner[] : []
+    const extra = payload && typeof payload === 'object' ? payload as { spent?: unknown; creditUrl?: unknown } : {}
+    const spent = extra.spent && typeof extra.spent === 'object' ? extra.spent as ApiErrorResponse['spent'] : undefined
     throw new PlacesApiError(
       error?.code ?? 'UNKNOWN_ERROR',
       error?.message ?? 'No se pudo completar la consulta.',
       owners,
+      { spent, creditUrl: typeof extra.creditUrl === 'string' ? extra.creditUrl : undefined },
     )
   }
 
@@ -138,6 +148,12 @@ export type ExtractRequest = {
   seedCategories: PlaceSummary['seedCategories']
   /** Opcional: si falta, el servidor lo calcula con las coordenadas. */
   neighborhoodId?: string
+}
+
+/** Saldo del AI Gateway antes de un lote: sin crédito (402) o sin respuesta tira PlacesApiError. */
+export async function checkGatewayCredits(signal?: AbortSignal): Promise<{ balanceUsd: number; creditUrl: string }> {
+  const response = await fetch('/api/ai-gateway/credits', { signal })
+  return parseApiResponse<{ balanceUsd: number; creditUrl: string }>(response)
 }
 
 /** Corre el pipeline completo para un lugar. Cada llamada es independiente y sin estado. */

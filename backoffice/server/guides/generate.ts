@@ -2,6 +2,7 @@ import { gateway, generateText, Output } from 'ai'
 import type { z } from 'zod'
 import { llmUsageCost, type LlmUsage } from '../providers/place-extraction-service.ts'
 import { withServiceLimit } from '../providers/service-limits.ts'
+import { isNoCredit } from '../providers/ai-credit.ts'
 import {
   areaPrompt,
   factsBlock,
@@ -20,6 +21,9 @@ import {
 import { guideStyle } from './prompts.ts'
 import { dishIssues, forbiddenPhrases, introIssues, openingIssues, phraseIssues, standalonePriceIssues, themeIssues } from './style-checks.ts'
 
+// Compartidos con la extracción de lugares.
+export { AI_CREDIT_URL, isNoCredit } from '../providers/ai-credit.ts'
+
 /** El mejor modelo disponible en el AI Gateway para escribir; se cambia con GUIDES_MODEL. */
 export const DEFAULT_GUIDES_MODEL = 'anthropic/claude-opus-5.5'
 
@@ -27,8 +31,6 @@ export function guidesModel(env: Record<string, string | undefined> = process.en
   return env.GUIDES_MODEL?.trim() || DEFAULT_GUIDES_MODEL
 }
 
-/** Dónde se carga crédito del AI Gateway (el dashboard elige el equipo). */
-export const AI_CREDIT_URL = 'https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai'
 
 /** Llamada al modelo con salida estructurada; se reemplaza en los tests. Sin cache: regenerar tiene que dar otro texto. */
 export type GuideLlmCall = (request: { model: string; system: string; prompt: string; schema: z.ZodType }) => Promise<{ output: unknown; costUsd: number }>
@@ -78,15 +80,6 @@ export class GuideAiError extends Error {
   }
 }
 
-/** Si el error (o lo que envuelve: cause, lastError, errors) es un 402 o "sin crédito" del AI Gateway. */
-export function isNoCredit(error: unknown, depth = 0): boolean {
-  if (!error || typeof error !== 'object' || depth > 4) return false
-  const record = error as { statusCode?: unknown; status?: unknown; type?: unknown; message?: unknown; cause?: unknown; lastError?: unknown; errors?: unknown }
-  if (record.statusCode === 402 || record.status === 402) return true
-  if (typeof record.type === 'string' && /insufficient_funds|payment_required/.test(record.type)) return true
-  if (typeof record.message === 'string' && /insufficient (funds|credit)|payment required|no credits?/i.test(record.message)) return true
-  return [record.cause, record.lastError, ...(Array.isArray(record.errors) ? record.errors : [])].some((inner) => isNoCredit(inner, depth + 1))
-}
 
 const plain = (text: string) => text.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
 

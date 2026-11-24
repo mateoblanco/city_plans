@@ -4,6 +4,14 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import type { NeighborhoodSweepEvent, NeighborhoodSweepSummary, PlaceGroup } from '@/types/places'
+import { PlacesApiError } from '@/lib/places-api'
+
+// El saldo del AI Gateway antes de cada lote: con crédito salvo que el test diga otra cosa.
+const { gatewayCredits } = vi.hoisted(() => ({ gatewayCredits: vi.fn() }))
+vi.mock('@/lib/places-api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/places-api')>()),
+  checkGatewayCredits: gatewayCredits,
+}))
 
 vi.mock('@/components/search-combobox', () => ({
   SearchCombobox: ({
@@ -126,6 +134,8 @@ beforeEach(() => {
   window.location.hash = ''
   vi.stubGlobal('localStorage', memoryStorage())
   vi.stubEnv('VITE_GOOGLE_MAPS_BROWSER_KEY', 'clave-de-navegador')
+  gatewayCredits.mockReset()
+  gatewayCredits.mockResolvedValue({ balanceUsd: 10, creditUrl: 'https://credito.example' })
 })
 
 afterEach(() => {
@@ -435,7 +445,7 @@ describe('Buscar por barrio', () => {
 
     function stub(sweepItems: ReturnType<typeof items>, extract: (id: string, call: number) => Promise<Response>) {
       const calls: string[] = []
-      const reports: { apifyErrors?: string[]; stoppedByApify?: boolean; exaErrors?: string[]; stoppedByExa?: boolean }[] = []
+      const reports: { apifyErrors?: string[]; stoppedByApify?: boolean; exaErrors?: string[]; stoppedByExa?: boolean; stoppedByFunds?: boolean; failed?: unknown[] }[] = []
       vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input)
         if (url.includes('/sweep')) {
@@ -511,6 +521,44 @@ describe('Buscar por barrio', () => {
       await user.click(screen.getByRole('button', { name: /Procesados/ }))
       expect(screen.getByRole('checkbox', { name: 'Seleccionar Lugar 2' })).toBeDisabled()
       expect(screen.getAllByText('Error: No se procesó: el lote se cortó por errores de Exa.')).toHaveLength(1)
+    })
+
+    it('sin crédito antes de arrancar: no busca fuentes y avisa con el link para cargar', async () => {
+      gatewayCredits.mockRejectedValueOnce(new PlacesApiError('INSUFFICIENT_FUNDS', 'Sin crédito en el AI Gateway.', [], { creditUrl: 'https://credito.example' }))
+      const { calls, reports } = stub(items(3), (id) => Promise.resolve(new Response(JSON.stringify(okResult(id, `Lugar ${id.slice(1)}`)), { status: 200 })))
+      render(<App />)
+      const user = await startSweep()
+      await screen.findByLabelText('Recorrido completo')
+      await user.click(screen.getByLabelText('Seleccionar todos'))
+      await user.click(screen.getByRole('button', { name: 'Procesar sin revisar (3)' }))
+
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent('Sin crédito en el AI Gateway')
+      expect(within(alert).getByRole('link', { name: 'Cargar crédito' })).toHaveAttribute('href', 'https://credito.example')
+      expect(calls).toEqual([])
+      expect(reports).toEqual([])
+      expect(screen.getByRole('button', { name: 'Procesar sin revisar (3)' })).toBeEnabled()
+    })
+
+    it('un 402 durante el lote lo corta ahí y el reporte suma lo gastado en fuentes por los que fallaron', async () => {
+      const noCredit = () => Promise.resolve(new Response(JSON.stringify({
+        error: { code: 'INSUFFICIENT_FUNDS', message: 'Sin crédito en el AI Gateway.' },
+        creditUrl: 'https://credito.example',
+        spent: { sourcesUsd: 0.02, logoUsd: 0.001 },
+      }), { status: 402 }))
+      const { calls, reports } = stub(items(8), (id) => id === 'a2'
+        ? noCredit()
+        : Promise.resolve(new Response(JSON.stringify(okResult(id, `Lugar ${id.slice(1)}`)), { status: 200 })))
+      await processAll(8)
+
+      const alerts = screen.getAllByRole('alert')
+      expect(alerts.some((alert) => alert.textContent?.includes('Sin crédito en el AI Gateway'))).toBe(true)
+      expect(alerts.some((alert) => alert.textContent?.includes('el AI Gateway se quedó sin crédito'))).toBe(true)
+      // Con el primer 402 no arranca ninguno más: el 8 nunca se pide.
+      expect(calls).not.toContain('a8')
+      await waitFor(() => expect(reports).toHaveLength(1))
+      expect(reports[0]).toMatchObject({ stoppedByFunds: true, failed: [{ googlePlaceId: 'a2', sourcesUsd: 0.02, logoUsd: 0.001 }] })
+      expect(screen.getByRole('button', { name: /Reintentar fallidos/ })).toBeEnabled()
     })
 
     it('errores de Apify no seguidos no cortan el lote', async () => {

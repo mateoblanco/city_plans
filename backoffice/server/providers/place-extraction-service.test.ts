@@ -48,7 +48,7 @@ import { groupOf } from '../../src/data/tags.ts'
 import type { GooglePlaceDetailsResponse } from '../../src/types/places.ts'
 import { EXA_SUMMARY_URL } from './source-hosts.ts'
 import { RateLimitError, TransientProviderError } from './rate-limit.ts'
-import { DiscoveryExpired, ExaProviderFailure, InstagramNotFound, InstagramProviderFailure, PlacesProviderError } from './places-provider.ts'
+import { DiscoveryExpired, ExaProviderFailure, GatewayInsufficientFunds, InstagramNotFound, InstagramProviderFailure, PlacesProviderError } from './places-provider.ts'
 import { DISCOVERY_TTL_MS, DiscoveryStore } from './discovery-store.ts'
 import type { ExtractionSnapshot } from './extraction-snapshots.ts'
 import { CANDIDATE_TTL_MS, InstagramCandidateRegistry, type InstagramOwners } from './instagram-candidate-registry.ts'
@@ -198,6 +198,26 @@ describe('PlaceExtractionService', () => {
       expect(failure).toBeInstanceOf(ExaProviderFailure)
       expect(searchPlace).toHaveBeenCalledTimes(4)
       expect(generate).not.toHaveBeenCalled()
+      vi.restoreAllMocks()
+    })
+
+    it('un 402 del LLM (insufficient_funds) no se reintenta y sale sin crédito con lo gastado en fuentes', async () => {
+      quiet()
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const noCredit = new APICallError({ message: 'Insufficient funds', url: 'https://ai-gateway.example/v1', requestBodyValues: {}, statusCode: 402, responseBody: '{"error":{"type":"insufficient_funds"}}' })
+      const generate = vi.fn().mockRejectedValue(noCredit)
+      const service = new PlaceExtractionService({
+        apiKey: 'test-key', details: { getDetails: async () => withWebsite }, website, generate, rateLimitRetry: fastRetry,
+        exa: { configured: true, searchPlace: async () => exaResponse() },
+      })
+
+      const failure = await service.extract('place-1', { seedCategories: ['cafe'] }).catch((error: unknown) => error)
+
+      expect(failure).toBeInstanceOf(GatewayInsufficientFunds)
+      expect(generate).toHaveBeenCalledTimes(1)
+      const spent = (failure as GatewayInsufficientFunds).spent
+      expect(spent?.sourcesUsd).toBeGreaterThan(0)
+      expect(spent?.logoUsd).toBe(0)
       vi.restoreAllMocks()
     })
 

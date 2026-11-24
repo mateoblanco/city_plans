@@ -152,7 +152,7 @@ export const classifyLogo: LogoClassifier = async (image, model) => {
     model,
     output: Output.object({ schema: LogoClassification }),
     system: LOGO_PROMPT,
-    messages: [{ role: 'user', content: [{ type: 'image', image, mediaType: 'image/jpeg' }] }],
+    messages: [{ role: 'user', content: [{ type: 'file', data: image, mediaType: 'image/jpeg' }] }],
     ...(model.startsWith('anthropic/') ? { providerOptions: { anthropic: { structuredOutputMode: 'outputFormat' } } } : {}),
     // Los 429 los reintenta withRateLimitRetry, no el AI SDK.
     maxRetries: 0,

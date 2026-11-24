@@ -18,7 +18,8 @@ import type {
 import type { PlaceMatchProvider } from './providers/place-match-provider.ts'
 import { matchPlace } from './providers/place-match-provider.ts'
 import type { PlacesProvider } from './providers/places-provider.ts'
-import { DiscoveryExpired, ExaProviderFailure, InstagramNotFound, InstagramProviderFailure, PlacesProviderError } from './providers/places-provider.ts'
+import { DiscoveryExpired, ExaProviderFailure, GatewayInsufficientFunds, InstagramNotFound, InstagramProviderFailure, PlacesProviderError } from './providers/places-provider.ts'
+import { AI_CREDIT_URL, isNoCredit } from './providers/ai-credit.ts'
 import type { ExaPlaceProvider } from './providers/exa-place-provider.ts'
 import type { PlaceExtractor } from './providers/place-extraction-service.ts'
 import type { NeighborhoodSweeper } from './providers/neighborhood-sweep.ts'
@@ -126,6 +127,8 @@ type AppDependencies = {
   /** Para el botón "Vista previa" de las guías: la URL de la app y la clave (sólo del servidor). */
   /** Vista previa (APP_URL y la clave), búsqueda de candidatos (APP_URL) y generación con IA de las guías. */
   guidesPreview?: GuideRoutesConfig
+  /** Saldo del AI Gateway (USD), para no arrancar un lote sin crédito. */
+  gatewayCredits?: () => Promise<{ balanceUsd: number }>
 }
 
 const MAX_SAVE_PLACES = 500
@@ -185,6 +188,16 @@ function apiError(
 }
 
 function providerError(error: PlacesProviderError) {
+  const mapped = providerErrorBody(error)
+  // Lo ya gastado en fuentes y logo: el frontend lo suma al costo del lote aunque el lugar falle.
+  return error.spent ? { status: mapped.status, body: { ...mapped.body, spent: error.spent } } : mapped
+}
+
+function providerErrorBody(error: PlacesProviderError) {
+  // Sin crédito: el frontend corta el lote con el primero.
+  if (error instanceof GatewayInsufficientFunds) {
+    return { status: 402 as const, body: { ...apiError('INSUFFICIENT_FUNDS', error.message), creditUrl: AI_CREDIT_URL } }
+  }
   // Antes que upstream: el frontend lo cuenta aparte ("Error de Apify: reintentar") y corta el lote si se repite.
   if (error instanceof InstagramProviderFailure) {
     return { status: 502 as const, body: apiError('INSTAGRAM_PROVIDER_ERROR', error.message) }
@@ -225,7 +238,7 @@ function editError(error: EditError) {
   }
 }
 
-export function createApp({ provider, exaProvider, matchProviders = {}, instagramConfigured = false, extractor, sweeper, reportWriter, placesSaver, placesReader, placeIds, placeEditor, discounts, popularityReader, googleFlags, guidesStore, guidesPreview }: AppDependencies = {}) {
+export function createApp({ provider, exaProvider, matchProviders = {}, instagramConfigured = false, extractor, sweeper, reportWriter, placesSaver, placesReader, placeIds, placeEditor, discounts, popularityReader, googleFlags, guidesStore, guidesPreview, gatewayCredits }: AppDependencies = {}) {
   const app = new Hono()
 
   registerDiscountRoutes(app, discounts)
@@ -379,6 +392,22 @@ export function createApp({ provider, exaProvider, matchProviders = {}, instagra
         apiError('UNKNOWN_ERROR', 'No se pudo obtener el detalle de Google Places.'),
         500,
       )
+    }
+  })
+
+  // Antes de arrancar un lote: sin crédito (saldo 0 o 402) el frontend no lo arranca.
+  app.get('/api/ai-gateway/credits', async (context) => {
+    context.header('Cache-Control', 'no-store')
+    if (!gatewayCredits) return context.json(apiError('CONFIGURATION_ERROR', 'Falta configurar AI_GATEWAY_API_KEY en .env.local.'), 503)
+    const noCredit = () => context.json({ ...apiError('INSUFFICIENT_FUNDS', 'Sin crédito en el AI Gateway.'), creditUrl: AI_CREDIT_URL }, 402)
+    try {
+      const { balanceUsd } = await gatewayCredits()
+      if (!(balanceUsd > 0)) return noCredit()
+      return context.json({ balanceUsd, creditUrl: AI_CREDIT_URL })
+    } catch (error) {
+      if (isNoCredit(error)) return noCredit()
+      const detail = error instanceof Error ? ` ${error.message}` : ''
+      return context.json(apiError('UPSTREAM_ERROR', `El AI Gateway no responde.${detail}`), 502)
     }
   })
 

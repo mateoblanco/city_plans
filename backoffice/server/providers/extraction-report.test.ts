@@ -67,6 +67,7 @@ describe('reporte de extracción por lote', () => {
       rateLimits: { retries: { exa: 3, llm: 3 }, transientRetries: 0, places: 2, notRecovered: 1 },
       apifyErrors: { places: [], stopped: false },
       exaErrors: { places: [], stopped: false },
+      failed: { places: 0, costUsd: 0, stoppedByFunds: false },
       instagramTieBreaks: {},
       instagramManual: { handle: 0, none: 0 },
       review: { places: 1, byReason: { not_open_yet: 1, restaurant_without_food: 1 } },
@@ -130,6 +131,21 @@ describe('reporte de extracción por lote', () => {
     expect(report.summary.exaErrors).toEqual({ places: ['place-6'], stopped: false })
     expect(reportSummary(report)).toContain('Error de Exa: reintentar · 1 sin procesar')
     expect(reportSummary(report)).toContain('Reintentos de Apify por timeout o error: 2')
+  })
+
+  it('suma al costo lo gastado en los lugares que fallaron y marca el corte por falta de crédito', () => {
+    const parsed = extractionReportRequestSchema.parse({
+      places: [],
+      stoppedByFunds: true,
+      failed: [{ googlePlaceId: 'a1', sourcesUsd: 0.02, logoUsd: 0.001 }, { googlePlaceId: 'a2', sourcesUsd: 0.03 }],
+    })
+    const report = buildExtractionReport(parsed)
+
+    expect(report.summary.cost).toEqual({ sourcesUsd: 0.05, mainLlmUsd: 0, hoursSecondSearchUsd: 0, logoUsd: 0.001, totalUsd: 0.051 })
+    expect(report.summary.totalCostUsd).toBe(0.051)
+    expect(report.summary.failed).toEqual({ places: 2, costUsd: 0.051, stoppedByFunds: true })
+    expect(reportSummary(report)).toContain('Fallidos con gasto: 2 · USD 0.0510 (incluido en el costo)')
+    expect(reportSummary(report)).toContain('Sin crédito en el AI Gateway: el lote se cortó')
   })
 
   it('escribe output/report-<fecha-hora>.json', async () => {

@@ -1,7 +1,7 @@
 import type { FoodPlaceType } from '../../src/data/food-place-types.ts'
 import type { CategoryId } from '../../src/data/tags.ts'
 import type { MontevideoNeighborhood } from '../../src/data/neighborhoods.ts'
-import type { PlaceSummary } from '../../src/types/places.ts'
+import type { ExtractionSpent, PlaceSummary } from '../../src/types/places.ts'
 
 export type PlaceSearchCriteria =
   | {
@@ -54,6 +54,8 @@ export type ProviderErrorKind =
 
 export class PlacesProviderError extends Error {
   readonly kind: ProviderErrorKind
+  /** En la extracción: lo ya gastado en fuentes y logo antes de fallar, para el costo del lote. */
+  spent?: ExtractionSpent
 
   constructor(
     kind: ProviderErrorKind,
@@ -87,6 +89,14 @@ export class ExaProviderFailure extends PlacesProviderError {
     const detail = cause instanceof Error ? ` ${cause.message}` : ''
     super('upstream', `Error de Exa: no se pudo consultar Exa.${detail}`, { cause })
     this.name = 'ExaProviderFailure'
+  }
+}
+
+/** El AI Gateway respondió 402 (insufficient_funds): sin crédito. HTTP 402 con código INSUFFICIENT_FUNDS. */
+export class GatewayInsufficientFunds extends PlacesProviderError {
+  constructor(cause: unknown) {
+    super('quota', 'Sin crédito en el AI Gateway.', { cause })
+    this.name = 'GatewayInsufficientFunds'
   }
 }
 

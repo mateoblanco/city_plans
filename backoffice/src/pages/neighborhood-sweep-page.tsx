@@ -908,6 +908,20 @@ export function NeighborhoodSweepPage() {
               </div>
             )}
 
+            {batch.gatewayBlock && (
+              <p role="alert" className="mt-4 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+                {batch.gatewayBlock.message}
+                {batch.gatewayBlock.creditUrl && (
+                  <>
+                    {' · '}
+                    <a href={batch.gatewayBlock.creditUrl} target="_blank" rel="noreferrer" className="font-medium underline underline-offset-2">
+                      Cargar crédito
+                    </a>
+                  </>
+                )}
+              </p>
+            )}
+
             {processedTabOpen && (
               <ProcessedPlacesPanel rows={batch.rows} places={places} categoryLabel={categoryLabel} />
             )}
@@ -1047,6 +1061,11 @@ function BatchMetricsPanel({ metrics, closed, nameOf }: { metrics: ExtractionBat
     {metrics.stoppedByExa && (
       <p role="alert" className="mt-4 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
         Se cortó el lote: Exa falló en {EXA_FAILURE_LIMIT} lugares seguidos. Revisá Exa y reintentá.
+      </p>
+    )}
+    {metrics.stoppedByFunds && (
+      <p role="alert" className="mt-4 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+        Se cortó el lote: el AI Gateway se quedó sin crédito. Cargá crédito y reintentá los fallidos.
       </p>
     )}
     <section

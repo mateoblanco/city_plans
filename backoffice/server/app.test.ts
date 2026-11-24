@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createApp } from './app.ts'
 import { EditError, type PlaceEditor } from './places/edit.ts'
 import { NEIGHBORHOOD_IDS } from '../src/lib/getNeighborhood.ts'
-import { DiscoveryExpired, ExaProviderFailure, InstagramNotFound, InstagramProviderFailure, PlacesProviderError, type PlacesProvider } from './providers/places-provider.ts'
+import { DiscoveryExpired, ExaProviderFailure, GatewayInsufficientFunds, InstagramNotFound, InstagramProviderFailure, PlacesProviderError, type PlacesProvider } from './providers/places-provider.ts'
 
 const validRequest = {
   mode: 'filters',
@@ -694,6 +694,40 @@ describe('exploración multi-fuente', () => {
     expect(await response.json()).toEqual({
       error: { code: 'EXA_PROVIDER_ERROR', message: 'Error de Exa: no se pudo consultar Exa. Exa no pudo completar la consulta.' },
     })
+  })
+
+  it('sin crédito en el AI Gateway sale con 402, el link para cargar y lo ya gastado en fuentes', async () => {
+    const failure = new GatewayInsufficientFunds(new Error('insufficient_funds'))
+    failure.spent = { sourcesUsd: 0.02, logoUsd: 0.001 }
+    const app = createApp({ extractor: { configured: true, extract: vi.fn().mockRejectedValue(failure) } })
+    const response = await app.request('/api/extract', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ googlePlaceId: 'place-1', seedCategories: ['cafe'] }) })
+    expect(response.status).toBe(402)
+    expect(await response.json()).toEqual({
+      error: { code: 'INSUFFICIENT_FUNDS', message: 'Sin crédito en el AI Gateway.' },
+      creditUrl: 'https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai',
+      spent: { sourcesUsd: 0.02, logoUsd: 0.001 },
+    })
+  })
+
+  it('el saldo del AI Gateway: con crédito 200, en cero o con 402 sale INSUFFICIENT_FUNDS, sin respuesta 502', async () => {
+    const credits = vi.fn()
+      .mockResolvedValueOnce({ balanceUsd: 3.5 })
+      .mockResolvedValueOnce({ balanceUsd: 0 })
+      .mockRejectedValueOnce(Object.assign(new Error('Insufficient funds'), { statusCode: 402 }))
+      .mockRejectedValueOnce(new Error('fetch failed'))
+    const app = createApp({ gatewayCredits: credits })
+    const ok = await app.request('/api/ai-gateway/credits')
+    expect(ok.status).toBe(200)
+    expect(await ok.json()).toMatchObject({ balanceUsd: 3.5 })
+    for (const _ of [0, 1]) {
+      const response = await app.request('/api/ai-gateway/credits')
+      expect(response.status).toBe(402)
+      expect(await response.json()).toMatchObject({ error: { code: 'INSUFFICIENT_FUNDS' }, creditUrl: expect.any(String) })
+    }
+    const down = await app.request('/api/ai-gateway/credits')
+    expect(down.status).toBe(502)
+    expect(await down.json()).toMatchObject({ error: { code: 'UPSTREAM_ERROR', message: 'El AI Gateway no responde. fetch failed' } })
+    expect((await createApp().request('/api/ai-gateway/credits')).status).toBe(503)
   })
 
   it('procesa en dos pasos: descubre y completa con el Instagram elegido, validando el handle', async () => {

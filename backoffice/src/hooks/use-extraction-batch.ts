@@ -5,8 +5,8 @@ import { logoSummary, type LogoSummary } from '@/lib/logo-summary'
 import { reviewSummary, type ReviewSummary } from '@/lib/review-summary'
 import { reportPlace } from '@/lib/extraction-report-entry'
 import { initialDraft, instagramChoiceFor, type ReviewDraft } from '@/lib/instagram-review'
-import { PlacesApiError, completePlace, discoverPlace, extractPlace, saveExtractionReport, type ExtractRequest } from '@/lib/places-api'
-import type { ApiErrorCode, ExtractionReportRequest, InstagramDiscovery, PlaceEnrichmentResponse, PlaceExtractionPerformance } from '@/types/places'
+import { PlacesApiError, checkGatewayCredits, completePlace, discoverPlace, extractPlace, saveExtractionReport, type ExtractRequest } from '@/lib/places-api'
+import type { ApiErrorCode, ExtractionReportRequest, ExtractionSpent, InstagramDiscovery, PlaceEnrichmentResponse, PlaceExtractionPerformance } from '@/types/places'
 
 /** discovering: paso 1 en curso; reviewing: esperando la revisión del Instagram para el paso 2. */
 export type ExtractionStatus = 'queued' | 'discovering' | 'reviewing' | 'running' | 'done' | 'error'
@@ -26,14 +26,24 @@ export type ExtractionRow = {
   error?: string
   /** Código del error de la API; BATCH_STOPPED: no se procesó porque el lote se cortó. */
   errorCode?: ApiErrorCode | 'BATCH_STOPPED'
+  /** Con error: lo que ya se gastó en fuentes y logo, para el costo del reporte. */
+  spent?: ExtractionSpent
 }
 
 /** Mensaje de las filas que quedaron en cola cuando el lote se cortó. */
 export const BATCH_STOPPED_MESSAGE = 'No se procesó: el lote se cortó por errores de Apify.'
 export const BATCH_STOPPED_BY_EXA_MESSAGE = 'No se procesó: el lote se cortó por errores de Exa.'
+export const BATCH_STOPPED_BY_FUNDS_MESSAGE = 'No se procesó: el lote se cortó por falta de crédito en el AI Gateway.'
+export const NO_CREDIT_MESSAGE = 'Sin crédito en el AI Gateway'
+/** Si el servidor no manda el link (no debería pasar), el mismo de las guías. */
+const DEFAULT_CREDIT_URL = 'https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai'
+
+/** El lote no arrancó o se cortó por el AI Gateway: sin crédito (con el link para cargar) o sin respuesta. */
+export type GatewayBlock = { message: string; creditUrl: string | null }
 
 const isApifyError = (row: ExtractionRow) => row.status === 'error' && row.errorCode === 'INSTAGRAM_PROVIDER_ERROR'
 const isExaError = (row: ExtractionRow) => row.status === 'error' && row.errorCode === 'EXA_PROVIDER_ERROR'
+const isFundsError = (row: ExtractionRow) => row.status === 'error' && row.errorCode === 'INSUFFICIENT_FUNDS'
 
 export type ExtractionStep = keyof PlaceExtractionPerformance['stepsMs']
 
@@ -55,12 +65,14 @@ export type ExtractionBatchMetrics = {
   exaErrors: string[]
   /** El lote se cortó por EXA_FAILURE_LIMIT errores de Exa seguidos. */
   stoppedByExa: boolean
+  /** El lote se cortó con el primer 402 del AI Gateway (sin crédito). */
+  stoppedByFunds: boolean
   /** Cuentas de Instagram descartadas por compartidas entre lugares de distinta marca, y los lugares re-procesados. */
   sharedAccounts: { handle: string; reprocessed: string[] }[]
 }
 
 type BatchOutcome = { id: string; row: ExtractionRow }
-type BatchExtras = Pick<ExtractionBatchMetrics, 'stoppedByApify' | 'stoppedByExa' | 'sharedAccounts'>
+type BatchExtras = Pick<ExtractionBatchMetrics, 'stoppedByApify' | 'stoppedByExa' | 'stoppedByFunds' | 'sharedAccounts'>
 
 function batchMetrics(totalMs: number, entries: BatchOutcome[], extras: BatchExtras): ExtractionBatchMetrics {
   const outcomes = entries.map((entry) => entry.row)
@@ -126,13 +138,18 @@ function sharedAccountsToRedo(entries: BatchOutcome[]): { handle: string; ids: s
   return [...redo].map(([handle, ids]) => ({ handle, ids: [...ids] }))
 }
 
-function reportRequest(entries: BatchOutcome[], { stoppedByApify, stoppedByExa }: Pick<BatchExtras, 'stoppedByApify' | 'stoppedByExa'>): ExtractionReportRequest {
+function reportRequest(entries: BatchOutcome[], { stoppedByApify, stoppedByExa, stoppedByFunds }: Pick<BatchExtras, 'stoppedByApify' | 'stoppedByExa' | 'stoppedByFunds'>): ExtractionReportRequest {
   const outcomes = entries.map((entry) => entry.row)
   return {
     apifyErrors: entries.filter((entry) => isApifyError(entry.row)).map((entry) => entry.id),
     stoppedByApify,
     exaErrors: entries.filter((entry) => isExaError(entry.row)).map((entry) => entry.id),
     stoppedByExa,
+    stoppedByFunds,
+    // Los que fallaron después de pagar fuentes: lo gastado suma al costo del lote.
+    failed: entries.flatMap(({ id, row }) => row.status === 'error' && row.spent && row.spent.sourcesUsd + row.spent.logoUsd > 0
+      ? [{ googlePlaceId: id, sourcesUsd: row.spent.sourcesUsd, logoUsd: row.spent.logoUsd }]
+      : []),
     // Cada lugar terminado entra al resumen; sólo los que tuvieron fuentes traen review.
     places: outcomes.flatMap(({ status, result }) => (status === 'done' && result ? [reportPlace(result)] : [])),
   }
@@ -147,8 +164,9 @@ const ERROR_MESSAGE = 'No se pudo procesar el lugar.'
  * Procesa lugares con p-map, cada uno con su request. En un paso (`run`, "Procesar sin revisar") o en dos: `discover`
  * deja los lugares en la revisión del Instagram y `complete` sigue con lo revisado. Los resultados viven sólo en este
  * estado; una falla no corta las demás, salvo APIFY_FAILURE_LIMIT errores de Apify seguidos (o EXA_FAILURE_LIMIT de
- * Exa): ahí deja de arrancar lugares (los que están corriendo terminan) y los que quedaban en cola pasan a error, para
- * reintentarlos.
+ * Exa, o el primer 402 del AI Gateway): ahí deja de arrancar lugares (los que están corriendo terminan) y los que
+ * quedaban en cola pasan a error, para reintentarlos. Antes de arrancar consulta el saldo del AI Gateway: sin crédito
+ * o sin respuesta, el lote no arranca.
  */
 export function useExtractionBatch() {
   const [rows, setRows] = useState<Record<string, ExtractionRow>>({})
@@ -156,6 +174,7 @@ export function useExtractionBatch() {
   const [metrics, setMetrics] = useState<ExtractionBatchMetrics | null>(null)
   // Lo cargado en la revisión del Instagram, por lugar: sobrevive a los cambios de tab.
   const [drafts, setDrafts] = useState<Record<string, ReviewDraft>>({})
+  const [gatewayBlock, setGatewayBlock] = useState<GatewayBlock | null>(null)
   const controllerRef = useRef<AbortController | null>(null)
   const requestsRef = useRef(new Map<string, ExtractRequest>())
   // Descubrimiento y duración del paso 1 por lugar: el paso 2 los conserva y suma los dos tiempos (sin la espera de
@@ -170,6 +189,22 @@ export function useExtractionBatch() {
     const controller = new AbortController()
     controllerRef.current = controller
 
+    // Sin crédito o sin respuesta del AI Gateway no arranca: ni siquiera se buscan las fuentes.
+    setGatewayBlock(null)
+    setRunning(true)
+    try {
+      await checkGatewayCredits(controller.signal)
+    } catch (error) {
+      if (controller.signal.aborted) return
+      controllerRef.current = null
+      setRunning(false)
+      setGatewayBlock(error instanceof PlacesApiError && error.code === 'INSUFFICIENT_FUNDS'
+        ? { message: NO_CREDIT_MESSAGE, creditUrl: error.creditUrl ?? DEFAULT_CREDIT_URL }
+        : { message: `No se pudo verificar el AI Gateway: ${error instanceof Error ? error.message : 'sin respuesta.'}`, creditUrl: null })
+      return
+    }
+    if (controller.signal.aborted) return
+
     for (const { request } of jobs) requestsRef.current.set(request.googlePlaceId, request)
     const setRow = (id: string, row: ExtractionRow) => {
       if (!controller.signal.aborted) setRows((current) => ({ ...current, [id]: row }))
@@ -181,7 +216,6 @@ export function useExtractionBatch() {
       return next
     })
     setMetrics(null)
-    setRunning(true)
 
     const startedAt = performance.now()
     const outcomes = new Map<string, ExtractionRow>()
@@ -190,8 +224,10 @@ export function useExtractionBatch() {
     let stoppedByApify = false
     let exaStreak = 0
     let stoppedByExa = false
+    let stoppedByFunds = false
+    const stopped = () => stoppedByApify || stoppedByExa || stoppedByFunds
     const processOne = async ({ request, phase }: BatchJob) => {
-      if (controller.signal.aborted || stoppedByApify || stoppedByExa) return
+      if (controller.signal.aborted || stopped()) return
       const id = request.googlePlaceId
       started.add(id)
       const previous = discoveriesRef.current.get(id)
@@ -219,24 +255,33 @@ export function useExtractionBatch() {
         // Handle mal escrito: vuelve a la revisión con el error, sin perder el descubrimiento.
         row = phase === 'complete' && errorCode === 'INSTAGRAM_NOT_FOUND'
           ? { status: 'reviewing', phase: 'discover', discovery: previous?.discovery, instagramError: message }
-          : { status: 'error', phase, durationMs: elapsed(), error: message, ...(errorCode ? { errorCode } : {}), discovery: previous?.discovery }
+          : {
+              status: 'error', phase, durationMs: elapsed(), error: message, ...(errorCode ? { errorCode } : {}), discovery: previous?.discovery,
+              ...(error instanceof PlacesApiError && error.spent ? { spent: error.spent } : {}),
+            }
+        if (errorCode === 'INSUFFICIENT_FUNDS') {
+          setGatewayBlock({ message: NO_CREDIT_MESSAGE, creditUrl: (error as PlacesApiError).creditUrl ?? DEFAULT_CREDIT_URL })
+        }
       }
       // Seguidos en el orden en que terminan: cualquier otro resultado corta la racha.
       apifyStreak = isApifyError(row) ? apifyStreak + 1 : 0
       if (apifyStreak >= APIFY_FAILURE_LIMIT) stoppedByApify = true
       exaStreak = isExaError(row) ? exaStreak + 1 : 0
       if (exaStreak >= EXA_FAILURE_LIMIT) stoppedByExa = true
+      // Sin crédito no hay racha: con el primero ya no se buscan fuentes para el resto.
+      if (isFundsError(row)) stoppedByFunds = true
       outcomes.set(id, row)
       setRow(id, row)
     }
     await pMap(jobs, processOne, { concurrency: EXTRACT_CONCURRENCY })
     if (controller.signal.aborted) return
 
-    if (stoppedByApify || stoppedByExa) {
+    if (stopped()) {
+      const stoppedMessage = stoppedByFunds ? BATCH_STOPPED_BY_FUNDS_MESSAGE : stoppedByApify ? BATCH_STOPPED_MESSAGE : BATCH_STOPPED_BY_EXA_MESSAGE
       for (const { request, phase } of jobs) {
         const id = request.googlePlaceId
         if (started.has(id)) continue
-        const row: ExtractionRow = { status: 'error', phase, error: stoppedByApify ? BATCH_STOPPED_MESSAGE : BATCH_STOPPED_BY_EXA_MESSAGE, errorCode: 'BATCH_STOPPED', discovery: discoveriesRef.current.get(id)?.discovery }
+        const row: ExtractionRow = { status: 'error', phase, error: stoppedMessage, errorCode: 'BATCH_STOPPED', discovery: discoveriesRef.current.get(id)?.discovery }
         outcomes.set(id, row)
         setRow(id, row)
       }
@@ -245,7 +290,7 @@ export function useExtractionBatch() {
     // Una sola vuelta: los que se quedaron con una cuenta que después resultó compartida. Un descubrimiento se vuelve
     // a descubrir antes de la revisión; un resultado en un paso, a procesar. Los revisados no: ya se eligió a mano.
     const entries = () => [...outcomes].map(([id, row]) => ({ id, row }))
-    const redo = stoppedByApify || stoppedByExa ? [] : sharedAccountsToRedo(entries())
+    const redo = stopped() ? [] : sharedAccountsToRedo(entries())
     const redoIds = new Set(redo.flatMap((item) => item.ids))
     const redoJobs = jobs.filter((job) => redoIds.has(job.request.googlePlaceId) && job.phase !== 'complete')
     if (redoJobs.length > 0) {
@@ -265,9 +310,9 @@ export function useExtractionBatch() {
     if (!jobs.some((job) => job.phase !== 'discover')) return
     const sharedAccounts = redo.filter((item) => item.ids.some((id) => redoJobs.some((job) => job.request.googlePlaceId === id)))
       .map((item) => ({ handle: item.handle, reprocessed: item.ids }))
-    setMetrics(batchMetrics(performance.now() - startedAt, finished, { stoppedByApify, stoppedByExa, sharedAccounts }))
+    setMetrics(batchMetrics(performance.now() - startedAt, finished, { stoppedByApify, stoppedByExa, stoppedByFunds, sharedAccounts }))
     // El reporte es sólo un archivo del servidor: si falla, no afecta el lote.
-    void Promise.resolve().then(() => saveExtractionReport(reportRequest(finished, { stoppedByApify, stoppedByExa }))).catch(() => {})
+    void Promise.resolve().then(() => saveExtractionReport(reportRequest(finished, { stoppedByApify, stoppedByExa, stoppedByFunds }))).catch(() => {})
   }, [])
 
   /** En un paso, como antes de la revisión ("Procesar sin revisar"). */
@@ -325,10 +370,11 @@ export function useExtractionBatch() {
     setRows({})
     setDrafts({})
     setMetrics(null)
+    setGatewayBlock(null)
     setRunning(false)
   }, [])
 
   const failedCount = Object.values(rows).filter((row) => row.status === 'error').length
 
-  return { rows, running, metrics, failedCount, drafts, invalidCount, reviewCount: reviewing.length, run, discover, setDraft, remove, complete, retryFailed, reset }
+  return { rows, running, metrics, gatewayBlock, failedCount, drafts, invalidCount, reviewCount: reviewing.length, run, discover, setDraft, remove, complete, retryFailed, reset }
 }

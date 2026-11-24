@@ -67,7 +67,8 @@ import {
   matchesPlaceDomain,
 } from './source-hosts.ts'
 import { websiteHostRejection, websiteRejection, websiteRejectionLabel, type WebsiteRejection } from './website-check.ts'
-import { DiscoveryExpired, ExaProviderFailure, InstagramNotFound, InstagramProviderFailure, PlacesProviderError } from './places-provider.ts'
+import { DiscoveryExpired, ExaProviderFailure, GatewayInsufficientFunds, InstagramNotFound, InstagramProviderFailure, PlacesProviderError } from './places-provider.ts'
+import { isNoCredit } from './ai-credit.ts'
 import { DiscoveryStore } from './discovery-store.ts'
 import { APIFY_TRANSIENT_DELAYS_MS, RateLimitLog, withRateLimitRetry, type RateLimitRetryOptions } from './rate-limit.ts'
 import type { LimitedService } from './service-limits.ts'
@@ -2441,6 +2442,8 @@ function errorChain(error: unknown) {
 
 function apiFailure(error: unknown): PlacesProviderError {
   if (error instanceof PlacesProviderError) return error
+  // Antes que el resto: el frontend corta el lote con el primero.
+  if (isNoCredit(error)) return new GatewayInsufficientFunds(error)
   if (APICallError.isInstance(error)) {
     if (error.statusCode === 401 || error.statusCode === 403) return new PlacesProviderError('authorization', 'Vercel AI Gateway rechazó la clave configurada.', { cause: error })
     if (error.statusCode === 429) return new PlacesProviderError('quota', 'Vercel AI Gateway limitó temporalmente las consultas.', { cause: error })
@@ -2983,7 +2986,7 @@ export class PlaceExtractionService implements PlaceExtractor {
       }
     } catch (error) {
       console.error(JSON.stringify({ event: 'place_extraction_error', stage: 'discovery', placeId, error: errorChain(error) }))
-      throw apiFailure(error)
+      throw this.withSpent(apiFailure(error), costUsage)
     } finally {
       console.info(JSON.stringify({
         event: 'place_extraction_discovery_timing',
@@ -2992,6 +2995,15 @@ export class PlaceExtractionService implements PlaceExtractor {
         timingsMs: timings,
       }))
     }
+  }
+
+  /** El error con lo gastado hasta que falló (fuentes y logo), para sumarlo al costo del lote. */
+  private withSpent(error: PlacesProviderError, usage: ExtractionCostUsage, logo: Parameters<typeof extractionCost>[5] = null): PlacesProviderError {
+    const cost = extractionCost(this.costRates, usage, this.modelConfig.model, null, null, logo)
+    const logoUsd = cost.providers.logo?.costUsd ?? 0
+    // El de un paso anterior (completeSources tras discover) se reemplaza: este uso ya lo incluye.
+    error.spent = { sourcesUsd: roundUsd(cost.totalUsd - logoUsd), logoUsd }
+    return error
   }
 
   /** Lo que cuesta el paso 1 hasta acá, para la revisión. */
@@ -3099,7 +3111,7 @@ export class PlaceExtractionService implements PlaceExtractor {
       }
     } catch (error) {
       console.error(JSON.stringify({ event: 'place_extraction_error', stage: 'sources', placeId, error: errorChain(error) }))
-      throw apiFailure(error)
+      throw this.withSpent(apiFailure(error), costUsage, withPictureClassifications(NO_LOGO, [...discovery.pictureClassifications.values()]).classification)
     } finally {
       console.info(JSON.stringify({
         event: 'place_extraction_sources_timing',
@@ -3171,6 +3183,8 @@ export class PlaceExtractionService implements PlaceExtractor {
     const { target, sources } = collected
     const logo = collected.logo ?? NO_LOGO
     const rateLimits = collected.rateLimits instanceof RateLimitLog ? collected.rateLimits : new RateLimitLog(collected.placeId)
+    // Fuera del try: si el LLM falla, lo gastado en fuentes (y en la segunda búsqueda) va con el error.
+    const costUsage = { ...collected.costUsage }
     try {
       if (sources.length === 0) {
         return {
@@ -3210,7 +3224,6 @@ export class PlaceExtractionService implements PlaceExtractor {
       let place = postProcess(target, data, { ...context, sources })
 
       // Sin horario usable (típico de cadenas): segunda búsqueda dirigida a la sucursal.
-      const costUsage = { ...collected.costUsage }
       let hoursRetryUsage: LlmUsage | null = null
       const hoursRetry = { attempted: false, recovered: false, costUsd: 0 }
       if (place.hours.slots.length === 0 && this.exa?.configured && this.exa.searchText) {
@@ -3293,7 +3306,7 @@ export class PlaceExtractionService implements PlaceExtractor {
       }
     } catch (error) {
       console.error(JSON.stringify({ event: 'place_extraction_error', stage: 'llm', placeId: collected.placeId, model: config.model, error: errorChain(error) }))
-      throw apiFailure(error)
+      throw this.withSpent(apiFailure(error), costUsage, logo.classification)
     } finally {
       console.info(JSON.stringify({
         event: 'place_extraction_timing',

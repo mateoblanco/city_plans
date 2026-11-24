@@ -1,3 +1,4 @@
+import { gateway } from 'ai'
 import { gatewayBalance, guideGenerator } from './guides/generate.ts'
 import { serve } from '@hono/node-server'
 import { config } from 'dotenv'
@@ -150,6 +151,14 @@ serve(
         generator: process.env.AI_GATEWAY_API_KEY?.trim() ? guideGenerator() : undefined,
         balance: gatewayBalance,
       },
+      // Antes de cada lote de extracción. A diferencia de gatewayBalance, un error se propaga: el lote no arranca.
+      gatewayCredits: extractor?.configured
+        ? async () => {
+            const balanceUsd = Number((await gateway.getCredits()).balance)
+            if (!Number.isFinite(balanceUsd)) throw new Error('El saldo del AI Gateway no es un número.')
+            return { balanceUsd }
+          }
+        : undefined,
     }).fetch,
     hostname: '127.0.0.1',
     port: apiPort,

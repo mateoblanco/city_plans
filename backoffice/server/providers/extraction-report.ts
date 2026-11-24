@@ -89,6 +89,14 @@ export const extractionReportRequestSchema = z.object({
   exaErrors: z.array(z.string().trim().min(1).max(300)).max(MAX_REPORT_PLACES).default([]),
   /** El lote se cortó por errores de Exa seguidos. */
   stoppedByExa: z.boolean().default(false),
+  /** El lote se cortó porque el AI Gateway no tiene crédito (402). */
+  stoppedByFunds: z.boolean().default(false),
+  /** Lugares que fallaron después de pagar fuentes (o el logo): lo gastado entra al costo del lote. */
+  failed: z.array(z.object({
+    googlePlaceId: z.string().trim().min(1).max(300),
+    sourcesUsd: z.number().min(0).max(100),
+    logoUsd: z.number().min(0).max(100).default(0),
+  })).max(MAX_REPORT_PLACES).default([]),
 })
 
 type PlaceRef = { name: string; googlePlaceId: string }
@@ -112,7 +120,7 @@ export type ExtractionReport = {
     avgSecondsPerPlace: number
     /** Logos: cuántos se subieron, por clasificación y por motivo de falta o fallo. */
     logos: { ok: number; missing: number; failed: number; byKind: Partial<Record<string, number>>; byReason: Partial<Record<LogoIssue, number>> }
-    /** Costo del lote por etapa; la suma es totalCostUsd. */
+    /** Costo del lote por etapa; la suma es totalCostUsd. Incluye lo gastado en los lugares que fallaron. */
     cost: { sourcesUsd: number; mainLlmUsd: number; hoursSecondSearchUsd: number; logoUsd: number; totalUsd: number }
     /** Tokens de entrada del llamado principal; cachedShare es la parte leída del cache. */
     tokens: { input: number; cachedInput: number; cacheWrite: number; cachedShare: number }
@@ -125,6 +133,8 @@ export type ExtractionReport = {
     apifyErrors: { places: string[]; stopped: boolean }
     /** Lo mismo con Exa. */
     exaErrors: { places: string[]; stopped: boolean }
+    /** Lugares que fallaron con gasto (fuentes y logo, ya sumados a cost) y si el lote se cortó por falta de crédito. */
+    failed: { places: number; costUsd: number; stoppedByFunds: boolean }
     /** Desempates de Instagram por regla. */
     instagramTieBreaks: Partial<Record<InstagramTieBreakRule, number>>
     /** Instagram de la revisión manual: cargados a mano y marcados "No tiene Instagram". */
@@ -140,7 +150,7 @@ const MAX_EXAMPLES = 3
 const round = (value: number, digits: number) => Math.round(value * 10 ** digits) / 10 ** digits
 
 /** Junta las revisiones de cada lugar del lote; un tipo sin casos no aparece. */
-export function buildExtractionReport({ places, apifyErrors = [], stoppedByApify = false, exaErrors = [], stoppedByExa = false }: ExtractionReportRequest): ExtractionReport {
+export function buildExtractionReport({ places, apifyErrors = [], stoppedByApify = false, exaErrors = [], stoppedByExa = false, stoppedByFunds = false, failed = [] }: ExtractionReportRequest): ExtractionReport {
   const byType: ExtractionReport['byType'] = {}
   const add = (type: keyof ExtractionReport['byType'], item: ReportItem) => { (byType[type] ??= []).push(item) }
   const groups = new Map<string, { places: Set<string>; facts: number; examples: { name: string; text: string }[] }>()
@@ -185,6 +195,9 @@ export function buildExtractionReport({ places, apifyErrors = [], stoppedByApify
   const rateLimits = places.map((place) => place.review?.rateLimits ?? []).filter((entries) => entries.length > 0)
   const tally = <K extends string>(keys: (K | null)[]) => keys.reduce<Partial<Record<K, number>>>((counts, key) => key ? { ...counts, [key]: (counts[key] ?? 0) + 1 } : counts, {})
   const total = (field: 'sourcesUsd' | 'mainLlmUsd' | 'hoursRetryUsd' | 'logoUsd' | 'costUsd') => round(sum(places.map((place) => place.stats[field])), 4)
+  const failedSourcesUsd = sum(failed.map((place) => place.sourcesUsd))
+  const failedLogoUsd = sum(failed.map((place) => place.logoUsd ?? 0))
+  const failedUsd = failedSourcesUsd + failedLogoUsd
   const tokens = (field: 'inputTokens' | 'cachedInputTokens' | 'cacheWriteTokens') => sum(places.map((place) => place.stats[field]))
   return {
     summary: {
@@ -201,7 +214,7 @@ export function buildExtractionReport({ places, apifyErrors = [], stoppedByApify
       withInstagram: count((place) => place.stats.hasInstagram),
       withWebsite: count((place) => place.stats.hasWebsite),
       avgTags: round(average(places.map((place) => place.stats.tagCount)), 1),
-      totalCostUsd: round(sum(places.map((place) => place.stats.costUsd)), 4),
+      totalCostUsd: round(sum(places.map((place) => place.stats.costUsd)) + failedUsd, 4),
       avgSecondsPerPlace: round(average(places.map((place) => place.stats.totalMs)) / 1000, 1),
       logos: {
         ok: logos.filter((logo) => logo.status === 'ok').length,
@@ -210,7 +223,13 @@ export function buildExtractionReport({ places, apifyErrors = [], stoppedByApify
         byKind: tally(logos.map((logo) => logo.kind)),
         byReason: tally(logos.map((logo) => logo.reason)),
       },
-      cost: { sourcesUsd: total('sourcesUsd'), mainLlmUsd: total('mainLlmUsd'), hoursSecondSearchUsd: total('hoursRetryUsd'), logoUsd: total('logoUsd'), totalUsd: total('costUsd') },
+      cost: {
+        sourcesUsd: round(total('sourcesUsd') + failedSourcesUsd, 4),
+        mainLlmUsd: total('mainLlmUsd'),
+        hoursSecondSearchUsd: total('hoursRetryUsd'),
+        logoUsd: round(total('logoUsd') + failedLogoUsd, 4),
+        totalUsd: round(total('costUsd') + failedUsd, 4),
+      },
       tokens: {
         input: tokens('inputTokens'),
         cachedInput: tokens('cachedInputTokens'),
@@ -225,6 +244,7 @@ export function buildExtractionReport({ places, apifyErrors = [], stoppedByApify
       },
       apifyErrors: { places: apifyErrors, stopped: stoppedByApify },
       exaErrors: { places: exaErrors, stopped: stoppedByExa },
+      failed: { places: failed.length, costUsd: round(failedUsd, 4), stoppedByFunds },
       instagramTieBreaks: tally(places.map((place) => place.review?.instagramTieBreak?.rule ?? null)),
       instagramManual: {
         handle: count((place) => Boolean(place.review?.instagramManual?.handle)),
@@ -263,6 +283,10 @@ export function reportSummary(report: ExtractionReport): string {
     ...(summary.exaErrors.places.length > 0
       ? [`Error de Exa: reintentar · ${summary.exaErrors.places.length} sin procesar${summary.exaErrors.stopped ? ' · el lote se cortó' : ''}`]
       : []),
+    ...(summary.failed.places > 0
+      ? [`Fallidos con gasto: ${summary.failed.places} · USD ${summary.failed.costUsd.toFixed(4)} (incluido en el costo)`]
+      : []),
+    ...(summary.failed.stoppedByFunds ? ['Sin crédito en el AI Gateway: el lote se cortó'] : []),
   ].join('\n')
 }
 

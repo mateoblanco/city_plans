@@ -305,6 +305,10 @@ export type ExtractionReportRequest = {
   exaErrors?: string[]
   /** El lote se cortó por errores de Exa seguidos. */
   stoppedByExa?: boolean
+  /** El lote se cortó porque el AI Gateway no tiene crédito (402). */
+  stoppedByFunds?: boolean
+  /** Lugares que fallaron después de pagar fuentes: lo gastado entra al costo del lote. */
+  failed?: { googlePlaceId: string; sourcesUsd: number; logoUsd?: number }[]
 }
 
 /** Respuesta de POST /api/places por cada lugar enviado. */
@@ -704,6 +708,8 @@ export type ApiErrorCode =
   | 'INSTAGRAM_PROVIDER_ERROR'
   /** Exa no respondió en /api/extract: el lugar no se procesó y hay que reintentarlo. */
   | 'EXA_PROVIDER_ERROR'
+  /** El AI Gateway respondió 402 (insufficient_funds): hay que cargar crédito; el lote se corta. */
+  | 'INSUFFICIENT_FUNDS'
   /** El Instagram cargado a mano no existe (handle mal escrito): se corrige en la revisión. */
   | 'INSTAGRAM_NOT_FOUND'
   /** El paso 2 no encontró el descubrimiento del lugar (venció o se reinició el server): hay que volver a descubrir. */
@@ -724,7 +730,12 @@ export type ApiErrorResponse = {
     code: ApiErrorCode
     message: string
   }
+  /** En un error de extracción: lo ya gastado en fuentes y logo antes de fallar. */
+  spent?: ExtractionSpent
 }
+
+/** Lo gastado en un lugar que falló: fuentes (Google, Exa, Apify, scraping, buses) y la clasificación del logo. */
+export type ExtractionSpent = { sourcesUsd: number; logoUsd: number }
 export type PlaceGroup = 'accepted' | 'review' | 'rejected'
 
 export type NeighborhoodSweepPlace = PlaceSummary & {
