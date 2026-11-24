@@ -4,6 +4,7 @@ import { sql } from 'drizzle-orm'
 import type { IconCategory } from '@shared/icon-categories.ts'
 import type { Hours } from '../search/hours'
 import { getDb } from '../db'
+import { META_DESCRIPTION_MAX, truncateAtWord } from '@/lib/description'
 
 /** Fila de places tal como está en la base, sin los textos de búsqueda ni el embedding; lat y lng salen de location. */
 export type PlaceRow = Record<string, unknown> & {
@@ -40,7 +41,6 @@ export type PlaceRow = Record<string, unknown> & {
 export type BranchRow = { id: string; slug: string; neighborhoodId: string; googlePlaceId: string | null }
 
 const SLUG = /^[a-z0-9-]{1,200}$/
-const DESCRIPTION_MAX = 155
 
 export function isValidSlug(slug: string): boolean {
   return SLUG.test(slug)
@@ -48,12 +48,7 @@ export function isValidSlug(slug: string): boolean {
 
 /** description_es para la meta description: hasta 155 caracteres, cortada en una palabra. undefined si está vacía. */
 export function metaDescription(text: string | null): string | undefined {
-  const clean = text?.replace(/\s+/g, ' ').trim()
-  if (!clean) return undefined
-  if (clean.length <= DESCRIPTION_MAX) return clean
-  const cut = clean.slice(0, DESCRIPTION_MAX - 1)
-  const space = cut.lastIndexOf(' ')
-  return `${(space > 0 ? cut.slice(0, space) : cut).replace(/[\s.,;:]+$/, '')}…`
+  return truncateAtWord(text, META_DESCRIPTION_MAX)
 }
 
 // cache de React: generateMetadata y la página comparten una consulta por request. Nada se guarda entre requests.

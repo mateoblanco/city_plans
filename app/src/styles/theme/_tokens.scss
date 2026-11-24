@@ -108,9 +108,10 @@
 :root {
 	@include light-theme;
 
-	// Tipografía (Fontshare, cargada en layout.tsx): no cambia con el theme.
+	// Tipografía (cargadas en layout.tsx): no cambia con el theme. Switzer de Fontshare; Merriweather con next/font, que
+	// define --font-merriweather en <html> (con su fallback de métricas ajustadas).
 	--font-base: 'Switzer', sans-serif;
-	--font-display: 'Plein', sans-serif;
+	--font-display: var(--font-merriweather), serif;
 }
 
 @media (prefers-color-scheme: dark) {

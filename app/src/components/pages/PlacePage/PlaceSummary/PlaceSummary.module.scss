@@ -14,16 +14,17 @@
 
 .name {
   font-family: var(--font-display);
-  font-size: 28px;
+  font-size: 26px;
   font-weight: 700;
-  line-height: 34px;
+  letter-spacing: -0.01em;
+  line-height: 32px;
   // Mobile: lugar para "Guardar" / "Guardado", que va a la derecha (PlaceHeader .like): el botón md con corazón y
   // "Guardado" mide unos 120px, + 12px de aire. Un nombre largo baja de línea sin pisarlo.
   padding-right: 132px;
 
   @include media(ml) {
-    font-size: 32px;
-    line-height: 38px;
+    font-size: 30px;
+    line-height: 36px;
     padding-right: 0;
   }
 }

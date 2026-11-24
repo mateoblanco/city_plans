@@ -32,16 +32,16 @@
 
 .title {
   font-family: var(--font-display);
-  font-size: 36px;
+  font-size: 32px;
   font-weight: 600;
-  letter-spacing: -0.02em;
-  line-height: 40px;
+  letter-spacing: -0.015em;
+  line-height: 38px;
   margin: 12px 0 0;
   text-wrap: balance;
 
   @include media(md) {
-    font-size: 40px;
-    line-height: 44px;
+    font-size: 36px;
+    line-height: 42px;
   }
 }
 

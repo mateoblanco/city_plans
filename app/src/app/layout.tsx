@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Merriweather } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { allowIndexing, rootRobots } from "@/server/seo/indexing";
@@ -22,21 +23,20 @@ export const metadata: Metadata = {
 // Mobile: la página llega a los bordes y el header, el panel y los diálogos suman las zonas seguras de iOS
 // (env(safe-area-inset-*), que sin viewport-fit=cover valen 0). themeColor: el blanco de --color-surface, el fondo del
 // header (la app es sólo clara).
+// Títulos (--font-display en _tokens.scss). OFL: next/font la baja en el build y la sirve desde el sitio. Variable sin ejes
+// extra (opsz duplica el peso): un solo .woff2 latin cubre 500/600/700, con preload en todas las rutas.
+const merriweather = Merriweather({ subsets: ["latin"], display: "swap", variable: "--font-merriweather" });
+
 export const viewport: Viewport = { viewportFit: "cover", themeColor: "#ffffff" };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="es-UY">
+    <html lang="es-UY" className={merriweather.variable}>
       <head>
         <link rel="preconnect" href="https://api.fontshare.com" crossOrigin="" />
-        {/* Una familia por link: con varios f[] en la misma URL, Fontshare sólo devuelve la primera. */}
         <link
           rel="stylesheet"
           href="https://api.fontshare.com/v2/css?f[]=switzer@400,500,600&display=swap"
-        />
-        <link
-          rel="stylesheet"
-          href="https://api.fontshare.com/v2/css?f[]=plein@500,600,700&display=swap"
         />
       </head>
       <body>
