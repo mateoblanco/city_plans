@@ -1,3 +1,4 @@
+import Money from "@/assets/money.svg";
 import type { OpenStateText } from "@/server/search/labels";
 import type { PriceText } from "../utils/summary";
 import GoogleStatus from "./GoogleStatus/GoogleStatus";
@@ -10,7 +11,6 @@ type Props = {
   name: string;
   /** Estado de los horarios de la base con los textos de la PlaceCard (placeOpenText sin Google); null si no se sabe. */
   status: OpenStateText | null;
-  category: string | null;
   /** "$$ (Normal)" y "Precio: normal" para lectores de pantalla; null con precio desconocido. */
   price: PriceText | null;
   /**
@@ -28,31 +28,27 @@ type Props = {
 // La línea de estado: más alta que la de datos por el fondo del estado; reservada (vacía) mide lo mismo.
 const STATUS_LINE = `${styles.facts} ${styles.statusFacts}`;
 
-const Separator = () => <span className={styles.separator} aria-hidden />;
-
 /**
- * Nombre, la línea de tipo · precio, la del puntaje de Google, la de estado y horario, la descripción y los chips. Lo de la base sale en
+ * Nombre, la línea de precio, la del puntaje de Google, la de estado y horario, la descripción y los chips. Lo de la base sale en
  * el HTML del servidor; el puntaje (y el estado, si Google lo cambia) llega después desde el navegador, con el lugar ya
  * reservado.
  */
 const PlaceSummary = (props: Props) => {
   const description = props.description?.trim();
 
-  // Hasta tres líneas. Arriba: tipo · precio ("$$ (Normal)"; los lectores de pantalla leen "Precio: normal"), con
-  // " · " sólo si están los dos.
-  const typeLine =
-    props.category || props.price ? (
-      <p className={styles.facts}>
-        {props.category && <span className={styles.fact}>{props.category}</span>}
-        {props.price && (
-          <span className={styles.fact}>
-            {props.category && <Separator />}
-            <span aria-hidden>{`${props.price.signs} (${props.price.level})`}</span>
-            <span className={styles.visuallyHidden}>{props.price.label}</span>
-          </span>
-        )}
-      </p>
-    ) : null;
+  // Hasta tres líneas. Arriba: el ícono de plata y el precio ("$$ (Normal)"; los lectores de pantalla leen "Precio: normal"). El tipo de
+  // lugar no se muestra.
+  const typeLine = props.price ? (
+    <p className={styles.facts}>
+      <span className={styles.price}>
+        <span className={styles.iconBox} aria-hidden>
+          <Money className={styles.priceIcon} width={20} height={20} />
+        </span>
+        <span aria-hidden>{`${props.price.signs} (${props.price.level})`}</span>
+        <span className={styles.visuallyHidden}>{props.price.label}</span>
+      </span>
+    </p>
+  ) : null;
 
   // En el medio: el puntaje de Google, en su línea (PlaceRating la reserva mientras llega).
   const ratingLine = props.google ? (

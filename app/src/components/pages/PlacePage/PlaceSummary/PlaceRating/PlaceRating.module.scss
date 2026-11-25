@@ -9,7 +9,7 @@
 .ratingLink {
   align-items: center;
   display: inline-flex;
-  gap: 4px;
+  gap: 8px;
 }
 
 .ratingLink {
@@ -41,7 +41,17 @@
   width: 1px;
 }
 
+// La caja de 20×20 de los íconos de las tres líneas de PlaceSummary, con la estrella (16×16) centrada.
+.iconBox {
+  align-items: center;
+  display: flex;
+  flex-shrink: 0;
+  height: 20px;
+  justify-content: center;
+  width: 20px;
+}
+
 .star {
   color: var(--color-rating);
-  vertical-align: -1px;
+  display: block;
 }

@@ -18,7 +18,9 @@ type RatingTextProps = { rating: RatingInfo };
 /** "★ 4,4 (1.230) en Google". */
 const RatingText = (props: RatingTextProps) => (
   <>
-    <Star className={styles.star} aria-hidden width={14} height={13} />
+    <span className={styles.iconBox} aria-hidden>
+      <Star className={styles.star} width={16} height={16} />
+    </span>
     <span>
       {props.rating.value}
       {props.rating.count && ` (${props.rating.count})`} en Google

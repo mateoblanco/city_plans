@@ -52,22 +52,28 @@
   }
 }
 
-.fact {
+// El precio con su ícono, con el mismo espacio que la estrella del puntaje y el punto del estado.
+.price {
   align-items: center;
   display: flex;
   gap: 8px;
 }
 
-.separator {
-  &::before {
-    content: '';
-    display: inline-block;
-    width: 3px;
-    height: 3px;
-    border-radius: 50%;
-    background-color: var(--color-text-subtle);
-    vertical-align: middle;
-  }
+// La caja de 20×20 de los íconos de las tres líneas (también en PlaceRating y PlaceStatus): el ícono va centrado, así
+// los textos quedan alineados.
+.iconBox {
+  align-items: center;
+  display: flex;
+  flex-shrink: 0;
+  height: 20px;
+  justify-content: center;
+  width: 20px;
+}
+
+.priceIcon {
+  color: var(--color-price);
+  display: block;
+  flex-shrink: 0;
 }
 
 // La línea de estado mide lo que el estado con fondo (20px + 4px arriba y abajo), también reservada mientras llega

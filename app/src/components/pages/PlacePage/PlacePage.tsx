@@ -28,7 +28,7 @@ import SimilarPlaces from "./SimilarPlaces/SimilarPlaces";
 import { placeChips } from "./utils/place-options";
 import { jsonLdScript, placeJsonLd } from "./utils/structured-data";
 import { mapLikelyAboveFold } from "./utils/static-map";
-import { googleMapsHref, instagramHandle, instagramPopularHref, mainCategory, placeOpenText, priceText, transitLines } from "./utils/summary";
+import { googleMapsHref, instagramHandle, instagramPopularHref, placeOpenText, priceText, transitLines } from "./utils/summary";
 import styles from "./PlacePage.module.scss";
 
 type DetailsProps = {
@@ -79,7 +79,6 @@ const Details = async (props: DetailsProps) => {
               <PlaceSummary
                 name={place.name}
                 status={status}
-                category={mainCategory(place.categories)}
                 price={priceText(place.price)}
                 google={inGoogle ? { fallbackHref: mapsHref } : null}
                 description={place.description_es}

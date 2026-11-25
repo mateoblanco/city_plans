@@ -4,13 +4,15 @@
   gap: 8px;
 }
 
-// El estado con el color del tono, sin punto ni fondo.
+// El estado con el color del tono y su punto, sin fondo.
 .status {
   align-items: center;
   border-radius: 8px;
   color: var(--color-status-closed);
   display: inline-flex;
   font-weight: 600;
+  // El mismo espacio que entre la estrella y el puntaje (PlaceRating).
+  gap: 8px;
   line-height: 20px;
 
   &[data-tone="open"] {
@@ -26,5 +28,24 @@
     color: inherit;
     background-color: transparent;
     padding: 0;
+  }
+}
+
+// Punto de 14×14 del color del estado, centrado en la caja de 20×20 de los íconos de las tres líneas de PlaceSummary:
+// así el texto del estado queda alineado con el del precio y el del puntaje.
+.dot {
+  align-items: center;
+  display: inline-flex;
+  flex-shrink: 0;
+  height: 20px;
+  justify-content: center;
+  width: 20px;
+
+  &::before {
+    background-color: currentColor;
+    border-radius: 50%;
+    content: '';
+    height: 14px;
+    width: 14px;
   }
 }
