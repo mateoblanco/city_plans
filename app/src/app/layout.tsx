@@ -13,7 +13,7 @@ import { SITE_NAME, SITE_URL } from "@/lib/site";
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: SITE_NAME,
-  description: "Lugares para salir en Uruguay.",
+  description: "Lugares para salir a comer o tomar algo en Uruguay.",
   openGraph: { type: "website", locale: "es_UY", siteName: SITE_NAME },
   twitter: { card: "summary_large_image" },
   robots: rootRobots(allowIndexing()),

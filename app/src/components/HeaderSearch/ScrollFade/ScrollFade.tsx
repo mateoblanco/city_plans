@@ -9,6 +9,8 @@ type Props = {
   children: React.ReactNode;
   /** También desde md (la barra de filtros): sigue siendo una caja de borde a borde del header, con el degradado. */
   desktop?: boolean;
+  /** Algo a su izquierda (la flecha de volver): de borde a borde sólo hacia la derecha. */
+  inset?: boolean;
 };
 
 /**
@@ -36,7 +38,12 @@ const ScrollFade = (props: Props) => {
   }, []);
 
   return (
-    <div className={styles.wrapper} data-at-end={atEnd || undefined} data-desktop={props.desktop || undefined}>
+    <div
+      className={styles.wrapper}
+      data-at-end={atEnd || undefined}
+      data-desktop={props.desktop || undefined}
+      data-inset={props.inset || undefined}
+    >
       <div ref={ref} className={props.className}>
         {props.children}
       </div>

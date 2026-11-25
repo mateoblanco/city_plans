@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import Share from "@/assets/share.svg";
 import Button from "@/components/base/Button/Button";
 import { shareMessage, shareOrCopy, type ShareResult } from "../../utils/share";
 import type ShareMenuType from "./ShareMenu/ShareMenu";
@@ -24,7 +25,7 @@ const subscribe = (onChange: () => void) => {
 };
 
 /**
- * "Compartir" de la ficha, al lado de "Guardar". Con pantalla táctil, el menú nativo (Web Share API) con el título y la
+ * "Compartir" de la ficha (ícono y texto; en mobile, sólo el ícono), al lado de "Guardar". Con pantalla táctil, el menú nativo (Web Share API) con el título y la
  * URL canónica; sin él, copia la URL. Con mouse o trackpad (desktop), el menú de ShareMenu ("Copiar link" y "WhatsApp"),
  * en su propio chunk, que se baja recién con el mouse encima o el foco en el botón (mobile nunca lo baja); un click antes
  * de que llegue lo abre apenas llega. "Link copiado" sale unos segundos debajo, en una región viva. Cerrar el menú nativo
@@ -71,6 +72,8 @@ const ShareButton = (props: Props) => {
           variant="secondary"
           size="md"
           label="Compartir"
+          icon={<Share aria-hidden width={14} height={17} />}
+          iconOnlyBelow="ml"
           touchTarget
           onClick={() => {
             if (finePointer) {

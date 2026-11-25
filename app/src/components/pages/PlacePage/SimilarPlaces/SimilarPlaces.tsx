@@ -9,7 +9,7 @@ type Props = {
   places: Promise<SearchResult[]>;
 };
 
-/** "Parecidos a <lugar>" con cards mini, en dos columnas. Sin ninguno, no se muestra. */
+/** "Parecidos a <lugar>" con cards mini: una columna en mobile, dos desde sm. Sin ninguno, no se muestra. */
 const SimilarPlaces = async (props: Props) => {
   const places = await props.places;
   if (places.length === 0) return null;

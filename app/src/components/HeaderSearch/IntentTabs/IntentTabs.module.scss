@@ -15,6 +15,11 @@
     display: none;
   }
 
+  // Después de la flecha de volver: arranca pegada a ella (ScrollFade con inset no sangra a la izquierda).
+  .nav[data-after-back] & {
+    padding-left: 0;
+  }
+
   @include media(md) {
     overflow-x: visible;
     padding: 0;

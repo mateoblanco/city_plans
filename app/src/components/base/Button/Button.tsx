@@ -31,6 +31,11 @@ type Props = {
      * partes de guías ("Ver mapa", cerrar el mapa, el corazón de cada lugar).
      */
     touchTarget?: boolean;
+    /**
+     * Sólo el ícono debajo de ese breakpoint (p. ej. "Compartir" en la ficha mobile); desde ahí, ícono y texto. El texto
+     * queda oculto a la vista pero sigue siendo el nombre accesible.
+     */
+    iconOnlyBelow?: 'ml';
 } & (
         | { type: 'button'; onClick: () => void }
         | { type: 'submit' }
@@ -43,13 +48,17 @@ type Props = {
  * Las clases del botón, para darle su estilo a un botón de Base UI que no puede ser este componente (p. ej. el
  * Menu.Trigger de "Compartir" en la ficha).
  */
-export const buttonClassName = (props: Pick<Props, 'variant' | 'size' | 'onlyIcon' | 'touchTarget'>) => clsx(
+export const buttonClassName = (props: Pick<Props, 'variant' | 'size' | 'onlyIcon' | 'touchTarget' | 'iconOnlyBelow'>) => clsx(
     styles.button,
     styles[`size-${props.size}`],
     styles[`variant-${props.variant}`],
     props.onlyIcon && styles["icon-button"],
     props.touchTarget && styles["touch-target"],
+    props.iconOnlyBelow && styles[`icon-only-below-${props.iconOnlyBelow}`],
 )
+
+/** El texto de un botón con iconOnlyBelow (lo que se oculta debajo del breakpoint), para un trigger de Base UI. */
+export const buttonLabelClassName = styles.label;
 
 const Button = (props: Props) => {
     const buttonClass = buttonClassName(props)
@@ -71,7 +80,7 @@ const Button = (props: Props) => {
                 : <Link href={props.href} prefetch={props.prefetch} />}
         >
             {props.icon && props.icon}
-            {!props.onlyIcon && props.label}
+            {!props.onlyIcon && (props.iconOnlyBelow ? <span className={styles.label}>{props.label}</span> : props.label)}
             {!props.onlyIcon && props.iconEnd}
         </ButtonBase>
     );

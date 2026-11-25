@@ -11,7 +11,7 @@ function jsonResponse(body: unknown, status = 200) {
 const place = (overrides: Partial<PlaceListItem>): PlaceListItem => ({
   id: 'uuid-1', googlePlaceId: 'ChIJpalenque', name: 'El Palenque', neighborhoodId: 'CIUDAD VIEJA', categories: ['restaurant'], tags: ['wifi', 'kids_friendly'],
   status: 'published', hoursStatus: 'exact', price: 'moderate', updatedAt: '2026-10-12T15:30:00.000Z', hasEmbedding: true,
-  prominence: 0.125, igFollowers: null, brandKey: null, instagram: null, featured: false,
+  prominence: 0.125, igFollowers: null, brandKey: null, instagram: null, website: null, featured: false,
   logoUrl: null, logoKind: null, logoBgColor: null, logoColor: null, iconCategory: 'grill', style: null, reviewReasons: [], editedFields: [], priceSuggestion: null, ...overrides,
 })
 
@@ -404,7 +404,7 @@ describe('SavedPlacesPage', () => {
     render(<SavedPlacesPage />)
     await screen.findByText('1 lugar')
     expect(screen.getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
-      'Nombre', 'Google Maps', 'Categorías', 'Instagram', 'Precio', 'Sugerido', 'Logo', 'Barrio', 'Tags', 'Status', 'Horario', 'Embedding', 'Prominencia', 'Seguidores', 'Marca',
+      'Nombre', 'Google Maps', 'Categorías', 'Instagram', 'Website', 'Precio', 'Sugerido', 'Logo', 'Barrio', 'Tags', 'Status', 'Horario', 'Embedding', 'Prominencia', 'Seguidores', 'Marca',
       'Destacado', 'Última actualización',
     ])
   })

@@ -1,22 +1,18 @@
 @use '../../styles/breakpoints' as *;
 
-// Mobile: la flecha de volver y el buscador en una línea; el buscador ocupa el resto.
-.searchLine {
+// Mobile: la flecha de volver y las pestañas en una línea; las pestañas ocupan el resto (con su scroll).
+.tabsLine {
   align-items: center;
   display: flex;
-  gap: 8px;
+  gap: 4px;
+  min-width: 0;
 
   > :last-child {
     flex: 1;
     min-width: 0;
-
-    @include media(md) {
-      flex: 0 1 auto;
-      min-width: auto;
-    }
   }
 
-  // Desde md no es una caja: el input queda como antes en el centro del header.
+  // Desde md no es una caja: las pestañas quedan como antes, centradas arriba del input.
   @include media(md) {
     display: contents;
   }

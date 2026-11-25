@@ -1,7 +1,13 @@
-// Dos columnas también en mobile: las cards mini entran a ~360px.
+@use '../../../../styles/breakpoints' as *;
+
+// Mobile: una columna (las cards mini a todo el ancho). Desde sm, dos.
 .grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   padding: 0 2px;
+
+  @include media(sm) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }

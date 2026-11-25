@@ -2,7 +2,8 @@
 
 import { useEffect, useRef } from "react";
 import { Menu } from "@base-ui/react/menu";
-import { buttonClassName } from "@/components/base/Button/Button";
+import Share from "@/assets/share.svg";
+import { buttonClassName, buttonLabelClassName } from "@/components/base/Button/Button";
 import { copyLink, whatsappShareHref, type ShareResult } from "../../../utils/share";
 import styles from "./ShareMenu.module.scss";
 
@@ -33,8 +34,13 @@ const ShareMenu = (props: Props) => {
 
   return (
     <Menu.Root modal={false} defaultOpen={props.defaultOpen}>
-      <Menu.Trigger ref={trigger} className={buttonClassName({ variant: "secondary", size: "md", touchTarget: true })}>
-        Compartir
+      {/* Igual que el botón provisorio de ShareButton: ícono y texto, sólo el ícono debajo de ml. */}
+      <Menu.Trigger
+        ref={trigger}
+        className={buttonClassName({ variant: "secondary", size: "md", touchTarget: true, iconOnlyBelow: "ml" })}
+      >
+        <Share aria-hidden width={14} height={17} />
+        <span className={buttonLabelClassName}>Compartir</span>
       </Menu.Trigger>
       <Menu.Portal>
         <Menu.Positioner className={styles.positioner} sideOffset={6} align="end">

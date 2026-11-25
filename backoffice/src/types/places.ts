@@ -340,6 +340,8 @@ export type PlaceListItem = {
   brandKey: string | null
   /** Handle sin @ ni mayúsculas; null sin Instagram. */
   instagram: string | null
+  /** URL del sitio web; null sin web. */
+  website: string | null
   featured: boolean
   logoUrl: string | null
   logoKind: LogoKind | null

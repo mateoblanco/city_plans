@@ -31,9 +31,14 @@ const HeaderSearch = (props: Props) => {
       sticky={!props.searchParams}
       tabs={
         props.searchParams ? (
-          <Suspense fallback={<IntentTabs state={{ q: "" }} bar={null} />}>
-            <SearchTabs searchParams={props.searchParams} />
-          </Suspense>
+          // Mobile: la flecha de volver al principio de la línea de las pestañas. Desde md, sólo las pestañas (la línea
+          // no es una caja y HeaderBack no se muestra).
+          <div className={styles.tabsLine}>
+            <HeaderBack />
+            <Suspense fallback={<IntentTabs state={{ q: "" }} bar={null} afterBack />}>
+              <SearchTabs searchParams={props.searchParams} />
+            </Suspense>
+          </div>
         ) : (
           <IntentTabs state={{ q: "" }} bar={emptyBar()} home />
         )
@@ -56,14 +61,10 @@ const HeaderSearch = (props: Props) => {
         )
       }
     >
-      {/* Mobile: la flecha de volver y el input en la misma línea. Desde md, sólo el input (la línea no es una caja). */}
       {props.searchParams ? (
-        <div className={styles.searchLine}>
-          <HeaderBack />
-          <Suspense fallback={<Search />}>
-            <SearchInput searchParams={props.searchParams} />
-          </Suspense>
-        </div>
+        <Suspense fallback={<Search />}>
+          <SearchInput searchParams={props.searchParams} />
+        </Suspense>
       ) : (
         <Search rotatingPlaceholder />
       )}

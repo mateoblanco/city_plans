@@ -12,6 +12,8 @@ type Props = {
   bar: BarRef | null;
   /** La home: "Todo" es la actual y lleva a /. */
   home?: boolean;
+  /** /search: en mobile, después de la flecha de volver; sin sangrado a la izquierda (no se meten debajo de ella). */
+  afterBack?: boolean;
 };
 
 /**
@@ -20,8 +22,8 @@ type Props = {
  * scroll; desde md, centradas y más grandes.
  */
 const IntentTabs = (props: Props) => (
-  <nav aria-label="Qué querés hacer" className={styles.nav}>
-    <ScrollFade className={styles.line}>
+  <nav aria-label="Qué querés hacer" className={styles.nav} data-after-back={props.afterBack || undefined}>
+    <ScrollFade className={styles.line} inset={props.afterBack}>
       <ul className={styles.list}>
         {intentTabs(props.state, props.bar, props.home).map((tab) => (
           <li key={tab.id ?? "all"}>

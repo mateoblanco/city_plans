@@ -7,8 +7,8 @@ import { ratingInfo, type RatingInfo } from "../../utils/rating";
 import styles from "./PlaceRating.module.scss";
 
 type Props = {
-  /** Hay tipo o precio antes (lleva separador). */
-  preceded: boolean;
+  /** La clase de la línea (la de datos de PlaceSummary): el puntaje va solo en su línea. */
+  className: string;
   /** Sin link de reseñas de Google, el link general del lugar en Google Maps. */
   fallbackHref: string | null;
 };
@@ -26,32 +26,30 @@ const RatingText = (props: RatingTextProps) => (
   </>
 );
 
-type PrecededProps = { preceded: boolean };
+type ReserveProps = { className: string };
 
-/** Lugar del puntaje mientras llega Google: un texto invisible del mismo largo, así la línea ya tiene su ancho. */
-const RatingReserve = (props: PrecededProps) => (
-  <span className={`${styles.fact} ${styles.reserve}`} aria-hidden>
-    {props.preceded && <span className={styles.separator} />}
-    <span className={styles.ratingLink}>
+/** Lugar del puntaje mientras llega Google: la línea con un texto invisible, así ya tiene su alto. */
+const RatingReserve = (props: ReserveProps) => (
+  <p className={props.className} aria-hidden>
+    <span className={`${styles.ratingLink} ${styles.reserve}`}>
       <RatingText rating={{ value: "4,6", count: "1.230", href: null }} />
       <ArrowExternal className={styles.external} width={8} height={8} />
     </span>
-  </span>
+  </p>
 );
 
 /**
- * "· ★ 4,4 (1.230) en Google ↗", al final de la línea de tipo y precio (así aparecer no corre nada de lo de antes). Todo
- * es un link a las reseñas en Google Maps, en otra pestaña. Mientras llega Google, el hueco reservado; sin puntaje, nada.
+ * "★ 4,4 (1.230) en Google ↗", en su propia línea (entre tipo · precio y el estado). Todo es un link a las reseñas en
+ * Google Maps, en otra pestaña. Mientras llega Google, la línea reservada; sin puntaje, no hay línea.
  */
 const PlaceRating = (props: Props) => {
   const google = usePlaceGoogle();
-  if (google.status === "pending") return <RatingReserve preceded={props.preceded} />;
+  if (google.status === "pending") return <RatingReserve className={props.className} />;
   const rating = google.status === "ready" ? ratingInfo(google.info, props.fallbackHref) : null;
   if (!rating) return null;
   const count = rating.count ? ` ${rating.count} reseñas.` : "";
   return (
-    <span className={styles.fact}>
-      {props.preceded && <span className={styles.separator} aria-hidden />}
+    <p className={props.className}>
       {rating.href ? (
         <a className={styles.ratingLink} href={rating.href} target="_blank" rel="noopener noreferrer">
           <RatingText rating={rating} />
@@ -63,7 +61,7 @@ const PlaceRating = (props: Props) => {
           <RatingText rating={rating} />
         </span>
       )}
-    </span>
+    </p>
   );
 };
 

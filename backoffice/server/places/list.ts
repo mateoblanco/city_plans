@@ -95,6 +95,7 @@ export function drizzlePlacesReader(db: NeonHttpDatabase<typeof schema>): Places
             igFollowers: places.igFollowers,
             brandKey: places.brandKey,
             instagram: places.instagram,
+            website: places.website,
             featured: places.featured,
             logoKey: places.logoKey,
             logoKind: places.logoKind,

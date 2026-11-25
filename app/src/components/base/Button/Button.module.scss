@@ -108,6 +108,25 @@
 
 
 
+  // Sólo ícono debajo de ml (iconOnlyBelow): cuadrado del alto del botón md con texto (34px), el texto oculto a la vista
+  // pero no a los lectores de pantalla (es el nombre accesible).
+  &.icon-only-below-ml {
+    @media (width < breakpoint(ml)) {
+      height: 34px;
+      padding: 0;
+      width: 34px;
+
+      .label {
+        clip-path: inset(50%);
+        height: 1px;
+        overflow: hidden;
+        position: absolute;
+        white-space: nowrap;
+        width: 1px;
+      }
+    }
+  }
+
   &:active {
     transform: translateY(1px)
   }

@@ -1,26 +1,8 @@
 @use '../../../../../styles/breakpoints' as *;
 
-.fact {
-  align-items: center;
-  display: flex;
-  gap: 8px;
-}
-
 // Lugar reservado mientras llega Google: ocupa su ancho, no se ve ni se lee.
 .reserve {
   visibility: hidden;
-}
-
-.separator {
-  &::before {
-    content: '';
-    display: inline-block;
-    width: 3px;
-    height: 3px;
-    border-radius: 50%;
-    background-color: var(--color-text-subtle);
-    vertical-align: middle;
-  }
 }
 
 .rating,

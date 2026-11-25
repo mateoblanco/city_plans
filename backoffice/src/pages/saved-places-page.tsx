@@ -59,6 +59,11 @@ const SORT_LABELS: Record<PlaceListQuery['sort'], string> = { recent: 'Más reci
 const RATING_SORT_LABELS: Record<RatingSort, string> = { rating_desc: 'Puntaje de Google (mayor primero)', rating_asc: 'Puntaje de Google (menor primero)' }
 // Place Details Enterprise (rating y userRatingCount), primer tramo; los primeros 1.000 del mes son gratis.
 const PLACE_DETAILS_USD = 0.02
+/** El sitio sin protocolo, www ni barra final, para que entre en la celda. */
+function websiteLabel(url: string) {
+  return url.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/$/, '')
+}
+
 const MISSING_LABELS: Record<PlaceListMissing, string> = { price: 'Precio', hours: 'Horario', logo: 'Logo', instagram: 'Instagram', website: 'Web' }
 // Sin precio al final, como en la lista de opciones.
 const PRICE_OPTIONS: PriceLevel[] = [...PRICE_LEVELS.filter((id) => id !== 'unknown'), 'unknown']
@@ -526,6 +531,7 @@ export function SavedPlacesPage() {
                       <TableHead className="px-4 whitespace-nowrap sm:px-5">Google Maps</TableHead>
                       <TableHead className="px-4 sm:px-5">Categorías</TableHead>
                       <TableHead className="px-4 sm:px-5">Instagram</TableHead>
+                      <TableHead className="px-4 sm:px-5">Website</TableHead>
                       <TableHead className="px-4 sm:px-5">Precio</TableHead>
                       {showRatings && (
                         <TableHead className="px-4 whitespace-nowrap sm:px-5" aria-sort={ratingSort === 'rating_desc' ? 'descending' : ratingSort === 'rating_asc' ? 'ascending' : 'none'}>
@@ -580,6 +586,20 @@ export function SavedPlacesPage() {
                               onClick={(event) => event.stopPropagation()}
                             >
                               @{place.instagram}
+                            </a>
+                          ) : <span className="text-muted-foreground">—</span>}
+                        </TableCell>
+                        <TableCell className="px-4 py-3 whitespace-nowrap sm:px-5">
+                          {place.website ? (
+                            <a
+                              href={place.website}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="block max-w-56 truncate text-primary hover:underline"
+                              title={place.website}
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              {websiteLabel(place.website)}
                             </a>
                           ) : <span className="text-muted-foreground">—</span>}
                         </TableCell>

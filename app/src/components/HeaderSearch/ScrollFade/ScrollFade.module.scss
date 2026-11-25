@@ -10,6 +10,11 @@
   @include media(md) {
     display: contents;
   }
+
+  // Con algo a la izquierda (la flecha de volver), sólo hacia el borde derecho.
+  &[data-inset] {
+    margin-left: 0;
+  }
 }
 
 // Sobre el borde derecho, con el color del fondo del header. No recibe clicks ni scroll.

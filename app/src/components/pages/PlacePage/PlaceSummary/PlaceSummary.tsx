@@ -31,18 +31,17 @@ const STATUS_LINE = `${styles.facts} ${styles.statusFacts}`;
 const Separator = () => <span className={styles.separator} aria-hidden />;
 
 /**
- * Nombre, la línea de tipo · precio · puntaje, la de estado y horario, la descripción y los chips. Lo de la base sale en
+ * Nombre, la línea de tipo · precio, la del puntaje de Google, la de estado y horario, la descripción y los chips. Lo de la base sale en
  * el HTML del servidor; el puntaje (y el estado, si Google lo cambia) llega después desde el navegador, con el lugar ya
  * reservado.
  */
 const PlaceSummary = (props: Props) => {
   const description = props.description?.trim();
 
-  // Dos líneas, con " · " sólo entre tramos que están (sin tipo, puntaje o precio no queda un separador suelto).
-  // Arriba: tipo · precio ("$$ (Normal)"; los lectores de pantalla leen "Precio: normal") · puntaje.
-  const preceded = !!(props.category || props.price);
-  const ratingLine =
-    props.category || props.google || props.price ? (
+  // Hasta tres líneas. Arriba: tipo · precio ("$$ (Normal)"; los lectores de pantalla leen "Precio: normal"), con
+  // " · " sólo si están los dos.
+  const typeLine =
+    props.category || props.price ? (
       <p className={styles.facts}>
         {props.category && <span className={styles.fact}>{props.category}</span>}
         {props.price && (
@@ -52,9 +51,13 @@ const PlaceSummary = (props: Props) => {
             <span className={styles.visuallyHidden}>{props.price.label}</span>
           </span>
         )}
-        {props.google && <PlaceRating preceded={preceded} fallbackHref={props.google.fallbackHref} />}
       </p>
     ) : null;
+
+  // En el medio: el puntaje de Google, en su línea (PlaceRating la reserva mientras llega).
+  const ratingLine = props.google ? (
+    <PlaceRating className={styles.facts} fallbackHref={props.google.fallbackHref} />
+  ) : null;
 
   // Abajo: el estado y su horario. En Google la línea está siempre (alto fijo): cuando llega, sólo cambia el texto.
   const statusLine = props.google ? (
@@ -72,8 +75,9 @@ const PlaceSummary = (props: Props) => {
       <div className={styles.main}>
         <h1 className={styles.name}>{props.name}</h1>
 
-        {(ratingLine || statusLine) && (
+        {(typeLine || ratingLine || statusLine) && (
           <div className={styles.factLines}>
+            {typeLine}
             {ratingLine}
             {statusLine}
           </div>
