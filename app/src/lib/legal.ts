@@ -7,4 +7,4 @@ export const LEGAL_PAGES = {
 export type LegalPageKey = keyof typeof LEGAL_PAGES;
 
 /** Mail de contacto del responsable (privacidad, derechos y términos). */
-export const LEGAL_CONTACT_EMAIL = "mateoblanco3@gmail.com";
+export const LEGAL_CONTACT_EMAIL = "contacto@adondevamos.com.uy";

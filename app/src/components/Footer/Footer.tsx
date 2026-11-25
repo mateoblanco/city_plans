@@ -1,6 +1,6 @@
 import Link from "next/link";
 import Logo from "@/assets/logo.svg";
-import { LEGAL_PAGES, type LegalPageKey } from "@/lib/legal";
+import { LEGAL_CONTACT_EMAIL, LEGAL_PAGES, type LegalPageKey } from "@/lib/legal";
 import { COPYRIGHT_YEAR, SITE_NAME } from "@/lib/site";
 import styles from "./Footer.module.scss";
 
@@ -11,7 +11,7 @@ type Props = {
 
 const LINKS: LegalPageKey[] = ["privacy", "terms"];
 
-/** Pie de la home, las guías, la ficha y las páginas legales (no de /search): logo con el © debajo y los links legales. */
+/** Pie de la home, las guías, la ficha y las páginas legales (no de /search): logo con el © debajo, los links legales y el mail de contacto. */
 const Footer = (props: Props) => {
   return (
     <footer className={styles.footer}>
@@ -33,6 +33,11 @@ const Footer = (props: Props) => {
                 </Link>
               </li>
             ))}
+            <li>
+              <a href={`mailto:${LEGAL_CONTACT_EMAIL}`} className={styles.link}>
+                {LEGAL_CONTACT_EMAIL}
+              </a>
+            </li>
           </ul>
         </nav>
       </div>
