@@ -280,11 +280,11 @@ describe('postProcess: azotea, horno a leña y merienda para compartir', () => {
     expect(place.tagEvidence?.find((item) => item.tag === 'rooftop')).toMatchObject({ mode: 'explicit', signals: ['azotea'] })
   })
 
-  it('una azotea es una terraza, con el mismo respaldo', () => {
+  it('una azotea es al aire libre, con el mismo respaldo', () => {
     const place = run([], [], 'Tragos en la azotea.')
-    expect(has(place, 'terrace')).toBe(true)
+    expect(has(place, 'outdoor')).toBe(true)
     const rooftop = place.tagEvidence?.find((item) => item.tag === 'rooftop')
-    expect(place.tagEvidence?.find((item) => item.tag === 'terrace')).toEqual({ tag: 'terrace', mode: 'inferred', signals: ['azotea (rooftop)'], factIds: rooftop?.factIds })
+    expect(place.tagEvidence?.find((item) => item.tag === 'outdoor')).toEqual({ tag: 'outdoor', mode: 'inferred', signals: ['azotea (rooftop)'], factIds: rooftop?.factIds })
   })
 
   it('"a la leña" suelto no es horno: una parrilla o carne a la leña no lo da; "pizzas a la leña" sí', () => {

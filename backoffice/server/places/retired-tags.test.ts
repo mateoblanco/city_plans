@@ -6,7 +6,39 @@ const row = (tags: string[], manualOverrides: unknown = {}, signature: string[] 
 
 describe('planRetiredTags', () => {
   it('sin tags retirados no hay cambio', () => {
-    expect(planRetiredTags(row(['terrace', 'outdoor'], { tags: { add: ['terrace'], remove: [] } }))).toBeNull()
+    expect(planRetiredTags(row(['wifi', 'outdoor'], { tags: { add: ['wifi'], remove: [] } }))).toBeNull()
+  })
+
+  it('terraza y patio pasan a al aire libre sin duplicar; para comer en la barra se va', () => {
+    expect(withoutRetiredTags(['terrace', 'patio', 'bar_seating', 'wifi'])).toEqual(['outdoor', 'wifi'])
+    const plan = planRetiredTags(row(['terrace', 'patio', 'bar_seating', 'wifi'], {}, ['terrace']))
+    expect(plan).toMatchObject({
+      tags: ['outdoor', 'wifi'],
+      signature: ['outdoor'],
+      effects: [
+        { tag: 'terrace', replacement: 'outdoor', column: true, overrides: false },
+        { tag: 'patio', replacement: 'outdoor', column: true, overrides: false },
+        { tag: 'bar_seating', replacement: null, column: true, overrides: false },
+      ],
+      implied: [],
+    })
+  })
+
+  it('una azotea gana al aire libre (IMPLIED_TAGS), también en tags.add si está agregada a mano', () => {
+    expect(planRetiredTags(row(['rooftop', 'wifi']))).toMatchObject({ tags: ['rooftop', 'wifi', 'outdoor'], effects: [], implied: [{ source: 'rooftop', tag: 'outdoor', added: true, overrides: false }] })
+    // La azotea con terraza: la terraza ya la convierte en al aire libre, no se suma otra vez.
+    expect(planRetiredTags(row(['rooftop', 'terrace']))).toMatchObject({ tags: ['rooftop', 'outdoor'], implied: [] })
+    expect(planRetiredTags(row(['rooftop', 'outdoor']))).toBeNull()
+    const manual = planRetiredTags(row(['rooftop'], { tags: { add: ['rooftop'], remove: [] } }))
+    expect(manual).toMatchObject({ tags: ['rooftop', 'outdoor'], manualOverrides: { tags: { add: ['rooftop', 'outdoor'], remove: [] } }, implied: [{ added: true, overrides: true }] })
+  })
+
+  it('con al aire libre sacado a mano, la azotea no lo gana', () => {
+    expect(planRetiredTags(row(['rooftop'], { tags: { add: [], remove: ['outdoor'] } }))).toBeNull()
+  })
+
+  it('sin categorías y sin tags retirados no es un conflicto', () => {
+    expect(planRetiredTags(row(['rooftop'], {}, [], []))).toMatchObject({ tags: ['rooftop', 'outdoor'] })
   })
 
   it('mesas en la vereda pasa a al aire libre sin duplicar y lgbtq_friendly se va', () => {
@@ -23,13 +55,13 @@ describe('planRetiredTags', () => {
   })
 
   it('los diffs de manual_overrides se migran y las demás claves quedan', () => {
-    const overrides = { price: 'low', tags: { add: ['sidewalk', 'outdoor', 'date'], remove: ['lgbtq_friendly', 'patio'] }, signature: ['sidewalk'] }
+    const overrides = { price: 'low', tags: { add: ['sidewalk', 'outdoor', 'date'], remove: ['lgbtq_friendly', 'wifi'] }, signature: ['sidewalk'] }
     const plan = planRetiredTags(row(['outdoor', 'date'], overrides))
     expect(isRetiredTagsConflict(plan)).toBe(false)
-    expect(plan).toMatchObject({ tags: ['outdoor', 'date'], manualOverrides: { price: 'low', tags: { add: ['outdoor', 'date'], remove: ['patio'] }, signature: ['outdoor'] } })
+    expect(plan).toMatchObject({ tags: ['outdoor', 'date'], manualOverrides: { price: 'low', tags: { add: ['outdoor', 'date'], remove: ['wifi'] }, signature: ['outdoor'] } })
     // Con el id viejo, parseManualOverrides descartaba el diff entero; migrado, se lee.
     expect(parseManualOverrides(overrides).tags).toBeUndefined()
-    if (plan && !isRetiredTagsConflict(plan)) expect(parseManualOverrides(plan.manualOverrides).tags).toEqual({ add: ['outdoor', 'date'], remove: ['patio'] })
+    if (plan && !isRetiredTagsConflict(plan)) expect(parseManualOverrides(plan.manualOverrides).tags).toEqual({ add: ['outdoor', 'date'], remove: ['wifi'] })
   })
 
   it('uno agregado a mano y el otro sacado a mano es un conflicto: no se toca', () => {

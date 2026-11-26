@@ -142,9 +142,8 @@ export const DRINKS = {
 } satisfies TagGroup
 
 export const FEATURES = {
-  terrace: tag('Terraza', 'Terrace', ['terraza'], ['terrace']),
-  outdoor: tag('Al aire libre', 'Outdoor seating', ['mesas afuera', 'al aire libre', 'mesas en la vereda', 'vereda', 'exterior', 'a la sombra'], ['outdoor seating', 'sidewalk', 'outside tables', 'street-side tables']),
-  patio: tag('Patio', 'Patio', ['patio', 'jardín', 'patio interno'], ['patio', 'garden', 'courtyard']),
+  // Terraza, patio y jardín son al aire libre (los tags terrace y patio se retiraron: RETIRED_TAGS).
+  outdoor: tag('Al aire libre', 'Outdoor seating', ['mesas afuera', 'al aire libre', 'mesas en la vereda', 'vereda', 'exterior', 'a la sombra', 'terraza', 'terrazas', 'patio', 'patio interno', 'jardín'], ['outdoor seating', 'sidewalk', 'outside tables', 'street-side tables', 'terrace', 'patio', 'garden', 'courtyard']),
   rooftop: tag('Azotea', 'Rooftop', ['rooftop', 'azotea', 'terraza en la azotea'], ['rooftop', 'rooftop bar', 'rooftop terrace']),
   sea_view: tag('Vista al mar', 'Sea view', ['vista al mar', 'frente al mar', 'frente a la rambla', 'sobre la rambla', 'vista al río'], ['sea view', 'ocean view', 'waterfront', 'rambla']),
   live_music: tag('Música en vivo', 'Live music', ['música en vivo', 'bandas', 'bandas en vivo', 'shows', 'toques', 'jazz en vivo', 'tributos musicales'], ['live music', 'live band', 'gigs', 'live jazz']),
@@ -162,7 +161,6 @@ export const FEATURES = {
   accessible: tag('Accesible', 'Accessible', ['accesible', 'silla de ruedas', 'rampa'], ['wheelchair accessible', 'accessible']),
   wood_fired_oven: tag('Horno a leña', 'Wood-fired oven', ['horno a leña', 'pizza a la leña', 'pizzas a la leña'], ['wood-fired oven', 'wood-fired pizza']),
   open_kitchen: tag('Cocina a la vista', 'Open kitchen', ['cocina a la vista', 'cocina abierta'], ['open kitchen', 'visible kitchen']),
-  bar_seating: tag('Para comer en la barra', 'Bar seating', ['barra central', 'barra larga', 'comer en la barra'], ['bar seating', 'long bar', 'counter']),
   delivery: tag('Delivery', 'Delivery', ['delivery', 'envíos', 'envío a domicilio', 'entrega a domicilio', 'pedidosya', 'pedidos ya'], ['delivery', 'home delivery']),
   takeaway: tag('Para llevar', 'Takeaway', ['para llevar', 'take away'], ['takeaway', 'take away', 'to go']),
 } satisfies TagGroup
@@ -229,21 +227,18 @@ export const ALL_GROUPS = { categories: CATEGORIES, moments: MOMENTS, cuisines: 
 export type GroupName = keyof typeof ALL_GROUPS
 
 /**
- * Tags parecidos a uno pedido, que la búsqueda acepta con la mitad del peso: "al aire libre" también trae terrazas,
- * patios y azoteas, debajo de los que tienen el tag. Sólo amplían el filtro y ordenan: no son tags implícitos (una
- * terraza no gana "al aire libre").
+ * Tags que traen otros: una azotea es al aire libre. La extracción agrega el implícito con el mismo respaldo y la
+ * migración (`yarn search-text:recompute` en el backoffice) se lo suma a los lugares guardados.
  */
-export const PARTIAL_TAGS: Readonly<Record<string, readonly string[]>> = {
-  outdoor: ['terrace', 'patio', 'rooftop'],
+export const IMPLIED_TAGS: Readonly<Partial<Record<TagId, readonly TagId[]>>> = {
+  rooftop: ['outdoor'],
 }
 
-/** El tag y sus parecidos ([id] si no tiene). */
-export function withPartialTags(id: string): string[] {
-  return [id, ...(PARTIAL_TAGS[id] ?? [])]
-}
-
-/** Si el tag pedido tiene parecidos que también se aceptan. */
-export const hasPartialTags = (id: string) => Object.hasOwn(PARTIAL_TAGS, id)
+/**
+ * Tags que no se muestran: ni chip en la ficha ni rasgo en el título del perfil. Siguen en los datos y en la búsqueda
+ * (y como motivo cuando la búsqueda los pidió).
+ */
+export const HIDDEN_TAGS: ReadonlySet<string> = new Set(['rooftop'])
 
 /**
  * Tags y categorías que salieron del catálogo: el reemplazo (o null si se eliminan). Los lee la migración de datos
@@ -251,6 +246,9 @@ export const hasPartialTags = (id: string) => Object.hasOwn(PARTIAL_TAGS, id)
  */
 export const RETIRED_TAGS: Readonly<Record<string, string | null>> = {
   sidewalk: 'outdoor',
+  terrace: 'outdoor',
+  patio: 'outdoor',
+  bar_seating: null,
   lgbtq_friendly: null,
   cider: null,
   medio_y_medio: null,
@@ -266,7 +264,7 @@ export const RETIRED_TAGS: Readonly<Record<string, string | null>> = {
 
 /** Filtros de búsqueda que agrupan varios tags. */
 export const TAG_FILTERS = {
-  outdoor: { label: { es: 'Al aire libre', en: 'Outdoor' }, tags: withPartialTags('outdoor') as TagId[] },
+  outdoor: { label: { es: 'Al aire libre', en: 'Outdoor' }, tags: ['outdoor'] as TagId[] },
 } as const
 
 export function tagsForFilter(filter: keyof typeof TAG_FILTERS) { return TAG_FILTERS[filter].tags }

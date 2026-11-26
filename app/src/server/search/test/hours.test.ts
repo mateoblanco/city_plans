@@ -264,7 +264,7 @@ describe('SQL de candidatos', () => {
   it('aplica sólo los filtros pedidos y pasa los arrays como parámetros', () => {
     const query = dialect.sqlToQuery(
       candidatesQuery(
-        { categories: ['cafe'], tags: ['terrace'], diet: ['vegan'], neighborhoods: [], venues: [], price: [], openAt: null, excludeCategories: [], excludeTags: ['pizza'], excludeIcons: [], dishes: [dishTarget('milanesa napolitana')], dishMode: 'dish', near: null, groups: [] },
+        { categories: ['cafe'], tags: ['outdoor'], diet: ['vegan'], neighborhoods: [], venues: [], price: [], openAt: null, excludeCategories: [], excludeTags: ['pizza'], excludeIcons: [], dishes: [dishTarget('milanesa napolitana')], dishMode: 'dish', near: null, groups: [] },
         { embedding: [0.1, 0.2], keywords: ['milanesa', 'napolitana'], name: 'cafe', origins: [], pinnedId: 'abc' },
       ),
     )

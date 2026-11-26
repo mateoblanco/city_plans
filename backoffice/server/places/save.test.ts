@@ -172,7 +172,7 @@ describe('savePlaces', () => {
   it('re-extracción con platos, signature, categorías, barrio, "dentro de", reservas y destacados editados a mano', async () => {
     const manualOverrides = {
       dishes: { add: ['milanesa napolitana'], remove: ['chivito'] },
-      signature: ['terrace' as const],
+      signature: ['outdoor' as const],
       categories: ['restaurant' as const, 'pizzeria' as const],
       neighborhood_id: 'Pocitos' as const,
       located_in: null,
@@ -183,12 +183,12 @@ describe('savePlaces', () => {
     const { store, updated } = fakeStore([existing])
 
     // El pipeline trae un plato nuevo (ñoquis) y el sacado (chivito), y sus propios valores en lo demás.
-    await savePlaces([ok({ dishes: ['pulpo a la gallega', 'chivito', 'ñoquis'], tags: ['seafood', 'terrace'], signature: ['seafood'] })], { store, embed: vi.fn(vectors) })
+    await savePlaces([ok({ dishes: ['pulpo a la gallega', 'chivito', 'ñoquis'], tags: ['seafood', 'outdoor'], signature: ['seafood'] })], { store, embed: vi.fn(vectors) })
 
     const values = updated[0].values
     expect(values).toMatchObject({
       dishes: ['pulpo a la gallega', 'ñoquis', 'milanesa napolitana'],
-      signature: ['terrace'],
+      signature: ['outdoor'],
       categories: ['restaurant', 'pizzeria'],
       neighborhoodId: 'Pocitos',
       locatedIn: null,
@@ -251,11 +251,11 @@ describe('savePlaces', () => {
     })
 
     it('un tag sacado a mano no vuelve, uno agregado queda y uno nuevo del pipeline entra; signature sin el sacado', async () => {
-      const { store, updated } = fakeStore([existing({ tags: { add: ['terrace'], remove: ['seafood'] } })])
+      const { store, updated } = fakeStore([existing({ tags: { add: ['outdoor'], remove: ['seafood'] } })])
 
       await savePlaces([ok({ tags: ['seafood', 'classic_cocktails'], signature: ['seafood', 'classic_cocktails'] })], { store, embed: vectors })
 
-      expect(updated[0].values.tags).toEqual(['classic_cocktails', 'terrace'])
+      expect(updated[0].values.tags).toEqual(['classic_cocktails', 'outdoor'])
       expect(updated[0].values.signature).toEqual(['classic_cocktails'])
     })
 

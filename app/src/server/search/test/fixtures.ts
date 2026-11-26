@@ -1,4 +1,4 @@
-import { withPartialTags, withSubcuisines } from '@shared/tags.ts'
+import { withSubcuisines } from '@shared/tags.ts'
 import type { CandidateFilters, CandidateRow, NameMatch, ScoreInputs } from '../candidates'
 import { matchesOpenFilter, type OpenFilter } from '../hours'
 import { matchesGroup } from '../intents'
@@ -89,7 +89,7 @@ export function fakeStore(places: CandidateRow[], names: NameMatch[] = [], vecto
     const has = (place: CandidateRow, dish: string) => place.dishes.some((item) => item.includes(dish))
     return (
       (!filters.categories.length || filters.categories.some((id) => place.categories.includes(id))) &&
-      filters.tags.every((id) => [...withSubcuisines(id), ...withPartialTags(id)].some((tag) => place.tags.includes(tag))) &&
+      filters.tags.every((id) => withSubcuisines(id).some((tag) => place.tags.includes(tag))) &&
       filters.diet.every((key) => ['has_options', 'fully'].includes(place.diet[key])) &&
       (!filters.neighborhoods.length || filters.neighborhoods.includes(place.neighborhoodId)) &&
       (!filters.venues.length || inVenue(place, filters.venues)) &&

@@ -18,10 +18,10 @@ const LAYOUT = {
   descriptionLine: 24,
   descriptionChars: 43,
   gap: 16,
-  /** Chips: 26px de alto, 8px entre filas; cada uno ~7,5px por carácter + 22 de padding y borde. */
+  /** Chips: 26px de alto, 8px entre filas; cada uno ~7,5px por carácter + 22 de padding y borde, 22 del ícono (16 + 6 de gap) y 8 entre chips. */
   chipRow: 34,
   chipCharWidth: 7.5,
-  chipPadding: 22 + 8,
+  chipPadding: 22 + 22 + 8,
   rowWidth: 308,
   /** Gap de la tarjeta antes del mapa. */
   beforeMap: 48,

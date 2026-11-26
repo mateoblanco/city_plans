@@ -44,8 +44,8 @@ const sub = (es: string, en: string, phraseEs: string, phraseEn: string, match: 
 })
 
 /**
- * Al aire libre: el tag o un parecido (terraza, patio, azotea; shared/tags.ts PARTIAL_TAGS), como la sección. Ordena
- * primero los del tag (fuse.ts SUB_SIGNALS) y sólo "al aire libre" en el texto la activa (no "terraza").
+ * Al aire libre: el tag outdoor (terraza, patio y vereda son sinónimos; una azotea también lo tiene), como la sección.
+ * Sólo "al aire libre" en el texto la activa (no "terraza").
  */
 const outdoorSub = () => sub('Al aire libre', 'Outdoor', 'al aire libre', 'outdoors', { tags: [...TAG_FILTERS.outdoor.tags] }, { vote: false })
 

@@ -1,5 +1,4 @@
 import { SECTIONS, type SectionId } from '@shared/sections.ts'
-import { hasPartialTags } from '@shared/tags.ts'
 import { intentDef, type IntentId } from '@shared/intents.ts'
 import { SEARCH_CONFIG } from './config'
 import { isDietFully, type Fused } from './fuse'
@@ -145,18 +144,6 @@ export function sectionSignals(id: SectionId, row: { categories: string[]; tags:
   return Math.min(count, SEARCH_CONFIG.boosts.maxSectionSignals)
 }
 
-/**
- * Tags de la regla de una sección que aceptan parecidos (Al aire libre: outdoor; shared/tags.ts PARTIAL_TAGS): en el
- * grupo y en su "Ver todos", el lugar que sólo tiene un parecido (terraza, patio, azotea) va después de los del tag.
- */
-export function sectionPartialTags(id: SectionId): string[] {
-  const { match } = SECTIONS[id] as { match: { tags?: string[] } }
-  return (match.tags ?? []).filter(hasPartialTags)
-}
-
-/** 1 si el lugar sólo tiene un parecido del tag de la sección (va después), 0 si no. */
-const partialOnly = (id: SectionId, item: Fused) => (sectionPartialTags(id).some((tag) => !item.row.tags.includes(tag)) ? 1 : 0)
-
 /** Puntaje dentro de un grupo: el de siempre más sectionFit por señal (con la calidad del lugar). */
 const scoreIn = (id: SectionId, item: Fused) => item.score + sectionSignals(id, item.row) * SEARCH_CONFIG.boosts.sectionFit * item.multiplier
 
@@ -275,7 +262,7 @@ export function buildSections(items: Fused[], requested: SectionId[], lang: Lang
     }
   }
   const order = (id: SectionId, group: Fused[]) =>
-    id === 'discover' ? group : [...group].sort((a, b) => level(a) - level(b) || partialOnly(id, a) - partialOnly(id, b) || scoreIn(id, b) - scoreIn(id, a))
+    id === 'discover' ? group : [...group].sort((a, b) => level(a) - level(b) || scoreIn(id, b) - scoreIn(id, a))
   const sorted = active
     .map((id) => ({ id, items: order(id, members.get(id)!), avgScore: average(members.get(id)!) }))
     .sort((a, b) => b.avgScore - a.avgScore)

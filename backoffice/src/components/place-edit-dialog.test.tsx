@@ -10,7 +10,7 @@ function jsonResponse(body: unknown, status = 200) {
 
 const detail = (overrides: Partial<PlaceDetail> = {}): PlaceDetail => ({
   id: 'uuid-1', googlePlaceId: 'place-1', name: 'El Palenque', neighborhoodId: 'CIUDAD VIEJA', status: 'published', categories: ['grill'],
-  tags: ['seafood', 'terrace', 'italian'], style: 'casual', iconCategory: 'grill', price: 'high', dietVegan: 'unknown', dietVegetarian: 'has_options',
+  tags: ['seafood', 'outdoor', 'italian'], style: 'casual', iconCategory: 'grill', price: 'high', dietVegan: 'unknown', dietVegetarian: 'has_options',
   dietGlutenFree: 'no', instagram: 'elpalenque', website: null, brandKey: null, chainBranch: false, featured: false, logoUrl: null, logoKind: null, logoBgColor: null,
   logoColor: null, logoSource: null, igFollowers: 999, prominence: 0.6, manualOverrides: {}, editedFields: [], brandKeys: ['cordon-beer'],
   dishes: ['pulpo a la gallega'], signature: ['seafood'], highlights: [{ es: 'Pulpo', en: 'Octopus' }], locatedIn: null, reservations: 'unknown',
@@ -80,15 +80,15 @@ describe('PlaceEditDialog', () => {
   })
 
   it('los tags y cocinas agregados a mano se ven en ámbar, aunque la extracción también los traiga; los automáticos, normales', async () => {
-    const manualOverrides = { tags: { add: ['terrace', 'italian'], remove: ['patio'] } } satisfies PlaceDetail['manualOverrides']
+    const manualOverrides = { tags: { add: ['outdoor', 'italian'], remove: ['wifi'] } } satisfies PlaceDetail['manualOverrides']
     fakeApi({ 'GET /api/places/uuid-1': () => jsonResponse({ place: detail({ manualOverrides, editedFields: ['tags'] }) }) })
     renderDialog()
 
     const chip = async (name: string) => (await screen.findByRole('button', { name: `Sacar ${name}` })).parentElement!
-    expect((await chip('Terraza')).dataset.variant).toBe('manual')
+    expect((await chip('Al aire libre')).dataset.variant).toBe('manual')
     expect((await chip('Italiana')).dataset.variant).toBe('manual')
     expect((await chip('Pescados y mariscos')).dataset.variant).toBe('auto')
-    expect(screen.queryByRole('button', { name: 'Sacar Patio' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Sacar Wifi' })).toBeNull()
   })
 
   it('muestra el link a la ficha de Google Maps', async () => {
@@ -143,7 +143,7 @@ describe('PlaceEditDialog', () => {
     await user.click(screen.getByRole('button', { name: 'Guardar' }))
 
     await waitFor(() => expect(props.onClose).toHaveBeenCalled())
-    expect(bodies('PATCH /api/places/uuid-1')).toEqual([{ edit: { tags: ['terrace', 'italian'], price: 'low' }, confirmSharedInstagram: false }])
+    expect(bodies('PATCH /api/places/uuid-1')).toEqual([{ edit: { tags: ['outdoor', 'italian'], price: 'low' }, confirmSharedInstagram: false }])
     expect(props.onSaved).toHaveBeenCalledWith(expect.objectContaining({ price: 'low' }))
   })
 

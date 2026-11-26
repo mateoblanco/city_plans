@@ -57,8 +57,8 @@ describe('parseFilters', () => {
     expect(parseFilters('tag:groups,tag:date').tags).toEqual(['groups', 'date'])
     expect([...filterChipKeys(parseFilters('tag:afternoon_snack'))]).toEqual(['tag:afternoon_snack'])
     const value = emptyInterpretation()
-    value.must.tags = ['terrace']
-    expect(applyFilters(value, parseFilters('tag:afternoon_snack,tag:terrace')).must.tags).toEqual(['terrace', 'afternoon_snack'])
+    value.must.tags = ['outdoor']
+    expect(applyFilters(value, parseFilters('tag:afternoon_snack,tag:outdoor')).must.tags).toEqual(['outdoor', 'afternoon_snack'])
   })
 
   it('varios barrios: sin repetir y descartando los que no existen', () => {

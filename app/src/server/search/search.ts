@@ -1,4 +1,4 @@
-import { findDef, hasPartialTags, isOccasionTag, isStyleId, label, normalize, withPartialTags, withSubcuisines } from '@shared/tags.ts'
+import { findDef, isOccasionTag, isStyleId, label, normalize, withSubcuisines } from '@shared/tags.ts'
 import { neighborhoodDisplayName, neighborhoodNameForms } from '@shared/neighborhood-names.ts'
 import { sectionDef } from '@shared/sections.ts'
 import { INTENT_VERB_WORDS, intentDef } from '@shared/intents.ts'
@@ -16,7 +16,7 @@ import { checkMust, intendedDiscards, reportMust, type Discard, type MustCheck }
 import { dishTargetFor, excludedIcons, preferredDiets, type DishTarget } from './dishes'
 import { applyFilters, filterChipKeys, parseFilters, type LatLng } from './filters'
 import { buildBar, intentGroups, parseIntent, resolveIntent, type IntentBar } from './intents'
-import { buildRankings, fuse, rareTagsOf, subPartialTags, type Fused, type MatchLevel, type Rankings } from './fuse'
+import { buildRankings, fuse, rareTagsOf, type Fused, type MatchLevel, type Rankings } from './fuse'
 import { keywordFilter } from './keywords'
 import { singularForms } from './dishes'
 import { montevideoNow, nextOpening, openStatus, resolveOpenAt, type OpenFilter, type OpenState } from './hours'
@@ -36,7 +36,7 @@ import { normalizeQuery, queryWords } from './normalize'
 import { buildReasons } from './reasons'
 import { logoUrl } from './logo'
 import { relevanceCut, type Relevance } from './relevance'
-import { buildSections, notBroadReason, requestedSections, sectionPartialTags, type Section, type SectionsDebug } from './sections'
+import { buildSections, notBroadReason, requestedSections, type Section, type SectionsDebug } from './sections'
 import { discountSections } from '../discounts/sections'
 import { cardProviders, type PlaceDiscount } from '../discounts/selection'
 import { momentsOf } from './moments'
@@ -661,19 +661,12 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       intent: value.intent,
       subs: value.subs,
       section: filters.section,
-      // Exigidos con parecidos: del texto, del "Ver todos" de la sección o de un sub-filtro (Al aire libre).
-      partialTags: [...new Set([
-        ...wanted.must.tags.filter(hasPartialTags),
-        ...(filters.section ? sectionPartialTags(filters.section) : []),
-        ...subPartialTags(value.intent, value.subs),
-      ])],
     })
     // Sin tope: se muestran todos los que pasan el corte por relevancia (los de horario sin confirmar, al final).
     const cut = relevanceCut(allFused, {
       hasEmbedding: embedding !== null,
       categories: requestedCategories,
-      // Una terraza pasa el corte con "al aire libre" pedido: el filtro la acepta (PARTIAL_TAGS).
-      tags: [...new Set(requestedTags.flatMap(withPartialTags))],
+      tags: requestedTags,
       moments: momentsOf(wanted.prefer.tags),
       hasDishes: dishes.length > 0,
       // La intención del verbo del texto (no la que sólo pide la URL).

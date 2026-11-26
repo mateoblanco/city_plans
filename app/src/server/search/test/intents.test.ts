@@ -86,9 +86,9 @@ describe('resolveIntent', () => {
   })
 
   it('lo del texto que es un sub-filtro lo activa; lo demás queda como extra', () => {
-    const resolved = resolveIntent(read('cócteles con terraza'), none, [])
+    const resolved = resolveIntent(read('cócteles con karaoke'), none, [])
     expect(resolved.subs).toEqual([{ id: 'cocktails', fromUrl: false, fromText: true, removeKeys: ['tag:classic_cocktails'] }])
-    expect(resolved.interpretation.must.tags).toEqual(['terrace'])
+    expect(resolved.interpretation.must.tags).toEqual(['karaoke'])
     // Pizzería no es la intención misma: sigue filtrando y se muestra como extra.
     expect(resolveIntent(read('pizzería'), none, []).interpretation.must.categories).toEqual(['pizzeria'])
   })
@@ -117,7 +117,7 @@ describe('resolveIntent', () => {
     expect(removed).toMatchObject({ intent: null, textIntent: null })
   })
 
-  it('"al aire libre" con Comer, Cafés o Tomar algo activa Al aire libre; "terraza" sigue siendo terraza', () => {
+  it('"al aire libre" (o "terraza", su sinónimo) con Comer, Cafés o Tomar algo activa Al aire libre', () => {
     for (const intent of ['eat', 'cafes', 'bars'] as const) {
       const resolved = resolveIntent(read('al aire libre'), parseIntent(intent, null), [])
       expect(resolved.subs, intent).toEqual([{ id: 'outdoor', fromUrl: false, fromText: true, removeKeys: ['tag:outdoor'] }])
@@ -125,8 +125,8 @@ describe('resolveIntent', () => {
       expect(resolved.interpretation.prefer.tags).toContain('outdoor')
     }
     const terrace = resolveIntent(read('cafés con terraza'), none, [])
-    expect(terrace).toMatchObject({ intent: 'cafes', subs: [] })
-    expect(terrace.interpretation.must.tags).toEqual(['terrace'])
+    expect(terrace).toMatchObject({ intent: 'cafes', subs: [{ id: 'outdoor', fromUrl: false, fromText: true, removeKeys: ['tag:outdoor'] }] })
+    expect(terrace.interpretation.must.tags).toEqual([])
     // Postres no tiene la opción: el tag sigue filtrando.
     expect(resolveIntent(read('al aire libre'), parseIntent('desserts', null), []).interpretation.must.tags).toEqual(['outdoor'])
   })

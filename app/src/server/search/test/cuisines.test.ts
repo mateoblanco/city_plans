@@ -31,7 +31,7 @@ describe('cocinas paraguas', () => {
     expect(withSubcuisines('asian')).not.toContain('indian')
     expect(withSubcuisines('asian')).not.toContain('middle_eastern')
     expect(withSubcuisines('peruvian')).toEqual(['peruvian'])
-    expect(withSubcuisines('terrace')).toEqual(['terrace'])
+    expect(withSubcuisines('outdoor')).toEqual(['outdoor'])
   })
 
   it('el diccionario resuelve "asiático", "comida oriental" y "comida latinoamericana" sin modelo; "algo asiático" sigue yendo al modelo', () => {
@@ -43,9 +43,9 @@ describe('cocinas paraguas', () => {
   })
 
   it('SQL: la madre es "cualquiera de" la familia; los demás tags, todos; los exclude se expanden', () => {
-    const [plain, family] = toSql(filters({ tags: ['terrace', 'asian'] }))
+    const [plain, family] = toSql(filters({ tags: ['outdoor', 'asian'] }))
     expect(plain.sql).toBe('tags @> $1::text[]')
-    expect(plain.params).toEqual([['terrace']])
+    expect(plain.params).toEqual([['outdoor']])
     expect(family.sql).toBe('tags && $1::text[]')
     expect(family.params).toEqual([withSubcuisines('asian')])
     expect(toSql(filters({ tags: ['peruvian'] }))[0].sql).toBe('tags @> $1::text[]')
@@ -98,7 +98,7 @@ describe('cocina principal o secundaria', () => {
   })
 
   it('las cocinas pedidas salen de los tags; las que no son cocina no cuentan', () => {
-    expect(requestedCuisines(['peruvian', 'terrace', 'peruvian', 'wine'])).toEqual(['peruvian'])
+    expect(requestedCuisines(['peruvian', 'outdoor', 'peruvian', 'wine'])).toEqual(['peruvian'])
   })
 })
 
@@ -151,7 +151,7 @@ describe('barFit según la bebida pedida', () => {
   it('sin bebida pedida (o una sin bar propio), como siempre: entero para cualquier bar con Bares', () => {
     expect(boostsFor(cerveceria, context({ intent: 'bars' }), null).barFit).toBe(barFit)
     expect(boostsFor(cerveceria, context({ intent: 'bars', requestedTags: ['tea'] }), null).barFit).toBe(barFit)
-    expect(boostsFor(cerveceria, context({ requestedTags: ['terrace'] }), null).barFit).toBeUndefined()
+    expect(boostsFor(cerveceria, context({ requestedTags: ['outdoor'] }), null).barFit).toBeUndefined()
   })
 })
 

@@ -1,5 +1,6 @@
 import Money from "@/assets/money.svg";
 import type { OpenStateText } from "@/server/search/labels";
+import type { PlaceChip } from "../utils/place-options";
 import type { PriceText } from "../utils/summary";
 import GoogleStatus from "./GoogleStatus/GoogleStatus";
 import PlaceRating from "./PlaceRating/PlaceRating";
@@ -21,7 +22,7 @@ type Props = {
   google: { fallbackHref: string | null } | null;
   description: string | null;
   /** Chips de dietas y tags (placeChips). */
-  chips: string[];
+  chips: PlaceChip[];
   instagram: string | null;
 };
 

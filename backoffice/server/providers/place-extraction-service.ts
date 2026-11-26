@@ -21,6 +21,7 @@ import {
   buildKeywordText,
   findDef,
   groupOf,
+  IMPLIED_TAGS,
   isStyleId,
   RETIRED_TAGS,
 } from '../../src/data/tags.ts'
@@ -395,9 +396,8 @@ PASO 2 — el resto del JSON, sólo a partir de facts
 - Platos concretos siempre se mapean a un tag: cortes de carne o achuras → grilled_meat; pescados, mariscos o arroces con mariscos → seafood; pastas rellenas o caseras → pasta; flan, panqueques u otros postres → desserts; bowls o ensaladas → salads; huevos o tostadas → breakfast. Variedad de cervezas → craft_beer o draft_beer. Transmisiones deportivas → el tag de pantallas para fútbol (watch_football).
 - Si hay facts de bebidas, tiene que haber al menos un tag de bebida. Una mención genérica de tragos o cócteles → classic_cocktails. Tragos propios de la casa, de autor, o cócteles con una base especial (ej. a base de vino) → signature_cocktails.
 - moments: no devuelvas late_night; lo decide el código con los horarios.
-- features: open_kitchen sólo si se menciona una cocina a la vista o abierta; bar_seating sólo si se puede comer en la barra, no por tener una barra para pedir bebidas. delivery y takeaway sólo para comida del local, nunca envíos de una tienda online.
-- Distinguí espacios al aire libre: patio = espacio interno o trasero; terrace = terraza elevada; rooftop = azotea (sólo si la fuente dice azotea o rooftop); outdoor = al aire libre, mesas afuera o mesas en la vereda. No los uses como sinónimos.
-- Usá patio o terrace solo si la fuente dice explícitamente patio o terraza/azotea. Si dice al aire libre, mesas afuera o vereda, usá outdoor.
+- features: open_kitchen sólo si se menciona una cocina a la vista o abierta. delivery y takeaway sólo para comida del local, nunca envíos de una tienda online.
+- Espacios al aire libre: terraza, patio, jardín, al aire libre, mesas afuera o mesas en la vereda → outdoor (no hay tags de terraza ni de patio). rooftop sólo si la fuente dice azotea, rooftop o terraza en la azotea; una azotea también es outdoor (lo agrega el código).
 - Sesiones de discos o escucha de vinilos → vinyl.
 - Jams, toques o bandas → live_music además de events.
 - dishes: platos concretos de comida que aparecen en los facts, en español, en minúscula y con el nombre normalizado, sin artículos ni conectores sobrantes ("milanesas a la napolitana" → "milanesa napolitana"; "chivito al pan canadiense" → "chivito canadiense"). Cada plato tiene que estar en el texto de un fact. Máximo 15. Nada de bebidas, productos de tienda online ni categorías genéricas (comida casera, minutas).
@@ -1767,13 +1767,14 @@ export function postProcess(
   const sources = context.sources ?? []
   const sourcesById = new Map(sources.map((source) => [source.id, source]))
   const result = { ...structuredClone(data), contact: contactFromModel(data.contact) }
-  // Tags que salieron del catálogo, en respuestas viejas (cache/extractions): sidewalk es outdoor; lgbtq_friendly no va.
+  // Tags que salieron del catálogo, en respuestas viejas (cache/extractions): sidewalk, terrace y patio son outdoor;
+  // lgbtq_friendly o bar_seating no van.
   const current = (id: string) => (Object.hasOwn(RETIRED_TAGS, id.trim()) ? RETIRED_TAGS[id.trim()] : id)
   result.tags = result.tags.flatMap((item) => {
     const id = current(item.id)
     return id ? [{ ...item, id }] : []
   })
-  result.signature = result.signature.flatMap((id) => current(id) ?? [])
+  result.signature = [...new Set(result.signature.flatMap((id) => current(id) ?? []))]
   for (const fact of result.facts) if (fact.proposedTag) fact.proposedTag = current(fact.proposedTag)
 
   // Facts: id sin repetir, fuente existente y texto, hasta MAX_FACTS.
@@ -1957,12 +1958,17 @@ export function postProcess(
     const accept = chain && BRANCH_FEATURES.has(id) ? (source: Source) => mentionsBranch(source, target) : undefined
     if (gated(sourceTextEvidence(id, `${groupOf(id)}.${id}`, accept))) tags.push(id)
   }
-  // Una azotea es una terraza: el fact de rooftop es su respaldo (buscar "terraza" también la trae).
-  if (tags.includes('rooftop') && !tags.includes('terrace')) {
-    const factIds = support.get('features.rooftop') ?? []
-    tags.push('terrace')
-    support.set('features.terrace', [...new Set([...(support.get('features.terrace') ?? []), ...factIds])])
-    tagEvidence.push({ tag: 'terrace', mode: 'inferred', signals: ['azotea (rooftop)'], factIds })
+  // Tags implícitos (IMPLIED_TAGS: una azotea es al aire libre): el fact del tag es su respaldo.
+  for (const [source, implied] of Object.entries(IMPLIED_TAGS) as [TagId, readonly TagId[]][]) {
+    if (!tags.includes(source)) continue
+    const factIds = support.get(`${groupOf(source)}.${source}`) ?? []
+    for (const id of implied) {
+      if (tags.includes(id)) continue
+      tags.push(id)
+      const key = `${groupOf(id)}.${id}`
+      support.set(key, [...new Set([...(support.get(key) ?? []), ...factIds])])
+      tagEvidence.push({ tag: id, mode: 'inferred', signals: [`${findDef(source)?.label.es.toLowerCase() ?? source} (${source})`], factIds })
+    }
   }
   // Un espacio para niños hace al lugar apto niños: el fact de kids_area es su respaldo.
   const kidsAreaFacts = support.get('features.kids_area') ?? []
@@ -2254,7 +2260,7 @@ export function withRecoveredHours(data: PlaceExtraction, retry: HoursRetryExtra
  * número, todas las palabras de la calle.
  */
 // Features que dependen del local físico: en una cadena varían de una sucursal a otra.
-const BRANCH_FEATURES = new Set<string>(['terrace', 'rooftop', 'wood_fired_oven', 'outdoor', 'patio', 'sea_view', 'kids_area', 'accessible', 'pool_table'])
+const BRANCH_FEATURES = new Set<string>(['rooftop', 'wood_fired_oven', 'outdoor', 'sea_view', 'kids_area', 'accessible', 'pool_table'])
 const MULTI_BRANCH_TEXT = /\b(?:sucursales|nuestros locales|nuestras tiendas|todos los locales|otros locales|otras sucursales)\b/
 const MULTI_BRANCH_PATH = /\/(?:store|stores|locales|sucursales|tiendas)\//
 

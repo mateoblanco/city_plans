@@ -1456,7 +1456,7 @@ describe('PlaceExtractionService', () => {
     const fromSource = (sourceId: string): PlaceExtraction => ({
       ...emptyExtraction,
       facts: [{ id: 'F1', text: 'Horario, terraza y wifi', sourceId, kind: 'other', proposedTag: null }],
-      tags: [{ group: 'features', id: 'terrace', facts: ['F1'] }, { group: 'features', id: 'wifi', facts: ['F1'] }],
+      tags: [{ group: 'features', id: 'outdoor', facts: ['F1'] }, { group: 'features', id: 'wifi', facts: ['F1'] }],
       hours: { raw: 'Lunes', display: null, blocks: [{ days: [1], opens: '10:00', closes: '22:00' }] },
       contact: { instagram: 'heladeriamarca', website: 'https://marca.example/' },
       support: ['hours', 'contact.website', 'contact.instagram'].map((field) => ({ field, facts: ['F1'] })),
@@ -1467,20 +1467,20 @@ describe('PlaceExtractionService', () => {
       expect(place.hours).toMatchObject({ status: 'none', slots: [], missingReason: 'chain_branch_not_found' })
       // Web e Instagram son de la marca: se mantienen aunque ninguna fuente confirme la sucursal.
       expect(place.contact).toEqual({ website: 'https://marca.example/', instagram: 'heladeriamarca' })
-      // terrace depende del local; wifi es de la marca y se mantiene.
-      expect(place.tags).not.toContain('terrace')
+      // outdoor depende del local; wifi es de la marca y se mantiene.
+      expect(place.tags).not.toContain('outdoor')
       expect(place.tags).toContain('wifi')
     })
 
     it('los acepta si la fuente menciona la dirección o el barrio de esta sucursal', () => {
       const place = postProcess(branch, fromSource('S3'), { sources: [web, otherBranch, thisBranch] })
       expect(place.hours.status).toBe('exact')
-      expect(place.tags).toEqual(expect.arrayContaining(['terrace', 'wifi']))
+      expect(place.tags).toEqual(expect.arrayContaining(['outdoor', 'wifi']))
 
       const byNeighborhood: Source = { ...thisBranch, text: 'Heladería Marca, sucursal Cordón. Lunes 12 a 23. Tiene terraza.' }
       const fromNeighborhood = postProcess(branch, fromSource('S3'), { sources: [web, byNeighborhood] })
       expect(fromNeighborhood.hours.status).toBe('exact')
-      expect(fromNeighborhood.tags).toContain('terrace')
+      expect(fromNeighborhood.tags).toContain('outdoor')
     })
 
     // Plaza de Chueca / Costa Azul: el nombre de Google no dice sucursal, pero hay otro lugar guardado de la marca.
@@ -1734,10 +1734,11 @@ describe('PlaceExtractionService', () => {
     expect(SYSTEM_PROMPT).toContain('Cada fact tiene id (F1, F2, F3… en orden, sin repetir)')
     expect(SYSTEM_PROMPT).not.toContain('índices')
     expect(SYSTEM_PROMPT).toContain('Una mención genérica de tragos o cócteles → classic_cocktails. Tragos propios de la casa, de autor, o cócteles con una base especial (ej. a base de vino) → signature_cocktails.')
-    expect(SYSTEM_PROMPT).toContain('Si dice al aire libre, mesas afuera o vereda, usá outdoor.')
-    expect(SYSTEM_PROMPT).toContain('- features: terrace, outdoor, patio')
-    expect(SYSTEM_PROMPT).not.toContain('sidewalk')
-    expect(SYSTEM_PROMPT).toContain('Distinguí espacios al aire libre: patio = espacio interno o trasero; terrace = terraza elevada; rooftop = azotea (sólo si la fuente dice azotea o rooftop); outdoor = al aire libre, mesas afuera o mesas en la vereda. No los uses como sinónimos.')
+    expect(SYSTEM_PROMPT).toContain('terraza, patio, jardín, al aire libre, mesas afuera o mesas en la vereda → outdoor (no hay tags de terraza ni de patio)')
+    expect(SYSTEM_PROMPT).toContain('- features: outdoor, rooftop')
+    for (const retired of ['sidewalk', 'terrace', 'bar_seating']) expect(SYSTEM_PROMPT).not.toContain(retired)
+    const features = SYSTEM_PROMPT.split('\n').find((line) => line.startsWith('- features: outdoor'))!.split(', ')
+    expect(features).not.toContain('patio')
     expect(SYSTEM_PROMPT).toContain('Nunca estimes ni inventes horas que no estén en las fuentes.')
     expect(SYSTEM_PROMPT).toContain('no agregues ningún dato que no esté en raw')
     expect(SYSTEM_PROMPT).toContain('vegan no puede ser fully')

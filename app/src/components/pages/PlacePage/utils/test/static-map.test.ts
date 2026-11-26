@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { estimatedMapTop, mapLikelyAboveFold } from "../static-map";
 
-// Escaramuza: en Chrome a 390×844 el mapa empieza en 618px.
+// Escaramuza: en Chrome a 390×844 el mapa empieza en 674px (medido en noviembre de 2026 con los íconos de los chips, que
+// pasan a tres filas; antes, en dos filas, 618px).
 const escaramuza = {
   name: "Escaramuza",
   description:
@@ -11,7 +12,7 @@ const escaramuza = {
 
 describe("mapLikelyAboveFold", () => {
   it("se acerca a lo medido en el navegador", () => {
-    expect(Math.abs(estimatedMapTop(escaramuza) - 618)).toBeLessThanOrEqual(30);
+    expect(Math.abs(estimatedMapTop(escaramuza) - 674)).toBeLessThanOrEqual(30);
   });
 
   it("una ficha común: el mapa entra en la primera pantalla", () => {

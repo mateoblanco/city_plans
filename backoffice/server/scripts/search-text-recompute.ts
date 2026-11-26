@@ -1,6 +1,7 @@
 // Rearma los textos de búsqueda (keyword_text, embedding_text) de todos los lugares con lo guardado y el catálogo actual
 // de shared/tags.ts, para cuando cambian sinónimos o labels. Antes migra los tags y categorías que salieron del catálogo
-// (RETIRED_TAGS: sidewalk → outdoor; los demás se eliminan) en categories, tags, signature y manual_overrides; un
+// (RETIRED_TAGS: sidewalk, terrace y patio → outdoor; los demás se eliminan) y suma los implícitos (IMPLIED_TAGS:
+// rooftop → outdoor, salvo outdoor sacado a mano) en categories, tags, signature y manual_overrides; un
 // lugar con un conflicto a mano (retired-tags.ts) no se toca y se lista. Por defecto no escribe: lista los que cambian
 // con las frases que salen y entran de cada texto, cuántos lugares cambian por cada tag retirado con 10 ejemplos, y el
 // costo estimado de los embeddings (sólo los lugares cuyo hash de embedding_text cambia). --apply (o --write) escribe
@@ -13,7 +14,7 @@ import { gatewayEmbedder } from '../places/save.ts'
 import { applySearchTextChanges, planTextRefresh, type SearchTextChange, type TextRefreshChange } from '../places/search-text-backfill.ts'
 import { isRetiredTagsConflict, planRetiredTags, type RetiredTagsPlan } from '../places/retired-tags.ts'
 import { parseManualOverrides, type ManualOverrides } from '../../src/data/manual-overrides.ts'
-import { RETIRED_TAGS } from '../../src/data/tags.ts'
+import { IMPLIED_TAGS, RETIRED_TAGS } from '../../src/data/tags.ts'
 
 const EXAMPLES = 10
 
@@ -98,6 +99,34 @@ async function main() {
     }
     if (affected.length > EXAMPLES) console.log(`    … y ${affected.length - EXAMPLES} más`)
   }
+  // Tags implícitos: cuántos lugares ganan el tag por el de origen, con ejemplos, y los que lo tienen sacado a mano.
+  console.log('\nTags implícitos:')
+  for (const [source, targets] of Object.entries(IMPLIED_TAGS)) {
+    for (const tag of targets) {
+      const gained = [...retired].filter(([, plan]) => plan.implied.some((effect) => effect.source === source && effect.tag === tag && effect.added))
+      const viaOverrides = gained.filter(([, plan]) => plan.implied.some((effect) => effect.source === source && effect.tag === tag && effect.overrides))
+      const respected = rows.filter((row) => !conflicted.has(row.id) && (retired.get(row.id)?.tags ?? row.tags).includes(source) && !(retired.get(row.id)?.tags ?? row.tags).includes(tag))
+      console.log(`  ${source} → +${tag}: ${gained.length} lugares lo ganan (${viaOverrides.length} también en tags.add), ${respected.length} lo tienen sacado a mano`)
+      for (const [id] of gained.slice(0, EXAMPLES)) {
+        const row = byId.get(id)!
+        console.log(`    ${row.name} · ${row.neighborhoodId} · ${row.status}`)
+      }
+      if (gained.length > EXAMPLES) console.log(`    … y ${gained.length - EXAMPLES} más`)
+      for (const row of respected) console.log(`    sacado a mano: ${row.name} · ${row.neighborhoodId} · ${row.status}`)
+    }
+  }
+
+  // Cuántos lugares tienen cada tag de reemplazo o implícito antes y después de la migración (los en conflicto no cambian).
+  const counted = [...new Set([...Object.values(RETIRED_TAGS), ...Object.values(IMPLIED_TAGS).flat()].filter((tag): tag is string => tag !== null))]
+  console.log('\nAntes → después:')
+  for (const tag of counted) {
+    const after = (row: (typeof rows)[number]) => (conflicted.has(row.id) ? row.tags : (retired.get(row.id)?.tags ?? row.tags))
+    const before = rows.filter((row) => row.tags.includes(tag))
+    const now = rows.filter((row) => after(row).includes(tag))
+    const published = (list: typeof rows) => list.filter((row) => row.status === 'published').length
+    console.log(`  ${tag}: antes ${before.length} (${published(before)} publicados) → después ${now.length} (${published(now)} publicados)`)
+  }
+
   console.log(`\nConflictos a mano, no se tocan (${conflicts.length}):`)
   for (const entry of conflicts) console.log(`  ${entry.name} · ${entry.neighborhoodId} · ${entry.conflict}`)
 

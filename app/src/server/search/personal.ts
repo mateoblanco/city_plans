@@ -1,6 +1,6 @@
 import { iconFamily, type IconFamily } from '@shared/icon-categories.ts'
 import { intentDef, type IntentId } from '@shared/intents.ts'
-import { CUISINES, withSubcuisines } from '@shared/tags.ts'
+import { CUISINES, HIDDEN_TAGS, withSubcuisines } from '@shared/tags.ts'
 import { SEARCH_CONFIG } from './config'
 import type { CandidateRow, LikedPlace, LikeSimilarities, LikeSimilarity } from './candidates'
 import type { Collapsed } from './branches'
@@ -423,10 +423,11 @@ export function personalize(
       else entries.push({ item, similarity, affinity: affinity.value, score, traits: affinity.shared })
     }
     entries.sort((a, b) => b.score - a.score)
-    // El motivo: los rasgos de más peso que tienen al menos traitShare de los elegidos.
+    // El motivo: los rasgos de más peso que tienen al menos traitShare de los elegidos, sin los tags ocultos (azotea).
     const title = (chosen: Entry[]) => {
       const owned = chosen.map((entry) => new Set(traitsOf(entry.item.row)))
       const traits = profile.traits
+        .filter((trait) => !HIDDEN_TAGS.has(trait.key))
         .filter((trait) => owned.filter((set) => set.has(trait.key)).length >= config.reason.traitShare * chosen.length)
         .slice(0, config.reason.maxTraits)
         .map((trait) => trait.key)

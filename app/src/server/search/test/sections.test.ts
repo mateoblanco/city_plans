@@ -47,7 +47,7 @@ describe('cuándo una búsqueda es amplia', () => {
     expect(notBroadReason(interpretation({ nameQuery: 'tinkal' }), broad)).toBe('nombre')
     expect(notBroadReason(interpretation({ dishes: [{ name: 'pizza', relatedTags: [], relatedCategories: [] }] }), broad)).toBe('plato')
     expect(notBroadReason(interpretation({ must: { ...must, tags: ['japanese'] } }), broad)).toBe('tag obligatorio')
-    expect(notBroadReason(interpretation({ must: { ...must, tags: ['terrace'] } }), broad)).toBe('tag obligatorio')
+    expect(notBroadReason(interpretation({ must: { ...must, tags: ['outdoor'] } }), broad)).toBe('tag obligatorio')
     expect(notBroadReason(interpretation({ must: { ...must, categories: ['cafe'] } }), broad)).toBe('categoría obligatoria')
     expect(notBroadReason(interpretation(), { pinned: false, section: true })).toBe('sección')
   })
@@ -114,7 +114,7 @@ describe('qué grupos se piden', () => {
 
 describe('cómo se arman', () => {
   it('sin Mejores coincidencias: empieza con los grupos, de 6 como mucho, y lo que sobra va a Más opciones', () => {
-    const tags = Object.fromEntries(Array.from({ length: 20 }, (_, index) => [index, ['terrace']]))
+    const tags = Object.fromEntries(Array.from({ length: 20 }, (_, index) => [index, ['outdoor']]))
     const { sections } = buildSections(ranked(20, tags), ['outdoor'], 'es')
     expect(sections?.map((section) => section.id)).toEqual(['outdoor', 'more'])
     expect(sections?.[0].placeIds).toEqual(['p0', 'p1', 'p2', 'p3', 'p4', 'p5'])
@@ -123,7 +123,7 @@ describe('cómo se arman', () => {
   })
 
   it('cada lugar va una sola vez, al grupo con menos lugares (a igual cantidad, el de más prioridad), en el orden del ranking', () => {
-    const items = ranked(12, { 3: ['picada', 'terrace'], 4: ['terrace'], 5: ['picada'], 6: ['terrace'], 7: ['tapas'], 8: ['terrace'] })
+    const items = ranked(12, { 3: ['picada', 'outdoor'], 4: ['outdoor'], 5: ['picada'], 6: ['outdoor'], 7: ['tapas'], 8: ['outdoor'] })
     const { sections } = buildSections(items, ['share', 'outdoor'], 'es')
     expect(sections?.map((section) => section.id)).toEqual(['share', 'outdoor', 'more'])
     expect(sections?.[0]).toEqual({ id: 'share', title: 'Para compartir', placeIds: ['p3', 'p5', 'p7'], total: 3 })
@@ -134,13 +134,13 @@ describe('cómo se arman', () => {
   })
 
   it('ningún grupo se queda con todo', () => {
-    const tags = Object.fromEntries(Array.from({ length: 11 }, (_, index) => [index, ['picada', 'terrace']]))
+    const tags = Object.fromEntries(Array.from({ length: 11 }, (_, index) => [index, ['picada', 'outdoor']]))
     const { sections } = buildSections(ranked(11, tags), ['share', 'outdoor'], 'es')
     expect(sections?.map((section) => section.placeIds.length)).toEqual([6, 5])
   })
 
   it('con los grupos llenos, el lugar va a Más opciones aunque entre', () => {
-    const tags = Object.fromEntries(Array.from({ length: 14 }, (_, index) => [index, ['picada', 'terrace']]))
+    const tags = Object.fromEntries(Array.from({ length: 14 }, (_, index) => [index, ['picada', 'outdoor']]))
     const { sections } = buildSections(ranked(14, tags), ['share', 'outdoor'], 'es')
     expect(sections?.map((section) => [section.id, section.placeIds.length])).toEqual([['share', 6], ['outdoor', 6], ['more', 2]])
     expect(sections?.[2].placeIds).toEqual(['p12', 'p13'])
@@ -148,7 +148,7 @@ describe('cómo se arman', () => {
 
   it('un grupo con menos de 3 se descarta y sus lugares se reparten', () => {
     // share sólo podría tener p3 y p4: se descarta (con p3) y outdoor se queda con p4, p5 y p6.
-    const items = ranked(12, { 3: ['picada'], 4: ['picada', 'terrace'], 5: ['terrace'], 6: ['terrace'] })
+    const items = ranked(12, { 3: ['picada'], 4: ['picada', 'outdoor'], 5: ['outdoor'], 6: ['outdoor'] })
     const result = buildSections(items, ['share', 'outdoor'], 'es')
     expect(result.dropped).toEqual([{ id: 'share', count: 1 }])
     expect(result.sections?.find((section) => section.id === 'outdoor')?.placeIds).toEqual(['p4', 'p5', 'p6'])
@@ -162,7 +162,7 @@ describe('cómo se arman', () => {
     const tags: Record<number, string[]> = {}
     for (const index of [3, 4, 5]) tags[index] = ['live_music']
     for (const index of [6, 7, 8]) tags[index] = ['picada']
-    for (const index of [9, 10, 11]) tags[index] = ['terrace']
+    for (const index of [9, 10, 11]) tags[index] = ['outdoor']
     for (const index of [12, 13, 14]) tags[index] = ['japanese']
     const extra = { 0: { style: 'cuidado' }, 1: { style: 'cuidado' }, 2: { style: 'cuidado' }, 15: { categories: ['grill'] }, 16: { categories: ['bodegon'] }, 17: { categories: ['chiviteria'] } }
     const result = buildSections(ranked(18, tags, extra), ['classics', 'world', 'outdoor', 'share', 'live_music', 'special'], 'es')
@@ -172,7 +172,7 @@ describe('cómo se arman', () => {
   })
 
   it('total: cuántos resultados cumplen la regla del grupo, aunque muestre 6 (decide si hay "Ver todos")', () => {
-    const tags = Object.fromEntries(Array.from({ length: 14 }, (_, index) => [index, ['picada', 'terrace']]))
+    const tags = Object.fromEntries(Array.from({ length: 14 }, (_, index) => [index, ['picada', 'outdoor']]))
     const { sections } = buildSections(ranked(14, tags), ['share', 'outdoor'], 'es')
     expect(sections?.map((section) => [section.id, section.placeIds.length, section.total])).toEqual([['share', 6, 14], ['outdoor', 6, 14], ['more', 2, null]])
   })
@@ -190,7 +190,7 @@ describe('cómo se arman', () => {
   it('Descubrí nunca va primero: el primero es el grupo de mejor puntaje sin contarlo, antes de los personales', () => {
     const extra: Record<number, Partial<CandidateRow>> = {}
     for (let index = 0; index < 14; index++) extra[index] = index < 6 ? { prominence: 0.6, semantic: 0.6 } : { prominence: 0.9, semantic: 0.5 }
-    const tags = Object.fromEntries(Array.from({ length: 6 }, (_, index) => [index + 6, ['terrace']]))
+    const tags = Object.fromEntries(Array.from({ length: 6 }, (_, index) => [index + 6, ['outdoor']]))
     const items = ranked(14, tags, extra)
     const personal = [{ id: 'similar' as const, title: 'Parecido a X', items: items.slice(12) }]
     const { sections } = buildSections(items, ['outdoor', 'discover'], 'es', personal)
@@ -203,7 +203,7 @@ describe('cómo se arman', () => {
 
   it('Descubrí se arma después de los temáticos, con lo que quedó y por similitud con la consulta', () => {
     // p0–p2 terraza; p3–p4 candidatos con terraza (los toma Al aire libre); p5–p8 candidatos sin grupo; p9–p13 sin grupo.
-    const tags = Object.fromEntries([0, 1, 2, 3, 4].map((index) => [index, ['terrace']]))
+    const tags = Object.fromEntries([0, 1, 2, 3, 4].map((index) => [index, ['outdoor']]))
     const semantic: Record<number, number> = { 3: 0.6, 4: 0.6, 5: 0.6, 6: 0.7, 7: 0.65, 8: 0.62 }
     const extra = Object.fromEntries(Array.from({ length: 14 }, (_, index) => [index, semantic[index] ? { prominence: 0.6, semantic: semantic[index] } : known]))
     const { sections } = buildSections(ranked(14, tags, extra), ['outdoor', 'discover'], 'es')
@@ -215,7 +215,7 @@ describe('cómo se arman', () => {
   })
 
   it('con menos de 3 candidatos entre los que quedaron, Descubrí no sale y no le saca lugares a otro grupo', () => {
-    const tags = Object.fromEntries([0, 1, 2, 3, 4].map((index) => [index, ['terrace']]))
+    const tags = Object.fromEntries([0, 1, 2, 3, 4].map((index) => [index, ['outdoor']]))
     const extra = Object.fromEntries(Array.from({ length: 14 }, (_, index) => [index, index >= 3 && index <= 6 ? candidate : known]))
     const result = buildSections(ranked(14, tags, extra), ['outdoor', 'discover'], 'es')
     expect(result.dropped).toContainEqual({ id: 'discover', count: 2 })
@@ -229,7 +229,7 @@ describe('cómo se arman', () => {
     const tags: Record<number, string[]> = {}
     for (const index of [0, 1, 2]) tags[index] = ['live_music']
     for (const index of [3, 4, 5]) tags[index] = ['picada']
-    for (const index of [6, 7, 8]) tags[index] = ['terrace']
+    for (const index of [6, 7, 8]) tags[index] = ['outdoor']
     for (const index of [9, 10, 11]) tags[index] = ['japanese']
     const extra = Object.fromEntries(Array.from({ length: 21 }, (_, index) => [
       index,
@@ -246,7 +246,7 @@ describe('en la búsqueda', () => {
   const places = Array.from({ length: 12 }, (_, index) => row({
     id: `r${index}`,
     categories: ['restaurant'],
-    tags: index % 3 === 0 ? ['picada', 'groups'] : index % 3 === 1 ? ['japanese'] : ['terrace'],
+    tags: index % 3 === 0 ? ['picada', 'groups'] : index % 3 === 1 ? ['japanese'] : ['outdoor'],
     style: index % 2 ? 'casual' : 'cuidado',
     prominence: 0.5 + index / 50,
   }))
@@ -334,7 +334,7 @@ describe('en la búsqueda', () => {
     const sixteen = Array.from({ length: 16 }, (_, index) => row({
       id: `s${index}`,
       categories: ['restaurant'],
-      tags: index % 3 === 0 ? ['picada'] : index % 3 === 1 ? ['japanese'] : ['terrace'],
+      tags: index % 3 === 0 ? ['picada'] : index % 3 === 1 ? ['japanese'] : ['outdoor'],
       hours: [3, 6, 9, 12].includes(index) ? closedMonday : everyDay('08:00', '23:00'),
       prominence: 0.5 + index / 50,
     }))
@@ -389,7 +389,7 @@ describe('orden dentro de una sección', () => {
   it('los mismos lugares en el grupo, primero los que tienen más señales', () => {
     // p0..p5 sólo tapas; p3 además picada y groups: con un puntaje casi igual pasa primero, sin que entre nadie nuevo.
     // Puntajes como los reales (≈ 0,03, a 0,001 uno de otro).
-    const tags = [['tapas'], ['tapas'], ['tapas'], ['tapas', 'picada', 'groups'], ['terrace'], ['terrace'], ['terrace'], []]
+    const tags = [['tapas'], ['tapas'], ['tapas'], ['tapas', 'picada', 'groups'], ['outdoor'], ['outdoor'], ['outdoor'], []]
     const items = tags.map((list, index) => fused({ id: `p${index}`, tags: list, prominence: 0.8 }, 0.03 - index / 1000))
     const { sections } = buildSections(items, ['share', 'outdoor'], 'es')
     const share = sections!.find((section) => section.id === 'share')!
@@ -397,7 +397,7 @@ describe('orden dentro de una sección', () => {
   })
 
   it('los "maybe" (precio desconocido con precio pedido) van después de los "has", aunque tengan más señales', () => {
-    const tags = [['tapas'], ['tapas'], ['tapas', 'picada', 'groups'], ['terrace'], ['terrace'], ['terrace'], []]
+    const tags = [['tapas'], ['tapas'], ['tapas', 'picada', 'groups'], ['outdoor'], ['outdoor'], ['outdoor'], []]
     const items = tags.map((list, index) => fused({ id: `p${index}`, tags: list, prominence: 0.8 }, 0.03 - index / 1000))
     items[2] = { ...items[2], matchLevel: 'maybe' }
     const { sections } = buildSections(items, ['share', 'outdoor'], 'es')

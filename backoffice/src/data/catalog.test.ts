@@ -4,7 +4,7 @@ import {
   MONTEVIDEO_NEIGHBORHOODS,
   isMontevideoNeighborhood,
 } from './neighborhoods'
-import { CATEGORIES, CUISINES, FEATURES, GOOD_FOR, RETIRED_TAGS, TAG_IDS, buildEmbeddingText, buildKeywordText, groupOf, tagsForFilter, toCanonical, withPartialTags, type TagDef } from './tags'
+import { CATEGORIES, CUISINES, FEATURES, GOOD_FOR, RETIRED_TAGS, TAG_IDS, buildEmbeddingText, buildKeywordText, groupOf, HIDDEN_TAGS, IMPLIED_TAGS, tagsForFilter, toCanonical, type TagDef } from './tags'
 
 describe('catálogos permitidos', () => {
   it('incluye los 166 tipos oficiales de Food and Drink sin duplicados', () => {
@@ -25,7 +25,6 @@ describe('catálogos permitidos', () => {
     expect(FEATURES.open_kitchen.label.es).toBe('Cocina a la vista')
     expect(FEATURES.pool_table.label).toEqual({ es: 'Pool', en: 'Pool' })
     expect(FEATURES.pool_table.synonyms.es).toContain('metegol')
-    expect(FEATURES.bar_seating.synonyms.en).toContain('counter')
     const input = {
       name: 'Brunch.', neighborhood: 'Cordón',
       description: { es: 'Brunch.', en: 'Brunch.' },
@@ -44,7 +43,7 @@ describe('catálogos permitidos', () => {
     const input = {
       name: 'Café Norte', neighborhood: 'Parque Rodó',
       description: { es: 'Café con terraza.', en: 'Coffee shop with a terrace.' },
-      tags: ['cafe', 'terrace'], highlights: [{ es: 'Café filtrado', en: 'Flat white' }],
+      tags: ['cafe', 'outdoor'], highlights: [{ es: 'Café filtrado', en: 'Flat white' }],
     }
     const embedding = buildEmbeddingText(input)
     const keyword = buildKeywordText(input)
@@ -154,9 +153,14 @@ describe('catálogos permitidos', () => {
     // "mesas afuera" ya no es un tag aparte: sus sinónimos son de al aire libre.
     for (const term of ['mesas en la vereda', 'vereda', 'sidewalk', 'outside tables']) expect(toCanonical(term)).toEqual({ group: 'features', id: 'outdoor' })
     expect(groupOf('sidewalk')).toBeNull()
-    expect(tagsForFilter('outdoor')).toEqual(['outdoor', 'terrace', 'patio', 'rooftop'])
-    expect(withPartialTags('outdoor')).toEqual(['outdoor', 'terrace', 'patio', 'rooftop'])
-    expect(withPartialTags('terrace')).toEqual(['terrace'])
+    expect(tagsForFilter('outdoor')).toEqual(['outdoor'])
+    // Terraza, patio y jardín son sinónimos de al aire libre; "terraza en la azotea" sigue siendo azotea.
+    for (const term of ['terraza', 'patio', 'jardín', 'terrace', 'garden', 'courtyard']) expect(toCanonical(term), term).toEqual({ group: 'features', id: 'outdoor' })
+    expect(toCanonical('terraza en la azotea')).toEqual({ group: 'features', id: 'rooftop' })
+    for (const id of ['terrace', 'patio', 'bar_seating']) expect(groupOf(id), id).toBeNull()
+    expect(RETIRED_TAGS).toMatchObject({ terrace: 'outdoor', patio: 'outdoor', bar_seating: null })
+    expect(IMPLIED_TAGS.rooftop).toEqual(['outdoor'])
+    expect(HIDDEN_TAGS.has('rooftop')).toBe(true)
     for (const id of ['events', 'books', 'shop']) expect(groupOf(id)).toBe('features')
     expect(groupOf('lgbtq_friendly')).toBeNull()
     expect(TAG_IDS).not.toContain('lgbtq_friendly')

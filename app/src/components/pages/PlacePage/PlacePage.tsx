@@ -94,7 +94,7 @@ const Details = async (props: DetailsProps) => {
                       sources={staticMapSources({ lat: place.lat, lng: place.lng, iconCategory: place.icon_category })}
                       mapsHref={mapsHref}
                       trackPlaceId={tracking ? place.id : null}
-                      priority={mapLikelyAboveFold({ name: place.name, description: place.description_es, chips })}
+                      priority={mapLikelyAboveFold({ name: place.name, description: place.description_es, chips: chips.map((chip) => chip.label) })}
                     />
                   )}
                 </PlaceMap>

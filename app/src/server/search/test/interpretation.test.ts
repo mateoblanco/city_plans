@@ -45,7 +45,7 @@ describe('barrios', () => {
   })
 
   it('los quitados de links viejos con la Ñ mal decodificada cuentan como el barrio actual', () => {
-    expect(parseRemove('neighborhood:LARRA\u00C3\u2018AGA,tag:terrace')).toEqual([{ kind: 'neighborhood', id: 'LARRAÑAGA' }, { kind: 'tag', id: 'terrace' }])
+    expect(parseRemove('neighborhood:LARRA\u00C3\u2018AGA,tag:outdoor')).toEqual([{ kind: 'neighborhood', id: 'LARRAÑAGA' }, { kind: 'tag', id: 'outdoor' }])
   })
 
   it('el nombre para mostrar no cambia el id y los nombres viejos siguen resolviendo', () => {
@@ -169,7 +169,7 @@ describe('atajo con diccionario', () => {
     // La ensalada rusa es una ensalada, no la cocina rusa.
     expect(interpretWithDictionary('ensalada rusa')?.must.tags).not.toContain('russian')
     expect(interpretWithDictionary(normalizeQuery('brunch vegano con terraza en cordón el domingo'))?.must).toMatchObject({
-      tags: ['brunch', 'terrace'],
+      tags: ['brunch', 'outdoor'],
       diet: { vegan: true },
       neighborhoods: ['CORDON'],
       openAt: { day: 0, time: null },
@@ -220,8 +220,8 @@ describe('platos', () => {
 
 describe('validateInterpretation', () => {
   it('acepta ids, labels y sinónimos y los ubica en su grupo', () => {
-    expect(classifyTerm('terrace')).toEqual({ kind: 'tag', id: 'terrace' })
-    expect(classifyTerm('Terraza')).toEqual({ kind: 'tag', id: 'terrace' })
+    expect(classifyTerm('outdoor')).toEqual({ kind: 'tag', id: 'outdoor' })
+    expect(classifyTerm('Terraza')).toEqual({ kind: 'tag', id: 'outdoor' })
     expect(classifyTerm('cafe')).toEqual({ kind: 'category', id: 'cafe' })
     expect(classifyTerm('gluten_free')).toEqual({ kind: 'diet', key: 'glutenFree' })
     expect(classifyTerm('inventado')).toBeNull()
@@ -241,21 +241,21 @@ describe('validateInterpretation', () => {
     const { interpretation, discarded } = validateInterpretation(
       llmOutput({
         must: {
-          categories: ['cafe', 'terrace', 'spaceship'],
+          categories: ['cafe', 'outdoor', 'spaceship'],
           tags: ['vegan', 'wifi_galactico'],
           diet: { vegan: false, vegetarian: false, glutenFree: true },
           neighborhoods: ['Pocitos', 'Atlantis'],
           price: ['low', 'gratis'],
           openAt: { moment: null, day: 9, time: '21' },
         },
-        exclude: { categories: [], tags: ['terrace'] },
+        exclude: { categories: [], tags: ['outdoor'] },
         language: 'en',
       }),
       'gluten free cafe in pocitos',
     )
     expect(interpretation.must.categories).toEqual(['cafe'])
-    expect(interpretation.must.tags).toEqual([]) // terrace quedó excluido
-    expect(interpretation.exclude.tags).toEqual(['terrace'])
+    expect(interpretation.must.tags).toEqual([]) // outdoor quedó excluido
+    expect(interpretation.exclude.tags).toEqual(['outdoor'])
     expect(interpretation.must.diet).toEqual({ vegan: true, glutenFree: true })
     expect(interpretation.must.neighborhoods).toEqual(['POCITOS'])
     expect(interpretation.must.price).toEqual(['low'])
@@ -285,8 +285,8 @@ describe('validateInterpretation', () => {
 
 describe('remove', () => {
   it('parsea kind:id e ignora lo inválido', () => {
-    expect(parseRemove('tag:terrace,neighborhood:POCITOS,foo:bar,sinpuntos,diet:vegan')).toEqual([
-      { kind: 'tag', id: 'terrace' },
+    expect(parseRemove('tag:outdoor,neighborhood:POCITOS,foo:bar,sinpuntos,diet:vegan')).toEqual([
+      { kind: 'tag', id: 'outdoor' },
       { kind: 'neighborhood', id: 'POCITOS' },
       { kind: 'diet', id: 'vegan' },
     ])
@@ -295,12 +295,12 @@ describe('remove', () => {
 
   it('saca los chips sin volver a interpretar', () => {
     const base = interpretWithDictionary(normalizeQuery('brunch vegano con terraza en cordón el domingo'))!
-    const next = applyRemove(base, parseRemove('tag:terrace,neighborhood:CORDON,diet:vegan,openAt:day'))
+    const next = applyRemove(base, parseRemove('tag:outdoor,neighborhood:CORDON,diet:vegan,openAt:day'))
     expect(next.must.tags).toEqual(['brunch'])
     expect(next.must.neighborhoods).toEqual([])
     expect(next.must.diet).toEqual({})
     expect(next.must.openAt).toBeNull()
-    expect(base.must.tags).toEqual(['brunch', 'terrace']) // no muta el original
+    expect(base.must.tags).toEqual(['brunch', 'outdoor']) // no muta el original
   })
 })
 
@@ -325,7 +325,7 @@ describe('tenedor libre, horno a leña y azotea', () => {
     expect(interpretWithDictionary('libre de gluten', { partial: true })!.must.tags).toEqual([])
   })
 
-  it('"pizza a la leña" pide la pizza y el horno a leña; azotea es rooftop, no terrace', () => {
+  it('"pizza a la leña" pide la pizza y el horno a leña; azotea es rooftop y terraza es al aire libre', () => {
     const pizza = read('pizza a la leña')
     expect(pizza?.must.tags).toEqual(['wood_fired_oven'])
     expect(pizza?.dishes.map((dish) => dish.name)).toEqual(['pizza'])
@@ -335,7 +335,7 @@ describe('tenedor libre, horno a leña y azotea', () => {
     expect(interpretWithDictionary(normalizeQuery('parrilla a la leña'), { partial: true })!.must.tags).not.toContain('wood_fired_oven')
     expect(read('azotea')?.must.tags).toEqual(['rooftop'])
     expect(read('rooftop')?.must.tags).toEqual(['rooftop'])
-    expect(read('terraza')?.must.tags).toEqual(['terrace'])
+    expect(read('terraza')?.must.tags).toEqual(['outdoor'])
     expect(read('merienda para compartir')?.must.tags).toEqual(['shared_afternoon_tea'])
   })
 })

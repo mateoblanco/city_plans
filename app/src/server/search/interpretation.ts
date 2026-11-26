@@ -279,7 +279,7 @@ export function tidy(value: Interpretation): Interpretation {
 export const REMOVABLE_KINDS = ['name', 'category', 'tag', 'prefer', 'exclude', 'diet', 'neighborhood', 'venue', 'price', 'openAt', 'dish', 'vibe', 'near', 'intent'] as const
 export type ChipKind = (typeof REMOVABLE_KINDS)[number]
 
-/** Parsea `remove=tag:terrace,neighborhood:POCITOS`; ignora lo que no tenga forma kind:id. */
+/** Parsea `remove=tag:outdoor,neighborhood:POCITOS`; ignora lo que no tenga forma kind:id. */
 export function parseRemove(raw: string | null | undefined): { kind: ChipKind; id: string }[] {
   if (!raw) return []
   return raw.split(',').flatMap((part) => {

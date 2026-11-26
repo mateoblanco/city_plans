@@ -1,10 +1,16 @@
-import { label, RETIRED_TAGS } from '../../src/data/tags.ts'
+import { IMPLIED_TAGS, label, RETIRED_TAGS } from '../../src/data/tags.ts'
 
 /** Lo que la migración lee de un lugar: categorías, tags, signature y manual_overrides tal como están en la base (sin parsear). */
 export type RetiredTagsRow = { categories: string[]; tags: string[]; signature: string[]; manualOverrides: unknown }
 
 /** Dónde aparecía un tag (o categoría) retirado en el lugar. */
 export type RetiredTagEffect = { tag: string; replacement: string | null; column: boolean; overrides: boolean }
+
+/**
+ * Un tag implícito (IMPLIED_TAGS: rooftop → outdoor) que el lugar gana: added en la columna tags (false si está sacado a
+ * mano en manual_overrides, que se respeta) y overrides si también entra en tags.add porque el de origen está agregado a mano.
+ */
+export type ImpliedTagEffect = { source: string; tag: string; added: boolean; overrides: boolean }
 
 export type RetiredTagsPlan = {
   categories: string[]
@@ -13,6 +19,7 @@ export type RetiredTagsPlan = {
   /** manual_overrides con los tags retirados reemplazados o sacados; las demás claves quedan igual. */
   manualOverrides: Record<string, unknown>
   effects: RetiredTagEffect[]
+  implied: ImpliedTagEffect[]
 }
 
 export type RetiredTagsConflict = { conflict: string }
@@ -26,7 +33,8 @@ export function withoutRetiredTags(ids: readonly string[]): string[] {
 }
 
 /**
- * Migración de los tags y categorías que salieron del catálogo (RETIRED_TAGS) en un lugar guardado: las columnas
+ * Migración de los tags y categorías que salieron del catálogo (RETIRED_TAGS) y de los tags implícitos (IMPLIED_TAGS:
+ * una azotea también es al aire libre, salvo que outdoor esté sacado a mano) en un lugar guardado: las columnas
  * categories, tags y signature y los overrides de manual_overrides (tags.add/remove, signature y categories). null si el
  * lugar no tiene ninguno. Lee manual_overrides crudo: parseManualOverrides descarta entero un diff con un id que ya no
  * está en el catálogo. Un lugar con el tag retirado agregado a mano y su reemplazo sacado a mano (o al revés), con el
@@ -48,8 +56,6 @@ export function planRetiredTags(row: RetiredTagsRow): RetiredTagsPlan | RetiredT
     const inOverrides = add.includes(tag) || remove.includes(tag) || Boolean(lockedSignature?.includes(tag)) || Boolean(lockedCategories?.includes(tag))
     return column || inOverrides ? [{ tag, replacement, column, overrides: inOverrides }] : []
   })
-  if (effects.length === 0) return null
-
   for (const { tag, replacement } of effects) {
     if (!replacement) continue
     const [retired, current] = [tag, `${replacement} (${label(replacement)})`]
@@ -60,16 +66,32 @@ export function planRetiredTags(row: RetiredTagsRow): RetiredTagsPlan | RetiredT
 
   const categories = withoutRetiredTags(row.categories)
   const nextLockedCategories = lockedCategories ? withoutRetiredTags(lockedCategories) : null
-  if (categories.length === 0 || nextLockedCategories?.length === 0) {
+  if (effects.length > 0 && (categories.length === 0 || nextLockedCategories?.length === 0)) {
     return { conflict: `se quedaría sin categorías (${row.categories.join(', ')}): elegir otra a mano` }
   }
 
   const tags = withoutRetiredTags(row.tags)
+  const nextAdd = withoutRetiredTags(add)
+  const nextRemove = withoutRetiredTags(remove)
+  const implied: ImpliedTagEffect[] = []
+  for (const [source, targets] of Object.entries(IMPLIED_TAGS)) {
+    if (!tags.includes(source)) continue
+    for (const tag of targets) {
+      if (tags.includes(tag)) continue
+      const removedByHand = nextRemove.includes(tag)
+      const overridden = !removedByHand && nextAdd.includes(source) && !nextAdd.includes(tag)
+      if (!removedByHand) tags.push(tag)
+      if (overridden) nextAdd.push(tag)
+      implied.push({ source, tag, added: !removedByHand, overrides: overridden })
+    }
+  }
+  if (effects.length === 0 && !implied.some((effect) => effect.added)) return null
+
   const manualOverrides = { ...overrides }
-  if (diff) manualOverrides.tags = { ...diff, add: withoutRetiredTags(add), remove: withoutRetiredTags(remove) }
+  if (diff && (effects.length > 0 || implied.some((effect) => effect.overrides))) manualOverrides.tags = { ...diff, add: nextAdd, remove: nextRemove }
   if (lockedSignature) manualOverrides.signature = withoutRetiredTags(lockedSignature)
   if (nextLockedCategories) manualOverrides.categories = nextLockedCategories
-  return { categories, tags, signature: withoutRetiredTags(row.signature).filter((id) => tags.includes(id)), manualOverrides, effects }
+  return { categories, tags, signature: withoutRetiredTags(row.signature).filter((id) => tags.includes(id)), manualOverrides, effects, implied }
 }
 
 export const isRetiredTagsConflict = (plan: RetiredTagsPlan | RetiredTagsConflict | null): plan is RetiredTagsConflict =>

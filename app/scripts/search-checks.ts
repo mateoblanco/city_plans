@@ -1,5 +1,4 @@
 // Propiedades esperadas por consulta, para `yarn search:eval` y `yarn search:check` (sale con error si alguna falla).
-import { PARTIAL_TAGS } from "@shared/tags.ts";
 import { SEARCH_CONFIG } from "../src/server/search/config";
 import { dessertFitOf, isKidsNight } from "../src/server/search/fuse";
 import { intentGroups, matchesGroup } from "../src/server/search/intents";
@@ -119,26 +118,15 @@ const isFirst = (placeName: string): Check => ({
   test: (places) => (places[0]?.name === placeName ? [] : [`#1: ${places[0]?.name ?? "—"}; ${placeName}: #${places.findIndex((place) => place.name === placeName) + 1 || "—"}`]),
 });
 
-const SUNSET_TAGS = ["sea_view", "rooftop", "terrace"];
+const SUNSET_TAGS = ["sea_view", "rooftop", "outdoor"];
 
-/**
- * "al aire libre" (shared/tags.ts PARTIAL_TAGS): primero los que tienen el tag outdoor y después los que sólo tienen
- * terraza, patio o azotea; ninguno sin uno de los dos.
- */
+/** "al aire libre" (también "terraza" o "patio", sinónimos de outdoor): todos con el tag outdoor. */
 const outdoorFirst: Check = {
-  description: "primero los de al aire libre (los primeros 5 con el tag) y después los de sólo terraza, patio o azotea",
-  test: (places) => {
-    const isOutdoor = (place: Place) => place.tags.includes("outdoor");
-    const isPartial = (place: Place) => !isOutdoor(place) && PARTIAL_TAGS.outdoor.some((tag) => place.tags.includes(tag));
-    const firstPartial = places.findIndex(isPartial);
-    return [
-      ...(places.length < 5 ? [`sólo ${places.length} resultados`] : []),
-      ...places.slice(0, 5).filter((place) => !isOutdoor(place)).map((place) => `sin al aire libre en el top 5: ${name(place)}`),
-      ...(firstPartial === -1 ? ["ningún lugar de sólo terraza, patio o azotea"] : []),
-      ...(firstPartial === -1 ? [] : places.slice(firstPartial).filter(isOutdoor).map((place) => `al aire libre después de uno de terraza o patio: ${name(place)}`)),
-      ...places.filter((place) => !isOutdoor(place) && !isPartial(place)).map((place) => `sin al aire libre, terraza, patio ni azotea: ${name(place)}`),
-    ];
-  },
+  description: "todos con al aire libre (el tag outdoor)",
+  test: (places) => [
+    ...(places.length < 5 ? [`sólo ${places.length} resultados`] : []),
+    ...places.filter((place) => !place.tags.includes("outdoor")).map((place) => `sin al aire libre: ${name(place)}`),
+  ],
 };
 
 /** Tags exigidos de la interpretación final. */

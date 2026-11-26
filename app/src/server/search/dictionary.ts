@@ -62,7 +62,7 @@ const SUNSET_PHRASES = new Set([
   'atardecer', 'el atardecer', 'al atardecer', 'ver el atardecer', 'para ver el atardecer',
   'puesta de sol', 'la puesta de sol', 'ver la puesta de sol', 'para ver la puesta de sol',
 ])
-const SUNSET_TAGS = ['sea_view', 'rooftop', 'terrace']
+const SUNSET_TAGS = ['sea_view', 'rooftop', 'outdoor']
 
 // El nombre de una fila de la home, escrito entero (su "Ver todos" abre /search con él en el buscador): se busca
 // exactamente como la fila, con sus tags exigidos (también un momento, como `tag:date` en la URL), la intención de la

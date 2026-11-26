@@ -14,7 +14,7 @@ function row(overrides: Partial<EditRow> = {}): EditRow {
   const base: EditRow = {
     id: 'uuid-1', googlePlaceId: 'place-1', name: 'El Palenque', neighborhoodId: 'ciudad_vieja', status: 'published',
     descriptionEs: 'Parrilla clásica.', descriptionEn: 'Classic grill.', locatedIn: 'Mercado del Puerto', categories: ['grill'],
-    tags: ['seafood', 'terrace'], signature: ['seafood'], dishes: ['pulpo a la gallega'], highlights: [],
+    tags: ['seafood', 'outdoor'], signature: ['seafood'], dishes: ['pulpo a la gallega'], highlights: [],
     dietVegan: 'unknown', dietVegetarian: 'has_options', dietGlutenFree: 'no', price: 'high', style: 'casual', iconCategory: 'grill',
     instagram: 'elpalenque', website: null, brandKey: null, featured: false, logoKey: 'logos/place-1-0a1b2c3d.webp', logoKind: 'logo',
     logoBgColor: '#ffffff', logoColor: '#c0392b', logoSource: 'instagram', igFollowers: 999, chainBranch: false, prominence: 0.6,
@@ -76,7 +76,7 @@ describe('toDetail', () => {
 describe('planEdit', () => {
   it('nombre o tags: textos de búsqueda y embedding, con costo', async () => {
     const { store } = fakeStore([row()])
-    const plan = await planEdit(row(), { name: 'Palenque', tags: ['terrace'] }, deps(store))
+    const plan = await planEdit(row(), { name: 'Palenque', tags: ['outdoor'] }, deps(store))
     expect(plan.changed).toEqual(['name', 'tags'])
     expect(plan.steps.map((step) => step.id)).toEqual(['search_texts', 'embedding'])
     expect(plan.totalUsd).toBeGreaterThan(0)
@@ -112,11 +112,11 @@ describe('applyEdit', () => {
     const { store, updates } = fakeStore([row()])
     const d = deps(store)
 
-    const { place, warnings } = await applyEdit('uuid-1', { tags: ['terrace', 'italian'] }, d)
+    const { place, warnings } = await applyEdit('uuid-1', { tags: ['outdoor', 'italian'] }, d)
 
     expect(warnings).toEqual([])
     const values = updates[0].values
-    expect(values).toMatchObject({ tags: ['terrace', 'italian'], signature: [], manualOverrides: { tags: { add: ['italian'], remove: ['seafood'] } } })
+    expect(values).toMatchObject({ tags: ['outdoor', 'italian'], signature: [], manualOverrides: { tags: { add: ['italian'], remove: ['seafood'] } } })
     expect(values.keywordText).toContain('Italiana')
     expect(values.keywordText).not.toContain('mariscos')
     expect(d.embed).toHaveBeenCalledWith([values.embeddingText])
@@ -154,7 +154,7 @@ describe('applyEdit', () => {
     const plan = await planEdit(row(), { hours: { slots: [{ day: 5, opens: '20:00', closes: '02:00' }] } }, d)
     expect(plan.steps.map((step) => step.id)).toEqual(['hours', 'late_night', 'search_texts'])
     await applyEdit('uuid-1', { hours: { slots: [{ day: 5, opens: '20:00', closes: '02:00' }] } }, d)
-    expect(updates[0].values.tags).toEqual(['seafood', 'terrace', 'late_night'])
+    expect(updates[0].values.tags).toEqual(['seafood', 'outdoor', 'late_night'])
     expect(updates[0].values.keywordText).toContain('Trasnoche')
     expect(d.embed).not.toHaveBeenCalled()
 
@@ -368,7 +368,7 @@ describe('campos nuevos del modal', () => {
     expect(updates).toEqual([])
 
     // Con el tag agregado en la misma edición, sí; y queda bloqueado.
-    await applyEdit('uuid-1', { tags: ['seafood', 'terrace', 'date'], signature: ['date', 'seafood'] }, d)
+    await applyEdit('uuid-1', { tags: ['seafood', 'outdoor', 'date'], signature: ['date', 'seafood'] }, d)
     expect(updates[0].values).toMatchObject({ signature: ['date', 'seafood'], manualOverrides: { signature: ['date', 'seafood'] } })
     expect(updates[0].values.embeddingText).toContain('Cita')
   })

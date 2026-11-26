@@ -90,18 +90,8 @@ export const SEARCH_CONFIG = {
     dessertFit: 0.03,
     dessertFitPartial: 0.4,
     /**
-     * Tag pedido que acepta parecidos (shared/tags.ts PARTIAL_TAGS: "al aire libre" → terraza, patio, azotea; fuse.ts
-     * partialTagFit): entero si el lugar tiene el tag, partialTagShare del entero si sólo tiene un parecido. Pedido como
-     * preferencia, ordena. Exigido (texto, `tag:` o el "Ver todos" de Al aire libre) el filtro deja entrar a los dos y el
-     * que sólo tiene un parecido es además maybe (fuse.ts matchLevelOf): va siempre después; el empujón no alcanza solo
-     * para eso, porque el RRF separa más. En el grupo Al aire libre, los parecidos van al final (sections.ts).
-     */
-    partialTag: 0.03,
-    partialTagShare: 0.5,
-    /**
      * Por cada sub-filtro activo cuya señal específica tiene el lugar (fuse.ts SUB_SIGNALS: Tragos → signature_cocktails o
-     * ícono de coctelería, no classic_cocktails). El filtro ya lo cumplen todos: esto ordena dentro. Como barFit. Con
-     * Al aire libre, la terraza, el patio o la azotea sin el tag suman partialTagShare (y son maybe, como exigido).
+     * ícono de coctelería, no classic_cocktails). El filtro ya lo cumplen todos: esto ordena dentro. Como barFit.
      */
     subFit: 0.015,
     /**
@@ -273,7 +263,7 @@ export const SEARCH_CONFIG = {
    * o terraza, y sin una etiqueta que corresponda de verdad no se inventa un mapeo aproximado ("bohemia", "escondido").
    * 13: ids de barrio con la Ñ bien codificada ("LARRAÑAGA", no "LARRAÃ‘AGA"), en el catálogo y en lo guardado.
    */
-  interpretationCacheVersion: 13,
+  interpretationCacheVersion: 14,
 
   timeZone: 'America/Montevideo',
   /** Faltando esto o menos para el cierre o la apertura, la card dice "Cierra pronto" / "Abre pronto". */

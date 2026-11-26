@@ -90,10 +90,10 @@ describe('momentos y style en la interpretación', () => {
 
   it('un momento que el modelo exigió pasa a preferencia y queda informado', () => {
     const { interpretation, toPrefer } = validateInterpretation(llmOutput({
-      must: { ...llmOutput().must, categories: ['bar'], tags: ['groups', 'terrace'] },
+      must: { ...llmOutput().must, categories: ['bar'], tags: ['groups', 'outdoor'] },
       prefer: { categories: [], tags: ['casual'] },
     }), '')
-    expect(interpretation.must.tags).toEqual(['terrace'])
+    expect(interpretation.must.tags).toEqual(['outdoor'])
     expect(interpretation.prefer.tags).toEqual(['groups'])
     expect(interpretation.prefer.style).toBe('casual')
     expect(toPrefer).toEqual(['tag:groups'])
@@ -530,19 +530,19 @@ describe('con los padres', () => {
 })
 
 describe('atardecer', () => {
-  it('el atajo prefiere vista, azotea y terraza', () => {
+  it('el atajo prefiere vista, azotea y al aire libre', () => {
     for (const query of ['atardecer', 'ver el atardecer', 'puesta de sol', 'para ver la puesta de sol']) {
-      expect(dictionary(query)!.prefer.tags.toSorted()).toEqual(['rooftop', 'sea_view', 'terrace'])
+      expect(dictionary(query)!.prefer.tags.toSorted()).toEqual(['outdoor', 'rooftop', 'sea_view'])
       expect(dictionary(query)!.must.tags).toEqual([])
     }
   })
 
   it('se suma a lo del modelo y lo que exigió pasa a preferencia', () => {
     const value = emptyInterpretation()
-    value.must.tags = ['terrace', 'wine']
+    value.must.tags = ['outdoor', 'wine']
     const applied = applyDictionary(value, 'lugar para ver el atardecer con vino')
     expect(applied.must.tags).toEqual(['wine'])
-    expect(applied.prefer.tags.toSorted()).toEqual(['rooftop', 'sea_view', 'terrace'])
+    expect(applied.prefer.tags.toSorted()).toEqual(['outdoor', 'rooftop', 'sea_view'])
   })
 })
 

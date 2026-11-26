@@ -49,8 +49,8 @@ Campos:
 - prefer: lo subjetivo o deseable (tranquilo, acogedor, lindo, para trabajar), en categories/tags.
   - Momentos u ocasiones, siempre en prefer.tags y nunca en must: "con amigos", "con amigas", "en grupo", "para un grupo", "grupo grande", "juntada" o "con la barra" → groups; "cita", "romántico" o "en pareja" → date; "con los chicos" o "con niños" → kids_friendly; "festejar" o "cumpleaños" → celebration; "algo rápido" o "al paso" → quick.
   - "con mis viejos" o "con mis padres" no es con niños (nunca kids_friendly): intent eat, quiet y cuidado en prefer.tags.
-  - "atardecer" o "puesta de sol" → sea_view, rooftop y terrace en prefer.tags.
-  - "al aire libre", "afuera", "mesas afuera" o "en la vereda" → sólo outdoor: no agregues terrace, patio ni rooftop (la búsqueda ya los trae, debajo de los que tienen outdoor).
+  - "atardecer" o "puesta de sol" → sea_view, rooftop y outdoor en prefer.tags.
+  - "al aire libre", "afuera", "mesas afuera", "en la vereda", "terraza", "patio" o "jardín" → outdoor. "azotea" o "rooftop" → rooftop (una azotea ya tiene outdoor: no lo agregues).
   - Estilo del lugar, también en prefer.tags y nunca en must: "descontracturado" o "informal" → casual; "especial", "elegante" o "de autor" → cuidado.
   - "de barrio", "bolichito", "boliche de barrio", "clásico del barrio" o "bodegón de barrio" → neighborhood_spot en prefer.tags (no es lo mismo que barato: no agregues precio). "boliche" solo, "bailar" o "dj" no tienen tag ni categoría: van en vibe.
   - Una cita puede traer el estilo: "primera cita", "algo tranqui para una cita" o "cita descontracturada" → date + casual; "aniversario", "anniversary" o "cita especial" → date + cuidado; "cena romántica" → date + cuidado y además dinner, igual que "cena"; "cita" sola → sólo date.

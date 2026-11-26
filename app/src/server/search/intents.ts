@@ -1,5 +1,4 @@
 import { DEFAULT_DISH_INTENT, INTENT_IDS, INTENTS, isIntentId, type IntentDef, type IntentId, type IntentMatch, type SubFilterDef } from '@shared/intents.ts'
-import { PARTIAL_TAGS } from '@shared/tags.ts'
 import type { FilterGroup } from './candidates'
 import type { Chip } from './chips'
 import type { ChipKind, Interpretation } from './interpretation'
@@ -45,14 +44,9 @@ const placeHits = (match: IntentMatch, categories: string[], tags: string[]) =>
   hits(match, categories, tags) ||
   (match.all ?? []).some((pair) => pair.categories.some((id) => categories.includes(id)) && pair.tags.some((id) => tags.includes(id)))
 
-/**
- * Lo del sub-filtro que, pedido en el texto, lo elige: sin los parecidos de otro de sus tags (Al aire libre lo elige
- * "al aire libre", no "terraza": "con terraza" sigue pidiendo terraza).
- */
+/** Lo del sub-filtro que, pedido en el texto, lo elige: sus categorías y tags ("con terraza" es outdoor: Al aire libre). */
 function textMatch(sub: SubFilterDef): IntentMatch {
-  const tags = sub.tags ?? []
-  const partial = new Set(tags.flatMap((id) => PARTIAL_TAGS[id] ?? []))
-  return { categories: sub.categories, tags: tags.filter((id) => !partial.has(id)) }
+  return { categories: sub.categories, tags: sub.tags ?? [] }
 }
 
 /** ¿Lo pedido (categorías y tags) apunta a esta intención? Por su match, sus sub-filtros que votan o detect. */

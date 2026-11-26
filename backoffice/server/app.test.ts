@@ -376,9 +376,9 @@ describe('exploración multi-fuente', () => {
       expect(await dry.json()).toEqual({ plan })
       expect(placeEditor.apply).not.toHaveBeenCalled()
 
-      const saved = await patch(app, { edit: { price: 'low', tags: ['terrace'] }, confirmSharedInstagram: true })
+      const saved = await patch(app, { edit: { price: 'low', tags: ['outdoor'] }, confirmSharedInstagram: true })
       expect(saved.status).toBe(200)
-      expect(placeEditor.apply).toHaveBeenCalledWith(id, { price: 'low', tags: ['terrace'] }, { confirmSharedInstagram: true })
+      expect(placeEditor.apply).toHaveBeenCalledWith(id, { price: 'low', tags: ['outdoor'] }, { confirmSharedInstagram: true })
 
       for (const edit of [{ tags: ['no_existe'] }, { style: 'lujoso' }, { iconCategory: 'other' }, { price: 'barato' }, { instagram: '@Con Espacios' },
         { website: 'ftp://x.uy' }, { brandKey: 'Con Mayúsculas' }, { name: '' }, { slug: 'x' }]) {

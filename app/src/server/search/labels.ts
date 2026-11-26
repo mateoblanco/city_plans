@@ -1,5 +1,5 @@
 import { neighborhoodDisplayName } from '@shared/neighborhood-names.ts'
-import { ATMOSPHERE, CUISINES, DRINKS, FEATURES, FOODS, label, OFFERS, type OccasionTag, type StyleId } from '@shared/tags.ts'
+import { ATMOSPHERE, CUISINES, DRINKS, FEATURES, FOODS, HIDDEN_TAGS, label, OFFERS, type OccasionTag, type StyleId } from '@shared/tags.ts'
 import type { DietKey, Lang, Price } from './interpretation'
 import { SEARCH_CONFIG } from './config'
 import { DAY_NAMES as DAY_NAMES_BY_LANG } from '@/lib/day-names'
@@ -207,7 +207,6 @@ const TRAIT_PHRASES: Record<string, TraitPhrase> = {
   pet_friendly: { slot: 'adj', text: 'pet friendly' },
   accessible: { slot: 'adj', text: 'accesibles' },
   takeaway: { slot: 'para', text: 'para llevar' },
-  bar_seating: { slot: 'para', text: 'para comer en la barra' },
   vegan: { slot: 'adj', text: 'veganos' },
   vegetarian: { slot: 'adj', text: 'vegetarianos' },
   gluten_free: { slot: 'adj', text: 'sin TACC' },
@@ -225,6 +224,8 @@ const lowerFirst = (text: string) => (/^[A-Z]{2}/.test(text) ? text : text.charA
 
 /** Cómo se dice un rasgo del perfil (tag, `style:x`, `price:x` o `barrio:x`) en el motivo; null si no se dice. */
 export function traitPhrase(key: string): TraitPhrase | null {
+  // Los tags ocultos (azotea) no se nombran en el título del perfil.
+  if (HIDDEN_TAGS.has(key)) return null
   if (Object.hasOwn(TRAIT_PHRASES, key)) return TRAIT_PHRASES[key]
   if (key.startsWith('barrio:')) return { slot: 'en', text: `en ${neighborhoodDisplayName(key.slice('barrio:'.length))}` }
   if (key.includes(':')) return null

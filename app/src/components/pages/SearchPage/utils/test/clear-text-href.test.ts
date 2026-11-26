@@ -29,7 +29,7 @@ async function cleared(state: SearchUrl) {
 
 describe("clearTextHref: borrar el texto", () => {
   it("conserva barrio y dieta del texto (pasan a f) y saca q y remove", async () => {
-    const { response, params } = await cleared({ q: "vegano en pocitos", remove: "tag:terrace" });
+    const { response, params } = await cleared({ q: "vegano en pocitos", remove: "tag:outdoor" });
     expect(response.interpreted.chips.some((chip) => chip.kind === "neighborhood" && chip.fromText)).toBe(true);
     expect(params.q).toBeUndefined();
     expect(params.remove).toBeUndefined();

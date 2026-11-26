@@ -10,7 +10,7 @@ export type MustOutcome = { item: string; outcome: 'filter' | 'intent' | 'discar
 
 export type MustCheck = { ok: boolean; trace: MustOutcome[]; violations: string[] }
 
-/** Lo exigido por el texto: `category:bar`, `tag:terrace`, `diet:vegan`, `neighborhood:CORDON`, `venue:Mercado del Puerto`. */
+/** Lo exigido por el texto: `category:bar`, `tag:outdoor`, `diet:vegan`, `neighborhood:CORDON`, `venue:Mercado del Puerto`. */
 function mustItems(value: Interpretation): { kind: ChipKind; id: string }[] {
   return [
     ...value.must.categories.map((id) => ({ kind: 'category' as const, id })),

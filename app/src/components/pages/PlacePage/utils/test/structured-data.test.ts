@@ -14,7 +14,7 @@ const ALLOWED = ["@context", "@type", "name", "description", "url", "logo", "ima
 describe("JSON-LD de la ficha", () => {
   it("un restaurante: tipo, cocinas, precio, logo, URL canónica y barrio", () => {
     const data = ld(
-      { slug: "trouville", name: "Trouville", description_es: "  Pizzería clásica\n de Pocitos. ", categories: ["pizzeria", "restaurant"], tags: ["italian", "uruguayan", "terrace"], price: "moderate" },
+      { slug: "trouville", name: "Trouville", description_es: "  Pizzería clásica\n de Pocitos. ", categories: ["pizzeria", "restaurant"], tags: ["italian", "uruguayan", "outdoor"], price: "moderate" },
       "https://logos.example/trouville.webp",
     );
     expect(data).toEqual({

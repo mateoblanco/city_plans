@@ -4,7 +4,7 @@ import { applyOverrides, changedEditFields, mergeEdit, type EditableValues } fro
 import { PlaceEdit } from '../../src/data/manual-overrides.ts'
 
 const current: EditableValues = {
-  name: 'El Palenque', tags: ['seafood', 'terrace'], style: 'casual', iconCategory: 'grill', price: 'high',
+  name: 'El Palenque', tags: ['seafood', 'outdoor'], style: 'casual', iconCategory: 'grill', price: 'high',
   dietVegan: 'unknown', dietVegetarian: 'has_options', dietGlutenFree: 'no', instagram: '@ElPalenque', website: null, brandKey: null, chainBranch: false,
   hours: { slots: [{ day: 1, opens: '12:00', closes: '16:00' }], status: 'exact', source: 'official' },
   dishes: ['pulpo a la gallega', 'chivito'], signature: ['seafood'], highlights: [{ es: 'Pulpo a la gallega', en: 'Galician-style octopus' }],
@@ -30,8 +30,8 @@ describe('applyOverrides', () => {
   })
 
   it('tags: los automáticos sin los sacados, más los agregados; signature sin los sacados', () => {
-    const final = applyOverrides({ tags: ['seafood', 'groups', 'terrace'], signature: ['seafood', 'groups'] }, { tags: { add: ['date'], remove: ['seafood'] } })
-    expect(final).toEqual({ tags: ['groups', 'terrace', 'date'], signature: ['groups'] })
+    const final = applyOverrides({ tags: ['seafood', 'groups', 'outdoor'], signature: ['seafood', 'groups'] }, { tags: { add: ['date'], remove: ['seafood'] } })
+    expect(final).toEqual({ tags: ['groups', 'outdoor', 'date'], signature: ['groups'] })
   })
 
   it('el logo subido a mano reemplaza todas las columnas del logo', () => {
@@ -61,19 +61,19 @@ describe('mergeEdit', () => {
   })
 
   it('tags: los agregados van a add y salen de remove; los sacados, al revés', () => {
-    const first = mergeEdit({}, current, { tags: ['terrace', 'date'] })
+    const first = mergeEdit({}, current, { tags: ['outdoor', 'date'] })
     expect(first.tags).toEqual({ add: ['date'], remove: ['seafood'] })
     // Volver a poner uno sacado: sale de remove y queda agregado a mano (no se sabe si el pipeline lo vuelve a dar).
-    const back = mergeEdit(first, { ...current, tags: ['terrace', 'date'] }, { tags: ['terrace', 'date', 'seafood'] })
+    const back = mergeEdit(first, { ...current, tags: ['outdoor', 'date'] }, { tags: ['outdoor', 'date', 'seafood'] })
     expect(back.tags).toEqual({ add: ['date', 'seafood'], remove: [] })
-    const removed = mergeEdit(back, { ...current, tags: ['terrace', 'date', 'seafood'] }, { tags: ['terrace', 'date'] })
+    const removed = mergeEdit(back, { ...current, tags: ['outdoor', 'date', 'seafood'] }, { tags: ['outdoor', 'date'] })
     expect(removed.tags).toEqual({ add: ['date'], remove: ['seafood'] })
   })
 
   it('sacar un tag agregado a mano lo deja sacado; sin cambios en los tags, la diferencia queda igual', () => {
-    const added = mergeEdit({}, current, { tags: ['seafood', 'terrace', 'date'] })
-    expect(mergeEdit(added, { ...current, tags: ['seafood', 'terrace', 'date'] }, { tags: ['seafood', 'terrace'] }).tags).toEqual({ add: [], remove: ['date'] })
-    expect(mergeEdit({ tags: { add: ['date'], remove: [] } }, { ...current, tags: ['seafood', 'terrace', 'date'] }, { tags: ['seafood', 'terrace', 'date'] }).tags)
+    const added = mergeEdit({}, current, { tags: ['seafood', 'outdoor', 'date'] })
+    expect(mergeEdit(added, { ...current, tags: ['seafood', 'outdoor', 'date'] }, { tags: ['seafood', 'outdoor'] }).tags).toEqual({ add: [], remove: ['date'] })
+    expect(mergeEdit({ tags: { add: ['date'], remove: [] } }, { ...current, tags: ['seafood', 'outdoor', 'date'] }, { tags: ['seafood', 'outdoor', 'date'] }).tags)
       .toEqual({ add: ['date'], remove: [] })
   })
 
@@ -82,14 +82,14 @@ describe('mergeEdit', () => {
   })
 
   it('changedEditFields compara el Instagram sin @ ni mayúsculas y los tags sin orden', () => {
-    expect(changedEditFields(current, { instagram: 'elpalenque', tags: ['terrace', 'seafood'], name: 'El Palenque' })).toEqual([])
+    expect(changedEditFields(current, { instagram: 'elpalenque', tags: ['outdoor', 'seafood'], name: 'El Palenque' })).toEqual([])
   })
 })
 
 describe('parseManualOverrides y editedFields', () => {
   it('lee el jsonb y descarta claves inválidas o desconocidas', () => {
-    expect(parseManualOverrides({ status: 'published', style: 'carísimo', tags: { add: ['terrace'], remove: [] }, embedding: true })).toEqual({
-      status: 'published', tags: { add: ['terrace'], remove: [] },
+    expect(parseManualOverrides({ status: 'published', style: 'carísimo', tags: { add: ['outdoor'], remove: [] }, embedding: true })).toEqual({
+      status: 'published', tags: { add: ['outdoor'], remove: [] },
     })
     expect(parseManualOverrides(['status'])).toEqual({})
     expect(parseManualOverrides(null)).toEqual({})
@@ -131,15 +131,15 @@ describe('platos (dishes)', () => {
 
 describe('signature, categorías y demás campos de un valor', () => {
   it('signature a mano manda sobre el del pipeline, sin los tags que ya no están', () => {
-    const overrides = { signature: ['terrace', 'seafood'] } as const
-    const final = applyOverrides({ tags: ['seafood', 'terrace'], signature: ['seafood'] }, { signature: [...overrides.signature] })
-    expect(final.signature).toEqual(['terrace', 'seafood'])
-    // Con terrace sacado a mano, sale también del signature.
-    expect(applyOverrides({ tags: ['seafood', 'terrace'], signature: [] }, { signature: [...overrides.signature], tags: { add: [], remove: ['terrace'] } }).signature).toEqual(['seafood'])
+    const overrides = { signature: ['outdoor', 'seafood'] } as const
+    const final = applyOverrides({ tags: ['seafood', 'outdoor'], signature: ['seafood'] }, { signature: [...overrides.signature] })
+    expect(final.signature).toEqual(['outdoor', 'seafood'])
+    // Con outdoor sacado a mano, sale también del signature.
+    expect(applyOverrides({ tags: ['seafood', 'outdoor'], signature: [] }, { signature: [...overrides.signature], tags: { add: [], remove: ['outdoor'] } }).signature).toEqual(['seafood'])
   })
 
   it('sacar un tag en el modal lo saca también del signature guardado', () => {
-    const overrides = mergeEdit({ signature: ['seafood', 'terrace'] }, { ...current, signature: ['seafood', 'terrace'] }, { tags: ['seafood'] })
+    const overrides = mergeEdit({ signature: ['seafood', 'outdoor'] }, { ...current, signature: ['seafood', 'outdoor'] }, { tags: ['seafood'] })
     expect(overrides.signature).toEqual(['seafood'])
   })
 
@@ -161,7 +161,7 @@ describe('signature, categorías y demás campos de un valor', () => {
   })
 
   it('el schema de la edición limita signature a 3 y las categorías al catálogo', () => {
-    expect(PlaceEdit.safeParse({ signature: ['seafood', 'terrace', 'groups', 'date'] }).success).toBe(false)
+    expect(PlaceEdit.safeParse({ signature: ['seafood', 'outdoor', 'groups', 'date'] }).success).toBe(false)
     expect(PlaceEdit.safeParse({ categories: ['karaoke'] }).success).toBe(false)
     expect(PlaceEdit.safeParse({ categories: [] }).success).toBe(false)
     expect(PlaceEdit.safeParse({ neighborhoodId: 'Narnia' }).success).toBe(false)

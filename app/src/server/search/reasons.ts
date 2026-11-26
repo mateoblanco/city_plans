@@ -1,4 +1,4 @@
-import { CUISINES, DRINKS, FOODS, isOccasionTag, isStyleId, label, PARTIAL_TAGS } from '@shared/tags.ts'
+import { CUISINES, DRINKS, FOODS, isOccasionTag, isStyleId, label } from '@shared/tags.ts'
 import type { IntentId } from '@shared/intents.ts'
 import type { DishMode } from './candidates'
 import { relatedLabel, type DishTarget } from './dishes'
@@ -32,12 +32,12 @@ const INTENT_SIGNATURE: Record<IntentId, Set<string>> = {
   desserts: new Set(['desserts', 'ice_cream', 'pastries']),
 }
 
-/** Tags de un sub-filtro, del más específico (su señal: fuse.ts SUB_SIGNALS) al de su filtro (Al aire libre, después Terraza). */
+/** Tags de un sub-filtro, del más específico (su señal: fuse.ts SUB_SIGNALS) al de su filtro (Tragos de autor, después Coctelería). */
 function subTags(intent: IntentId | null, sub: string): string[] {
   if (!intent) return []
   const definition = (INTENTS[intent].subs as Record<string, { tags?: readonly string[] }>)[sub]
   const signal = subSignal(intent, sub)
-  return [...(signal?.partialTags ?? []), ...(signal?.tags ?? []), ...(signal?.signature ?? []), ...(definition?.tags ?? [])]
+  return [...(signal?.tags ?? []), ...(signal?.signature ?? []), ...(definition?.tags ?? [])]
 }
 
 /**
@@ -83,12 +83,6 @@ export function buildReasons(item: Fused, context: ReasonContext): string[] {
   for (const id of row.signature) if (wanted.has(id) || domain.has(id)) reasons.push(label(id, lang))
 
   for (const id of row.tags) if (wantedTags.includes(id) && !isOccasionTag(id)) reasons.push(label(id, lang))
-  // Pidió "al aire libre" y el lugar sólo tiene un parecido: dice cuál (Terraza, Patio, Azotea).
-  for (const id of wantedTags) {
-    if (row.tags.includes(id)) continue
-    const partial = PARTIAL_TAGS[id]?.find((tag) => row.tags.includes(tag))
-    if (partial) reasons.push(label(partial, lang))
-  }
   // Relleno de brunch: no tiene el tag, así que no dice "Brunch".
   if (item.filledAs === 'breakfast_lunch') reasons.push('Desayuno y almuerzo')
   const style = row.style && isStyleId(row.style) ? STYLE_REASON[lang][row.style] : undefined

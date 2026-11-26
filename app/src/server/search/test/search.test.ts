@@ -118,7 +118,7 @@ describe('runSearch', () => {
   })
 
   const places = [
-    row({ id: 'cafe-cordon', name: 'Café del Cordón', categories: ['cafe'], tags: ['terrace'], iconCategory: 'coffee', logoKey: 'cafe-cordon.png', logoBgColor: '#f4e1c1', locatedIn: 'Mercado Ferrando', hours: everyDay('08:00', '20:00'), diet: { vegan: 'has_options', vegetarian: 'unknown', glutenFree: 'unknown' } }),
+    row({ id: 'cafe-cordon', name: 'Café del Cordón', categories: ['cafe'], tags: ['outdoor'], iconCategory: 'coffee', logoKey: 'cafe-cordon.png', logoBgColor: '#f4e1c1', locatedIn: 'Mercado Ferrando', hours: everyDay('08:00', '20:00'), diet: { vegan: 'has_options', vegetarian: 'unknown', glutenFree: 'unknown' } }),
     row({ id: 'cafe-rodo', name: 'Café Rodó', neighborhoodId: 'PARQUE RODO', categories: ['cafe'], distance: 500 }),
     row({ id: 'pizzeria', name: 'Pizzería', categories: ['pizzeria', 'restaurant'], tags: ['pizza'], hours: everyDay('19:00', '01:00') }),
     row({ id: 'bodegon', name: 'Bodegón', categories: ['restaurant'], tags: ['milanesa'], dishes: ['milanesa napolitana'], diet: { vegan: 'unknown', vegetarian: 'unknown', glutenFree: 'fully' } }),
@@ -355,7 +355,7 @@ describe('runSearch', () => {
   })
 
   it('un tag que pasa a preferencia no genera aviso', async () => {
-    const withBoth = [...places, row({ id: 'cafe-terraza', categories: ['cafe'], tags: ['terrace'], neighborhoodId: 'POCITOS' })]
+    const withBoth = [...places, row({ id: 'cafe-terraza', categories: ['cafe'], tags: ['outdoor'], neighborhoodId: 'POCITOS' })]
     // Nadie tiene terraza y música; el único con terraza está en Pocitos: sólo se avisa de la música.
     const { store } = fakeStore(withBoth)
     const response = await runSearch('cafe con terraza y musica en vivo en pocitos', { store, cache: fakeCache().cache }, { now })
@@ -446,7 +446,7 @@ describe('runSearch', () => {
   it('remove saca chips sin volver a interpretar distinto', async () => {
     const { store, calls } = fakeStore(places)
     const { cache, embedded } = fakeCache()
-    const response = await runSearch('cafes con terraza en cordon', { store, cache }, { now, remove: 'tag:terrace,neighborhood:CORDON' })
+    const response = await runSearch('cafes con terraza en cordon', { store, cache }, { now, remove: 'tag:outdoor,neighborhood:CORDON' })
     expect(response.interpreted.chips.map((chip) => chip.kind)).toEqual(['prefer'])
     expect(response.bar.intent?.id).toBe('cafes')
     expect(calls[0].filters.tags).toEqual([])
@@ -547,7 +547,7 @@ describe('brunch con pocos resultados', () => {
     cafe('b1', ['brunch']),
     cafe('b2', ['brunch', 'breakfast', 'lunch']),
     cafe('dl1', ['breakfast', 'lunch']),
-    cafe('dl2', ['breakfast', 'lunch', 'terrace']),
+    cafe('dl2', ['breakfast', 'lunch', 'outdoor']),
     cafe('d', ['breakfast']),
     row({ id: 'resto', categories: ['restaurant'], tags: ['breakfast', 'lunch'] }),
   ]

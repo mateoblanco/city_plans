@@ -4,7 +4,7 @@ import type { Collapsed } from '../branches'
 import type { CandidateRow, LikedPlace } from '../candidates'
 import type { Fused } from '../fuse'
 import type { IntentId } from '@shared/intents.ts'
-import { ALL_GROUPS } from '@shared/tags.ts'
+import { ALL_GROUPS, HIDDEN_TAGS } from '@shared/tags.ts'
 import { profileReasonTitle, traitPhrase } from '../labels'
 import { concreteMismatch, mostLikedKind, personalize, placeKind, profileTraits } from '../personal'
 import { runSearch, type SearchOptions } from '../search'
@@ -27,7 +27,7 @@ const likedPlace = (id: string, overrides: Partial<LikedPlace> = {}): LikedPlace
 })
 
 const coffee = (index: number, overrides: Partial<CandidateRow> = {}): Place => ({
-  place: row({ id: `c${index}`, categories: ['restaurant', 'cafe'], iconCategory: 'coffee', tags: ['terrace', 'groups'], style: 'casual', prominence: 0.5, ...overrides }),
+  place: row({ id: `c${index}`, categories: ['restaurant', 'cafe'], iconCategory: 'coffee', tags: ['outdoor', 'groups'], style: 'casual', prominence: 0.5, ...overrides }),
   vector: COFFEE,
 })
 const grill = (index: number, overrides: Partial<CandidateRow> = {}): Place => ({
@@ -169,7 +169,7 @@ describe('con grupos', () => {
     // Cerca de L: 3 muy parecidos (0,98), 4 medianos (0,78) y 8 lejos (0). El top 20 % empieza en 0,82.
     // Todos con groups: con "con amigos", los que no lo tienen son "maybe" y no entran en los personales. Todos pasta, para
     // que los datos concretos no saquen a nadie.
-    const tags = (index: number) => (index % 3 === 0 ? ['picada', 'groups'] : index % 3 === 1 ? ['japanese', 'groups'] : ['terrace', 'groups'])
+    const tags = (index: number) => (index % 3 === 0 ? ['picada', 'groups'] : index % 3 === 1 ? ['japanese', 'groups'] : ['outdoor', 'groups'])
     const place = (id: string, vector: number[], index: number): Place => ({ place: row({ id, tags: tags(index), iconCategory: 'pasta', prominence: 0.5 }), vector })
     const places = [
       place('L', [1, 0, 0], 0),
@@ -388,7 +388,7 @@ describe('tope de grupos', () => {
     const tags: Record<number, string[]> = {}
     for (const index of [3, 4, 5]) tags[index] = ['live_music']
     for (const index of [6, 7, 8]) tags[index] = ['picada']
-    for (const index of [9, 10, 11]) tags[index] = ['terrace']
+    for (const index of [9, 10, 11]) tags[index] = ['outdoor']
     for (const index of [12, 13, 14]) tags[index] = ['japanese']
     const categories: Record<number, string[]> = { 15: ['grill'], 16: ['bodegon'], 17: ['chiviteria'] }
     const items = Array.from({ length: 20 }, (_, index) =>
@@ -413,7 +413,7 @@ describe('tope de grupos', () => {
     const tags: Record<number, string[]> = {}
     for (const index of [3, 4, 5]) tags[index] = ['live_music']
     for (const index of [6, 7, 8]) tags[index] = ['picada']
-    for (const index of [9, 10, 11]) tags[index] = ['terrace']
+    for (const index of [9, 10, 11]) tags[index] = ['outdoor']
     for (const index of [12, 13, 14]) tags[index] = ['japanese']
     const categories: Record<number, string[]> = { 15: ['grill'], 16: ['bodegon'], 17: ['chiviteria'] }
     const build = (fully: number[], level = glutenFree) => Array.from({ length: 24 }, (_, index) =>
@@ -693,8 +693,11 @@ describe('perfiles por tipo, afinidad, motivo y variedad', () => {
 
     it('cada tag del catálogo (y el style y el precio) se puede decir en el motivo', () => {
       const groups = Object.entries(ALL_GROUPS).filter(([name]) => name !== 'categories' && name !== 'style')
-      const missing = groups.flatMap(([, group]) => Object.keys(group).filter((key) => !traitPhrase(key)?.text))
+      // Salvo los ocultos (HIDDEN_TAGS: azotea), que no se nombran.
+      const missing = groups.flatMap(([, group]) => Object.keys(group).filter((key) => !HIDDEN_TAGS.has(key) && !traitPhrase(key)?.text))
       expect(missing).toEqual([])
+      expect(traitPhrase('rooftop')).toBeNull()
+      expect(profileReasonTitle('bars', ['rooftop', 'craft_beer'], 'es')).toBe('Porque te gustan los bares con cerveza artesanal')
       for (const key of ['style:casual', 'style:cuidado', 'price:low', 'price:moderate', 'price:high', 'barrio:POCITOS']) expect(traitPhrase(key)?.text).toBeTruthy()
       expect(traitPhrase('barrio:POCITOS')?.text).toBe('en Pocitos')
       expect(profileReasonTitle('cafes', ['quiet', 'specialty_coffee'], 'es')).toBe('Porque te gustan los cafés tranquilos con café de especialidad')
