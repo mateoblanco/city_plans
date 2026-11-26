@@ -84,6 +84,7 @@ const Details = async (props: DetailsProps) => {
                 description={place.description_es}
                 chips={chips}
                 instagram={place.instagram}
+                discounts={data.discounts.map((provider) => ({ id: provider.id, name: provider.name }))}
               />
               {/* Mobile: contacto y horarios antes del mapa, dentro de la tarjeta. Desde lg se oculta y va el de
                   .side (los dos leen el mismo contexto de PlaceGoogle: un solo pedido). */}

@@ -123,8 +123,11 @@ export function isNearWhite(hex: string | null): boolean {
   return luminance !== null && luminance > NEAR_WHITE_LUMINANCE;
 }
 
-/** Líneas de ómnibus sin repetir, de la parada más cercana a la más lejana. */
+/** Líneas que no se muestran: "M-A" sale cerca de casi todos los lugares y no se sabe qué es. */
+const HIDDEN_TRANSIT_LINES = new Set(["M-A"]);
+
+/** Líneas de ómnibus sin repetir, de la parada más cercana a la más lejana, sin las de `HIDDEN_TRANSIT_LINES`. */
 export function transitLines(rows: { line: string; meters: number }[] | null | undefined): string[] {
-  const sorted = [...(rows ?? [])].sort((a, b) => a.meters - b.meters);
+  const sorted = [...(rows ?? [])].filter((row) => !HIDDEN_TRANSIT_LINES.has(row.line.trim().toUpperCase())).sort((a, b) => a.meters - b.meters);
   return [...new Set(sorted.map((row) => row.line))];
 }

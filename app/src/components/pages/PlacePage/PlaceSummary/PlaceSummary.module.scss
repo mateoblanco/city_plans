@@ -76,6 +76,13 @@
   flex-shrink: 0;
 }
 
+// Los chips de los bancos: si no entran, bajan de línea.
+.banks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
 // La línea de estado mide lo que el estado con fondo (20px + 4px arriba y abajo), también reservada mientras llega
 // Google: así no salta.
 // Va después de .facts: gana también sobre su min-height de ml.

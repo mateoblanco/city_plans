@@ -13,18 +13,20 @@
   align-items: center;
   color: inherit;
   display: flex;
-  font-weight: 600;
+  font-weight: 400;
   line-height: 22px;
   min-height: 44px;
+  font-size: 16px;
   overflow-wrap: anywhere;
   padding: 10px 0;
-  text-decoration: underline;
+  text-decoration: none;
   text-decoration-color: var(--color-border);
   text-underline-offset: 3px;
 
   @include hover {
     &:hover {
       text-decoration-color: currentColor;
+      text-decoration: underline;
     }
   }
 

@@ -1,4 +1,5 @@
 import Money from "@/assets/money.svg";
+import BankChip from "@/components/BankChip/BankChip";
 import type { OpenStateText } from "@/server/search/labels";
 import type { PlaceChip } from "../utils/place-options";
 import type { PriceText } from "../utils/summary";
@@ -24,20 +25,22 @@ type Props = {
   /** Chips de dietas y tags (placeChips). */
   chips: PlaceChip[];
   instagram: string | null;
+  /** Bancos con algún descuento en el lugar, en el orden de la config; vacío, no hay línea. */
+  discounts: { id: string; name: string }[];
 };
 
 // La línea de estado: más alta que la de datos por el fondo del estado; reservada (vacía) mide lo mismo.
 const STATUS_LINE = `${styles.facts} ${styles.statusFacts}`;
 
 /**
- * Nombre, la línea de precio, la del puntaje de Google, la de estado y horario, la descripción y los chips. Lo de la base sale en
+ * Nombre, la línea de precio, la del puntaje de Google, la de estado y horario, la de los bancos con descuento, la descripción y los chips. Lo de la base sale en
  * el HTML del servidor; el puntaje (y el estado, si Google lo cambia) llega después desde el navegador, con el lugar ya
  * reservado.
  */
 const PlaceSummary = (props: Props) => {
   const description = props.description?.trim();
 
-  // Hasta tres líneas. Arriba: el ícono de plata y el precio ("$$ (Normal)"; los lectores de pantalla leen "Precio: normal"). El tipo de
+  // Hasta cuatro líneas. Arriba: el ícono de plata y el precio ("$$ (Normal)"; los lectores de pantalla leen "Precio: normal"). El tipo de
   // lugar no se muestra.
   const typeLine = props.price ? (
     <p className={styles.facts}>
@@ -67,16 +70,30 @@ const PlaceSummary = (props: Props) => {
     </p>
   ) : null;
 
+  // Debajo del estado: el chip de cada banco con descuento, con su ícono como en la card (el detalle va en "Descuentos").
+  const discountLine =
+    props.discounts.length > 0 ? (
+      <div className={styles.facts}>
+        <span className={styles.visuallyHidden}>Descuentos con:</span>
+        <span className={styles.banks}>
+          {props.discounts.map((provider) => (
+            <BankChip key={provider.id} id={provider.id} name={provider.name} size="sm" icon />
+          ))}
+        </span>
+      </div>
+    ) : null;
+
   return (
     <div className={styles.summary}>
       <div className={styles.main}>
         <h1 className={styles.name}>{props.name}</h1>
 
-        {(typeLine || ratingLine || statusLine) && (
+        {(typeLine || ratingLine || statusLine || discountLine) && (
           <div className={styles.factLines}>
             {typeLine}
             {ratingLine}
             {statusLine}
+            {discountLine}
           </div>
         )}
       </div>
