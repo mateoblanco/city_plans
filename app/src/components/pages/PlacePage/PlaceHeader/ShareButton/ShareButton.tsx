@@ -69,7 +69,7 @@ const ShareButton = (props: Props) => {
       ) : (
         <Button
           type="button"
-          variant="secondary"
+          variant="tertiary"
           size="md"
           label="Compartir"
           icon={<Share aria-hidden width={14} height={17} />}

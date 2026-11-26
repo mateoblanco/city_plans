@@ -89,7 +89,7 @@
 	// Sombras
 	--shadow-card: 0 4px 4px 0 #{shade(0.05)}; // PlaceCard, PlaceImage (lg), BranchCard, PlaceHours, PlaceDiscounts, DishCard
 	--shadow-popover: 2px 2px 4px #{shade(0.12)}; // Select (popup), Popover, Tooltip
-	--shadow-panel: 0 4px 16px #{shade(0.12)}; // DebugPanel, Dialog
+	--shadow-panel: 0 4px 16px #{shade(0.12)}; // DebugPanel, Dialog, Header abierto (buscador plegado)
 	--shadow-sheet: 0 -4px 16px #{shade(0.12)}; // ResultsSheet (panel de resultados de /search en mobile)
 	--shadow-marker: 0 1px 4px #{shade(0.3)}; // MapMarker (marcadores de /search y de la ficha)
 	// Button .variant-primary y .variant-secondary (el anillo de color lo agrega el componente)

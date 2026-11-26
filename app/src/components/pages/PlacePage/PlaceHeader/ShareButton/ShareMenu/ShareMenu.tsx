@@ -37,7 +37,7 @@ const ShareMenu = (props: Props) => {
       {/* Igual que el botón provisorio de ShareButton: ícono y texto, sólo el ícono debajo de ml. */}
       <Menu.Trigger
         ref={trigger}
-        className={buttonClassName({ variant: "secondary", size: "md", touchTarget: true, iconOnlyBelow: "ml" })}
+        className={buttonClassName({ variant: "tertiary", size: "md", touchTarget: true, iconOnlyBelow: "ml" })}
       >
         <Share aria-hidden width={14} height={17} />
         <span className={buttonLabelClassName}>Compartir</span>

@@ -3,6 +3,7 @@ import Link from 'next/link';
 import CitySelect from './CitySelect/CitySelect';
 import HeaderOffset from './HeaderOffset';
 import NavigationTracker from './NavigationTracker';
+import SearchExpand from '@/components/HeaderSearch/SearchExpand/SearchExpand';
 import styles from './Header.module.scss';
 import Logo from "@/assets/logo.svg";
 
@@ -25,7 +26,21 @@ type Props = {
   sticky?: boolean;
   /** La home: la segunda fila se pliega al scrollear (la anima HeaderSearch/FilterReveal). */
   collapsibleBottom?: boolean;
+  /**
+   * La ficha y las guías: sólo se ve el centro (el input); las pestañas y la segunda fila están plegadas y se abren al
+   * enfocarlo, encima de la página (la anima HeaderSearch/SearchExpand). El espaciador mide el header cerrado.
+   */
+  expandable?: boolean;
 };
+
+/** Plegable (prop expandable): la grilla se pliega (0fr) y el de adentro recorta lo que no entra. */
+const Fold = (props: { children: ReactNode; className?: string; part: "tabs" | "bottom" }) => (
+  <div className={props.className ? `${styles.fold} ${props.className}` : styles.fold} data-header-fold={props.part}>
+    <div className={styles.foldClip}>
+      <div className={styles.foldContent}>{props.children}</div>
+    </div>
+  </div>
+);
 
 const Header = (props: Props) => {
   return (
@@ -34,8 +49,10 @@ const Header = (props: Props) => {
         className={styles.header}
         data-compact={props.compactBelow}
         data-sticky={props.sticky || undefined}
+        data-expandable={props.expandable || undefined}
       >
         <HeaderOffset />
+        {props.expandable && <SearchExpand />}
         {/* En una ruta dinámica el pathname es dato de request: no bloquea el resto del header. */}
         <Suspense fallback={null}>
           <NavigationTracker />
@@ -48,17 +65,22 @@ const Header = (props: Props) => {
             <CitySelect />
           </div>
           <div className={styles.center} data-with-tabs={props.tabs ? true : undefined}>
-            {props.tabs}
+            {props.expandable && props.tabs ? <Fold part="tabs">{props.tabs}</Fold> : props.tabs}
             {props.children}
           </div>
           <div className={styles.end} />
           {/* <UserButton /> */}
         </div>
-        {props.bottom && (
-          <div className={styles.bottom} data-collapsible={props.collapsibleBottom || undefined}>
-            {props.bottom}
-          </div>
-        )}
+        {props.bottom &&
+          (props.expandable ? (
+            <Fold part="bottom" className={styles.bottom}>
+              {props.bottom}
+            </Fold>
+          ) : (
+            <div className={styles.bottom} data-collapsible={props.collapsibleBottom || undefined}>
+              {props.bottom}
+            </div>
+          ))}
       </header>
       {/* El header es fixed y no ocupa lugar: el espaciador reserva su alto para que el contenido arranque debajo. */}
       {!props.sticky && <div className={styles.spacer} aria-hidden="true" />}

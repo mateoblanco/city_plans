@@ -24,7 +24,7 @@ const PlaceActions = (props: Props) => {
   return (
     <Button
       type="button"
-      variant="secondary"
+      variant="tertiary"
       size="md"
       label={isSaved ? "Guardado" : "Guardar"}
       icon={<span className={styles.heart} data-saved={isSaved || undefined} aria-hidden />}

@@ -15,6 +15,10 @@
     z-index: 3;
     position: fixed;
     width: 100%;
+    // Header expandable: el gap entre el input y lo plegado (las pestañas arriba, la segunda fila abajo), como padding
+    // de lo plegado (así se pliega con él). Los mismos 12px y 16px de los gaps de acá.
+    --fold-tabs-gap: 12px;
+    --fold-bottom-gap: 16px;
 }
 
 // Logo | centro | usuario: con 1fr a los costados el centro queda centrado de verdad.
@@ -91,6 +95,8 @@
 @mixin full {
     padding: 16px 48px;
     gap: 16px;
+    --fold-tabs-gap: 12px;
+    --fold-bottom-gap: 16px;
 
     .top {
         grid-template-columns: 1fr auto 1fr;
@@ -126,6 +132,8 @@
 .header[data-compact] {
     padding: calc(12px + env(safe-area-inset-top)) 16px 12px;
     gap: 8px;
+    --fold-tabs-gap: 8px;
+    --fold-bottom-gap: 8px;
 
     .top {
         grid-template-columns: minmax(0, 1fr);
@@ -206,4 +214,78 @@
     @include media(ml) {
         @include full;
     }
+}
+
+// La ficha y las guías (prop expandable): sólo el input; las pestañas y la segunda fila se despliegan al enfocarlo
+// (SearchExpand pone data-search-open) encima de la página: el espaciador mide el header cerrado (HeaderOffset). Al
+// final del archivo: les gana a los gaps de arriba (misma especificidad, después). Los gaps pasan a ser padding de lo
+// plegado (--fold-*-gap), así cerrado no queda un hueco.
+.header[data-expandable] {
+    gap: 0;
+    transition: box-shadow 220ms var(--ease-out);
+
+    .top {
+        align-items: center;
+    }
+
+    .center[data-with-tabs] {
+        gap: 0;
+    }
+
+    &[data-search-open] {
+        box-shadow: var(--shadow-panel);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        transition: none;
+    }
+}
+
+// Cerrado: alto 0, transparente e invisible (visibility al final de la transición, así se ve plegarse). SearchExpand
+// además lo pone inert. Con .header[data-expandable] delante: le gana a lo de `.bottom` de arriba (grilla 1fr, flex
+// desde el breakpoint, la transición de /search).
+.header[data-expandable] .fold {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 0fr;
+    min-width: 0;
+    opacity: 0;
+    visibility: hidden;
+    width: 100%;
+    transition: grid-template-rows 220ms var(--ease-out), opacity 160ms var(--ease-out), visibility 0s linear 220ms;
+
+    @media (prefers-reduced-motion: reduce) {
+        transition: none;
+    }
+}
+
+.header[data-expandable][data-search-open] .fold {
+    grid-template-rows: 1fr;
+    opacity: 1;
+    visibility: visible;
+    transition: grid-template-rows 220ms var(--ease-out), opacity 220ms var(--ease-out), visibility 0s;
+
+    @media (prefers-reduced-motion: reduce) {
+        transition: none;
+    }
+}
+
+// Recorta sólo en vertical (las pestañas y la barra sangran a los costados en mobile, ScrollFade) y sólo plegado o
+// moviéndose: abierto y quieto, los anillos de foco no se cortan.
+.foldClip {
+    min-height: 0;
+
+    .header:not([data-search-open]) &,
+    .header[data-search-moving] & {
+        overflow-x: visible;
+        overflow-y: clip;
+    }
+}
+
+.fold[data-header-fold="tabs"] .foldContent {
+    padding-bottom: var(--fold-tabs-gap);
+}
+
+.fold[data-header-fold="bottom"] .foldContent {
+    padding-top: var(--fold-bottom-gap);
 }

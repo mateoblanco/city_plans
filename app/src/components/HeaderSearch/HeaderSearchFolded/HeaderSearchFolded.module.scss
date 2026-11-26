@@ -1,0 +1,12 @@
+// La flecha de volver (sólo debajo del breakpoint de la página) y el buscador en una línea; el buscador ocupa el resto.
+.line {
+  align-items: center;
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+
+  > :last-child {
+    flex: 1;
+    min-width: 0;
+  }
+}

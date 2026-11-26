@@ -80,6 +80,26 @@
     }
   }
 
+  // Como ghost (sin fondo ni sombra, el color del texto) pero con borde y el padding de su size: no queda texto suelto.
+  // Hover: el fondo de hover de la superficie.
+  &.variant-outline {
+    background: none;
+    border: 1px solid var(--color-border-input);
+    box-shadow: none;
+    color: var(--color-text);
+    transition: background-color 100ms ease;
+
+    @include hover {
+      &:hover:not([data-disabled]) {
+        background-color: var(--color-surface-hover);
+      }
+    }
+
+    &:active:not([data-disabled]) {
+      background-color: var(--color-surface-hover);
+    }
+  }
+
   // Sólo ícono: cuadrado según el size.
   &.icon-button {
     padding: 0;

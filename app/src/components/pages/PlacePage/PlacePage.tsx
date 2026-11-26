@@ -2,8 +2,7 @@ import { Suspense } from "react";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import Footer from "@/components/Footer/Footer";
-import Header from "@/components/Header/Header";
-import HeaderBack from "@/components/Header/HeaderBack/HeaderBack";
+import HeaderSearchFolded from "@/components/HeaderSearch/HeaderSearchFolded/HeaderSearchFolded";
 import SkipLinks from "@/components/SkipLinks/SkipLinks";
 import { SKIP_TARGETS } from "@/components/SkipLinks/utils/skip-targets";
 import { getPlacePage } from "@/server/places/page-data";
@@ -16,6 +15,7 @@ import PlaceViewBeacon from "@/components/Tracking/PlaceViewBeacon/PlaceViewBeac
 import PlaceBranches from "./PlaceBranches/PlaceBranches";
 import PlaceDiscounts from "./PlaceDiscounts/PlaceDiscounts";
 import PlaceGuides from "./PlaceGuides/PlaceGuides";
+import HomeGuides from "@/components/pages/HomePage/HomeGuides/HomeGuides";
 import PlaceGoogle from "./PlaceGoogle/PlaceGoogle";
 import PlaceHeader from "./PlaceHeader/PlaceHeader";
 import PlaceInfo from "./PlaceInfo/PlaceInfo";
@@ -129,6 +129,12 @@ const Details = async (props: DetailsProps) => {
             </div>
           </div>
         </div>
+        {/* La sección "Guías" de la home, al final y pegada al footer (cacheada, igual para todos). Sin guías, nada. */}
+        <div className={styles.guides}>
+          <Suspense fallback={null}>
+            <HomeGuides />
+          </Suspense>
+        </div>
       </div>
     </PlaceGoogle>
   );
@@ -146,9 +152,7 @@ const PlacePage = (props: Props) => {
   return (
     <>
       <SkipLinks links={[{ target: SKIP_TARGETS.content, label: "Ir al contenido" }]} />
-      <Header compactBelow="ml">
-        <HeaderBack below="ml" />
-      </Header>
+      <HeaderSearchFolded compactBelow="ml" />
       <main id={SKIP_TARGETS.content} data-skip-target>
         <Suspense fallback={<PlacePageSkeleton />}>
           <Details params={props.params} />

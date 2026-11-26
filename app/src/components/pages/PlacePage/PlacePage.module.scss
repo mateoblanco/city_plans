@@ -14,6 +14,27 @@
     --place-gutter: 48px;
     padding-bottom: 96px;
   }
+
+  // Con Guías (la última sección, con fondo), llega pegada al footer.
+  &:has(> .guides [data-home-guides]) {
+    padding-bottom: 0;
+  }
+}
+
+// "Guías" (HomeGuides): el ancho máximo de la ficha; el padding lateral es el de la sección (16px, 48px desde md) y su
+// fondo llega a los bordes. Sin guías no ocupa lugar.
+.guides {
+  margin: 48px auto 0;
+  max-width: var(--place-max-width);
+  width: 100%;
+
+  &:not(:has([data-home-guides])) {
+    display: none;
+  }
+
+  @include media(ml) {
+    margin-top: 96px;
+  }
 }
 
 // Ancho máximo del contenido, centrado. El header lo usa por dentro de la barra con las mismas variables.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type MouseEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
 import Form from "next/form";
 import { useRouter } from "next/navigation";
 import { Button as ButtonBase } from "@base-ui/react/button";
@@ -35,7 +35,7 @@ type Props = {
   intent?: string | null;
   sub?: string | null;
   /**
-   * La home: el placeholder va rotando entre ejemplos (HOME_PLACEHOLDERS) con una animación. Al tocar el input frena y
+   * La home, la ficha y las guías: el placeholder va rotando entre ejemplos (HOME_PLACEHOLDERS) con una animación. Al tocar el input frena y
    * el ejemplo de ese momento queda como placeholder fijo. Con prefers-reduced-motion no rota: el primer ejemplo, fijo.
    */
   rotatingPlaceholder?: boolean;
@@ -44,6 +44,11 @@ type Props = {
    * (× o Escape) va ahí. Sin ella (la home, o /search sin texto en la URL), borrar sólo borra el texto.
    */
   clearHref?: Promise<string>;
+  /**
+   * El header de la ficha y las guías: más chico (menos padding y el botón más bajo); al enfocarlo vuelve al tamaño de
+   * siempre, con transición.
+   */
+  compact?: boolean;
 };
 
 const Search = (props: Props) => {
@@ -156,13 +161,23 @@ const Search = (props: Props) => {
     else if (action === "blur") event.currentTarget.blur();
   };
 
+  // Los bordes de la píldora (su padding, el hueco hasta el botón) también enfocan el input: si no, eran zonas muertas.
+  // preventDefault: el foco no pasa por el body (no cierra el buscador plegado ni hace blur). Los botones, no.
+  const onContainerPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    if (target.closest("input, button")) return;
+    event.preventDefault();
+    pointerFocus.current = document.activeElement !== inputRef.current;
+    inputRef.current?.focus();
+  };
+
   // Rotando, el placeholder nativo va vacío y el texto lo dibuja la capa animada de encima.
   const placeholder = !props.rotatingPlaceholder ? DEFAULT_PLACEHOLDER : rotating ? "" : HOME_PLACEHOLDERS[placeholderIndex];
 
   return (
     // Con el botón deshabilitado el navegador ya no envía con Enter; el chequeo cubre cualquier otro envío.
     <Form action="/search" onSubmit={(event) => blocked && event.preventDefault()}>
-      <div className={styles.container}>
+      <div className={styles.container} data-compact={props.compact || undefined} onPointerDown={onContainerPointerDown}>
         <div className={styles.field}>
           <Input
             ref={inputRef}

@@ -30,10 +30,10 @@ const PlaceLocation = (props: Props) => (
       <div className={styles.actions}>
         {props.trackPlaceId ? (
           <DirectionsTracker placeId={props.trackPlaceId}>
-            <Button href={props.mapsHref} external label="Google Maps" variant="tertiary" size="sm" iconEnd={<ArrowExternal aria-hidden width={8} height={8} />} />
+            <Button href={props.mapsHref} external label="Google Maps" variant="ghost" size="sm" iconEnd={<ArrowExternal aria-hidden width={8} height={8} />} />
           </DirectionsTracker>
         ) : (
-          <Button href={props.mapsHref} external label="Google Maps" variant="tertiary" size="sm" iconEnd={<ArrowExternal aria-hidden width={8} height={8} />} />
+          <Button href={props.mapsHref} external label="Google Maps" variant="ghost" size="sm" iconEnd={<ArrowExternal aria-hidden width={8} height={8} />} />
         )}
       </div>
     )}

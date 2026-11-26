@@ -9,8 +9,11 @@ type Props = {
     /** Texto del botón; con onlyIcon pasa a ser su nombre accesible (aria-label). */
     label: string;
     disabled?: boolean;
-    /** ghost: sin fondo ni padding (p. ej. la flecha de volver del header de /search). */
-    variant: 'primary' | 'secondary' | 'tertiary' | 'ghost';
+    /**
+     * ghost: sin fondo ni padding (p. ej. la flecha de volver del header de /search). outline: como ghost pero con borde
+     * y el padding de su size (p. ej. los links de contacto de la ficha).
+     */
+    variant: 'primary' | 'secondary' | 'tertiary' | 'ghost' | 'outline';
     size: 'sm' | 'md';
     icon?: React.ReactNode;
     /** Ícono después del texto (p. ej. la flecha de un link externo); no se muestra con onlyIcon. */

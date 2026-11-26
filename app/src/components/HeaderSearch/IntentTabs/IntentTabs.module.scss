@@ -4,6 +4,10 @@
 // Desde md, centradas (ScrollFade no es una caja).
 .nav {
   min-width: 0;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .line {

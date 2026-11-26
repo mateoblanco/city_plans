@@ -26,12 +26,12 @@ const PlaceContact = (props: Props) => {
       <h2 className={styles.title}>Contacto</h2>
       <div className={styles.links}>
         {props.instagramHandle && (
-          <Button href={`https://www.instagram.com/${props.instagramHandle}/`} external label="Instagram" icon={<Instagram aria-hidden />} variant="tertiary" size="sm" />
+          <Button href={`https://www.instagram.com/${props.instagramHandle}/`} external label="Instagram" icon={<Instagram aria-hidden />} variant="outline" size="sm" />
         )}
-        {props.whatsappHref && <Button href={props.whatsappHref} external label="WhatsApp"  icon={<Whatsapp aria-hidden />}  variant="tertiary" size="sm" />}
-        {props.website && <Button href={props.website} external label="Website" iconEnd={external} variant="tertiary" size="sm" />}
+        {props.whatsappHref && <Button href={props.whatsappHref} external label="WhatsApp"  icon={<Whatsapp aria-hidden />}  variant="outline" size="sm" />}
+        {props.website && <Button href={props.website} external label="Website" iconEnd={external} variant="outline" size="sm" />}
         {props.popularHref && (
-          <Button href={props.popularHref} external label="Lo que publica la gente" iconEnd={external} variant="tertiary" size="sm" />
+          <Button href={props.popularHref} external label="Lo que publica la gente" iconEnd={external} variant="outline" size="sm" />
         )}
       </div>
     </section>
