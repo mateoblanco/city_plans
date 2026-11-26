@@ -8,8 +8,11 @@
   height: 50px;
   min-width: 0;
 
+  // El ancho que deja la flecha. flex-grow, no flex: 1: desde el breakpoint esta caja es
+  // display: contents y el hijo pasa a la columna de .center; flex: 1 (basis 0%) le pisaría
+  // el height: 50px de las pestañas.
   > :last-child {
-    flex: 1;
+    flex-grow: 1;
     min-width: 0;
   }
 
@@ -17,12 +20,20 @@
   &[data-below="md"] {
     @include media(md) {
       display: contents;
+
+      > :last-child {
+        flex-grow: 0;
+      }
     }
   }
 
   &[data-below="ml"] {
     @include media(ml) {
       display: contents;
+
+      > :last-child {
+        flex-grow: 0;
+      }
     }
   }
 }
