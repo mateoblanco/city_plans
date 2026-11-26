@@ -7,6 +7,8 @@ import {
   enableProductAnalytics,
   isAutomated,
   markSearchOrigin,
+  isNewSearch,
+  noteNavigation,
   resetProductAnalytics,
   sanitize,
   setCurrentSearchQuery,
@@ -120,12 +122,12 @@ describe('sanitize', () => {
 describe('origen de la búsqueda', () => {
   it('lo marca lo que la dispara y se usa una vez; sin marca es link', () => {
     expect(takeSearchOrigin()).toBe('link')
-    markSearchOrigin('bar')
-    expect(takeSearchOrigin()).toBe('bar')
+    markSearchOrigin('search_bar')
+    expect(takeSearchOrigin()).toBe('search_bar')
     expect(takeSearchOrigin()).toBe('link')
   })
 
-  it('platos, "Ver todos" de una fila, filtros, pestañas y zona marcan su origen aunque la analítica esté apagada', () => {
+  it('platos, "Ver todos" de una fila, filtros, chips y pestañas marcan su origen aunque la analítica esté apagada', () => {
     disableProductAnalytics()
     track('dish_clicked', { dish: 'Pizza' })
     expect(takeSearchOrigin()).toBe('dish')
@@ -134,11 +136,32 @@ describe('origen de la búsqueda', () => {
     track('filter_changed', { filter: 'price', value: 'low' })
     expect(takeSearchOrigin()).toBe('filter')
     track('intent_tab_selected', { tab: 'eat' })
-    expect(takeSearchOrigin()).toBe('tab')
+    expect(takeSearchOrigin()).toBe('intent_tab')
+    // La zona sólo existe dentro de /search: nunca es una búsqueda nueva, no marca origen.
     track('map_zone_search', {})
-    expect(takeSearchOrigin()).toBe('zone')
+    expect(takeSearchOrigin()).toBe('link')
     track('chip_removed', { filter: 'sub', chip: 'cocktails', from_text: true })
     expect(takeSearchOrigin()).toBe('filter')
+  })
+
+  it('búsqueda nueva: al llegar a /search o con otro texto; los refinamientos dentro de /search no', () => {
+    // Abrir /search directo (o llegar desde otra página): sí, con cualquier origen.
+    expect(isNewSearch('link')).toBe(true)
+    // Dentro de /search: un filtro, una pestaña, un chip, una sección o la zona (sin marca o con filter / intent_tab) no.
+    expect(isNewSearch('link')).toBe(false)
+    expect(isNewSearch('filter')).toBe(false)
+    expect(isNewSearch('intent_tab')).toBe(false)
+    // Otro texto en el buscador sí.
+    expect(isNewSearch('search_bar')).toBe(true)
+    // Salir a una ficha y volver a /search (por un link) es una llegada.
+    noteNavigation('/place/uno')
+    expect(isNewSearch('link')).toBe(true)
+    // Navegar dentro de /search no corta la sesión.
+    noteNavigation('/search')
+    expect(isNewSearch('filter')).toBe(false)
+    // Desde la home con un filtro o una pestaña: llegada.
+    noteNavigation('/')
+    expect(isNewSearch('filter')).toBe(true)
   })
 
   it('guarda el texto de la búsqueda que se muestra', () => {
@@ -173,7 +196,8 @@ describe('pageType', () => {
     expect(pageType('/')).toBe('home')
     expect(pageType('/search')).toBe('search')
     expect(pageType('/place/escaramuza')).toBe('place')
-    expect(pageType('/guides/montevideo')).toBe('guide')
+    expect(pageType('/guides')).toBe('guides_city')
+    expect(pageType('/guides/montevideo')).toBe('guides_city')
     expect(pageType('/guides/montevideo/primera-cita')).toBe('guide')
     expect(pageType('/privacy')).toBe('legal')
     expect(pageType('/terms')).toBe('legal')

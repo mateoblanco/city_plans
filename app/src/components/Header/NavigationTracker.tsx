@@ -3,7 +3,7 @@
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { pageType } from "@/lib/product-analytics/page-type";
-import { track } from "@/lib/product-analytics/track";
+import { noteNavigation, track } from "@/lib/product-analytics/track";
 import { recordPath } from "./utils/navigation";
 
 /**
@@ -17,6 +17,7 @@ const NavigationTracker = () => {
 
   useEffect(() => {
     recordPath(pathname);
+    noteNavigation(pathname);
     // Sale como el page view de Mixpanel ($mp_web_page_view), con la ruta que agrega la librería.
     track("page_view", { page_type: pageType(pathname) });
   }, [pathname]);

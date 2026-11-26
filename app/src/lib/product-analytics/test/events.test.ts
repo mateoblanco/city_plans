@@ -1,11 +1,12 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
-import { PRODUCT_EVENTS, type ProductEvent, type ProductEvents } from '../events'
+import { INTENT_IDS } from '@shared/intents.ts'
+import { PRODUCT_EVENTS, SEARCH_ORIGINS, type ProductEvent, type ProductEvents } from '../events'
 import { FORBIDDEN_KEY, track } from '../track'
 
 /** Un ejemplo de cada evento del tracking plan: si se agrega un evento sin ejemplo, `tsc` falla. */
 const SAMPLES: { [E in ProductEvent]: ProductEvents[E] } = {
   page_view: { page_type: 'place' },
-  search_submitted: { query: 'Pizza ', query_normalized: 'pizza', origin: 'bar', tab: 'all', filters: { location: ['near'] }, results_count: 12, resolved_by: 'dictionary', has_location: true },
+  search_submitted: { query: 'Pizza ', query_normalized: 'pizza', origin: 'search_bar', tab: 'all', filters: { location: ['near'] }, results_count: 12, resolved_by: 'dictionary', has_location: true },
   search_no_results: { query: 'xyz', query_normalized: 'xyz', origin: 'link', tab: 'eat', filters: {}, results_count: 0, resolved_by: 'llm', has_location: false },
   filter_changed: { filter: 'price', value: 'low' },
   intent_tab_selected: { tab: 'bars' },
@@ -39,6 +40,11 @@ describe('tracking plan', () => {
     expect([...PRODUCT_EVENTS].sort()).toEqual(Object.keys(SAMPLES).sort())
     expect(new Set(PRODUCT_EVENTS).size).toBe(PRODUCT_EVENTS.length)
     expectTypeOf<(typeof PRODUCT_EVENTS)[number]>().toEqualTypeOf<ProductEvent>()
+  })
+
+  it('ningún origen de búsqueda coincide con un valor de tab', () => {
+    const tabs = ['all', ...INTENT_IDS]
+    for (const origin of SEARCH_ORIGINS) expect(tabs, origin).not.toContain(origin)
   })
 
   it('ninguna propiedad se llama como la ubicación de la persona o sus guardados', () => {

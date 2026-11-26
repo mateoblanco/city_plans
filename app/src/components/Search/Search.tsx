@@ -181,7 +181,7 @@ const Search = (props: Props) => {
       action="/search"
       onSubmit={(event) => {
         if (blocked) event.preventDefault();
-        else markSearchOrigin("bar");
+        else markSearchOrigin("search_bar");
       }}
     >
       <div className={styles.container} data-compact={props.compact || undefined} onPointerDown={onContainerPointerDown}>

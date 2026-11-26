@@ -6,15 +6,22 @@
  * Puro: lo usan los server components (atributos `data-pa`) y el cliente.
  */
 
-/** Cómo empezó la búsqueda. Los tres últimos son refinamientos de una búsqueda que ya estaba. */
-export const SEARCH_ORIGINS = ["bar", "dish", "home_row", "link", "guide", "filter", "tab", "zone"] as const;
+/**
+ * Cómo empezó la búsqueda (search_submitted). Ninguno coincide con un valor de `tab` (all, eat, bars, cafes, desserts).
+ * `filter` e `intent_tab` sólo aparecen al llegar a /search desde otra página (los filtros y las pestañas de la home):
+ * dentro de /search, cambiar un filtro o una pestaña no es una búsqueda nueva (filter_changed, intent_tab_selected).
+ */
+export const SEARCH_ORIGINS = ["search_bar", "dish", "home_row", "link", "guide", "filter", "intent_tab"] as const;
 export type SearchOrigin = (typeof SEARCH_ORIGINS)[number];
+
+/** Orígenes que siempre son una búsqueda nueva, aunque ya se esté en /search (otro texto en el buscador). */
+export const NEW_SEARCH_ORIGINS: ReadonlySet<SearchOrigin> = new Set(["search_bar", "dish", "home_row", "guide"]);
 
 /** Quién interpretó el texto (`InterpretationSource` de server/search/search.ts, con `shortcut` → `dictionary`). */
 export const RESOLVED_BY = ["dictionary", "llm", "name", "fallback", "filters"] as const;
 export type ResolvedBy = (typeof RESOLVED_BY)[number];
 
-export const PAGE_TYPES = ["home", "search", "place", "guide", "legal", "other"] as const;
+export const PAGE_TYPES = ["home", "search", "place", "guide", "guides_city", "legal", "other"] as const;
 export type PageType = (typeof PAGE_TYPES)[number];
 
 export const SHARE_METHODS = ["native", "copy", "whatsapp"] as const;
@@ -27,7 +34,7 @@ export const RESULT_SURFACES = ["list", "map"] as const;
 export type ResultSurface = (typeof RESULT_SURFACES)[number];
 
 /** Los filtros de la barra de /search. `location` va sólo como tipo (`near`, `all`, `zone`, `neighborhood`). */
-export const FILTER_KEYS = ["location", "price", "diet", "discount", "open", "sub", "extra"] as const;
+export const FILTER_KEYS = ["location", "price", "diet", "discount", "open", "sub", "extra", "section"] as const;
 export type FilterKey = (typeof FILTER_KEYS)[number];
 
 /** Lo que tiene activo una búsqueda, por filtro (sin coordenadas ni radio: la ubicación es sólo su tipo). */

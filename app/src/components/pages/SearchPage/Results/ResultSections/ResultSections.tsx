@@ -8,6 +8,7 @@ import styles from "./ResultSections.module.scss";
 import { hasViewAll, NEARBY_SECTION_ID, type VisibleSection } from "../../utils/pagination";
 import { nearbyHref, sectionHref, type SearchUrl } from "../../utils/search-href";
 import { discountViewAllHref } from "../../utils/discount-sections";
+import { trackAttrs } from "@/lib/product-analytics/track";
 
 type Props = {
   sections: VisibleSection[];
@@ -29,6 +30,9 @@ const viewAllHref = (state: SearchUrl, id: string) =>
  * grupos por proveedor de descuento, donde un lugar con varios va en cada uno). Un grupo con más lugares de los que
  * muestra tiene "Ver todos" (el título y la flecha): la misma búsqueda con la regla del grupo como filtro.
  */
+/** "Ver todos" de un grupo refina la búsqueda: filter_changed con el id del grupo (`casual`, `discount:itau`, el de "Cerca de"). */
+const viewAllAnalytics = (id: string) => trackAttrs("filter_changed", { filter: "section", value: id });
+
 const ResultSections = (props: Props) => (
   <div className={styles.sections}>
     {props.sections.map((section, sectionIndex) => (
@@ -36,7 +40,7 @@ const ResultSections = (props: Props) => (
         <StickyHeader className={styles.header}>
           <h2 className={styles.title}>
             {hasViewAll(section) ? (
-              <Link className={styles.titleLink} href={viewAllHref(props.state, section.id)} prefetch={false}>
+              <Link className={styles.titleLink} href={viewAllHref(props.state, section.id)} prefetch={false} {...viewAllAnalytics(section.id)}>
                 {section.title}
               </Link>
             ) : (
@@ -51,6 +55,7 @@ const ResultSections = (props: Props) => (
               size="sm"
               onlyIcon
               label={`Ver todos: ${section.title}`}
+              analytics={viewAllAnalytics(section.id)}
               icon={<ArrowRight aria-hidden width={12} height={12} />}
             />
           )}

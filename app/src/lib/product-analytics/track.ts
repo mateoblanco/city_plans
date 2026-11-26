@@ -1,5 +1,5 @@
 import { isBot } from "@/lib/bots";
-import { QUERY_MAX, type ProductEvent, type ProductEvents, type SearchOrigin } from "./events";
+import { NEW_SEARCH_ORIGINS, QUERY_MAX, type ProductEvent, type ProductEvents, type SearchOrigin } from "./events";
 
 /**
  * Analítica de producto (Mixpanel) del lado del navegador. Este módulo es chico y se carga siempre (lo importan los
@@ -77,8 +77,7 @@ const SEARCH_ORIGIN_OF: Partial<Record<ProductEvent, SearchOrigin>> = {
   home_see_all_clicked: "home_row",
   filter_changed: "filter",
   chip_removed: "filter",
-  intent_tab_selected: "tab",
-  map_zone_search: "zone",
+  intent_tab_selected: "intent_tab",
 };
 
 /** Manda un evento del tracking plan. Nunca espera ni tira error; apagado, no hace nada. */
@@ -138,6 +137,25 @@ export function takeSearchOrigin(): SearchOrigin {
   return origin;
 }
 
+// Si ya se mostró una búsqueda desde que se llegó a /search: lo que sigue ahí es un refinamiento, no una búsqueda nueva.
+let inSearchPage = false;
+
+/** Lo llama NavigationTracker con cada pathname: salir de /search hace que la próxima búsqueda sea una llegada. */
+export function noteNavigation(pathname: string) {
+  if (pathname !== "/search") inSearchPage = false;
+}
+
+/**
+ * Se mostró la lista de una búsqueda: ¿es una búsqueda nueva (search_submitted)? Sí si se llegó a /search desde otra
+ * página (o se abrió directo) o si la mandó el buscador, un plato, una fila de la home o una guía. Un filtro, una
+ * pestaña, un chip, una sección o "Buscar en esta zona" dentro de /search no lo son: ya mandaron su propio evento.
+ */
+export function isNewSearch(origin: SearchOrigin): boolean {
+  const arrived = !inSearchPage;
+  inSearchPage = true;
+  return arrived || NEW_SEARCH_ORIGINS.has(origin);
+}
+
 /** Para los tests. */
 export function resetProductAnalytics() {
   mode = "pending";
@@ -145,4 +163,5 @@ export function resetProductAnalytics() {
   queue = [];
   searchOrigin = null;
   currentQuery = "";
+  inSearchPage = false;
 }

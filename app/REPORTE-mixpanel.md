@@ -281,6 +281,53 @@ en minúsculas, sin tildes, sin espacios repetidos ni en las puntas, con un máx
 query: "Café   TRANQUILO en Cordón"  →  query_normalized: "cafe tranquilo en cordon"
 ```
 
+### Tercera tanda: ajustes después de producción
+
+**1. Refinar dentro de `/search` ya no es una búsqueda nueva.**
+- **La causa:** el "Ver todos" de las secciones de resultados (`section:casual`, "Cerca de", grupos por banco) no
+  tenía analítica. Por eso disparaba un `search_submitted` sin origen, que salía como `link`.
+- **El "Ver todos" de una sección:** ahora manda `filter_changed {"filter":"section","value":"share"}`.
+- **La regla nueva:** `search_submitted` sale solo cuando la persona envía un texto (buscador, plato, "Ver todos" de
+  una fila de la home) o llega a `/search` desde otra página o la abre directo.
+- **Lo que quedó afuera:** filtros, sub-filtros, secciones, chips, pestañas y "Buscar en esta zona" dentro de
+  `/search` mandan solo su propio evento.
+- **Cómo se decide:** `isNewSearch` en `track.ts`. `NavigationTracker` avisa cuando se sale de `/search`.
+- **Consecuencia:** un refinamiento que deja cero resultados ya no manda `search_no_results`.
+
+**2. Orígenes renombrados.**
+- **El buscador:** `bar` pasó a `search_bar`.
+- **Una pestaña:** `tab` pasó a `intent_tab`. Ningún valor coincidía con un tab, pero se llamaba igual que la
+  propiedad `tab`.
+- **`zone`:** salió. "Buscar en esta zona" solo existe dentro de `/search`, así que ya no puede iniciar una búsqueda
+  nueva.
+- **`filter` e `intent_tab`:** quedan solo para cuando se llega desde los filtros o las pestañas de la home.
+- **Test nuevo:** falla si un origen coincide con un valor de `tab`.
+
+**3. `page_type` en la vista de página.**
+- **Ya se mandaba:** el `$mp_web_page_view` llevaba `page_type` desde la segunda tanda (`track_pageview({ page_type })`),
+  y es la única vista por página.
+- **Si no lo ves en producción,** puede ser una de dos cosas:
+  - el deploy tiene la primera versión, que todavía mandaba un `page_view` propio;
+  - Mixpanel no lo muestra en la vista por defecto del evento. Abrí el evento o agregá la propiedad.
+- **Lo que cambia:** se suma el valor `guides_city` para `/guides/montevideo` (y `/guides`).
+- **Limitación:** `/guides/montevideo/<barrio>` comparte la ruta con las guías y queda como `guide`.
+
+Ejemplos reales (modo debug):
+
+```text
+dish_clicked        {"dish":"Pizza"}
+$mp_web_page_view   {"current_url_path":"/search","page_type":"search"}
+search_submitted    {"query":"Pizza", … ,"origin":"dish"}
+filter_changed      {"filter":"open","value":"now"}                       ← sin search_submitted
+search_submitted    {"query":"cena con amigos", … ,"origin":"search_bar"}
+filter_changed      {"filter":"section","value":"share"}                  ← sin search_submitted
+intent_tab_selected {"tab":"bars"}                                       ← sin search_submitted
+filter_changed      {"filter":"sub","value":"cocktails"}                  ← sin search_submitted
+intent_tab_selected {"tab":"cafes"}                                      (desde la home)
+search_submitted    {"query":"", … ,"tab":"cafes","origin":"intent_tab"}
+$mp_web_page_view   {"current_page_title":"Guías de Montevideo: …","current_url_path":"/guides/montevideo","page_type":"guides_city"}
+```
+
 ## 4. Política de privacidad
 
 Archivo: `LegalPage/content/privacy.tsx`. La fecha de "Última actualización" pasa a **2026-11-26**
