@@ -1,33 +1,127 @@
 // Mismo scale para el hover del marcador y para la card resaltada en la lista (hoveredId de MapSync).
 $marker-active-scale: 1.5;
+$bubble-size: 30px;
+// Piquito debajo del globo: alto visible y medio ancho del triángulo. Arranca $tail-overlap px dentro del círculo, detrás
+// de él, para que no quede una costura entre los dos.
+$tail-height: 5px;
+$tail-overlap: 4px;
+$tail-half-width: 5px;
+// Espacio entre la punta del piquito y el punto.
+$tail-gap: 4px;
+$dot-size: 10px;
+// Cuánto baja el globo inactivo: así el borde de abajo del círculo queda en el ancla, como era antes del piquito.
+$rest-offset: $tail-height + $tail-gap + $dot-size * 0.5;
+$duration: 0.2s;
 
+// Columna: globo (con el piquito) y el punto. El alto es siempre el del activo, así el ancla de AdvancedMarker (el
+// borde de abajo del contenido) no cambia al activarse: es el centro del punto, que sobresale la mitad de su alto.
 .marker {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  // Al aparecer por primera vez, crece desde la mitad con un fundido (nunca desde 0: saldría de la nada), desde el
+  // ancla. Cada marcador se monta una vez por lugar (key = id en SearchMap): con "Ver más" o una búsqueda nueva sólo
+  // crecen los nuevos.
+  animation: marker-in 0.25s ease-out;
+  transform-origin: 50% 100%;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+// Globo + piquito: lo que sube y crece. Escala desde la punta del piquito, así la punta queda fija sobre el punto.
+.pin {
+  margin-bottom: $tail-gap;
+  position: relative;
+  transform: translateY($rest-offset);
+  transform-origin: 50% 100%;
+  transition: transform $duration var(--ease-out);
+
+  .marker[data-active] & {
+    transform: scale($marker-active-scale);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+}
+
+.bubble {
   align-items: center;
   background-color: var(--color-surface);
   border-radius: 50%;
   box-shadow: var(--shadow-marker);
   display: flex;
+  height: $bubble-size;
   justify-content: center;
-  width: 30px;
-  height: 30px;
-  transition:
-    transform 0.15s ease-out,
-    box-shadow 0.15s ease-out;
-  // Al aparecer por primera vez, crece desde la mitad con un fundido (nunca desde 0: saldría de la nada). Cada marcador
-  // se monta una vez por lugar (key = id en SearchMap): con "Ver más" o una búsqueda nueva sólo crecen los nuevos. Sin
-  // `to`, termina en su transform de siempre (el activo, 1.5 en la ficha).
-  animation: marker-in 0.25s ease-out;
+  margin-bottom: $tail-height;
+  // Encima del piquito, que va antes en el DOM.
+  position: relative;
+  transition: box-shadow $duration var(--ease-out);
+  width: $bubble-size;
 
-  @media (prefers-reduced-motion: reduce) {
-    animation: none;
-  }
-
-  &[data-active] {
-    // Anillo negro como box-shadow: no agranda la caja (el ancla no se mueve) y escala con el transform.
+  .marker[data-active] & {
+    // Anillo negro como box-shadow: no agranda la caja y escala con el transform.
     box-shadow:
       0 0 0 1px var(--color-selected),
       var(--shadow-marker);
-    transform: scale($marker-active-scale);
+  }
+}
+
+// Triángulo del color del anillo, detrás del círculo, con la punta redondeada (clip-path: un triángulo con bordes no se
+// puede redondear). Inactivo queda escondido detrás del globo; al activarse asoma hacia abajo.
+.tail {
+  background-color: var(--color-selected);
+  // 10 × 9 px ($tail-half-width × 2, $tail-height + $tail-overlap): los lados se cortan al 85 % y la punta es una curva
+  // hasta (5, 9). Si cambian esas medidas, hay que rehacer el path.
+  clip-path: path('M0 0 L10 0 L5.75 7.65 Q5 9 4.25 7.65 Z');
+  bottom: 0;
+  height: $tail-height + $tail-overlap;
+  left: 50%;
+  opacity: 0;
+  position: absolute;
+  transform: translate(-50%, -$tail-height);
+  transition:
+    transform $duration var(--ease-out),
+    opacity $duration var(--ease-out);
+  width: $tail-half-width * 2;
+
+  .marker[data-active] & {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+}
+
+// Donde está realmente el lugar. Inactivo no se ve; aparece un poco después de que el globo empieza a subir.
+.dot {
+  background-color: var(--color-selected);
+  border: 2px solid var(--color-surface);
+  border-radius: 50%;
+  box-shadow: var(--shadow-marker);
+  box-sizing: border-box;
+  height: $dot-size;
+  margin-bottom: -$dot-size * 0.5;
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.4);
+  transition:
+    transform $duration var(--ease-out),
+    opacity $duration var(--ease-out);
+  width: $dot-size;
+
+  .marker[data-active] & {
+    opacity: 1;
+    transform: scale(1);
+    transition-delay: 0.05s;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
   }
 }
 

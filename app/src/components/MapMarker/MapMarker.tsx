@@ -22,10 +22,21 @@ type Props = {
   active?: boolean;
 };
 
-/** Círculo blanco con el ícono de la categoría: el marcador de los mapas (/search y la ficha del lugar). */
+/**
+ * El marcador de los mapas (/search y la ficha del lugar): círculo blanco con el ícono de la categoría. Activo, sube,
+ * crece y aparecen un piquito (detrás del círculo) y un punto chico, que es donde está el lugar. El contenido siempre
+ * tiene el alto del activo y AdvancedMarker ancla su borde de abajo: el punto sobresale la mitad (margen negativo), así
+ * su centro es la posición; inactivo, el globo baja hasta que el borde de abajo del círculo queda ahí, como siempre.
+ */
 const MapMarker = (props: Props) => (
   <div className={styles.marker} data-active={props.active || undefined}>
-    <MarkerIcon category={props.category} />
+    <div className={styles.pin}>
+      <div className={styles.tail} />
+      <div className={styles.bubble}>
+        <MarkerIcon category={props.category} />
+      </div>
+    </div>
+    <div className={styles.dot} />
   </div>
 );
 
