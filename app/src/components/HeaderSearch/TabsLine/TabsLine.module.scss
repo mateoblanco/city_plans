@@ -1,0 +1,28 @@
+@use '../../../styles/breakpoints' as *;
+
+// La flecha a la izquierda y las pestañas en el resto: IntentTabs (.nav) las centra en ese espacio si entran.
+.line {
+  align-items: center;
+  display: flex;
+  gap: 4px;
+  height: 50px;
+  min-width: 0;
+
+  > :last-child {
+    flex: 1;
+    min-width: 0;
+  }
+
+  // Desde el breakpoint no es una caja: las pestañas quedan como antes, centradas arriba del input.
+  &[data-below="md"] {
+    @include media(md) {
+      display: contents;
+    }
+  }
+
+  &[data-below="ml"] {
+    @include media(ml) {
+      display: contents;
+    }
+  }
+}

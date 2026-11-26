@@ -9,8 +9,7 @@ import SearchTabs from "./SearchTabs/SearchTabs";
 import FilterReveal from "./FilterReveal/FilterReveal";
 import FilterBarSkeleton from "./FilterBar/FilterBarSkeleton/FilterBarSkeleton";
 import { emptyBar } from "@/server/search/intents";
-import HeaderBack from "@/components/Header/HeaderBack/HeaderBack";
-import styles from "./HeaderSearch.module.scss";
+import TabsLine from "./TabsLine/TabsLine";
 
 type Props = {
   /** Sin searchParams, la home: el buscador con ejemplos rotando, sin volver, y la barra vacía (todo lleva a /search). */
@@ -31,14 +30,12 @@ const HeaderSearch = (props: Props) => {
       sticky={!props.searchParams}
       tabs={
         props.searchParams ? (
-          // Mobile: la flecha de volver al principio de la línea de las pestañas. Desde md, sólo las pestañas (la línea
-          // no es una caja y HeaderBack no se muestra).
-          <div className={styles.tabsLine}>
-            <HeaderBack />
+          // Mobile: la flecha de volver a la izquierda de la línea de las pestañas. Desde md, sólo las pestañas.
+          <TabsLine below="md">
             <Suspense fallback={<IntentTabs state={{ q: "" }} bar={null} afterBack />}>
               <SearchTabs searchParams={props.searchParams} />
             </Suspense>
-          </div>
+          </TabsLine>
         ) : (
           <IntentTabs state={{ q: "" }} bar={emptyBar()} home />
         )

@@ -8,7 +8,10 @@
   border-radius: 8px;
   color: inherit;
   cursor: pointer;
-  display: inline-flex;
+  // Sólo desde lg. En tablet (md–lg) el header queda con el logo solo: con "Montevideo ▾" la columna del logo mide
+  // ~175px y el buscador (526px) no entra centrado en la grilla 1fr auto 1fr hasta ~1020px. Hoy hay una sola ciudad,
+  // así que ocultarlo no saca ninguna opción. En mobile el header ya oculta el logo y el selector.
+  display: none;
   font: inherit;
   font-size: 18px;
   font-weight: 600;
@@ -20,6 +23,10 @@
   user-select: none;
   white-space: nowrap;
   -webkit-user-select: none;
+
+  @include media(lg) {
+    display: inline-flex;
+  }
 
   @include hover {
     &:hover {

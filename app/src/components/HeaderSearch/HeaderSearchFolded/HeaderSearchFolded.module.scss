@@ -1,3 +1,5 @@
+@use '../../../styles/breakpoints' as *;
+
 // La flecha de volver (sólo debajo del breakpoint de la página) y el buscador en una línea; el buscador ocupa el resto.
 .line {
   align-items: center;
@@ -8,5 +10,46 @@
   > :last-child {
     flex: 1;
     min-width: 0;
+  }
+}
+
+// La flecha al lado del input, sólo con el header cerrado. Abierto (SearchExpand, data-search-open), la flecha está en
+// la línea de las pestañas (TabsLine): ésta se pliega a ancho 0 (el margen negativo se come el gap) y el input crece a
+// la izquierda, al mismo tiempo que se despliegan las pestañas (220ms, como .fold de Header). visibility al final de la
+// transición: plegada no se enfoca ni la lee el lector de pantalla.
+.back {
+  flex-shrink: 0;
+  max-width: 48px;
+  transition: max-width 220ms var(--ease-out), margin-right 220ms var(--ease-out), opacity 160ms var(--ease-out),
+    visibility 0s;
+
+  :global(header[data-search-open]) & {
+    margin-right: -4px;
+    max-width: 0;
+    opacity: 0;
+    overflow: clip;
+    visibility: hidden;
+    transition: max-width 220ms var(--ease-out), margin-right 220ms var(--ease-out), opacity 160ms var(--ease-out),
+      visibility 0s linear 220ms;
+  }
+
+  // Desde el breakpoint la flecha no se muestra: sin caja, así no suma el gap.
+  &[data-below="md"] {
+    @include media(md) {
+      display: none;
+    }
+  }
+
+  &[data-below="ml"] {
+    @include media(ml) {
+      display: none;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    &,
+    :global(header[data-search-open]) & {
+      transition: none;
+    }
   }
 }

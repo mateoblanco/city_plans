@@ -12,7 +12,7 @@ type Props = {
   bar: BarRef | null;
   /** La home: "Todo" es la actual y lleva a /. */
   home?: boolean;
-  /** /search: en mobile, después de la flecha de volver; sin sangrado a la izquierda (no se meten debajo de ella). */
+  /** En mobile, después de la flecha de volver (TabsLine); sin sangrado a la izquierda (no se meten debajo de ella). */
   afterBack?: boolean;
 };
 
