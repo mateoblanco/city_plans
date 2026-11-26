@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import type { BarRef, SearchUrl } from "@/components/pages/SearchPage/utils/search-href";
+import { trackAttrs } from "@/lib/product-analytics/track";
 import ScrollFade from "../ScrollFade/ScrollFade";
 import { intentTabs } from "./utils/intent-tabs";
 import styles from "./IntentTabs.module.scss";
@@ -27,7 +28,12 @@ const IntentTabs = (props: Props) => (
       <ul className={styles.list}>
         {intentTabs(props.state, props.bar, props.home).map((tab) => (
           <li key={tab.id ?? "all"}>
-            <Link className={styles.tab} href={tab.href} aria-current={tab.current ? "page" : undefined}>
+            <Link
+              className={styles.tab}
+              href={tab.href}
+              aria-current={tab.current ? "page" : undefined}
+              {...trackAttrs("intent_tab_selected", { tab: tab.id ?? "all" })}
+            >
               {tab.icon && <Image className={styles.icon} src={tab.icon} alt="" width={20} height={20} />}
               {tab.label}
             </Link>

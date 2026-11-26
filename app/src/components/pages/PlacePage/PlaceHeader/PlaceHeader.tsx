@@ -39,9 +39,10 @@ const PlaceHeader = (props: Props) => {
             <PlaceImage name={props.name} logoUrl={props.logoUrl} logoBgColor={props.logoBgColor} size="lg" onLightBar={isNearWhite(barColor)} load="high" />
           </div>
           <div className={styles.like}>
-            <ShareButton title={props.name} url={placeShareUrl(props.slug)} />
+            <ShareButton title={props.name} url={placeShareUrl(props.slug)} place={{ id: props.placeId, slug: props.slug }} />
             <PlaceActions
               placeId={props.placeId}
+              slug={props.slug}
               instagramHandle={instagramHandle(props.instagram)}
               popularHref={instagramPopularHref(props.name)}
             />

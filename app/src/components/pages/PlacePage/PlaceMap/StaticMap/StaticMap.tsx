@@ -2,6 +2,7 @@ import type { StaticMapSource } from "@/server/places/static-map";
 import DirectionsTracker from "@/components/Tracking/DirectionsTracker/DirectionsTracker";
 import { PLACE_MAP_DESKTOP_MIN_WIDTH } from "@/lib/place-map";
 import styles from "./StaticMap.module.scss";
+import { trackAttrs } from "@/lib/product-analytics/track";
 
 /** GIF transparente de 1×1: desde ml el <picture> elige este y el navegador no pide la imagen de Google. */
 const EMPTY_IMAGE = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
@@ -14,6 +15,8 @@ type Props = {
   mapsHref: string | null;
   /** Con TRACK_EVENTS, tocar la imagen cuenta como "Cómo llegar", como el link. */
   trackPlaceId: string | null;
+  /** Para la analítica de producto (directions_clicked). */
+  place: { id: string; slug: string };
   /** fetchpriority="high": el mapa probablemente entra en la primera pantalla (mapLikelyAboveFold). */
   priority: boolean;
 };
@@ -59,7 +62,11 @@ const StaticMap = (props: Props) => {
 
   // El nombre accesible es el del link (la imagen va con alt vacío para no repetirlo).
   const link = (
-    <a className={styles.link} href={props.mapsHref} target="_blank" rel="noopener noreferrer" aria-label={`Mapa con la ubicación de ${props.name}: abrir en Google Maps (otra pestaña)`}>
+    <a
+      {...trackAttrs("directions_clicked", { place_id: props.place.id, slug: props.place.slug })}
+      className={styles.link}
+      href={props.mapsHref}
+      target="_blank" rel="noopener noreferrer" aria-label={`Mapa con la ubicación de ${props.name}: abrir en Google Maps (otra pestaña)`}>
       {picture}
     </a>
   );

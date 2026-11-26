@@ -5,9 +5,11 @@ import styles from "./SaveButton.module.scss";
 import { toggleSaved, useIsSaved } from "../../../utils/saved";
 import type { EventOrigin } from "@shared/events.ts";
 import { track } from "@/components/Tracking/utils/track";
+import { trackSaveToggle } from "@/components/ProductAnalytics/utils/saved";
 
 type Props = {
   placeId: string;
+  slug: string;
   name: string;
   /** Origen de la card, para el evento de guardar. */
   origin: EventOrigin;
@@ -35,7 +37,9 @@ const SaveButton = (props: Props) => {
       // Máscara de CSS y no un <svg> inline: hay un corazón por card y la home tiene decenas.
       icon={<span className={styles.heart} data-saved={isSaved || undefined} aria-hidden />}
       onToggle={() => {
-        if (toggleSaved(props.placeId)) track(props.placeId, isSaved ? "unsave" : "save", { origin: props.origin, row: props.originRow ?? null });
+        if (!toggleSaved(props.placeId)) return;
+        track(props.placeId, isSaved ? "unsave" : "save", { origin: props.origin, row: props.originRow ?? null });
+        trackSaveToggle({ id: props.placeId, slug: props.slug }, !isSaved, props.origin);
       }}
     />
   );

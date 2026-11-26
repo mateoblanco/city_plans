@@ -4,6 +4,8 @@ import { allowIndexing, rootRobots } from "@/server/seo/indexing";
 import { trackEvents } from "@/server/events/config";
 import TrackingEnabled from "@/components/Tracking/TrackingEnabled/TrackingEnabled";
 import WebAnalytics from "@/components/WebAnalytics/WebAnalytics";
+import ProductAnalytics from "@/components/ProductAnalytics/ProductAnalytics";
+import { productAnalytics } from "@/server/product-analytics/config";
 import '@/styles/reset.scss';
 import '@/styles/global.scss';
 import { SITE_NAME, SITE_URL } from "@/lib/site";
@@ -29,6 +31,7 @@ const merriweather = Merriweather({ subsets: ["latin"], display: "swap", variabl
 export const viewport: Viewport = { viewportFit: "cover", themeColor: "#ffffff" };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
+  const analytics = productAnalytics();
   return (
     <html lang="es-UY" className={merriweather.variable}>
       <head>
@@ -47,6 +50,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <WebAnalytics />
         {/* Popularidad: sólo con TRACK_EVENTS=true (Production) se carga el envío de eventos. */}
         {trackEvents() && <TrackingEnabled />}
+        {/* Uso del sitio en Mixpanel: sólo en Production con MIXPANEL_TOKEN (o MIXPANEL_DEBUG en local, que no envía). */}
+        {analytics.mode !== "off" && (
+          <ProductAnalytics mode={analytics.mode} token={analytics.token} />
+        )}
       </body>
     </html>
   );

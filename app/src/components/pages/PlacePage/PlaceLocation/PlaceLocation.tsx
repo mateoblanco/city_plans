@@ -4,6 +4,7 @@ import ArrowExternal from "@/assets/arrow_external.svg";
 import TransitLines from "./TransitLines/TransitLines";
 import DirectionsTracker from "@/components/Tracking/DirectionsTracker/DirectionsTracker";
 import PlaceAddress from "./PlaceAddress/PlaceAddress";
+import { trackAttrs } from "@/lib/product-analytics/track";
 
 type Props = {
   /** El lugar está en Google: la calle llega desde el navegador (PlaceAddress), con la línea reservada. */
@@ -16,6 +17,8 @@ type Props = {
   mapsHref: string | null;
   /** Con TRACK_EVENTS: el id del lugar, y el click en "Google Maps" cuenta como "Cómo llegar". null: sin eventos. */
   trackPlaceId: string | null;
+  /** Para la analítica de producto (directions_clicked). */
+  place: { id: string; slug: string };
 };
 
 /** Debajo del mapa: dirección, barrio, venue, "Ver en Google Maps" y las líneas de ómnibus cercanas. */
@@ -27,7 +30,7 @@ const PlaceLocation = (props: Props) => (
       {props.locatedIn && <p className={styles.venue}>Dentro de {props.locatedIn}</p>}
     </div>
     {props.mapsHref && (
-      <div className={styles.actions}>
+      <div className={styles.actions} {...trackAttrs("directions_clicked", { place_id: props.place.id, slug: props.place.slug })}>
         {props.trackPlaceId ? (
           <DirectionsTracker placeId={props.trackPlaceId}>
             <Button href={props.mapsHref} external label="Google Maps" variant="ghost" size="sm" iconEnd={<ArrowExternal aria-hidden width={8} height={8} />} />

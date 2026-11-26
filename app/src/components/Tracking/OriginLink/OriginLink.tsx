@@ -11,6 +11,8 @@ type Props = {
   /** Id de la fila de la home. */
   row?: string | null;
   className?: string;
+  /** Además del origen, al tocarlo (la analítica de producto). */
+  onOpen?: () => void;
   children: ReactNode;
 };
 
@@ -22,7 +24,10 @@ const OriginLink = (props: Props) => (
   <Link
     href={`/place/${props.slug}`}
     className={props.className}
-    onClick={() => markOrigin(props.slug, { origin: props.origin, row: props.row ?? null })}
+    onClick={() => {
+      markOrigin(props.slug, { origin: props.origin, row: props.row ?? null });
+      props.onOpen?.();
+    }}
   >
     {props.children}
   </Link>

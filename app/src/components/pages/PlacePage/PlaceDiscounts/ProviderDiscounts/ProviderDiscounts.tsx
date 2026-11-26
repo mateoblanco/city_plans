@@ -9,6 +9,7 @@ type Props = {
   id: string;
   name: string;
   benefits: PlaceBenefit[];
+  place: { id: string; slug: string };
 };
 
 /**
@@ -22,7 +23,7 @@ const ProviderDiscounts = (props: Props) => (
     </h3>
     <ul className={styles.benefits}>
       {benefitRows(props.benefits).map((row) => (
-        <BenefitLine key={row.key} benefit={row.benefit} cardTypes={row.cardTypes} />
+        <BenefitLine key={row.key} benefit={row.benefit} cardTypes={row.cardTypes} analytics={{ ...props.place, bank: props.id }} />
       ))}
     </ul>
   </div>

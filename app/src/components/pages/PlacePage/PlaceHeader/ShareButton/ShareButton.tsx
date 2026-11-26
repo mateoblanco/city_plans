@@ -5,6 +5,8 @@ import Share from "@/assets/share.svg";
 import Button from "@/components/base/Button/Button";
 import { shareMessage, shareOrCopy, type ShareResult } from "../../utils/share";
 import type ShareMenuType from "./ShareMenu/ShareMenu";
+import type { ShareMethod } from "@/lib/product-analytics/events";
+import { track } from "@/lib/product-analytics/track";
 import styles from "./ShareButton.module.scss";
 
 type Props = {
@@ -12,6 +14,8 @@ type Props = {
   title: string;
   /** La URL canónica absoluta (`placeShareUrl`). */
   url: string;
+  /** Para la analítica de producto (share_clicked). */
+  place: { id: string; slug: string };
 };
 
 // Mouse o trackpad: lo mismo que el mixin `hover` de _breakpoints.scss.
@@ -54,6 +58,8 @@ const ShareButton = (props: Props) => {
     });
   };
 
+  const onShare = (method: ShareMethod) => track("share_clicked", { place_id: props.place.id, slug: props.place.slug, method });
+
   const announce = (result: ShareResult) => {
     const text = shareMessage(result);
     if (!text) return;
@@ -65,7 +71,14 @@ const ShareButton = (props: Props) => {
   return (
     <div className={styles.share} ref={wrapper} onPointerEnter={loadMenu} onFocus={loadMenu}>
       {finePointer && menu ? (
-        <menu.Component title={props.title} url={props.url} onResult={announce} defaultOpen={openOnLoad} autoFocus={menu.focus} />
+        <menu.Component
+          title={props.title}
+          url={props.url}
+          onResult={announce}
+          onShare={onShare}
+          defaultOpen={openOnLoad}
+          autoFocus={menu.focus}
+        />
       ) : (
         <Button
           type="button"
@@ -81,6 +94,8 @@ const ShareButton = (props: Props) => {
               loadMenu();
               return;
             }
+            // Con Web Share API, el menú nativo; sin ella, se copia (shareOrCopy).
+            onShare(typeof navigator.share === "function" ? "native" : "copy");
             void shareOrCopy({ title: props.title, url: props.url }, navigator).then(announce);
           }}
         />

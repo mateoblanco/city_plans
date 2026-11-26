@@ -10,6 +10,7 @@ import GuidePlaces from "./GuidePlaces/GuidePlaces";
 import GuideRow from "@/components/GuideRow/GuideRow";
 import { guideItemListJsonLd } from "./utils/structured-data";
 import styles from "./GuidePage.module.scss";
+import GuideViewed from "@/components/ProductAnalytics/GuideViewed/GuideViewed";
 
 type ContentProps = {
   /** El slug de la guía (/guides/montevideo/<slug>), de barrio o de toda la ciudad. */
@@ -67,7 +68,13 @@ export const GuideView = (props: ViewProps) => {
 export const GuideContent = async (props: ContentProps) => {
   const data = await getGuidePage(await props.slug);
   if (!data) notFound();
-  return <GuideView data={data} />;
+  // La vista previa (borradores) usa GuideView sin GuideViewed: no cuenta como visita.
+  return (
+    <>
+      <GuideView data={data} />
+      <GuideViewed guide={data.guide.slug} />
+    </>
+  );
 };
 
 type Props = {

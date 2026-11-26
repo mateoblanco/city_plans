@@ -39,6 +39,8 @@ type Props = {
      * queda oculto a la vista pero sigue siendo el nombre accesible.
      */
     iconOnlyBelow?: 'ml';
+    /** Atributos de la analítica de producto (`trackAttrs`): el click lo cuenta ProductAnalytics. */
+    analytics?: Record<`data-${string}`, string>;
 } & (
         | { type: 'button'; onClick: () => void }
         | { type: 'submit' }
@@ -77,6 +79,7 @@ const Button = (props: Props) => {
             aria-pressed={props.pressed}
             aria-expanded={props.expanded}
             aria-controls={props.controls}
+            {...props.analytics}
             nativeButton={!isLink}
             render={!isLink ? undefined
                 : props.external ? <a href={props.href} target="_blank" rel="noopener noreferrer" />

@@ -8,6 +8,7 @@ import { eagerImage } from "@/components/pages/SearchPage/utils/eager-images";
 import RowScroller from "../RowScroller/RowScroller";
 import ViewAllCard from "./ViewAllCard/ViewAllCard";
 import { viewAllCard, viewAllLabel } from "./utils/view-all";
+import { trackAttrs } from "@/lib/product-analytics/track";
 import styles from "./PlaceRow.module.scss";
 
 type Props = {
@@ -29,7 +30,8 @@ const PlaceRow = (props: Props) => {
 
   return (
     <section className={styles.row} aria-label={props.title}>
-      <header className={styles.header}>
+      {/* El título y la flecha: los dos son "Ver todos" (analítica, por el atributo del encabezado). */}
+      <header className={styles.header} {...(props.href && trackAttrs("home_see_all_clicked", { row: props.id }))}>
         <h2 className={styles.title}>
           {props.href ? (
             <Link className={styles.titleLink} href={props.href} prefetch={false}>
@@ -59,11 +61,12 @@ const PlaceRow = (props: Props) => {
               eagerImage={eagerImage(index, props.eagerCount)}
               origin={props.id === "saved" ? "saved" : "home"}
               originRow={props.id}
+              position={index + 1}
             />
           </li>
         ))}
         {viewAll && (
-          <li className={styles.item}>
+          <li className={styles.item} {...trackAttrs("home_see_all_clicked", { row: props.id })}>
             <ViewAllCard href={viewAll.href} label={viewAll.label} logos={viewAll.logos} />
           </li>
         )}

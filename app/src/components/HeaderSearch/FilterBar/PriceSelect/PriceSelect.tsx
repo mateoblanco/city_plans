@@ -14,6 +14,7 @@ type Props = {
 const PriceSelect = (props: Props) => (
   <FilterSelect
     label="Precio"
+    filter="price"
     emptyLabel="Precio"
     anyLabel="Cualquier precio"
     options={props.options}

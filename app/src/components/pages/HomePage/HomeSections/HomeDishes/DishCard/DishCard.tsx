@@ -1,6 +1,7 @@
 import Image, { type StaticImageData } from "next/image";
 import Link from "next/link";
 import type { ImageLoad } from "@/components/pages/SearchPage/utils/eager-images";
+import { trackAttrs } from "@/lib/product-analytics/track";
 import styles from "./DishCard.module.scss";
 
 type Props = {
@@ -14,7 +15,7 @@ type Props = {
 
 /** Card de un plato: la foto cuadrada con el nombre debajo; toda la card es el link. La foto es decorativa (alt vacío). */
 const DishCard = (props: Props) => (
-  <Link className={styles.card} href={props.href}>
+  <Link className={styles.card} href={props.href} {...trackAttrs("dish_clicked", { dish: props.text })}>
     <span className={styles.frame}>
       <Image
         className={styles.image}

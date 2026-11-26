@@ -5,6 +5,7 @@ import { Menu } from "@base-ui/react/menu";
 import Share from "@/assets/share.svg";
 import { buttonClassName, buttonLabelClassName } from "@/components/base/Button/Button";
 import { copyLink, whatsappShareHref, type ShareResult } from "../../../utils/share";
+import type { ShareMethod } from "@/lib/product-analytics/events";
 import styles from "./ShareMenu.module.scss";
 
 type Props = {
@@ -12,6 +13,8 @@ type Props = {
   url: string;
   /** Recibe el resultado de "Copiar link" (el aviso lo muestra ShareButton). */
   onResult: (result: ShareResult) => void;
+  /** Al elegir una opción (la analítica de producto la manda ShareButton, que conoce el lugar). */
+  onShare: (method: ShareMethod) => void;
   /** Abierto al montarse (hubo click antes de que llegara este chunk). */
   defaultOpen: boolean;
   /** Toma el foco al montarse (reemplaza al botón provisorio, que lo tenía). */
@@ -45,7 +48,11 @@ const ShareMenu = (props: Props) => {
       <Menu.Portal>
         <Menu.Positioner className={styles.positioner} sideOffset={6} align="end">
           <Menu.Popup className={styles.popup}>
-            <Menu.Item className={styles.item} onClick={() => void copyLink(props.url, navigator).then(props.onResult)}>
+            <Menu.Item className={styles.item} onClick={() => {
+                props.onShare("copy");
+                void copyLink(props.url, navigator).then(props.onResult);
+              }}
+            >
               Copiar link
             </Menu.Item>
             <Menu.LinkItem
@@ -54,6 +61,7 @@ const ShareMenu = (props: Props) => {
               target="_blank"
               rel="noopener noreferrer"
               closeOnClick
+              onClick={() => props.onShare("whatsapp")}
             >
               WhatsApp
             </Menu.LinkItem>

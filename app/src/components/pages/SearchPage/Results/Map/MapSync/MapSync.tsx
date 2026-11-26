@@ -15,6 +15,8 @@ import { createSearchMapStore, INITIAL_SEARCH_MAP_STATE } from "../../../utils/s
 import { LOCATING_LABEL } from "../../../utils/results-count";
 import { SearchMapContext } from "../../../utils/use-search-map";
 import { useMobile } from "../../../utils/use-mobile";
+import { resultRef } from "../../../utils/result-positions";
+import { track } from "@/lib/product-analytics/track";
 
 // El mapa (y la librería de Google) se cargan sólo en el cliente: no bloquean el HTML de los resultados. Mientras
 // tanto se ve el fondo de MapColumn.
@@ -59,6 +61,9 @@ const MapSync = (props: Props) => {
 
   const select = useCallback(
     (id: string) => {
+      // Analítica: el marcador tocado, con su puesto en el ranking (sin coordenadas).
+      const ref = resultRef(id);
+      if (ref) track("map_marker_clicked", { place_id: id, slug: ref.slug, position: ref.position });
       if (mobileRef.current) {
         // Mobile: la card flota sobre el mapa y el panel baja para dejarle lugar.
         setSelectedId(id);

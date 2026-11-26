@@ -49,6 +49,16 @@ export function startView(placeId: string, slug: string): Origin {
   return origin;
 }
 
+/**
+ * Origen de la vista de una ficha para la analítica de producto (place_viewed, ProductAnalytics/PlaceViewed): si
+ * PlaceViewBeacon ya tomó el origen de esta vista (corre antes, es su hermano anterior), el mismo; si no (popularidad
+ * apagada, o un click nuevo a esta ficha), lo toma como startView.
+ */
+export function viewOrigin(placeId: string, slug: string): Origin {
+  if (pending?.slug !== slug && current?.placeId === placeId) return current.origin;
+  return startView(placeId, slug);
+}
+
 /** Origen de un evento de la ficha (guardar, "Google Maps"): el de la vista de esa ficha, o directo. */
 export const originFor = (placeId: string): Origin => (current?.placeId === placeId ? current.origin : DIRECT);
 

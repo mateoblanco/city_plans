@@ -15,6 +15,7 @@ type Props = {
 const DietSelect = (props: Props) => (
   <FilterSelect
     label="Dieta"
+    filter="diet"
     emptyLabel="Dieta"
     anyLabel="Cualquier dieta"
     options={props.options}

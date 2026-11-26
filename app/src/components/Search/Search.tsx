@@ -11,6 +11,7 @@ import ArrowRight from "@/assets/arrow_right.svg";
 import Close from "@/assets/close.svg";
 import { createClearer, escapeAction } from "./utils/clear";
 import { DEFAULT_PLACEHOLDER, HOME_PLACEHOLDERS, PLACEHOLDER_INTERVAL_MS } from "./utils/placeholders";
+import { markSearchOrigin } from "@/lib/product-analytics/track";
 
 const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
 const subscribeReducedMotion = (onChange: () => void) => {
@@ -176,7 +177,13 @@ const Search = (props: Props) => {
 
   return (
     // Con el botón deshabilitado el navegador ya no envía con Enter; el chequeo cubre cualquier otro envío.
-    <Form action="/search" onSubmit={(event) => blocked && event.preventDefault()}>
+    <Form
+      action="/search"
+      onSubmit={(event) => {
+        if (blocked) event.preventDefault();
+        else markSearchOrigin("bar");
+      }}
+    >
       <div className={styles.container} data-compact={props.compact || undefined} onPointerDown={onContainerPointerDown}>
         <div className={styles.field}>
           <Input

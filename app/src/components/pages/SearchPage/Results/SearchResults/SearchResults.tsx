@@ -9,6 +9,7 @@ import styles from "./SearchResults.module.scss";
 import { searchHref } from "../../utils/search-href";
 import { toSearchOptions, toSearchUrl, type Params } from "../../utils/search-params";
 import { searchHeading, searchTitleInput } from "../../utils/search-title";
+import { searchSummary } from "../../utils/search-analytics";
 
 /** Con debug: puntajes de cada resultado, su similitud y por qué pasó el corte por relevancia. */
 function cardScores(response: SearchResponse): Map<string, CardDebug> | null {
@@ -70,6 +71,7 @@ const SearchResults = async (props: Props) => {
         zone={location.kind === "zone" ? location.bounds : null}
         state={toSearchUrl(props.params)}
         neighborhoodChips={neighborhoodChips}
+        analytics={searchSummary(response, props.params)}
       >
         {response.debug && <DebugPanel debug={response.debug} chips={interpreted.chips} bar={response.bar} response={response} />}
       </ResultsView>

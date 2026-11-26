@@ -8,6 +8,7 @@ import { zoneHref } from "../../../utils/search-href";
 import { INITIAL_SEARCH_MAP_STATE } from "../../../utils/search-map-store";
 import { SearchMapContext } from "../../../utils/use-search-map";
 import styles from "./ZoneButton.module.scss";
+import { track } from "@/lib/product-analytics/track";
 
 /**
  * "Buscar en esta zona": aparece cuando la persona movió el mapa (arrastre o zoom) y busca lo mismo (texto, intención,
@@ -32,6 +33,7 @@ const ZoneButton = () => {
         disabled={navigating}
         onClick={() => {
           const href = zoneHref(base.state, bounds, base.chips);
+          track("map_zone_search", {});
           startNavigation(() => {
             router.push(href);
             store.setViewport(null);

@@ -35,6 +35,7 @@ const DiscountFilter = (props: Props) => {
   );
   const { open, selected, touched, onOpenChange, change } = useDelayedApply(active, (values) => setDiscountsHref(props.state, values), {
     initial,
+    filter: "discount",
     onApply: (values) => {
       if (shouldSaveCards(values)) setMyCards(values);
     },

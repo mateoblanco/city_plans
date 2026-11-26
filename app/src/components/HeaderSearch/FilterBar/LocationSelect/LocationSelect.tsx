@@ -6,6 +6,7 @@ import Select from "@/components/base/Select/Select";
 import type { SearchLocation } from "@/server/search";
 import { setLocationHref, setNeighborhoodsHref, type ChipRef, type SearchUrl } from "@/components/pages/SearchPage/utils/search-href";
 import { readLocationCookie, requestLocation } from "@/components/pages/SearchPage/utils/use-location";
+import { track } from "@/lib/product-analytics/track";
 import styles from "./LocationSelect.module.scss";
 
 // Valores especiales del select (los barrios son ids en mayúsculas, no chocan).
@@ -81,6 +82,8 @@ const LocationSelect = (props: Props) => {
     if (sameValues(values, applied.current)) return;
     applied.current = values;
     if (values.includes(ZONE)) return;
+    // Sólo el tipo (cerca mío, todo Montevideo) o los barrios: nunca coordenadas.
+    track("filter_changed", { filter: "location", value: values.join(",") });
     if (values.includes(ALL)) return go(setLocationHref(props.state, "all", props.chips));
     if (!values.includes(NEAR)) return go(setNeighborhoodsHref(props.state, values, props.chips));
     // Cerca mío: con la ubicación ya en la cookie (o desde la home), directo; si no, se pide acá (el diálogo del navegador).

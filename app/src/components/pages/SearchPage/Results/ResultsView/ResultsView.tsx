@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import clsx from "clsx";
 import { SKIP_TARGETS } from "@/components/SkipLinks/utils/skip-targets";
 import type { LatLng, SearchResponse } from "@/server/search";
@@ -17,6 +17,10 @@ import type { Bounds } from "@/lib/location";
 import type { ChipRef, SearchUrl } from "../../utils/search-href";
 import { usePublishSearchResults } from "../../utils/use-search-map";
 import { useRefreshLocation } from "../../utils/use-location";
+import type { SearchSummary } from "../../utils/search-analytics";
+import { useTrackSearch } from "../../utils/use-track-search";
+import { setResultPositions } from "../../utils/result-positions";
+import { track } from "@/lib/product-analytics/track";
 
 type Props = {
   results: SearchResponse["results"];
@@ -35,6 +39,8 @@ type Props = {
   state: SearchUrl;
   /** Los chips de barrio de la búsqueda: "Buscar en esta zona" quita los del texto. */
   neighborhoodChips?: ChipRef[];
+  /** Para la analítica de producto (search_submitted): lo arma el server con la respuesta. */
+  analytics?: SearchSummary;
   /** El panel de debug, renderizado en el server. */
   children?: ReactNode;
 };
@@ -58,6 +64,8 @@ const ResultsView = (props: Props) => {
   usePublishSearchResults(page.places, props.near, props.results.length, nearbyCount, { zone: props.zone ?? null, base });
   // Cerca mío desde la cookie: si la persona se movió (y el permiso sigue), se actualiza en segundo plano.
   useRefreshLocation(props.near);
+  useEffect(() => setResultPositions([...results, ...(nearby?.results ?? [])]), [results, nearby]);
+  useTrackSearch(props.analytics);
   const anyResults = props.results.length > 0 || nearby !== null;
   // Con grupos, el StickyHeader pone el aire de arriba; sin ellos lo pone el contenedor.
   const grouped = props.results.length > 0 && Boolean(page.sections ?? page.forYou ?? nearbyOnly);
@@ -101,7 +109,14 @@ const ResultsView = (props: Props) => {
       {page.nearby && <ResultSections sections={[page.nearby]} scores={props.scores} state={props.state} eagerCount={props.results.length === 0 ? EAGER_SEARCH_CARDS : undefined} />}
 
       {page.hasMore ? (
-        <LoadMore key={pages} onReach={() => setPages((current) => current + 1)} />
+        <LoadMore
+          key={pages}
+          onReach={() => {
+            // Scroll infinito: cuántas cards ya se veían antes de sumar la página siguiente.
+            track("results_load_more", { visible_count: page.places.length, total_count: props.results.length, page: pages + 1 });
+            setPages((current) => current + 1);
+          }}
+        />
       ) : (
         anyResults && <EndOfResults />
       )}

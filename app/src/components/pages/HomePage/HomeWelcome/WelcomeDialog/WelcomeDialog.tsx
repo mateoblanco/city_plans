@@ -9,6 +9,7 @@ import type { DiscountProvider } from "@/components/DiscountChoices/utils/option
 import { readMyCards, setMyCards } from "@/components/pages/SearchPage/utils/my-cards";
 import { addSaved } from "@/components/pages/SearchPage/utils/saved";
 import { markWelcomeDone } from "../utils/welcome";
+import { track } from "@/lib/product-analytics/track";
 import WelcomePlaces from "./WelcomePlaces/WelcomePlaces";
 import styles from "./WelcomeDialog.module.scss";
 
@@ -38,22 +39,33 @@ const WelcomeDialog = (props: Props) => {
   const [places, setPlaces] = useState<string[]>([]);
   /** Si ya se guardaron tarjetas (en el paso 1): al cerrar, la home se actualiza aunque se saltee el resto. */
   const savedCards = useRef(false);
+  /** Las tarjetas confirmadas con "Siguiente" (analítica: welcome_completed). */
+  const chosenCards = useRef<string[]>([]);
   const index = steps.indexOf(step);
 
-  const finish = (refresh: boolean) => {
+  /**
+   * Analítica de producto: terminada ("Listo", o con tarjetas elegidas en el paso 1) manda las tarjetas (banco y tipo,
+   * `itau.credit`); salteada o cerrada sin elegir nada, el paso. Los lugares elegidos no se mandan (son guardados).
+   */
+  const finish = (refresh: boolean, completed = chosenCards.current.length > 0) => {
+    if (completed) track("welcome_completed", { cards: chosenCards.current });
+    else track("welcome_skipped", { step });
     markWelcomeDone();
     setOpen(false);
     if (refresh) router.refresh();
   };
 
   const next = () => {
-    if (cards.length > 0) savedCards.current = setMyCards(cards);
+    if (cards.length > 0) {
+      savedCards.current = setMyCards(cards);
+      chosenCards.current = cards;
+    }
     setStep("places");
   };
 
   const done = () => {
     const saved = places.length > 0 && addSaved(places);
-    finish(saved || savedCards.current);
+    finish(saved || savedCards.current, true);
   };
 
   const footer =

@@ -12,7 +12,7 @@ type Props = {
  */
 const SelectedPlace = (props: Props) => (
   <div className={styles.selected}>
-    <PlaceCard place={props.place} />
+    <PlaceCard place={props.place} surface="map" />
   </div>
 );
 

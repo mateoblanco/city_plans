@@ -30,6 +30,7 @@ import { jsonLdScript, placeJsonLd } from "./utils/structured-data";
 import { mapLikelyAboveFold } from "./utils/static-map";
 import { googleMapsHref, instagramHandle, instagramPopularHref, placeOpenText, priceText, transitLines } from "./utils/summary";
 import styles from "./PlacePage.module.scss";
+import PlaceViewed from "@/components/ProductAnalytics/PlaceViewed/PlaceViewed";
 
 type DetailsProps = {
   params: Promise<{ slug: string }>;
@@ -62,7 +63,11 @@ const Details = async (props: DetailsProps) => {
   const tracking = trackEvents();
   const mapsHref = place.google_place_id ? googleMapsHref(place.name, place.google_place_id) : null;
   const chips = placeChips(place);
-  const contact = { instagramHandle: instagramHandle(place.instagram), popularHref: instagramPopularHref(place.name) };
+  const contact = {
+    instagramHandle: instagramHandle(place.instagram),
+    popularHref: instagramPopularHref(place.name),
+    place: { id: place.id, slug: place.slug },
+  };
 
   const jsonLd = placeJsonLd({ place, siteUrl: SITE_URL, logoUrl: data.logoUrl, neighborhood: data.neighborhood });
 
@@ -71,6 +76,8 @@ const Details = async (props: DetailsProps) => {
       <div className={styles.page}>
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(jsonLd) }} />
         {tracking && <PlaceViewBeacon placeId={place.id} slug={place.slug} />}
+        {/* Analítica de producto: después del beacon, así usa el mismo origen. */}
+        <PlaceViewed placeId={place.id} slug={place.slug} />
         <PlaceHeader placeId={place.id} slug={place.slug} name={place.name} logoUrl={data.logoUrl} logoBgColor={place.logo_bg_color} instagram={place.instagram} />
 
         <div className={styles.content}>
@@ -100,6 +107,7 @@ const Details = async (props: DetailsProps) => {
                       sources={staticMapSources({ lat: place.lat, lng: place.lng, iconCategory: place.icon_category })}
                       mapsHref={mapsHref}
                       trackPlaceId={tracking ? place.id : null}
+                      place={{ id: place.id, slug: place.slug }}
                       priority={mapLikelyAboveFold({ name: place.name, description: place.description_es, chips: chips.map((chip) => chip.label) })}
                     />
                   )}
@@ -111,9 +119,10 @@ const Details = async (props: DetailsProps) => {
                   lines={transitLines(place.transit_lines)}
                   mapsHref={mapsHref}
                   trackPlaceId={tracking ? place.id : null}
+                  place={{ id: place.id, slug: place.slug }}
                 />
               </div>
-              <PlaceDiscounts providers={data.discounts} />
+              <PlaceDiscounts providers={data.discounts} place={{ id: place.id, slug: place.slug }} />
               <PlaceGuides guides={data.guides} />
             </div>
 

@@ -2,6 +2,7 @@
 
 import Select from "@/components/base/Select/Select";
 import type { ChipRef } from "@/components/pages/SearchPage/utils/search-href";
+import type { FilterKey } from "@/lib/product-analytics/events";
 import { useDelayedApply } from "../utils/use-delayed-apply";
 
 type Props = {
@@ -18,6 +19,8 @@ type Props = {
   hrefFor: (values: string[], chips: ChipRef[]) => string;
   /** Ajusta la elección después de un clic (added: lo recién marcado), p. ej. opciones que se excluyen. */
   normalize?: (values: string[], added: string | undefined) => string[];
+  /** Para la analítica (filter_changed). */
+  filter: FilterKey;
 };
 
 /**
@@ -28,7 +31,7 @@ type Props = {
 const FilterSelect = (props: Props) => {
   // En el orden de las opciones, no en el de los chips.
   const active = props.options.map((option) => option.id).filter((id) => props.chips.some((chip) => chip.id === id));
-  const { open, selected, onOpenChange, change } = useDelayedApply(active, (values) => props.hrefFor(values, props.chips));
+  const { open, selected, onOpenChange, change } = useDelayedApply(active, (values) => props.hrefFor(values, props.chips), { filter: props.filter });
   const labels = new Map(props.options.map((option): [string, string] => [option.id, option.label]));
   const items = [{ value: "", label: props.anyLabel }, ...props.options.map((option) => ({ value: option.id, label: option.label }))];
 

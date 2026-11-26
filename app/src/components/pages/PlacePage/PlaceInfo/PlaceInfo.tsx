@@ -12,6 +12,8 @@ const RESERVED_WEEK = [1, 2, 3, 4, 5, 6, 0].map((day) => ({ day, ranges: ["12:00
 type Props = {
   instagramHandle: string | null;
   popularHref: string | null;
+  /** Para la analítica de producto (external_link_clicked). */
+  place: { id: string; slug: string };
   /** Día de hoy en Montevideo (0 = domingo). */
   today: number;
 };
@@ -31,6 +33,7 @@ const PlaceInfo = (props: Props) => {
         bare
         instagramHandle={props.instagramHandle}
         popularHref={props.popularHref}
+        place={props.place}
         website={info?.website ?? null}
         whatsappHref={info?.whatsappHref ?? null}
       />

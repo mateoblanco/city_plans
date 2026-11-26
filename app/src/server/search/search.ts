@@ -45,6 +45,7 @@ import { canRelax, NEARBY_STEPS, noMatchNotice, relax, RELAX_ORDER, relaxNotice,
 import { emptyNeighborhoodNotice, nearbyFilterFor, nearbyLabel, nearbyTitle, orderNearby } from './nearby'
 import type { PlacesStore } from './store'
 import { applyVenues, type Venue } from './venues'
+import type { ResolvedBy } from '@/lib/product-analytics/events'
 
 export type SearchDeps = { store: PlacesStore; cache: SearchCache }
 /**
@@ -240,8 +241,16 @@ export type SearchResponse = {
   nearbyOnly: { title: string; label: string } | null
   /** Sólo con la opción widen: hasta WIDEN_MAX filtros para sacar, de los que más suman a los que menos (count > 0). */
   widen?: WidenOption[]
+  /**
+   * Quién interpretó el texto (`source` de debug, con `shortcut` como `dictionary`), sin modelo ni costo: lo manda la
+   * analítica de producto (search_submitted).
+   */
+  resolvedBy: ResolvedBy
   debug?: SearchDebug
 }
+
+/** `shortcut` es el diccionario (`interpretWithDictionary`). */
+export const resolvedByOf = (source: InterpretationSource): ResolvedBy => (source === 'shortcut' ? 'dictionary' : source)
 
 const STOPWORDS = new Set([
   'en', 'de', 'del', 'el', 'la', 'los', 'las', 'un', 'una', 'uno', 'unos', 'unas', 'y', 'o', 'con', 'para', 'por', 'a', 'al', 'que', 'algo', 'lugar', 'no', 'sea', 'mejor', 'mejores', 'top', 'mis',
@@ -601,6 +610,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
       suggestedRemovals: [],
       location,
       near: null,
+      resolvedBy: resolvedByOf(source),
       ...(options.widen && { widen: [] }),
     }
   }
@@ -1001,6 +1011,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps, options: Sea
     suggestedRemovals,
     location: location.kind === 'near' && chosenRadius !== null ? { ...location, radiusM: chosenRadius } : location,
     near: origin,
+    resolvedBy: resolvedByOf(source),
   }
   if (options.widen) {
     step = performance.now()

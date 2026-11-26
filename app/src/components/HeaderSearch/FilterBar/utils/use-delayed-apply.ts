@@ -2,6 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
+import type { FilterKey } from "@/lib/product-analytics/events";
+import { track } from "@/lib/product-analytics/track";
 
 /** Cuánto espera después del último clic para buscar: marcar varias opciones seguidas es una sola búsqueda. */
 const APPLY_DELAY_MS = 400;
@@ -14,11 +16,12 @@ const sameValues = (a: string[], b: string[]) => a.length === b.length && a.ever
  * active: lo aplicado (de la URL o los chips); hrefFor: la búsqueda con esos valores.
  * options.initial: lo marcado al abrir si no es lo aplicado (Descuentos: mis tarjetas, sin aplicar hasta que se toca algo);
  * options.onApply: cada vez que se aplica una elección. touched: si en esta apertura ya se eligió algo.
+ * options.filter: el filtro para la analítica (filter_changed con lo elegido, o `none`).
  */
 export function useDelayedApply(
   active: string[],
   hrefFor: (values: string[]) => string,
-  options: { initial?: string[]; onApply?: (values: string[]) => void } = {},
+  options: { initial?: string[]; onApply?: (values: string[]) => void; filter?: FilterKey } = {},
 ) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -43,6 +46,7 @@ export function useDelayedApply(
     const navigate = pushed.current ? router.replace : router.push;
     pushed.current = true;
     options.onApply?.(values);
+    if (options.filter) track("filter_changed", { filter: options.filter, value: values.join(",") || "none" });
     startNavigation(() => navigate(href));
   };
 

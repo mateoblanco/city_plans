@@ -27,9 +27,14 @@ type ToggleProps = {
 const Toggle = (props: ToggleProps) => {
   const chip = props.chips.find((item) => item.kind === props.kind && item.id === props.id);
   return chip ? (
-    <FilterChip active href={removeChipHref(props.state, chip)} text={props.text} />
+    <FilterChip
+      active
+      href={removeChipHref(props.state, chip)}
+      text={props.text}
+      analytics={{ filter: "open", id: props.id, fromText: chip.fromText ?? false }}
+    />
   ) : (
-    <FilterChip href={addFilterHref(props.state, { kind: props.kind, id: props.id })} text={props.text} />
+    <FilterChip href={addFilterHref(props.state, { kind: props.kind, id: props.id })} text={props.text} analytics={{ filter: "open", id: props.id }} />
   );
 };
 
@@ -90,11 +95,23 @@ const FilterBar = (props: Props) => {
             {/* Sin caja propia (display: contents): sus chips son parte de la línea. */}
             <div className={styles.subs} role="group" aria-label="Sub-filtros">
               {props.bar.subs.map((sub) => (
-                <FilterChip key={sub.id} active={sub.active} href={subHref(props.state, sub.id, props.bar)} text={sub.label} />
+                <FilterChip
+                  key={sub.id}
+                  active={sub.active}
+                  href={subHref(props.state, sub.id, props.bar)}
+                  text={sub.label}
+                  analytics={{ filter: "sub", id: sub.id, fromText: sub.fromText }}
+                />
               ))}
               {props.bar.subs.length > 0 && extras.length > 0 && <hr className={styles.divider} />}
               {extras.map((chip) => (
-                <FilterChip key={`${chip.kind}:${chip.id}`} active href={extraHref(props.state, chip, props.bar)} text={chip.label} />
+                <FilterChip
+                  key={`${chip.kind}:${chip.id}`}
+                  active
+                  href={extraHref(props.state, chip, props.bar)}
+                  text={chip.label}
+                  analytics={{ filter: "extra", id: `${chip.kind}:${chip.id}`, fromText: chip.fromText ?? false }}
+                />
               ))}
             </div>
           </>

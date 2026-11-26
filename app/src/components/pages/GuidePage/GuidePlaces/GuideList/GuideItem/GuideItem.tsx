@@ -8,6 +8,7 @@ import SaveButton from "@/components/pages/SearchPage/Results/PlaceCard/SaveButt
 import { useGuideFocus, useIsActive } from "../../../utils/guide-focus";
 import { guidePlaceId } from "../../../utils/place-anchor";
 import styles from "./GuideItem.module.scss";
+import { track } from "@/lib/product-analytics/track";
 
 type Props = {
   guideSlug: string;
@@ -52,7 +53,15 @@ const GuideItem = (props: Props) => {
                   <span className={styles.number} aria-hidden>
                     {place.number}.{" "}
                   </span>
-                  <OriginLink slug={place.slug} origin="guide" row={props.guideSlug} className={styles.link}>
+                  <OriginLink
+                    slug={place.slug}
+                    origin="guide"
+                    row={props.guideSlug}
+                    className={styles.link}
+                    onOpen={() =>
+                      track("guide_place_clicked", { place_id: place.id, slug: place.slug, guide: props.guideSlug, position: place.number })
+                    }
+                  >
                     {place.name}
                   </OriginLink>
                 </h2>
@@ -60,7 +69,7 @@ const GuideItem = (props: Props) => {
               </div>
             </div>
             <div className={styles.actions}>
-              <SaveButton placeId={place.id} name={place.name} origin="guide" originRow={props.guideSlug} touchTarget />
+              <SaveButton placeId={place.id} slug={place.slug} name={place.name} origin="guide" originRow={props.guideSlug} touchTarget />
             </div>
           </div>
           {place.photo && (

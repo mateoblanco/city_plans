@@ -11,6 +11,9 @@ import type { ImageLoad } from "../../utils/eager-images";
 import SaveButton from "./SaveButton/SaveButton";
 import CardDiscounts from "./CardDiscounts/CardDiscounts";
 import { cardId, useIsHovered, useSetHovered } from "../../utils/hover";
+import { resultPosition } from "../../utils/result-positions";
+import type { ResultSurface } from "@/lib/product-analytics/events";
+import { currentSearchQuery, track } from "@/lib/product-analytics/track";
 import styles from "./PlaceCard.module.scss";
 
 /** Sólo con ?debug=1: puntajes, similitud semántica con la consulta y por qué pasó el corte por relevancia. */
@@ -51,7 +54,27 @@ type Props = {
   /** De dónde se tocó (popularidad): por defecto búsqueda; las filas de la home pasan home o saved y su id. */
   origin?: EventOrigin;
   originRow?: string;
+  /** Puesto en la fila de la home (desde 1), para home_row_clicked. En /search sale del ranking (result-positions). */
+  position?: number;
+  /** En /search: la card de la lista o la del marcador tocado en el mapa (SelectedPlace). */
+  surface?: ResultSurface;
 };
+
+/** Analítica de producto al tocar la card: un resultado de búsqueda o una fila de la home. */
+function trackOpen(props: Props) {
+  const ref = { place_id: props.place.id, slug: props.place.slug };
+  const origin = props.origin ?? "search";
+  if (origin === "search") {
+    track("search_result_clicked", {
+      ...ref,
+      position: resultPosition(props.place.id) ?? 0,
+      surface: props.surface ?? "list",
+      query: currentSearchQuery(),
+    });
+  } else if ((origin === "home" || origin === "saved") && props.originRow) {
+    track("home_row_clicked", { ...ref, row: props.originRow, position: props.position ?? 0 });
+  }
+}
 
 /** Tarjeta de un resultado, con el hover sincronizado con su marcador. */
 const PlaceCard = (props: Props) => {
@@ -73,7 +96,13 @@ const PlaceCard = (props: Props) => {
 
         {/* El ::after del link cubre la card; el corazón y guardar quedan arriba (z-index) y no navegan. */}
         <h3 className={styles.name}>
-          <OriginLink slug={props.place.slug} origin={props.origin ?? "search"} row={props.originRow} className={styles.link}>{props.place.name}</OriginLink>
+          <OriginLink
+            slug={props.place.slug}
+            origin={props.origin ?? "search"}
+            row={props.originRow}
+            className={styles.link}
+            onOpen={() => trackOpen(props)}
+          >{props.place.name}</OriginLink>
         </h3>
 
         {/* Con cerca mío, la distancia al final: "Pocitos · Café · a 400 m". */}
@@ -107,7 +136,7 @@ const PlaceCard = (props: Props) => {
 
       {/* Fuera del flujo: que aparezca con el hover no reacomoda el texto ni los chips. */}
       <div className={styles.actions}>
-        <SaveButton placeId={props.place.id} name={props.place.name} origin={props.origin ?? "search"} originRow={props.originRow} />
+        <SaveButton placeId={props.place.id} slug={props.place.slug} name={props.place.name} origin={props.origin ?? "search"} originRow={props.originRow} />
       </div>
     </article>
   );

@@ -43,6 +43,11 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
           que permita identificarte.
         </li>
         <li>
+          Para entender cómo se usa el sitio (qué se busca, qué filtros se usan, qué se toca en las fichas) usamos
+          Mixpanel. Le mandamos esos eventos y el texto de las búsquedas, sin tu ubicación, sin tus guardados y sin usar tu
+          IP para ubicarte. No usa cookies ni te reconoce entre una visita y otra.
+        </li>
+        <li>
           Para entender lo que escribís en el buscador, el texto se manda a un modelo de inteligencia artificial. Solo el
           texto: ni tu ubicación ni tus guardados.
         </li>
@@ -99,6 +104,12 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
           </li>
         </ul>
 
+        <h3>Lo que mandamos a Mixpanel</h3>
+        <p>
+          Eventos de uso del sitio y el texto de las búsquedas, para entender cómo se usa (ver{" "}
+          <a href="#uso">Cómo se usa el sitio (Mixpanel)</a>).
+        </p>
+
         <h3>Lo que no pedimos</h3>
         <p>
           No hay registro ni inicio de sesión. No te pedimos nombre, mail, teléfono, documento ni datos de pago. Si nos
@@ -134,10 +145,58 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
           Además usamos Vercel Web Analytics y Speed Insights para contar visitas a las páginas y medir qué tan rápido carga
           el sitio. No usan cookies: registran la página visitada, de qué sitio llegaste, el tipo de navegador, dispositivo
           y sistema operativo y el país, e identifican la visita con una huella que Vercel descarta a las 24 horas. Antes
-          de enviar la dirección de la página le sacamos el texto de búsqueda: lo que escribís en el buscador{" "}
-          <strong>no llega a la analítica</strong>.
+          de enviar la dirección de la página le sacamos el texto de búsqueda: lo que escribís en el buscador no llega a
+          Vercel Analytics (sí a Mixpanel, ver <a href="#uso">Cómo se usa el sitio</a>).
         </p>
         <p>No se mide nada desde robots ni navegadores automatizados, y la medición no se usa para publicidad.</p>
+      </>
+    ),
+  },
+  {
+    id: "uso",
+    title: "Cómo se usa el sitio (Mixpanel)",
+    content: (
+      <>
+        <p>
+          Para entender cómo se usa el sitio y mejorarlo (qué se busca y si se encuentra, qué filtros sirven, qué se toca en
+          las fichas, la home y las guías) usamos <strong>Mixpanel</strong>, un servicio de analítica de Mixpanel, Inc.,
+          en Estados Unidos. Le mandamos:
+        </p>
+        <ul>
+          <li>
+            <strong>Eventos de uso:</strong> qué página se vio (la dirección sin parámetros y el título de la página), qué
+            se tocó (por ejemplo, una pestaña, un filtro, un lugar de una búsqueda o del mapa, &quot;Guardar&quot;,
+            &quot;Compartir&quot;, Google Maps o el link de un banco), hasta dónde se bajó en una lista de resultados y el
+            lugar o la guía sobre la que fue.
+          </li>
+          <li>
+            <strong>El texto de tus búsquedas</strong> (hasta 100 caracteres), con los filtros activos, cuántos resultados
+            hubo y si había una ubicación disponible (sí o no, nunca cuál).
+          </li>
+          <li>
+            Si en la bienvenida elegís tus tarjetas, qué bancos y tipos elegiste (débito o crédito), nunca el número.
+          </li>
+          <li>
+            Datos técnicos que agrega Mixpanel: el tipo de navegador, sistema operativo y dispositivo y el tamaño de la
+            pantalla.
+          </li>
+        </ul>
+        <p>
+          <strong>No le mandamos tu ubicación</strong> (ni coordenadas ni distancias), <strong>ni tus guardados</strong>,
+          ni la dirección completa de la página. Tu navegador se conecta a los servidores de Mixpanel, así que recibe tu IP,
+          pero le pedimos que <strong>no la use para ubicarte</strong> (no registra país ni ciudad).
+        </p>
+        <p>
+          Mixpanel <strong>no usa cookies ni guarda nada en tu navegador</strong>: identifica la visita con un código al
+          azar que vive solo en la memoria de la página y se pierde al recargarla o cerrarla. No te reconoce entre una
+          visita y otra ni sabe quién sos. No se mide nada desde robots ni navegadores automatizados, y no se usa para
+          publicidad. Esta medición es aparte de la <a href="#visitas">medición anónima de visitas</a> a las fichas.
+        </p>
+        <p>
+          Lo que le mandamos queda en Mixpanel según su{" "}
+          <ExternalLink href="https://mixpanel.com/legal/privacy-policy">política de privacidad</ExternalLink>. Como en
+          el buscador, te recomendamos no escribir datos personales en él.
+        </p>
       </>
     ),
   },
@@ -197,6 +256,10 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
           entrenar sus modelos.
         </p>
         <p>
+          El texto de la búsqueda también llega a Mixpanel, sin tu ubicación ni tus guardados, para saber qué se busca y si
+          se encuentra (ver <a href="#uso">Cómo se usa el sitio</a>).
+        </p>
+        <p>
           <strong>Te recomendamos no escribir datos personales en el buscador</strong> (tu nombre, el de otra persona, un
           teléfono o una dirección): no hacen falta para encontrar un lugar.
         </p>
@@ -228,6 +291,12 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
             <ExternalLink href="https://openai.com/policies/privacy-policy">Política de privacidad de OpenAI</ExternalLink>.
           </li>
           <li>
+            <strong>Mixpanel</strong> (Estados Unidos): la analítica de uso del sitio, con el texto de las búsquedas y sin
+            tu ubicación ni tus guardados (ver <a href="#uso">Cómo se usa el sitio</a>). Tu navegador se conecta
+            directamente a sus servidores.{" "}
+            <ExternalLink href="https://mixpanel.com/legal/privacy-policy">Política de privacidad de Mixpanel</ExternalLink>.
+          </li>
+          <li>
             <strong>Google Maps Platform</strong> (Google, Estados Unidos): los mapas interactivos, la imagen del mapa en la
             ficha en el teléfono y datos del lugar como el puntaje, los horarios y la dirección. Tu navegador carga los mapas
             directamente de Google, que recibe tu IP y datos del navegador. Los datos de cada lugar los pide nuestro
@@ -255,8 +324,8 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
         </ul>
         <p>
           Estos servidores están fuera de Uruguay (en Brasil, Estados Unidos, India o repartidos en redes globales), así
-          que usar el sitio implica una transferencia internacional de esos datos técnicos, y del texto de tus búsquedas,
-          a países que pueden no tener un nivel de protección equivalente al uruguayo. Solo compartimos lo necesario para
+          que usar el sitio implica una transferencia internacional de esos datos técnicos, del texto de tus búsquedas y de
+          los eventos de uso que mandamos a Mixpanel, a países que pueden no tener un nivel de protección equivalente al uruguayo. Solo compartimos lo necesario para
           que el sitio funcione y elegimos proveedores con compromisos públicos de seguridad y privacidad.
         </p>
         <p>
@@ -273,7 +342,7 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
       <>
         <p>
           Usamos solo cookies y almacenamiento propios, para que funcione lo que elegís. No usamos cookies de publicidad ni
-          de terceros.
+          de terceros: Mixpanel tampoco usa cookies ni guarda nada en tu navegador.
         </p>
         <LegalTable
           caption="Cookies y almacenamiento local"
@@ -315,6 +384,7 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
           ["Interpretación de una búsqueda", "Caché en Vercel", "Hasta 30 días"],
           ["Representación numérica de una búsqueda", "Caché en Vercel", "Hasta 90 días"],
           ["Datos técnicos de los pedidos (IP, navegador, página)", "Registros de Vercel", "Un período breve, según el plan de Vercel"],
+          ["Eventos de uso y texto de las búsquedas", "Mixpanel", "Según la política de Mixpanel"],
           ["Mails que nos mandes", "Nuestro correo", "Lo necesario para responderte"],
         ]}
       />
@@ -335,7 +405,8 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
           Como no tenemos cuentas, casi todo lo tuyo está en tu navegador y lo podés ver y borrar vos mismo (sacando los
           guardados, cambiando tus tarjetas o borrando los datos del sitio). La medición de visitas es anónima: no podemos
           saber cuáles registros son tuyos, así que no podemos mostrártelos ni borrarlos uno por uno, pero se borran solos
-          a los 90 días.
+          a los 90 días. Lo mismo pasa con lo que mandamos a Mixpanel: el código de cada visita se pierde al recargar la página, así que
+          no podemos saber qué eventos son tuyos.
         </p>
         <p>
           Si creés que no respetamos tus derechos, podés presentar una denuncia ante la{" "}

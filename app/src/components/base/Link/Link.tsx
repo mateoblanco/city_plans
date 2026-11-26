@@ -7,17 +7,19 @@ type Props = {
   label: string;
   /** Otro sitio: un <a> común que abre en otra pestaña, con la flecha. Sin esto, un link de Next sin flecha. */
   external?: boolean;
+  /** Atributos de la analítica de producto (`trackAttrs`): el click lo cuenta ProductAnalytics. */
+  analytics?: Record<`data-${string}`, string>;
 };
 
 /** Link de texto (sin forma de botón), p. ej. "Ver más info" hacia el sitio del banco. */
 const Link = (props: Props) =>
   props.external ? (
-    <a className={styles.link} href={props.href} target="_blank" rel="noopener noreferrer">
+    <a className={styles.link} href={props.href} target="_blank" rel="noopener noreferrer" {...props.analytics}>
       {props.label}
       <ArrowExternal className={styles.icon} aria-hidden width={8} height={8} />
     </a>
   ) : (
-    <NextLink className={styles.link} href={props.href}>
+    <NextLink className={styles.link} href={props.href} {...props.analytics}>
       {props.label}
     </NextLink>
   );

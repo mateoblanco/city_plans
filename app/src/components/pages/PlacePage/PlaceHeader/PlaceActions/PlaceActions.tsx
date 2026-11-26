@@ -3,10 +3,12 @@
 import Button from "@/components/base/Button/Button";
 import { toggleSaved, useIsSaved } from "@/components/pages/SearchPage/utils/saved";
 import { track } from "@/components/Tracking/utils/track";
+import { trackSaveToggle } from "@/components/ProductAnalytics/utils/saved";
 import styles from "./PlaceActions.module.scss";
 
 type Props = {
   placeId: string;
+  slug: string;
   instagramHandle: string | null;
   popularHref: string | null;
 };
@@ -31,7 +33,9 @@ const PlaceActions = (props: Props) => {
       iconOnlyBelow="ml"
       onClick={() => {
         // Con el origen de la vista de esta ficha.
-        if (toggleSaved(props.placeId)) track(props.placeId, isSaved ? "unsave" : "save");
+        if (!toggleSaved(props.placeId)) return;
+        track(props.placeId, isSaved ? "unsave" : "save");
+        trackSaveToggle({ id: props.placeId, slug: props.slug }, !isSaved);
       }}
     />
   );

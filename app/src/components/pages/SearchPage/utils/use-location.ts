@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { LOCATION_COOKIE, LOCATION_COOKIE_MAX_AGE, locationCookieValue, metersBetween, parseLocationCookie, type LatLng } from "@/lib/location";
+import { track } from "@/lib/product-analytics/track";
 
 /**
  * La ubicación de la persona para "Cerca mío": se pide al navegador, se redondea (~100 m) y va en la cookie `loc`, que
@@ -49,11 +50,14 @@ export function requestLocation(): Promise<LocateResult> {
     navigator.geolocation.getCurrentPosition(
       ({ coords }) => {
         writeCoords({ lat: coords.latitude, lng: coords.longitude });
+        // Sólo si aceptó: nunca las coordenadas.
+        track("location_permission", { result: "granted" });
         resolve("found");
       },
       (error) => {
         if (error.code === error.PERMISSION_DENIED) {
           writeDenied();
+          track("location_permission", { result: "denied" });
           resolve("denied");
         } else {
           writeSkip();
