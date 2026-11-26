@@ -41,6 +41,10 @@ const PlacePageSkeleton = () => (
             </div>
           </div>
 
+          <div className={pageStyles.infoMobile}>
+            <div className={styles.infoCard} />
+          </div>
+
           <div className={pageStyles.location}>
             <div className={styles.map} />
             <div className={styles.location}>

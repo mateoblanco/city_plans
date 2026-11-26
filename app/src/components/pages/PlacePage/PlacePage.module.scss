@@ -45,9 +45,9 @@
   width: 100%;
 }
 
-// Mobile: una columna en el orden del DOM (que es el que se ve, también para el Tab): resumen, mapa con dirección y
-// descuentos (.main); contacto + horarios (.side); sucursales y similares (.more). .main y .side no son cajas
-// (display: contents), así sus hijos quedan en esta columna con su gap. Sin sticky.
+// Mobile: una columna en el orden del DOM (que es el que se ve, también para el Tab): la tarjeta .main (resumen,
+// contacto + horarios en .infoMobile, mapa con dirección, descuentos y guías) y sucursales y similares (.more). .side
+// no se muestra (su contenido ya está en .infoMobile). Sin sticky.
 // Desde ml, dos columnas con áreas: .main arriba y .more debajo a la izquierda; .side a la derecha ocupando las dos
 // filas (sticky). La segunda fila es 1fr: si .side es más alto, el sobrante va abajo de .more y no entre .main y .more.
 .columns {
@@ -76,7 +76,6 @@
 }
 
 .main {
-  display: contents;
   gap: 48px;
   min-width: 0;
 
@@ -94,6 +93,24 @@
   }
 }
 
+// Contacto y horarios en mobile, entre el resumen y el mapa, con una línea arriba y abajo. El margen negativo deja
+// 24px a cada lado de la línea (el gap de .main es 48px). Desde lg no se muestra: va .side.
+.infoMobile {
+  border-bottom: 1px solid var(--color-border-card);
+  border-top: 1px solid var(--color-border-card);
+  margin: -24px 0;
+  padding: 24px 0;
+
+  // Sin contacto ni horarios (PlaceInfoCard vacía), ni las líneas.
+  &:not(:has(> :not(:empty))) {
+    display: none;
+  }
+
+  @include media(lg) {
+    display: none;
+  }
+}
+
 // Mapa y dirección (con ómnibus), debajo del resumen: la dirección va pegada al mapa.
 .location {
   display: flex;
@@ -102,9 +119,8 @@
   min-width: 0;
 }
 
-// Contacto y horarios quedan a la vista mientras se baja por las secciones (desde ml).
+// Contacto y horarios a la derecha (desde lg). En mobile no se muestra: va .infoMobile dentro de .main.
 .side {
-  display: contents;
   flex-direction: column;
   gap: 24px;
 
@@ -112,7 +128,7 @@
   border: 1px solid var(--color-border-card);
   border-radius: 16px;
   box-shadow: var(--shadow-card);
-  display: flex;
+  display: none;
   // flex-direction: column;
   padding: 24px;
 

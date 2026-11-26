@@ -85,6 +85,11 @@ const Details = async (props: DetailsProps) => {
                 chips={chips}
                 instagram={place.instagram}
               />
+              {/* Mobile: contacto y horarios antes del mapa, dentro de la tarjeta. Desde lg se oculta y va el de
+                  .side (los dos leen el mismo contexto de PlaceGoogle: un solo pedido). */}
+              <div className={styles.infoMobile}>
+                <PlaceInfo {...contact} today={now.day} />
+              </div>
               {/* Mapa, dirección y ómnibus, debajo del resumen. */}
               <div className={styles.location}>
                 <PlaceMap name={place.name} lat={place.lat} lng={place.lng} iconCategory={place.icon_category} plain={bot}>
@@ -115,7 +120,7 @@ const Details = async (props: DetailsProps) => {
               <PlaceInfo {...contact} today={now.day} />
             </aside>
 
-            {/* Sucursales y similares: en mobile, al final (después de contacto y horarios); en desktop,
+            {/* Sucursales y similares: en mobile, al final (después de la tarjeta principal); en desktop,
                 en la columna izquierda debajo de .main (grid-template-areas en PlacePage.module.scss). El DOM sigue el
                 orden de mobile, así el Tab va en el orden en que se ve. Llegan después (la base) y van al final de
                 la página: aparecer no mueve nada de arriba. */}
@@ -146,7 +151,8 @@ type Props = {
 
 /**
  * Ficha del lugar. Desktop: info, mapa con dirección y secciones a la izquierda; contacto y horarios fijos a la
- * derecha. Mobile: una sola columna (el mismo DOM, reordenado con CSS) y en el header sólo la flecha de volver.
+ * derecha. Mobile: una sola columna, con contacto y horarios entre el resumen y el mapa (una copia que se oculta desde
+ * lg; la de la derecha se oculta en mobile) y en el header sólo la flecha de volver.
  */
 const PlacePage = (props: Props) => {
   return (
