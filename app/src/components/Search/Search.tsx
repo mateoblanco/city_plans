@@ -10,7 +10,7 @@ import { Input } from '@base-ui/react/input';
 import ArrowRight from "@/assets/arrow_right.svg";
 import Close from "@/assets/close.svg";
 import { createClearer, escapeAction } from "./utils/clear";
-import { DEFAULT_PLACEHOLDER, HOME_PLACEHOLDERS, PLACEHOLDER_INTERVAL_MS } from "./utils/placeholders";
+import { DEFAULT_PLACEHOLDER, PLACEHOLDER_INTERVAL_MS, placeholdersFor } from "./utils/placeholders";
 import { markSearchOrigin } from "@/lib/product-analytics/track";
 
 const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
@@ -36,10 +36,17 @@ type Props = {
   intent?: string | null;
   sub?: string | null;
   /**
-   * La home, la ficha y las guías: el placeholder va rotando entre ejemplos (HOME_PLACEHOLDERS) con una animación. Al tocar el input frena y
-   * el ejemplo de ese momento queda como placeholder fijo. Con prefers-reduced-motion no rota: el primer ejemplo, fijo.
+   * El placeholder va rotando entre ejemplos con una animación: los de la intención elegida (placeholdersFor) o, sin
+   * intención (la home, la ficha, las guías, "Todo"), un mix. Al cambiar de intención arranca de nuevo. Al tocar el
+   * input frena y el ejemplo de ese momento queda como placeholder fijo. Con prefers-reduced-motion no rota: el primer
+   * ejemplo, fijo.
    */
   rotatingPlaceholder?: boolean;
+  /**
+   * La home, la ficha y las guías: el texto se vacía cuando Next oculta la página (ver abajo). /search no: su texto
+   * sale de la URL.
+   */
+  resetOnHide?: boolean;
   /**
    * /search con texto: la búsqueda sin texto, con la pestaña y la barra de ahora (SearchInput, clearTextHref). Borrar
    * (× o Escape) va ahí. Sin ella (la home, o /search sin texto en la URL), borrar sólo borra el texto.
@@ -83,6 +90,15 @@ const Search = (props: Props) => {
   const placeholderIndex = rotation.index;
   const leavingIndex = rotation.leaving;
   const [stopped, setStopped] = useState(false);
+  // Los ejemplos de la intención. Al navegar a otra pestaña el input no se vuelve a montar: la rotación arranca de nuevo
+  // desde el primero (así el índice nunca queda fuera de la lista nueva) y vuelve a rotar.
+  const pool = placeholdersFor(props.intent);
+  const [syncedPool, setSyncedPool] = useState(pool);
+  if (pool !== syncedPool) {
+    setSyncedPool(pool);
+    setRotation({ index: 0, leaving: null });
+    setStopped(false);
+  }
   const reducedMotion = useReducedMotion();
   // Con movimiento reducido no rota: queda el primer ejemplo fijo, como placeholder nativo.
   const rotating = !!props.rotatingPlaceholder && !stopped && !reducedMotion;
@@ -91,16 +107,16 @@ const Search = (props: Props) => {
   useEffect(() => {
     if (!rotating || !empty) return;
     const timer = setInterval(
-      () => setRotation((current) => ({ index: (current.index + 1) % HOME_PLACEHOLDERS.length, leaving: current.index })),
+      () => setRotation((current) => ({ index: (current.index + 1) % pool.length, leaving: current.index })),
       PLACEHOLDER_INTERVAL_MS,
     );
     return () => clearInterval(timer);
-  }, [rotating, empty]);
+  }, [rotating, empty, pool]);
 
   // La home: con cacheComponents, Next oculta la página al navegar (Activity) en vez de desmontarla, y al volver (atrás o
   // el logo) el input seguía con lo buscado. Se vacía al ocultarse (useLayoutEffect: antes de que se oculte, sin mostrar
   // el texto viejo al volver). /search no: su texto sale de la URL.
-  const resetOnHide = !!props.rotatingPlaceholder;
+  const resetOnHide = !!props.resetOnHide;
   useLayoutEffect(() => {
     if (!resetOnHide) return;
     return () => setValue("");
@@ -173,7 +189,7 @@ const Search = (props: Props) => {
   };
 
   // Rotando, el placeholder nativo va vacío y el texto lo dibuja la capa animada de encima.
-  const placeholder = !props.rotatingPlaceholder ? DEFAULT_PLACEHOLDER : rotating ? "" : HOME_PLACEHOLDERS[placeholderIndex];
+  const placeholder = !props.rotatingPlaceholder ? DEFAULT_PLACEHOLDER : rotating ? "" : pool[placeholderIndex];
 
   return (
     // Con el botón deshabilitado el navegador ya no envía con Enter; el chequeo cubre cualquier otro envío.
@@ -219,11 +235,11 @@ const Search = (props: Props) => {
                   entra animado: sin uno saliendo, no lleva la clase de entrada. */}
               {leavingIndex !== null && (
                 <span key={`out-${leavingIndex}`} className={`${styles.rotatingText} ${styles.leaving}`} onAnimationEnd={() => setRotation((current) => ({ ...current, leaving: null }))}>
-                  {HOME_PLACEHOLDERS[leavingIndex]}
+                  {pool[leavingIndex]}
                 </span>
               )}
               <span key={placeholderIndex} className={leavingIndex !== null ? `${styles.rotatingText} ${styles.entering}` : styles.rotatingText}>
-                {HOME_PLACEHOLDERS[placeholderIndex]}
+                {pool[placeholderIndex]}
               </span>
             </span>
           )}

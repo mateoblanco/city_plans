@@ -69,6 +69,8 @@ const MISSING_LABELS: Record<PlaceListMissing, string> = { price: 'Precio', hour
 const PRICE_OPTIONS: PriceLevel[] = [...PRICE_LEVELS.filter((id) => id !== 'unknown'), 'unknown']
 // Cuánto queda "Guardado" en la celda.
 const SAVED_FEEDBACK_MS = 2500
+/** Nombre fijo al scrollear la tabla de costado. Fondo opaco (tapa lo que pasa por abajo) y una sombra como borde. */
+const STICKY_COLUMN = 'sticky left-0 z-10 shadow-[inset_-1px_0_0_var(--color-border)]'
 
 /** Opciones del filtro de barrio: los que tienen lugares, con la cantidad. El elegido queda aunque ya no tenga (0). */
 function neighborhoodOptions(counts: PlaceNeighborhoodCount[], selected: string | undefined) {
@@ -348,7 +350,7 @@ export function SavedPlacesPage() {
   const tab = tabOf(query.status)
   const reviewTab = tab === 'review'
   const pages = page ? Math.max(1, Math.ceil(page.total / query.pageSize)) : 1
-  const filtered = Boolean(query.q || query.neighborhood || query.category || query.price || query.edited || query.priceSuggestion || query.missing?.length || query.reason)
+  const filtered = Boolean(query.q || query.neighborhood || query.category || query.price || query.edited || query.hasWebsite || query.priceSuggestion || query.missing?.length || query.reason)
   const missing = query.missing ?? []
   const hasRatings = Object.keys(ratings).length > 0
   const showRatings = hasRatings || Object.keys(ratingErrors).length > 0
@@ -425,6 +427,10 @@ export function SavedPlacesPage() {
           <label className="flex h-9 items-center gap-2 text-sm">
             <input type="checkbox" className="size-4 accent-primary" checked={Boolean(query.priceSuggestion)} onChange={(event) => filter({ priceSuggestion: event.target.checked || undefined })} />
             Con sugerencia de precio
+          </label>
+          <label className="flex h-9 items-center gap-2 text-sm">
+            <input type="checkbox" className="size-4 accent-primary" checked={Boolean(query.hasWebsite)} onChange={(event) => filter({ hasWebsite: event.target.checked || undefined })} />
+            Con website
           </label>
           <Popover>
             <PopoverTrigger render={<Button type="button" variant="outline" className="h-9" aria-label={missing.length ? `Le falta… (${missing.length})` : 'Le falta…'} />}>
@@ -527,7 +533,7 @@ export function SavedPlacesPage() {
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/40 hover:bg-muted/40">
-                      <TableHead className="px-4 sm:px-5" aria-sort={!ratingSort && query.sort === 'name' ? 'ascending' : 'none'}>Nombre</TableHead>
+                      <TableHead className={`${STICKY_COLUMN} bg-[color-mix(in_oklab,var(--color-muted)_40%,var(--color-background))] px-4 sm:px-5`} aria-sort={!ratingSort && query.sort === 'name' ? 'ascending' : 'none'}>Nombre</TableHead>
                       <TableHead className="px-4 whitespace-nowrap sm:px-5">Google Maps</TableHead>
                       <TableHead className="px-4 sm:px-5">Categorías</TableHead>
                       <TableHead className="px-4 sm:px-5">Instagram</TableHead>
@@ -556,8 +562,8 @@ export function SavedPlacesPage() {
                   </TableHeader>
                   <TableBody>
                     {places.map((place) => (
-                      <TableRow key={place.id} className="cursor-pointer" onClick={() => setEditing(place.id)}>
-                        <TableCell className="px-4 py-3 font-medium sm:px-5">
+                      <TableRow key={place.id} className="group cursor-pointer" onClick={() => setEditing(place.id)}>
+                        <TableCell className={`${STICKY_COLUMN} bg-background px-4 py-3 font-medium group-hover:bg-[color-mix(in_oklab,var(--color-muted)_50%,var(--color-background))] sm:px-5`}>
                           <button
                             type="button"
                             className="inline-flex items-center gap-1.5 text-left hover:underline"

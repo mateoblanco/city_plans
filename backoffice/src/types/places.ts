@@ -378,6 +378,8 @@ export type PlaceListQuery = {
   category?: (typeof PLACE_LIST_CATEGORIES)[number]
   status?: 'published' | 'review'
   edited?: boolean
+  /** Con website cargado. */
+  hasWebsite?: boolean
   /** Con este nivel de precio (unknown: sin precio). */
   price?: PriceLevel
   /** Le falta alguno de estos datos (O entre ellos). Un "sin precio" o "No tiene Instagram" a mano también cuenta. */

@@ -38,6 +38,7 @@ function filtersOf(query: Omit<PlaceListQuery, 'page' | 'pageSize'>): SQL[] {
   if (query.category) conditions.push(sql`${places.categories} @> array[${query.category}]::text[]`)
   // Publicar y los motivos de revisión son decisiones de status, no edición (editedFields).
   if (query.edited) conditions.push(sql`(${places.manualOverrides} - 'status' - 'review_reasons') <> '{}'::jsonb`)
+  if (query.hasWebsite) conditions.push(isNotNull(places.website))
   // Le falta alguno de los elegidos. El horario, con el mismo status que la tabla muestra como "Sin horario".
   if (query.missing?.length) {
     const missing: Record<PlaceListMissing, SQL> = {

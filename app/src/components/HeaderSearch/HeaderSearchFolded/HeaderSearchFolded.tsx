@@ -39,7 +39,7 @@ const HeaderSearchFolded = (props: Props) => (
       <div className={styles.back} data-below={props.compactBelow}>
         <HeaderBack below={props.compactBelow} />
       </div>
-      <Search rotatingPlaceholder compact />
+      <Search rotatingPlaceholder resetOnHide compact />
     </div>
   </Header>
 );

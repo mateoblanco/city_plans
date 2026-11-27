@@ -21,7 +21,7 @@ const SearchInput = async (props: Props) => {
         .catch(() => clearTextHref(state, [], emptyBar()))
     : undefined;
   // Sin key: el input no se vuelve a montar al navegar (después de borrar, el foco queda); Search toma el q nuevo.
-  return <Search defaultValue={query} filters={filters} loc={loc} intent={intent} sub={sub} clearHref={clearHref} />;
+  return <Search rotatingPlaceholder defaultValue={query} filters={filters} loc={loc} intent={intent} sub={sub} clearHref={clearHref} />;
 };
 
 export default SearchInput;

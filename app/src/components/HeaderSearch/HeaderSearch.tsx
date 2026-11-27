@@ -59,11 +59,11 @@ const HeaderSearch = (props: Props) => {
       }
     >
       {props.searchParams ? (
-        <Suspense fallback={<Search />}>
+        <Suspense fallback={<Search rotatingPlaceholder />}>
           <SearchInput searchParams={props.searchParams} />
         </Suspense>
       ) : (
-        <Search rotatingPlaceholder />
+        <Search rotatingPlaceholder resetOnHide />
       )}
     </Header>
   );

@@ -228,6 +228,7 @@ export function placeListSearch(query: PlaceListQuery): string {
   if (query.price) params.set('price', query.price)
   if (query.status) params.set('status', query.status)
   if (query.edited) params.set('edited', '1')
+  if (query.hasWebsite) params.set('hasWebsite', '1')
   if (query.missing?.length) params.set('missing', query.missing.join(','))
   if (query.reason) params.set('reason', query.reason)
   if (query.priceSuggestion) params.set('priceSuggestion', '1')

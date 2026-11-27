@@ -333,7 +333,10 @@ describe('exploración multi-fuente', () => {
     await app.request('/api/places?priceSuggestion=1')
     expect(list).toHaveBeenLastCalledWith({ sort: 'recent', page: 1, pageSize: 50, edited: false, priceSuggestion: true })
 
-    for (const query of ['category=bodegon', 'status=hidden', 'sort=rating', 'page=0', 'pageSize=500', 'neighborhood=Narnia', 'missing=web', 'missing=price,x', 'missing=,', 'reason=foo', 'reason=few_reviews', 'price=cheap', 'price=', 'price=very_high', 'priceSuggestion=yes']) {
+    await app.request('/api/places?hasWebsite=1')
+    expect(list).toHaveBeenLastCalledWith({ sort: 'recent', page: 1, pageSize: 50, edited: false, hasWebsite: true })
+
+    for (const query of ['category=bodegon', 'status=hidden', 'sort=rating', 'page=0', 'pageSize=500', 'neighborhood=Narnia', 'missing=web', 'missing=price,x', 'missing=,', 'reason=foo', 'reason=few_reviews', 'price=cheap', 'price=', 'price=very_high', 'priceSuggestion=yes', 'hasWebsite=yes']) {
       const invalid = await app.request(`/api/places?${query}`)
       expect(invalid.status, query).toBe(400)
     }

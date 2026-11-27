@@ -149,6 +149,7 @@ const listQuerySchema = z.object({
   category: z.enum(PLACE_LIST_CATEGORIES).optional(),
   status: z.enum(['published', 'review']).optional(),
   edited: z.enum(['1', 'true']).optional().transform((value) => value !== undefined),
+  hasWebsite: z.enum(['1', 'true']).optional().transform((value) => (value === undefined ? undefined : true)),
   price: z.enum(PRICE_LEVELS).optional(),
   // "price,instagram": le falta alguno. Un valor desconocido es un 400, como los demás filtros.
   missing: z.string().optional()
